@@ -67,9 +67,9 @@ function buildTicker() {
 
 function buildNav(activePage) {
   activePage = activePage || '';
-  const playsGrp = ['totd','plays','signals','earnings','pre-market','zero-dte','setup-wizard','paper-trade'];
-  const tradeGrp = ['flow','chain','ta','momentum','market-internals','smart-money','heatmap','watchlists','vol-surface','gex','tape','sectors','pairs','calendar-analyzer','vol-cone','dark-pool','short-interest','etf-flows','volume-profile','order-flow','ticker'];
-  const toolsGrp = ['risk','fundamentals','backtester','edge','learn','crypto','journal','alerts','macro','news','screener','anomalies','assistant','portfolio-builder','position-sizing','execution','strategies','api','seasonality','economic-events','settings'];
+  const playsGrp = ['totd','plays','signals','earnings','pre-market','zero-dte','setup-wizard','paper-trade','game-plan','hot-movers','squeeze-radar'];
+  const tradeGrp = ['flow','chain','ta','momentum','market-internals','smart-money','heatmap','watchlists','vol-surface','gex','tape','sectors','pairs','calendar-analyzer','vol-cone','dark-pool','short-interest','etf-flows','volume-profile','order-flow','ticker','multi-leg-builder'];
+  const toolsGrp = ['risk','fundamentals','backtester','edge','learn','crypto','journal','alerts','macro','news','screener','anomalies','assistant','ai-scout','portfolio-builder','position-sizing','execution','strategies','api','seasonality','economic-events','settings'];
   const isTrade = tradeGrp.indexOf(activePage) !== -1;
   const isPlays = playsGrp.indexOf(activePage) !== -1;
   const isTools = toolsGrp.indexOf(activePage) !== -1;
@@ -90,6 +90,9 @@ function buildNav(activePage) {
     + '<a href="zero-dte.html">⚡ 0DTE Dashboard</a>'
     + '<a href="setup-wizard.html">🧙 Setup Wizard</a>'
     + '<a href="paper-trade.html">🎮 Paper Trading <span class="feat-badge feat-new" style="font-size:8px;padding:0 5px;">NEW</span></a>'
+    + '<a href="game-plan.html">📋 Today\'s Game Plan <span class="feat-badge feat-new" style="font-size:8px;padding:0 5px;">NEW</span></a>'
+    + '<a href="hot-movers.html">🔥 Hot Movers <span class="feat-badge feat-live" style="font-size:8px;padding:0 5px;">LIVE</span></a>'
+    + '<a href="squeeze-radar.html">⛓ Squeeze Radar <span class="feat-badge feat-new" style="font-size:8px;padding:0 5px;">NEW</span></a>'
     + '</div></li>'
     + '<li class="nav-dd"><a href="#" class="' + (isTrade?'active':'') + '">Trading ▾</a>'
     + '<div class="nav-dropdown">'
@@ -114,6 +117,7 @@ function buildNav(activePage) {
     + '<a href="volume-profile.html">📊 Volume Profile <span class="feat-badge feat-pro" style="font-size:8px;padding:0 5px;">PRO</span></a>'
     + '<a href="order-flow.html">🔥 Order Flow <span class="feat-badge feat-new" style="font-size:8px;padding:0 5px;">NEW</span></a>'
     + '<a href="ticker.html">🔍 Ticker Focus <span class="feat-badge feat-new" style="font-size:8px;padding:0 5px;">NEW</span></a>'
+    + '<a href="multi-leg-builder.html">🔧 Multi-Leg Builder <span class="feat-badge feat-pro" style="font-size:8px;padding:0 5px;">PRO</span></a>'
     + '</div></li>'
     + '<li class="nav-dd"><a href="#" class="' + (isTools?'active':'') + '">Tools ▾</a>'
     + '<div class="nav-dropdown">'
@@ -130,6 +134,7 @@ function buildNav(activePage) {
     + '<a href="screener.html">🔎 Multi-Factor Screener</a>'
     + '<a href="anomalies.html">⚠ Anomaly Detector</a>'
     + '<a href="assistant.html">🤖 AI Assistant</a>'
+    + '<a href="ai-scout.html">🤖 AI Scout <span class="feat-badge feat-new" style="font-size:8px;padding:0 5px;">NEW</span></a>'
     + '<a href="portfolio-builder.html">📊 Portfolio Builder</a>'
     + '<a href="position-sizing.html">📐 Position Sizing</a>'
     + '<a href="execution.html">🎯 Execution Calc</a>'
@@ -222,6 +227,9 @@ function buildFooter() {
     + '<li><a href="zero-dte.html">0DTE</a></li>'
     + '<li><a href="setup-wizard.html">Setup Wizard</a></li>'
     + '<li><a href="paper-trade.html">Paper Trade</a></li>'
+    + '<li><a href="game-plan.html">Game Plan</a></li>'
+    + '<li><a href="hot-movers.html">Hot Movers</a></li>'
+    + '<li><a href="squeeze-radar.html">Squeeze Radar</a></li>'
     + '</ul></div>'
     + '<div class="footer-col"><h4>Trading</h4><ul>'
     + '<li><a href="dashboard.html">Dashboard</a></li>'
@@ -246,6 +254,7 @@ function buildFooter() {
     + '<li><a href="volume-profile.html">Volume Profile</a></li>'
     + '<li><a href="order-flow.html">Order Flow</a></li>'
     + '<li><a href="ticker.html">Ticker Focus</a></li>'
+    + '<li><a href="multi-leg-builder.html">Multi-Leg Builder</a></li>'
     + '</ul></div>'
     + '<div class="footer-col"><h4>Tools</h4><ul>'
     + '<li><a href="fundamentals.html">Fundamentals</a></li>'
@@ -261,6 +270,7 @@ function buildFooter() {
     + '<li><a href="screener.html">Screener</a></li>'
     + '<li><a href="anomalies.html">Anomalies</a></li>'
     + '<li><a href="assistant.html">AI Assistant</a></li>'
+    + '<li><a href="ai-scout.html">AI Scout</a></li>'
     + '<li><a href="portfolio-builder.html">Portfolio</a></li>'
     + '<li><a href="position-sizing.html">Sizing</a></li>'
     + '<li><a href="execution.html">Execution</a></li>'

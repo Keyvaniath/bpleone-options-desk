@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AI Scout — bpleone / trade</title>
+<meta name="description" content="Claude-powered trade idea generator. Feeds the live market snapshot + desk methodology + learn-adjusted weights into Claude and asks for 3-5 actionable setups.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.idea-card { padding: 18px 20px; background: var(--bg-elevated); border-radius: 12px; border-left: 4px solid var(--accent); margin-bottom: 14px; }
+.idea-card .head { display: flex; align-items: center; gap: 14px; margin-bottom: 12px; }
+.idea-card .head .sym { font-family: var(--font-mono); font-size: 22px; font-weight: 800; }
+.idea-card .head .conv { padding: 4px 10px; border-radius: 999px; font-size: 11px; font-weight: 700; }
+.conv-hi { background: var(--green-bg); color: var(--green); }
+.conv-md { background: rgba(245,158,11,0.15); color: var(--yellow); }
+.conv-lo { background: rgba(100,116,139,0.15); color: var(--text-muted); }
+.idea-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 24px; margin-top: 10px; }
+.idea-grid .k { color: var(--text-muted); font-size: 12px; }
+.idea-grid .v { color: var(--text-primary); font-family: var(--font-mono); font-size: 13px; font-weight: 600; }
+.thesis { font-size: 13px; color: var(--text-secondary); line-height: 1.65; margin-top: 12px; padding: 10px 14px; background: var(--bg-secondary); border-radius: 8px; }
+.snap-card { padding: 12px 14px; background: var(--bg-elevated); border-radius: 8px; margin-bottom: 10px; }
+.snap-card .lab { font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.6px; }
+.snap-card .val { font-family: var(--font-mono); font-size: 18px; font-weight: 700; margin-top: 4px; }
+.spinner { width: 32px; height: 32px; border: 3px solid var(--bg-tertiary); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.error-card { padding: 14px 16px; background: var(--red-bg); border: 1px solid rgba(239,68,68,0.3); border-radius: 10px; color: var(--red); font-size: 13px; }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">AI Scout <span class="feat-badge feat-new">NEW</span> <span class="feat-badge feat-pro">CLAUDE</span></div>
+      <div class="page-subtitle">Claude-powered trade idea generator · feeds live market + learn-adjusted memory · <span id="market-clock">--</span></div>
+    </div>
+    <div class="flex gap-8">
+      <select id="biasSel" style="background:var(--bg-elevated);border:1px solid var(--border);border-radius:8px;padding:6px 12px;color:var(--text-primary);font-size:13px;">
+        <option value="any">Any direction</option>
+        <option value="bullish">Bullish only</option>
+        <option value="bearish">Bearish only</option>
+        <option value="neutral">Premium-selling (neutral)</option>
+      </select>
+      <select id="hzSel" style="background:var(--bg-elevated);border:1px solid var(--border);border-radius:8px;padding:6px 12px;color:var(--text-primary);font-size:13px;">
+        <option value="0dte">0DTE / intraday</option>
+        <option value="swing" selected>Swing (1–10 days)</option>
+        <option value="position">Position (2–6 weeks)</option>
+        <option value="leap">LEAP / multi-month</option>
+      </select>
+      <button class="btn btn-primary" id="scoutBtn">🔍 Scout Ideas</button>
+    </div>
+  </div>
+
+  <!-- Market context + status -->
+  <div class="grid grid-12 mb-24">
+    <div class="card col-7">
+      <div class="card-header">
+        <div class="card-title">📡 Live Market Snapshot Sent to Claude</div>
+        <span class="latency-chip"><span class="lat-dot"></span> live</span>
+      </div>
+      <div class="grid grid-4" style="gap:10px;">
+        <div class="snap-card"><div class="lab">SPY</div><div class="val mono" id="snapSpy">—</div></div>
+        <div class="snap-card"><div class="lab">VIX</div><div class="val mono" id="snapVix">—</div></div>
+        <div class="snap-card"><div class="lab">Regime</div><div class="val mono" id="snapRegime">—</div></div>
+        <div class="snap-card"><div class="lab">Top mover</div><div class="val mono" id="snapTop">—</div></div>
+      </div>
+      <details style="margin-top:14px;font-size:12px;color:var(--text-muted);">
+        <summary style="cursor:pointer;color:var(--accent);">View full system prompt + market context being sent</summary>
+        <pre id="promptPreview" style="background:var(--bg-elevated);padding:12px;border-radius:8px;margin-top:10px;font-size:11px;line-height:1.5;overflow-x:auto;max-height:240px;color:var(--text-secondary);"></pre>
+      </details>
+    </div>
+
+    <div class="card col-5">
+      <div class="card-header"><div class="card-title">🤖 Claude API Status</div></div>
+      <div id="aiStatus" style="padding:10px 0;font-size:13px;"></div>
+      <a href="settings.html#ai" class="btn btn-ghost" style="font-size:11px;padding:4px 10px;">Configure key →</a>
+      <div style="margin-top:14px;padding:10px 12px;background:var(--bg-elevated);border-radius:8px;font-size:12px;color:var(--text-muted);line-height:1.6;">
+        If no Anthropic key is set, the scout uses a deterministic ranker based on current quotes + learn weights + signal scores. With a key, Claude reads the snapshot and the desk methodology, and proposes specific structures with thesis, sizing, and risk.
+      </div>
+    </div>
+  </div>
+
+  <!-- Output -->
+  <div class="card">
+    <div class="card-header"><div class="card-title">🎯 Scout Output</div></div>
+    <div id="scoutOut">
+      <div style="padding:40px;text-align:center;color:var(--text-muted);">Click <strong>Scout Ideas</strong> above to generate trade ideas tuned to current market and your desk memory.</div>
+    </div>
+  </div>
+
+  <div class="related-bar mt-24">
+    <span class="lbl">Related →</span>
+    <a href="assistant.html">🤖 AI Assistant</a>
+    <a href="signals.html">⚡ Signals</a>
+    <a href="plays.html">⭐ Plays</a>
+    <a href="setup-wizard.html">🧙 Setup Wizard</a>
+    <a href="paper-trade.html">🎮 Paper Trade</a>
+    <a href="learn-dashboard.html">🧠 Learn Dashboard</a>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script src="js/learn.js"></script>
+<script>
+buildNav('ai-scout');
+
+function refreshSnapshot() {
+  if (typeof QUOTES === 'undefined') return;
+  const spy = QUOTES.SPY, vix = QUOTES.VIX;
+  if (spy) document.getElementById('snapSpy').textContent = '$' + spy.last.toFixed(2) + ' (' + (spy.changePct >= 0 ? '+' : '') + spy.changePct.toFixed(2) + '%)';
+  if (vix) document.getElementById('snapVix').textContent = vix.last.toFixed(2);
+  if (vix) document.getElementById('snapRegime').textContent = (typeof Learn !== 'undefined') ? Learn.bucketVixRegime(vix.last).toUpperCase() : '—';
+  const sorted = Object.values(QUOTES).sort((a, b) => Math.abs(b.changePct) - Math.abs(a.changePct));
+  const top = sorted[0];
+  if (top) document.getElementById('snapTop').textContent = top.symbol + ' ' + (top.changePct >= 0 ? '+' : '') + top.changePct.toFixed(2) + '%';
+}
+refreshSnapshot();
+if (typeof Feed !== 'undefined') Feed.subscribe('*', () => refreshSnapshot());
+
+function refreshAiStatus() {
+  const s = AIClient.getStatus();
+  const el = document.getElementById('aiStatus');
+  if (s.enabled) {
+    el.innerHTML = '<span class="status-pill" style="display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border-radius:999px;font-size:11px;font-weight:700;background:var(--green-bg);color:var(--green);border:1px solid rgba(16,185,129,0.3);"><span style="width:7px;height:7px;border-radius:50%;background:currentColor;"></span> CLAUDE · ' + (s.model || '').replace('claude-','').toUpperCase() + '</span><br><br><span style="color:var(--text-muted);font-size:12px;">Scout will route to Anthropic Messages API w/ streaming.</span>';
+  } else {
+    el.innerHTML = '<span class="status-pill" style="display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border-radius:999px;font-size:11px;font-weight:700;background:rgba(100,116,139,0.15);color:var(--text-muted);border:1px solid var(--border);"><span style="width:7px;height:7px;border-radius:50%;background:currentColor;"></span> HEURISTIC FALLBACK</span><br><br><span style="color:var(--text-muted);font-size:12px;">No Anthropic key set — scout uses learn-adjusted internal ranker.</span>';
+  }
+}
+refreshAiStatus();
+AIClient.onStatus(refreshAiStatus);
+
+function buildPrompt() {
+  const bias = document.getElementById('biasSel').value;
+  const hz = document.getElementById('hzSel').value;
+  const snapshot = (typeof QUOTES !== 'undefined')
+    ? Object.values(QUOTES).slice(0, 16).map(q => q.symbol + ' $' + q.last.toFixed(2) + ' ' + (q.changePct >= 0 ? '+' : '') + q.changePct.toFixed(2) + '%').join(', ')
+    : 'unavailable';
+  const learnInsights = (typeof Learn !== 'undefined') ? Learn.insights(6).map(i => i.sentence).join('; ') : '';
+  const baseWeights = (typeof Learn !== 'undefined') ? Object.entries(Learn.getWeights()).filter(([_,w]) => Math.abs(w-1) > 0.1).slice(0,5).map(([k,w]) => k + '=' + w.toFixed(2) + 'x').join(', ') : '';
+
+  const user = `Generate 3-5 actionable ${bias === 'any' ? '' : bias} trade ideas for the ${hz} horizon based on the current snapshot.
+
+For each idea, return STRICT JSON in a fenced \`\`\`json code block at the end, structured as:
+{
+  "ideas": [
+    {
+      "symbol": "TICKER",
+      "direction": "bullish|bearish|neutral",
+      "conviction": "high|medium|low",
+      "structure": "long call|bull call spread|short put spread|iron condor|...",
+      "expiry": "e.g. 2026-06-20",
+      "entry": "trigger or price",
+      "stop": "stop loss",
+      "target": "primary target",
+      "thesis": "2-3 sentences explaining why",
+      "size_note": "e.g. 1% account risk",
+      "catalyst": "earnings, fed, etc.",
+      "score": 0-100
+    }
+  ]
+}
+
+Be specific with numbers and respect the current vol regime + sector tilts.`;
+  return { user, snapshot, learnInsights, baseWeights };
+}
+
+function buildPromptPreview() {
+  const { user, snapshot, learnInsights, baseWeights } = buildPrompt();
+  const sysPrompt = AIClient.buildSystemPrompt();
+  const txt = '--- SYSTEM ---\n' + sysPrompt + '\n\n--- LEARNED WEIGHTS (notable) ---\n' + (baseWeights || '(none yet)') + '\n\n--- CONDITIONAL INSIGHTS ---\n' + (learnInsights || '(none yet)') + '\n\n--- USER ---\n' + user;
+  document.getElementById('promptPreview').textContent = txt;
+}
+buildPromptPreview();
+document.getElementById('biasSel').addEventListener('change', buildPromptPreview);
+document.getElementById('hzSel').addEventListener('change', buildPromptPreview);
+
+function ideaCard(idea) {
+  const convCls = idea.conviction === 'high' ? 'conv-hi' : idea.conviction === 'low' ? 'conv-lo' : 'conv-md';
+  const dirSym = idea.direction === 'bullish' ? '🟢 BULL' : idea.direction === 'bearish' ? '🔴 BEAR' : '⚪ NEUTRAL';
+  return `<div class="idea-card">
+    <div class="head">
+      <span class="sym">${idea.symbol || '—'}</span>
+      <span class="conv ${convCls}">${(idea.conviction || 'medium').toUpperCase()} · ${idea.score ?? '—'}/100</span>
+      <span style="color:var(--text-muted);font-size:12px;margin-left:auto;">${dirSym}</span>
+    </div>
+    <div style="font-size:14px;font-weight:600;color:var(--accent);">${idea.structure || '—'}</div>
+    <div class="idea-grid">
+      <div class="k">Expiry</div><div class="v">${idea.expiry || '—'}</div>
+      <div class="k">Entry</div><div class="v">${idea.entry || '—'}</div>
+      <div class="k">Stop</div><div class="v red-text">${idea.stop || '—'}</div>
+      <div class="k">Target</div><div class="v green-text">${idea.target || '—'}</div>
+      <div class="k">Sizing</div><div class="v">${idea.size_note || '—'}</div>
+      <div class="k">Catalyst</div><div class="v">${idea.catalyst || '—'}</div>
+    </div>
+    ${idea.thesis ? `<div class="thesis">${idea.thesis}</div>` : ''}
+    <div style="margin-top:12px;display:flex;gap:6px;flex-wrap:wrap;">
+      <a href="ticker.html?sym=${idea.symbol}" class="btn btn-ghost" style="font-size:11px;padding:4px 10px;">🔍 ${idea.symbol} focus</a>
+      <a href="paper-trade.html?sym=${idea.symbol}" class="btn btn-primary" style="font-size:11px;padding:4px 10px;">🎮 Paper trade</a>
+      <a href="options-chain.html" class="btn btn-ghost" style="font-size:11px;padding:4px 10px;">⛓ Chain</a>
+    </div>
+  </div>`;
+}
+
+// Heuristic fallback when no Claude key
+function fallbackIdeas() {
+  const bias = document.getElementById('biasSel').value;
+  const hz = document.getElementById('hzSel').value;
+  const expiryDays = { '0dte': 0, 'swing': 7, 'position': 30, 'leap': 180 }[hz] || 7;
+  const exp = new Date(Date.now() + expiryDays * 86400000).toISOString().slice(0, 10);
+  if (typeof QUOTES === 'undefined') return [];
+  let arr = Object.values(QUOTES);
+  if (bias === 'bullish') arr = arr.filter(q => q.changePct >= 0);
+  else if (bias === 'bearish') arr = arr.filter(q => q.changePct < 0);
+  arr.sort((a, b) => Math.abs(b.changePct) - Math.abs(a.changePct));
+  const picks = arr.slice(0, 4);
+  return picks.map(q => {
+    const dir = bias === 'neutral' ? 'neutral' : q.changePct >= 0 ? 'bullish' : 'bearish';
+    const structure = dir === 'neutral' ? 'iron condor' : dir === 'bullish' ? 'bull call spread' : 'bear put spread';
+    const entry = '$' + q.last.toFixed(2);
+    const stop = '$' + (q.last * (dir === 'bullish' ? 0.97 : 1.03)).toFixed(2);
+    const target = '$' + (q.last * (dir === 'bullish' ? 1.05 : 0.95)).toFixed(2);
+    let score = Math.min(95, 50 + Math.abs(q.changePct) * 5);
+    try {
+      if (typeof Learn !== 'undefined') {
+        score = Learn.adjustedScoreCtx(Math.round(score), 'macd-cross', { sector: 'Tech', dow: new Date().toLocaleDateString('en-US', { weekday: 'short' }), regime: Learn.bucketVixRegime(Learn.currentVix()) });
+      }
+    } catch (e) {}
+    return {
+      symbol: q.symbol,
+      direction: dir,
+      conviction: score >= 75 ? 'high' : score >= 60 ? 'medium' : 'low',
+      structure,
+      expiry: exp,
+      entry, stop, target,
+      thesis: 'Heuristic pick: momentum aligned with intraday move (' + (q.changePct >= 0 ? '+' : '') + q.changePct.toFixed(2) + '%). Score is learn-adjusted from base ranker. Consider as a starter — Claude key in Settings gives full reasoning.',
+      size_note: '1% account risk per trade',
+      catalyst: 'Momentum continuation',
+      score
+    };
+  });
+}
+
+function renderIdeas(ideas) {
+  const out = document.getElementById('scoutOut');
+  if (!ideas || !ideas.length) { out.innerHTML = '<div style="padding:40px;text-align:center;color:var(--text-muted);">No ideas surfaced.</div>'; return; }
+  out.innerHTML = ideas.map(ideaCard).join('');
+}
+
+async function scout() {
+  const out = document.getElementById('scoutOut');
+  out.innerHTML = '<div style="padding:40px;text-align:center;"><div class="spinner" style="margin:0 auto 16px;"></div><div style="color:var(--text-muted);font-size:13px;">Thinking… Claude is reading the snapshot + memory and scoring setups.</div></div>';
+
+  if (!AIClient.isReady()) {
+    setTimeout(() => renderIdeas(fallbackIdeas()), 500);
+    return;
+  }
+
+  const { user } = buildPrompt();
+  try {
+    const r = await AIClient.chat([{ role: 'user', content: user }], { maxTokens: 1800 });
+    // Try to parse out a JSON block
+    const m = (r.text || '').match(/```json\s*([\s\S]*?)```/);
+    let parsed = null;
+    if (m) {
+      try { parsed = JSON.parse(m[1]); } catch (e) {}
+    }
+    if (parsed && parsed.ideas && parsed.ideas.length) {
+      renderIdeas(parsed.ideas);
+    } else {
+      // Fall through: render the raw reply as one big idea card
+      out.innerHTML = '<div class="thesis" style="margin-top:0;">' + (r.text || 'no reply').replace(/</g,'&lt;').replace(/\n/g, '<br>') + '</div><div style="margin-top:14px;font-size:12px;color:var(--text-muted);">Claude responded but didn\'t return parseable JSON — falling back to heuristic ranker:</div>';
+      setTimeout(() => out.insertAdjacentHTML('beforeend', fallbackIdeas().map(ideaCard).join('')), 200);
+    }
+  } catch (e) {
+    out.innerHTML = '<div class="error-card">Claude API error: ' + (e.message || e) + ' · Using heuristic fallback.</div>';
+    setTimeout(() => out.insertAdjacentHTML('beforeend', fallbackIdeas().map(ideaCard).join('')), 200);
+  }
+}
+
+document.getElementById('scoutBtn').addEventListener('click', scout);
+</script>
+</body>
+</html>

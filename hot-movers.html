@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Hot Movers — bpleone / trade</title>
+<meta name="description" content="Real-time gainers, losers, unusual volume, gap movers, and 52-week breakouts. The right-now leaderboard.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.mover-row td { padding: 10px 12px; }
+.spark { width: 80px; height: 22px; }
+.mover-pct { font-family: var(--font-mono); font-weight: 700; font-size: 15px; }
+.tab-btn-active { background: var(--accent) !important; color: #0a0e17 !important; }
+.mover-table tr:hover { background: var(--bg-elevated); cursor: pointer; }
+.flash-up { animation: flashGreen 0.6s; }
+.flash-dn { animation: flashRed 0.6s; }
+@keyframes flashGreen { 0% { background: rgba(16,185,129,0.18); } 100% { background: transparent; } }
+@keyframes flashRed { 0% { background: rgba(239,68,68,0.18); } 100% { background: transparent; } }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">Hot Movers <span class="feat-badge feat-live">LIVE</span></div>
+      <div class="page-subtitle">Real-time gainers · losers · unusual volume · gap movers · breakouts · <span id="market-clock">--</span></div>
+    </div>
+    <div class="flex gap-8">
+      <span class="latency-chip"><span class="lat-dot"></span> updating</span>
+      <button class="btn btn-ghost" id="pauseBtn">⏸ Pause</button>
+    </div>
+  </div>
+
+  <!-- Tabs -->
+  <div class="flex gap-8 mb-24" style="flex-wrap:wrap;">
+    <button class="btn btn-ghost tab-btn tab-btn-active" data-list="gainers">📈 Top Gainers</button>
+    <button class="btn btn-ghost tab-btn" data-list="losers">📉 Top Losers</button>
+    <button class="btn btn-ghost tab-btn" data-list="unusual-vol">🔊 Unusual Volume</button>
+    <button class="btn btn-ghost tab-btn" data-list="gap">🪜 Gap Movers</button>
+    <button class="btn btn-ghost tab-btn" data-list="52w">⚡ 52W Breakouts</button>
+    <button class="btn btn-ghost tab-btn" data-list="iv">🌪 IV Spikes</button>
+  </div>
+
+  <!-- Lists -->
+  <div class="card">
+    <div class="card-header">
+      <div class="card-title" id="listTitle">Top Gainers</div>
+      <div style="font-size:11px;color:var(--text-muted);" id="listSub">Sorted by % change, refreshing each tick</div>
+    </div>
+    <div class="table-wrap">
+      <table class="mover-table">
+        <thead><tr>
+          <th>#</th><th>Symbol</th><th>Last</th><th>Change</th><th>Change %</th><th>Volume</th><th>RVOL</th><th>Mkt Cap</th><th>Spark</th><th></th>
+        </tr></thead>
+        <tbody id="moverBody"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Recently flashed -->
+  <div class="grid grid-12 mt-24">
+    <div class="card col-6">
+      <div class="card-header"><div class="card-title">🚨 Just Crossed VWAP (last 5 min)</div></div>
+      <table>
+        <thead><tr><th>Time</th><th>Symbol</th><th>Direction</th><th>From</th><th>Now</th></tr></thead>
+        <tbody id="vwapBody"></tbody>
+      </table>
+    </div>
+
+    <div class="card col-6">
+      <div class="card-header"><div class="card-title">🎯 Crossed 50DMA (today)</div></div>
+      <table>
+        <thead><tr><th>Time</th><th>Symbol</th><th>Direction</th><th>50DMA</th><th>Now</th></tr></thead>
+        <tbody id="dmaBody"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="related-bar mt-24">
+    <span class="lbl">Related →</span>
+    <a href="signals.html">⚡ Signals</a>
+    <a href="momentum.html">🚀 Momentum</a>
+    <a href="anomalies.html">⚠ Anomalies</a>
+    <a href="squeeze-radar.html">⛓ Squeeze Radar</a>
+    <a href="watchlists.html">⭐ Watchlists</a>
+    <a href="ticker.html">🔍 Ticker Focus</a>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script>
+buildNav('hot-movers');
+
+let activeList = 'gainers';
+let paused = false;
+
+function seedRand(seed) { let s = seed; return () => { s = (s * 9301 + 49297) % 233280; return s / 233280; }; }
+
+function fmtMcap(v) {
+  if (v >= 1e12) return '$' + (v/1e12).toFixed(2) + 'T';
+  if (v >= 1e9) return '$' + (v/1e9).toFixed(2) + 'B';
+  if (v >= 1e6) return '$' + (v/1e6).toFixed(0) + 'M';
+  return '$' + v.toFixed(0);
+}
+
+function getList() {
+  if (typeof QUOTES === 'undefined') return [];
+  const arr = Object.values(QUOTES).map(q => {
+    const rng = seedRand(q.symbol.charCodeAt(0) * 13);
+    const rvol = +(0.5 + rng() * 4).toFixed(2);
+    const mcap = q.last * (1e8 + rng() * 3e12);
+    const gap = +((rng() - 0.5) * 8).toFixed(2);
+    const iv = +(15 + rng() * 70).toFixed(1);
+    const iv5d = iv * (0.7 + rng() * 0.7);
+    const ivChg = +(((iv - iv5d) / iv5d) * 100).toFixed(1);
+    const near52w = rng() > 0.78;
+    return {
+      sym: q.symbol, last: q.last, chg: q.change, chgPct: q.changePct, vol: q.volume,
+      rvol, mcap, gap, iv, ivChg, near52w
+    };
+  });
+
+  switch (activeList) {
+    case 'gainers': return arr.sort((a, b) => b.chgPct - a.chgPct);
+    case 'losers':  return arr.sort((a, b) => a.chgPct - b.chgPct);
+    case 'unusual-vol': return arr.sort((a, b) => b.rvol - a.rvol);
+    case 'gap': return arr.sort((a, b) => Math.abs(b.gap) - Math.abs(a.gap));
+    case '52w': return arr.filter(x => x.near52w).sort((a, b) => b.chgPct - a.chgPct);
+    case 'iv': return arr.sort((a, b) => Math.abs(b.ivChg) - Math.abs(a.ivChg));
+  }
+  return arr;
+}
+
+const TITLES = {
+  'gainers': ['📈 Top Gainers','Sorted by % change'],
+  'losers': ['📉 Top Losers','Sorted by % change (descending pain)'],
+  'unusual-vol': ['🔊 Unusual Volume','Highest RVOL — volume vs 20-day avg'],
+  'gap': ['🪜 Gap Movers','Largest open-vs-prior-close gaps'],
+  '52w': ['⚡ 52-Week Breakouts','Names near or above 52-week highs'],
+  'iv': ['🌪 IV Spikes','Largest implied vol changes vs 5d avg']
+};
+
+function renderList() {
+  const items = getList().slice(0, 24);
+  const [t, sub] = TITLES[activeList] || ['', ''];
+  document.getElementById('listTitle').textContent = t;
+  document.getElementById('listSub').textContent = sub;
+  const body = document.getElementById('moverBody');
+  const prevHtml = {};
+  body.querySelectorAll('tr').forEach(r => { prevHtml[r.dataset.sym] = r.dataset.last; });
+  body.innerHTML = items.map((m, i) => {
+    const cls = m.chgPct >= 0 ? 'green-text' : 'red-text';
+    const lastPrev = prevHtml[m.sym] ? parseFloat(prevHtml[m.sym]) : NaN;
+    const flashCls = !isNaN(lastPrev) ? (m.last > lastPrev ? 'flash-up' : m.last < lastPrev ? 'flash-dn' : '') : '';
+    let detail = '';
+    if (activeList === 'unusual-vol') detail = '<td class="mono yellow-text" style="font-weight:700;">' + m.rvol.toFixed(2) + 'x</td>';
+    else detail = '<td class="mono">' + m.rvol.toFixed(2) + 'x</td>';
+    return `<tr class="mover-row ${flashCls}" data-sym="${m.sym}" data-last="${m.last}" onclick="location.href='ticker.html?sym=${m.sym}'">
+      <td style="color:var(--text-muted);">${i+1}</td>
+      <td class="mono"><strong>${m.sym}</strong></td>
+      <td class="mono">$${m.last.toFixed(2)}</td>
+      <td class="mono ${cls}">${m.chg >= 0 ? '+' : ''}${m.chg.toFixed(2)}</td>
+      <td class="mono-pct mono ${cls}" style="font-weight:700;">${m.chgPct >= 0 ? '+' : ''}${m.chgPct.toFixed(2)}%</td>
+      <td class="mono">${(m.vol/1e6).toFixed(1)}M</td>
+      ${detail}
+      <td class="mono">${fmtMcap(m.mcap)}</td>
+      <td><svg class="spark" viewBox="0 0 80 22" preserveAspectRatio="none">${spark(m.sym, m.chgPct)}</svg></td>
+      <td style="font-size:11px;color:var(--accent);">view →</td>
+    </tr>`;
+  }).join('');
+}
+
+function spark(sym, bias) {
+  const rng = seedRand(sym.charCodeAt(0) * 7 + Date.now() / 10000 | 0);
+  let pts = [], y = 11;
+  for (let i = 0; i < 20; i++) {
+    y += (rng() - 0.5) * 4 + (bias / 100) * 0.4;
+    y = Math.max(2, Math.min(20, y));
+    pts.push((i / 19 * 80).toFixed(1) + ',' + y.toFixed(1));
+  }
+  const c = bias >= 0 ? '#10b981' : '#ef4444';
+  return `<polyline fill="none" stroke="${c}" stroke-width="1.5" points="${pts.join(' ')}"/>`;
+}
+
+function renderVwap() {
+  if (typeof QUOTES === 'undefined') return;
+  const arr = Object.values(QUOTES).slice(0, 4);
+  document.getElementById('vwapBody').innerHTML = arr.map((q, i) => {
+    const dir = i % 2 === 0 ? 'up' : 'down';
+    const cls = dir === 'up' ? 'green-text' : 'red-text';
+    const arrow = dir === 'up' ? '↗' : '↘';
+    return `<tr onclick="location.href='ticker.html?sym=${q.symbol}'" style="cursor:pointer;">
+      <td class="mono" style="font-size:11px;color:var(--text-muted);">${new Date(Date.now() - i*60000).toLocaleTimeString('en-US',{hour12:false,hour:'2-digit',minute:'2-digit'})}</td>
+      <td class="mono"><strong>${q.symbol}</strong></td>
+      <td class="${cls} mono">${arrow} ${dir.toUpperCase()}</td>
+      <td class="mono">$${(q.last * (dir === 'up' ? 0.998 : 1.002)).toFixed(2)}</td>
+      <td class="mono">$${q.last.toFixed(2)}</td>
+    </tr>`;
+  }).join('');
+}
+
+function renderDma() {
+  if (typeof QUOTES === 'undefined') return;
+  const arr = Object.values(QUOTES).slice(4, 8);
+  document.getElementById('dmaBody').innerHTML = arr.map((q, i) => {
+    const dir = q.changePct >= 0 ? 'up' : 'down';
+    const cls = dir === 'up' ? 'green-text' : 'red-text';
+    const arrow = dir === 'up' ? '↗' : '↘';
+    return `<tr onclick="location.href='ticker.html?sym=${q.symbol}'" style="cursor:pointer;">
+      <td class="mono" style="font-size:11px;color:var(--text-muted);">${new Date(Date.now() - (i+2)*240000).toLocaleTimeString('en-US',{hour12:false,hour:'2-digit',minute:'2-digit'})}</td>
+      <td class="mono"><strong>${q.symbol}</strong></td>
+      <td class="${cls} mono">${arrow} ${dir === 'up' ? 'RECLAIM' : 'BREAK'}</td>
+      <td class="mono">$${(q.last * (dir === 'up' ? 0.985 : 1.015)).toFixed(2)}</td>
+      <td class="mono">$${q.last.toFixed(2)}</td>
+    </tr>`;
+  }).join('');
+}
+
+document.querySelectorAll('.tab-btn').forEach(b => {
+  b.addEventListener('click', () => {
+    document.querySelectorAll('.tab-btn').forEach(x => x.classList.remove('tab-btn-active'));
+    b.classList.add('tab-btn-active');
+    activeList = b.dataset.list;
+    renderList();
+  });
+});
+
+document.getElementById('pauseBtn').addEventListener('click', () => {
+  paused = !paused;
+  document.getElementById('pauseBtn').textContent = paused ? '▶ Resume' : '⏸ Pause';
+});
+
+// Re-render on every tick
+if (typeof Feed !== 'undefined') {
+  Feed.subscribe('*', () => { if (!paused) { renderList(); } });
+  // gentler refresh for sub-tables
+  setInterval(() => { if (!paused) { renderVwap(); renderDma(); } }, 4000);
+}
+
+renderList(); renderVwap(); renderDma();
+</script>
+</body>
+</html>

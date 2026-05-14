@@ -1,0 +1,378 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Multi-Leg Builder — bpleone / trade</title>
+<meta name="description" content="Build any options structure leg-by-leg. Live Greeks aggregator, payoff diagram, breakevens, POP, and max gain/loss.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.leg-row { display: grid; grid-template-columns: 70px 60px 80px 70px 90px 90px 80px 30px; gap: 6px; padding: 6px 0; align-items: center; }
+.leg-row select, .leg-row input { background: var(--bg-elevated); border: 1px solid var(--border); color: var(--text-primary); padding: 6px 8px; border-radius: 5px; font-family: inherit; font-size: 12px; width: 100%; box-sizing: border-box; }
+.leg-row.long input, .leg-row.long select { border-left: 2px solid var(--green); }
+.leg-row.short input, .leg-row.short select { border-left: 2px solid var(--red); }
+.leg-row .rm { background: transparent; border: 1px solid var(--border); color: var(--text-muted); padding: 4px 8px; border-radius: 4px; cursor: pointer; font-size: 12px; }
+.leg-row .rm:hover { color: var(--red); border-color: var(--red); }
+.preset-pill { display: inline-block; padding: 5px 12px; margin: 0 4px 4px 0; background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 999px; font-size: 12px; cursor: pointer; transition: all 0.14s; }
+.preset-pill:hover { border-color: var(--accent); color: var(--accent); }
+.greek-card { padding: 12px 14px; background: var(--bg-elevated); border-radius: 8px; }
+.greek-card .lab { font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.6px; }
+.greek-card .val { font-family: var(--font-mono); font-size: 22px; font-weight: 700; margin-top: 4px; }
+.kv { display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid var(--border); font-size: 13px; }
+.kv:last-child { border-bottom: none; }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">Multi-Leg Builder <span class="feat-badge feat-pro">PRO</span></div>
+      <div class="page-subtitle">Build any structure · live Greeks · payoff · breakevens · POP · <span id="market-clock">--</span></div>
+    </div>
+    <div class="flex gap-8">
+      <select id="symSel" style="background:var(--bg-elevated);border:1px solid var(--border);border-radius:8px;padding:6px 12px;color:var(--text-primary);font-size:13px;font-family:var(--font-mono);">
+        <option value="SPY">SPY</option><option value="QQQ">QQQ</option><option value="IWM">IWM</option>
+        <option value="NVDA">NVDA</option><option value="AAPL">AAPL</option><option value="TSLA">TSLA</option>
+        <option value="META">META</option><option value="MSFT">MSFT</option><option value="AMD">AMD</option>
+      </select>
+      <button class="btn btn-ghost" id="clearBtn">Clear</button>
+    </div>
+  </div>
+
+  <!-- Presets -->
+  <div class="card mb-24">
+    <div class="card-header"><div class="card-title">Strategy Presets — click to load</div></div>
+    <div>
+      <span class="preset-pill" data-preset="long-call">Long Call</span>
+      <span class="preset-pill" data-preset="long-put">Long Put</span>
+      <span class="preset-pill" data-preset="bull-call-spread">Bull Call Spread</span>
+      <span class="preset-pill" data-preset="bear-put-spread">Bear Put Spread</span>
+      <span class="preset-pill" data-preset="bull-put-spread">Bull Put Credit Spread</span>
+      <span class="preset-pill" data-preset="bear-call-spread">Bear Call Credit Spread</span>
+      <span class="preset-pill" data-preset="straddle">Long Straddle</span>
+      <span class="preset-pill" data-preset="strangle">Long Strangle</span>
+      <span class="preset-pill" data-preset="iron-condor">Iron Condor</span>
+      <span class="preset-pill" data-preset="iron-butterfly">Iron Butterfly</span>
+      <span class="preset-pill" data-preset="call-calendar">Call Calendar</span>
+      <span class="preset-pill" data-preset="put-calendar">Put Calendar</span>
+      <span class="preset-pill" data-preset="call-diagonal">Call Diagonal</span>
+      <span class="preset-pill" data-preset="covered-call">Covered Call</span>
+      <span class="preset-pill" data-preset="cash-put">Cash-Secured Put</span>
+      <span class="preset-pill" data-preset="risk-reversal">Risk Reversal</span>
+      <span class="preset-pill" data-preset="jade-lizard">Jade Lizard</span>
+    </div>
+  </div>
+
+  <!-- Builder + Greeks -->
+  <div class="grid grid-12 mb-24">
+    <div class="card col-7">
+      <div class="card-header">
+        <div class="card-title">Legs</div>
+        <button class="btn btn-ghost" id="addLegBtn">+ Add Leg</button>
+      </div>
+      <div class="leg-row" style="font-size:10px;color:var(--text-muted);font-weight:700;text-transform:uppercase;letter-spacing:0.6px;">
+        <div>Side</div><div>Qty</div><div>Type</div><div>DTE</div><div>Strike</div><div>Premium</div><div>IV</div><div></div>
+      </div>
+      <div id="legsBody"></div>
+
+      <div class="kv" style="margin-top:14px;">
+        <span style="color:var(--text-muted);">Net debit / credit</span>
+        <span class="mono" style="font-weight:700;" id="netCost">—</span>
+      </div>
+      <div class="kv">
+        <span style="color:var(--text-muted);">Total cost (× 100)</span>
+        <span class="mono" id="netCost100">—</span>
+      </div>
+    </div>
+
+    <div class="card col-5">
+      <div class="card-header"><div class="card-title">Aggregate Greeks (per 1 contract structure)</div></div>
+      <div class="grid grid-2" style="gap:10px;">
+        <div class="greek-card"><div class="lab">Δ Delta</div><div class="val mono" id="grDelta">0.00</div></div>
+        <div class="greek-card"><div class="lab">Γ Gamma</div><div class="val mono" id="grGamma">0.0000</div></div>
+        <div class="greek-card"><div class="lab">Θ Theta (/day)</div><div class="val mono" id="grTheta">0.00</div></div>
+        <div class="greek-card"><div class="lab">ν Vega (/1pt IV)</div><div class="val mono" id="grVega">0.00</div></div>
+      </div>
+      <div class="kv" style="margin-top:14px;"><span style="color:var(--text-muted);">Max gain</span><span class="mono green-text" id="maxGain">—</span></div>
+      <div class="kv"><span style="color:var(--text-muted);">Max loss</span><span class="mono red-text" id="maxLoss">—</span></div>
+      <div class="kv"><span style="color:var(--text-muted);">Breakevens</span><span class="mono" id="beList">—</span></div>
+      <div class="kv"><span style="color:var(--text-muted);">POP estimate</span><span class="mono" id="popEst">—</span></div>
+      <div class="kv"><span style="color:var(--text-muted);">R:R</span><span class="mono" id="rrEst">—</span></div>
+    </div>
+  </div>
+
+  <!-- Payoff diagram -->
+  <div class="card">
+    <div class="card-header">
+      <div class="card-title">📉 Payoff Diagram — at expiration</div>
+      <div style="font-size:11px;color:var(--text-muted);">P&amp;L per 1-contract structure (× 100 for $ value)</div>
+    </div>
+    <canvas id="payoff" height="280"></canvas>
+  </div>
+
+  <div class="related-bar mt-24">
+    <span class="lbl">Related →</span>
+    <a href="options-chain.html">⛓ Options Chain</a>
+    <a href="calendar-analyzer.html">📆 Calendar Analyzer</a>
+    <a href="strategies.html">📚 Strategy Library</a>
+    <a href="position-sizing.html">📐 Position Sizing</a>
+    <a href="risk-dashboard.html">⚖ Risk Dashboard</a>
+    <a href="paper-trade.html">🎮 Paper Trade</a>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script>
+buildNav('multi-leg-builder');
+
+let sym = 'SPY';
+let legs = [];
+
+function spot() {
+  if (typeof QUOTES === 'undefined' || !QUOTES[sym]) return 500;
+  return QUOTES[sym].last;
+}
+
+// Presets
+const PRESETS = {
+  'long-call':         [{ side:'long',  qty:1, type:'call', dte:30, k: 1.00, iv:0.30 }],
+  'long-put':          [{ side:'long',  qty:1, type:'put',  dte:30, k: 1.00, iv:0.30 }],
+  'bull-call-spread':  [{ side:'long',  qty:1, type:'call', dte:30, k: 1.00, iv:0.30 }, { side:'short', qty:1, type:'call', dte:30, k: 1.05, iv:0.28 }],
+  'bear-put-spread':   [{ side:'long',  qty:1, type:'put',  dte:30, k: 1.00, iv:0.30 }, { side:'short', qty:1, type:'put',  dte:30, k: 0.95, iv:0.28 }],
+  'bull-put-spread':   [{ side:'short', qty:1, type:'put',  dte:30, k: 0.97, iv:0.30 }, { side:'long',  qty:1, type:'put',  dte:30, k: 0.92, iv:0.32 }],
+  'bear-call-spread':  [{ side:'short', qty:1, type:'call', dte:30, k: 1.03, iv:0.28 }, { side:'long',  qty:1, type:'call', dte:30, k: 1.08, iv:0.30 }],
+  'straddle':          [{ side:'long',  qty:1, type:'call', dte:30, k: 1.00, iv:0.30 }, { side:'long',  qty:1, type:'put',  dte:30, k: 1.00, iv:0.30 }],
+  'strangle':          [{ side:'long',  qty:1, type:'call', dte:30, k: 1.04, iv:0.30 }, { side:'long',  qty:1, type:'put',  dte:30, k: 0.96, iv:0.30 }],
+  'iron-condor':       [{ side:'long',  qty:1, type:'put',  dte:30, k: 0.92, iv:0.32 }, { side:'short', qty:1, type:'put',  dte:30, k: 0.96, iv:0.30 }, { side:'short', qty:1, type:'call', dte:30, k: 1.04, iv:0.30 }, { side:'long',  qty:1, type:'call', dte:30, k: 1.08, iv:0.32 }],
+  'iron-butterfly':    [{ side:'long',  qty:1, type:'put',  dte:30, k: 0.94, iv:0.31 }, { side:'short', qty:1, type:'put',  dte:30, k: 1.00, iv:0.30 }, { side:'short', qty:1, type:'call', dte:30, k: 1.00, iv:0.30 }, { side:'long',  qty:1, type:'call', dte:30, k: 1.06, iv:0.31 }],
+  'call-calendar':     [{ side:'short', qty:1, type:'call', dte:14, k: 1.00, iv:0.32 }, { side:'long',  qty:1, type:'call', dte:60, k: 1.00, iv:0.28 }],
+  'put-calendar':      [{ side:'short', qty:1, type:'put',  dte:14, k: 1.00, iv:0.32 }, { side:'long',  qty:1, type:'put',  dte:60, k: 1.00, iv:0.28 }],
+  'call-diagonal':     [{ side:'short', qty:1, type:'call', dte:14, k: 1.03, iv:0.32 }, { side:'long',  qty:1, type:'call', dte:60, k: 1.00, iv:0.28 }],
+  'covered-call':      [{ side:'long',  qty:100, type:'stock', dte:0,  k: 0, iv:0 }, { side:'short', qty:1, type:'call', dte:30, k: 1.03, iv:0.28 }],
+  'cash-put':          [{ side:'short', qty:1, type:'put', dte:30, k: 0.95, iv:0.30 }],
+  'risk-reversal':     [{ side:'long',  qty:1, type:'call', dte:30, k: 1.05, iv:0.28 }, { side:'short', qty:1, type:'put', dte:30, k: 0.95, iv:0.30 }],
+  'jade-lizard':       [{ side:'short', qty:1, type:'call', dte:30, k: 1.03, iv:0.28 }, { side:'long',  qty:1, type:'call', dte:30, k: 1.08, iv:0.30 }, { side:'short', qty:1, type:'put', dte:30, k: 0.96, iv:0.30 }]
+};
+
+function loadPreset(name) {
+  const tpl = PRESETS[name];
+  if (!tpl) return;
+  const s = spot();
+  legs = tpl.map(l => ({
+    side: l.side, qty: l.qty, type: l.type, dte: l.dte,
+    strike: l.type === 'stock' ? s : +(s * l.k).toFixed(2),
+    iv: l.iv,
+    premium: priceLeg({ ...l, strike: l.type === 'stock' ? s : +(s * l.k).toFixed(2), iv: l.iv })
+  }));
+  renderAll();
+}
+
+// Pricing helper (Black-Scholes via global BS)
+function priceLeg(l) {
+  if (l.type === 'stock') return l.strike;
+  if (typeof BS === 'undefined') return 1.0;
+  const T = Math.max(l.dte, 0.01) / 365;
+  return +BS.price(l.type, spot(), l.strike, T, 0.045, l.iv).toFixed(2);
+}
+
+function legGreeks(l) {
+  if (l.type === 'stock') return { delta: 1, gamma: 0, theta: 0, vega: 0 };
+  if (typeof BS === 'undefined') return { delta: 0, gamma: 0, theta: 0, vega: 0 };
+  const T = Math.max(l.dte, 0.01) / 365;
+  return BS.greeks(l.type, spot(), l.strike, T, 0.045, l.iv);
+}
+
+function totalCost() {
+  let net = 0;
+  legs.forEach(l => {
+    const mult = (l.side === 'long' ? 1 : -1) * (l.qty || 1);
+    if (l.type === 'stock') net += l.strike * mult;
+    else net += l.premium * mult;
+  });
+  return net;
+}
+
+function aggGreeks() {
+  let d = 0, g = 0, t = 0, v = 0;
+  legs.forEach(l => {
+    const gr = legGreeks(l);
+    const mult = (l.side === 'long' ? 1 : -1) * (l.qty || 1);
+    d += gr.delta * mult * (l.type === 'stock' ? 1 : 1);
+    g += gr.gamma * mult;
+    t += gr.theta * mult;
+    v += gr.vega * mult;
+  });
+  return { d, g, t, v };
+}
+
+// Payoff at expiration over a range
+function payoffSeries() {
+  const s = spot();
+  const lo = s * 0.78;
+  const hi = s * 1.22;
+  const steps = 80;
+  const xs = [], ys = [];
+  for (let i = 0; i <= steps; i++) {
+    const x = +(lo + (hi - lo) * i / steps).toFixed(2);
+    let pl = 0;
+    legs.forEach(l => {
+      const mult = (l.side === 'long' ? 1 : -1) * (l.qty || 1);
+      if (l.type === 'stock') pl += (x - l.strike) * mult;
+      else if (l.type === 'call') pl += (Math.max(0, x - l.strike) - l.premium) * mult;
+      else if (l.type === 'put') pl += (Math.max(0, l.strike - x) - l.premium) * mult;
+    });
+    xs.push(x); ys.push(+pl.toFixed(2));
+  }
+  return { xs, ys };
+}
+
+function metrics() {
+  const { xs, ys } = payoffSeries();
+  const maxG = Math.max(...ys);
+  const maxL = Math.min(...ys);
+  // Breakevens: zero crossings
+  const bes = [];
+  for (let i = 1; i < ys.length; i++) {
+    if ((ys[i-1] <= 0 && ys[i] >= 0) || (ys[i-1] >= 0 && ys[i] <= 0)) {
+      // linear interp
+      const x = xs[i-1] + (xs[i] - xs[i-1]) * (Math.abs(ys[i-1]) / (Math.abs(ys[i-1]) + Math.abs(ys[i]) + 1e-9));
+      bes.push(+x.toFixed(2));
+    }
+  }
+  // POP estimate: probability spot finishes between any pair of BEs that contains a profitable region. Use a simple lognormal approx.
+  const s = spot();
+  const totalIV = legs.length ? legs.reduce((a, l) => a + l.iv, 0) / legs.length : 0.3;
+  const T = legs.length ? legs.reduce((a, l) => a + l.dte, 0) / (legs.length * 365) : 30/365;
+  const sigT = totalIV * Math.sqrt(Math.max(0.0027, T));
+  // Profitability mass: fraction of bars where ys > 0 weighted by lognormal density
+  let pop = 0, denom = 0;
+  for (let i = 0; i < xs.length; i++) {
+    const z = Math.log(xs[i] / s) / sigT;
+    const dens = Math.exp(-0.5 * z * z) / (sigT * Math.sqrt(2 * Math.PI) * xs[i]);
+    denom += dens;
+    if (ys[i] > 0) pop += dens;
+  }
+  pop = denom ? pop / denom : 0;
+  return { maxG, maxL, bes, pop };
+}
+
+function renderLegs() {
+  const wrap = document.getElementById('legsBody');
+  wrap.innerHTML = legs.map((l, i) => `
+    <div class="leg-row ${l.side === 'long' ? 'long' : 'short'}">
+      <select onchange="setLeg(${i},'side',this.value)">
+        <option value="long"  ${l.side === 'long' ? 'selected':''}>LONG</option>
+        <option value="short" ${l.side === 'short' ? 'selected':''}>SHORT</option>
+      </select>
+      <input type="number" min="1" value="${l.qty}" onchange="setLeg(${i},'qty',+this.value)">
+      <select onchange="setLeg(${i},'type',this.value)">
+        <option value="call"  ${l.type === 'call' ? 'selected':''}>CALL</option>
+        <option value="put"   ${l.type === 'put' ? 'selected':''}>PUT</option>
+        <option value="stock" ${l.type === 'stock' ? 'selected':''}>STOCK</option>
+      </select>
+      <input type="number" min="0" value="${l.dte}" onchange="setLeg(${i},'dte',+this.value)" ${l.type === 'stock' ? 'disabled' : ''}>
+      <input type="number" step="0.01" value="${l.strike}" onchange="setLeg(${i},'strike',+this.value)">
+      <input type="number" step="0.01" value="${l.premium}" onchange="setLeg(${i},'premium',+this.value)">
+      <input type="number" step="0.01" value="${l.iv}" onchange="setLeg(${i},'iv',+this.value)" ${l.type === 'stock' ? 'disabled' : ''}>
+      <button class="rm" onclick="removeLeg(${i})">×</button>
+    </div>
+  `).join('');
+}
+
+window.setLeg = function(idx, field, val) {
+  if (!legs[idx]) return;
+  legs[idx][field] = val;
+  // recompute premium if key inputs changed and it's not user-edited premium
+  if (field !== 'premium') legs[idx].premium = priceLeg(legs[idx]);
+  renderAll();
+};
+window.removeLeg = function(idx) { legs.splice(idx, 1); renderAll(); };
+document.getElementById('addLegBtn').addEventListener('click', () => {
+  const s = spot();
+  legs.push({ side:'long', qty:1, type:'call', dte:30, strike:+s.toFixed(2), iv:0.30, premium:0 });
+  legs[legs.length-1].premium = priceLeg(legs[legs.length-1]);
+  renderAll();
+});
+document.getElementById('clearBtn').addEventListener('click', () => { legs = []; renderAll(); });
+
+document.querySelectorAll('.preset-pill').forEach(el => el.addEventListener('click', () => loadPreset(el.dataset.preset)));
+
+document.getElementById('symSel').addEventListener('change', e => {
+  sym = e.target.value;
+  // Re-strike legs proportionally for new spot
+  const s = spot();
+  legs.forEach(l => { if (l.type !== 'stock') l.premium = priceLeg(l); });
+  renderAll();
+});
+
+// Chart
+let chart;
+function renderChart() {
+  const { xs, ys } = payoffSeries();
+  if (!chart) {
+    const ctx = document.getElementById('payoff').getContext('2d');
+    chart = new Chart(ctx, {
+      type: 'line',
+      data: { labels: xs, datasets: [{ label: 'P&L', data: ys, borderColor: 'rgba(0,212,255,1)', backgroundColor: ctx => {
+        const c = ctx.chart.ctx; const gradient = c.createLinearGradient(0,0,0,300);
+        gradient.addColorStop(0, 'rgba(16,185,129,0.2)');
+        gradient.addColorStop(0.5, 'rgba(0,0,0,0)');
+        gradient.addColorStop(1, 'rgba(239,68,68,0.2)');
+        return gradient;
+      }, tension: 0.05, pointRadius: 0, fill: 'origin' }] },
+      options: { responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { display: false } },
+        scales: {
+          x: { grid: { color: 'rgba(255,255,255,0.04)' }, ticks: { color: '#6b7280', font: { size: 10 }, autoSkip: true, maxTicksLimit: 12, callback: v => '$' + (+v).toFixed(0) } },
+          y: { grid: { color: ctx => ctx.tick.value === 0 ? 'rgba(255,255,255,0.25)' : 'rgba(255,255,255,0.05)' }, ticks: { color: '#6b7280', font: { size: 10 }, callback: v => '$' + v.toFixed(0) } }
+        }
+      }
+    });
+  } else {
+    chart.data.labels = xs;
+    chart.data.datasets[0].data = ys;
+    chart.update('none');
+  }
+}
+
+function renderMetrics() {
+  const g = aggGreeks();
+  document.getElementById('grDelta').textContent = (g.d >= 0 ? '+' : '') + g.d.toFixed(2);
+  document.getElementById('grGamma').textContent = g.g.toFixed(4);
+  document.getElementById('grTheta').textContent = (g.t >= 0 ? '+' : '') + g.t.toFixed(3);
+  document.getElementById('grVega').textContent = (g.v >= 0 ? '+' : '') + g.v.toFixed(3);
+
+  const net = totalCost();
+  document.getElementById('netCost').textContent = net >= 0 ? '$' + net.toFixed(2) + ' debit' : '$' + Math.abs(net).toFixed(2) + ' credit';
+  document.getElementById('netCost').className = 'mono ' + (net >= 0 ? 'red-text' : 'green-text');
+  document.getElementById('netCost100').textContent = '$' + Math.abs(net * 100).toFixed(2);
+
+  const m = metrics();
+  document.getElementById('maxGain').textContent = (m.maxG === Infinity ? 'Unlimited' : '$' + (m.maxG * 100).toFixed(2));
+  document.getElementById('maxLoss').textContent = (m.maxL === -Infinity ? 'Unlimited' : '$' + (m.maxL * 100).toFixed(2));
+  document.getElementById('beList').textContent = m.bes.length ? m.bes.map(b => '$' + b.toFixed(2)).join(', ') : '—';
+  document.getElementById('popEst').textContent = (m.pop * 100).toFixed(1) + '%';
+  const rr = m.maxL ? Math.abs(m.maxG / m.maxL) : 0;
+  document.getElementById('rrEst').textContent = isFinite(rr) ? rr.toFixed(2) + ' : 1' : '—';
+}
+
+function renderAll() { renderLegs(); renderMetrics(); renderChart(); }
+
+// Initial load
+loadPreset('bull-call-spread');
+</script>
+</body>
+</html>

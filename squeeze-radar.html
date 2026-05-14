@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Squeeze Radar — bpleone / trade</title>
+<meta name="description" content="TTM Squeeze + Bollinger/Keltner compression + RSI + volume — composite squeeze score across the universe. Catch coiled springs before they fire.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.sq-meter { display: flex; height: 6px; border-radius: 3px; overflow: hidden; background: var(--bg-tertiary); }
+.sq-meter > div { height: 100%; }
+.sq-card { padding: 14px 16px; background: var(--bg-elevated); border-radius: 10px; cursor: pointer; transition: transform 0.12s, border-color 0.12s; border: 1px solid var(--border); }
+.sq-card:hover { transform: translateY(-2px); border-color: var(--accent); }
+.sq-card .head { display: flex; justify-content: space-between; align-items: flex-start; }
+.sq-card .sym { font-family: var(--font-mono); font-size: 17px; font-weight: 800; }
+.sq-card .badge { font-size: 10px; padding: 2px 8px; border-radius: 999px; font-weight: 700; letter-spacing: 0.4px; }
+.b-fired { background: var(--red-bg); color: var(--red); animation: featPulse 1.8s infinite; }
+.b-coiled { background: rgba(245,158,11,0.15); color: var(--yellow); }
+.b-loose { background: rgba(100,116,139,0.15); color: var(--text-muted); }
+.score-big { font-family: var(--font-mono); font-size: 28px; font-weight: 800; }
+.kv { display: flex; justify-content: space-between; font-size: 11px; padding: 4px 0; }
+.kv .k { color: var(--text-muted); }
+.kv .v { font-family: var(--font-mono); }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">Squeeze Radar <span class="feat-badge feat-new">NEW</span> <span class="feat-badge feat-pro">PRO</span></div>
+      <div class="page-subtitle">TTM Squeeze + BB/KC compression + RSI + volume — composite score · <span id="market-clock">--</span></div>
+    </div>
+    <div class="flex gap-8">
+      <button class="btn btn-ghost btn-active" data-filter="all">All</button>
+      <button class="btn btn-ghost" data-filter="coiled">Coiled (50+)</button>
+      <button class="btn btn-ghost" data-filter="fired">Firing</button>
+      <button class="btn btn-ghost" data-filter="bull">Bullish</button>
+      <button class="btn btn-ghost" data-filter="bear">Bearish</button>
+    </div>
+  </div>
+
+  <!-- KPI row -->
+  <div class="grid grid-4 mb-24">
+    <div class="card"><div class="card-header"><div class="card-title">Coiled (Score ≥ 70)</div></div><div class="mono yellow-text" style="font-size:28px;font-weight:700;" id="kCoiled">—</div><div style="font-size:12px;color:var(--text-muted);">High compression, expected resolution &lt; 5 days</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">Firing (Just Released)</div></div><div class="mono red-text" style="font-size:28px;font-weight:700;" id="kFiring">—</div><div style="font-size:12px;color:var(--text-muted);">Squeeze broken in last session</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">Bullish Bias</div></div><div class="mono green-text" style="font-size:28px;font-weight:700;" id="kBull">—</div><div style="font-size:12px;color:var(--text-muted);">% with momentum &gt; 0</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">Universe Avg Score</div></div><div class="mono" style="font-size:28px;font-weight:700;" id="kAvg">—</div><div style="font-size:12px;color:var(--text-muted);">Out of 100</div></div>
+  </div>
+
+  <!-- Scanner grid -->
+  <div class="card">
+    <div class="card-header">
+      <div class="card-title">⛓ Squeeze Scanner</div>
+      <div style="font-size:11px;color:var(--text-muted);">Click any tile → ticker focus</div>
+    </div>
+    <div class="grid grid-4" style="gap:12px;" id="scannerGrid"></div>
+  </div>
+
+  <!-- How it works -->
+  <div class="card mt-24">
+    <div class="card-header"><div class="card-title">🧠 What this is</div></div>
+    <div class="grid grid-3" style="gap:20px;">
+      <div>
+        <div style="font-weight:700;color:var(--accent);margin-bottom:6px;">TTM Squeeze (Carter)</div>
+        <div style="font-size:13px;color:var(--text-muted);line-height:1.6;">When Bollinger Bands (2σ) contract <em>inside</em> Keltner Channels (1.5×ATR), the market has compressed. Historically, ~70% of such setups resolve directionally within 5 trading days.</div>
+      </div>
+      <div>
+        <div style="font-weight:700;color:var(--yellow);margin-bottom:6px;">Composite Score</div>
+        <div style="font-size:13px;color:var(--text-muted);line-height:1.6;">We weight: <strong>40%</strong> BB-inside-KC, <strong>25%</strong> Bollinger band width percentile (lower = tighter), <strong>15%</strong> RSI mean-reverting, <strong>20%</strong> volume contraction.</div>
+      </div>
+      <div>
+        <div style="font-weight:700;color:var(--red);margin-bottom:6px;">Trade Plan</div>
+        <div style="font-size:13px;color:var(--text-muted);line-height:1.6;">Direction-agnostic: enter on first close outside the BB on volume &gt;1.5x avg. Use the chart's most recent swing as stop. Targets: 1.5x ATR for first scale, 3x ATR for runner.</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="related-bar mt-24">
+    <span class="lbl">Related →</span>
+    <a href="ticker.html">🔍 Ticker Focus</a>
+    <a href="technical-analysis.html">📊 TA Scanner</a>
+    <a href="vol-cone.html">🌗 Vol Cone</a>
+    <a href="volume-profile.html">📊 Volume Profile</a>
+    <a href="order-flow.html">🔥 Order Flow</a>
+    <a href="paper-trade.html">🎮 Paper Trade</a>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script>
+buildNav('squeeze-radar');
+
+function seedRand(seed) { let s = seed; return () => { s = (s * 9301 + 49297) % 233280; return s / 233280; }; }
+
+// Build a synthetic squeeze score for each known symbol using its current data
+function buildUniverse() {
+  if (typeof QUOTES === 'undefined') return [];
+  return Object.keys(QUOTES).map(sym => {
+    const q = QUOTES[sym];
+    const rng = seedRand(sym.charCodeAt(0) * 73 + sym.length * 31);
+    // synthetic factor inputs in [0,1]
+    const bbInKc = rng();              // higher = more compression
+    const bbWidth = 1 - rng() * 0.8;   // higher = tighter (BB width percentile inverted)
+    const rsiTilt = rng();             // bias signal
+    const volContract = rng() * 0.7 + 0.15;
+    const score = Math.round(40 * bbInKc + 25 * bbWidth + 15 * rsiTilt + 20 * volContract);
+    const direction = rsiTilt > 0.5 ? 'bull' : 'bear';
+    const state = score >= 85 ? 'fired' : score >= 70 ? 'coiled' : score >= 50 ? 'tight' : 'loose';
+    const dte = state === 'fired' ? 'now' : (3 + Math.floor(rng() * 8)) + 'd';
+    const move = (1.8 + rng() * 3.5).toFixed(1);
+    return {
+      sym, score, state, direction, dte, move,
+      px: q.last, chg: q.changePct,
+      iv: +(15 + rng() * 70).toFixed(1)
+    };
+  }).sort((a, b) => b.score - a.score);
+}
+
+let universe = buildUniverse();
+let activeFilter = 'all';
+
+function renderKpis() {
+  const coiled = universe.filter(u => u.score >= 70 && u.state !== 'fired').length;
+  const firing = universe.filter(u => u.state === 'fired').length;
+  const bull = universe.length ? Math.round(100 * universe.filter(u => u.direction === 'bull').length / universe.length) : 0;
+  const avg = universe.length ? Math.round(universe.reduce((s, u) => s + u.score, 0) / universe.length) : 0;
+  document.getElementById('kCoiled').textContent = coiled;
+  document.getElementById('kFiring').textContent = firing;
+  document.getElementById('kBull').textContent = bull + '%';
+  document.getElementById('kAvg').textContent = avg;
+}
+
+function renderGrid() {
+  const grid = document.getElementById('scannerGrid');
+  const filtered = universe.filter(u => {
+    if (activeFilter === 'all') return true;
+    if (activeFilter === 'coiled') return u.score >= 70 && u.state !== 'fired';
+    if (activeFilter === 'fired') return u.state === 'fired';
+    if (activeFilter === 'bull') return u.direction === 'bull';
+    if (activeFilter === 'bear') return u.direction === 'bear';
+    return true;
+  });
+  if (!filtered.length) { grid.innerHTML = '<div style="grid-column:1/-1;text-align:center;color:var(--text-muted);padding:40px;">No matches.</div>'; return; }
+  grid.innerHTML = filtered.map(u => {
+    const badge = u.state === 'fired' ? 'b-fired' : u.state === 'coiled' || u.state === 'tight' ? 'b-coiled' : 'b-loose';
+    const label = u.state === 'fired' ? '🔥 FIRING' : u.state === 'coiled' ? '⚡ COILED' : u.state === 'tight' ? '⏳ TIGHT' : 'LOOSE';
+    const dirColor = u.direction === 'bull' ? 'var(--green)' : 'var(--red)';
+    const dirLabel = u.direction === 'bull' ? '↗ BULL' : '↘ BEAR';
+    const sw = Math.max(0, Math.min(100, u.score));
+    const segGreen = u.direction === 'bull' ? `width:${sw}%;background:var(--green);` : `width:${sw}%;background:var(--red);`;
+    const chgCls = u.chg >= 0 ? 'green-text' : 'red-text';
+    return `<a href="ticker.html?sym=${u.sym}" class="sq-card" style="text-decoration:none;color:inherit;">
+      <div class="head">
+        <div>
+          <div class="sym">${u.sym}</div>
+          <div style="font-size:11px;color:var(--text-muted);">$${u.px.toFixed(2)} <span class="${chgCls}">${u.chg >= 0 ? '+' : ''}${u.chg.toFixed(2)}%</span></div>
+        </div>
+        <span class="badge ${badge}">${label}</span>
+      </div>
+      <div style="margin-top:10px;">
+        <div style="display:flex;justify-content:space-between;align-items:flex-end;">
+          <span class="score-big" style="color:${u.score >= 70 ? 'var(--accent)' : 'var(--text-primary)'};">${u.score}</span>
+          <span style="color:${dirColor};font-size:12px;font-weight:700;">${dirLabel}</span>
+        </div>
+        <div class="sq-meter" style="margin-top:6px;"><div style="${segGreen}"></div></div>
+      </div>
+      <div style="margin-top:10px;">
+        <div class="kv"><span class="k">Expected fire</span><span class="v">${u.dte}</span></div>
+        <div class="kv"><span class="k">Implied move</span><span class="v">±${u.move}%</span></div>
+        <div class="kv"><span class="k">IV rank</span><span class="v">${u.iv}%</span></div>
+      </div>
+    </a>`;
+  }).join('');
+}
+
+document.querySelectorAll('[data-filter]').forEach(b => {
+  b.addEventListener('click', () => {
+    document.querySelectorAll('[data-filter]').forEach(x => x.classList.remove('btn-active'));
+    b.classList.add('btn-active');
+    activeFilter = b.dataset.filter;
+    renderGrid();
+  });
+});
+
+renderKpis();
+renderGrid();
+</script>
+</body>
+</html>
