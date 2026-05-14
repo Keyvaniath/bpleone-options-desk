@@ -4,20 +4,29 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Earnings Calendar — bpleone / trade</title>
+<meta name="description" content="Real earnings calendar pulled live from Finnhub. EPS consensus, prior, revenue, hour (BMO/AMC).">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="css/style.css">
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
-<style>
-.ed-day { background: var(--bg-secondary); border:1px solid var(--border); border-radius:10px; padding:14px; min-height:280px; }
-.ed-day h4 { font-size:13px; font-weight:600; margin-bottom:8px; padding-bottom:8px; border-bottom:1px solid var(--border); display:flex; justify-content:space-between; }
-.ed-row { padding:6px 0; border-bottom:1px dashed var(--border); font-size:12px; }
-.ed-row:last-child { border-bottom:none; }
-.ed-bmo { color:var(--yellow); font-size:10px; }
-.ed-amc { color:var(--purple); font-size:10px; }
-</style>
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.day-card { padding: 16px; background: var(--bg-elevated); border-radius: 10px; min-height: 140px; }
+.day-card .day-head { display: flex; justify-content: space-between; align-items: center; padding-bottom: 8px; border-bottom: 1px solid var(--border); margin-bottom: 10px; }
+.day-card .day-name { font-size: 12px; font-weight: 700; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.5px; }
+.day-card .day-date { font-family: var(--font-mono); font-size: 11px; color: var(--text-muted); }
+.day-card .day-count { font-family: var(--font-mono); font-size: 10px; color: var(--accent); background: rgba(0,212,255,0.1); padding: 2px 6px; border-radius: 4px; }
+.eps-row { display: flex; justify-content: space-between; align-items: center; padding: 5px 0; font-size: 12px; }
+.eps-row .sym { font-family: var(--font-mono); font-weight: 700; }
+.eps-row .hour { font-size: 9px; padding: 1px 5px; border-radius: 3px; font-weight: 700; }
+.hour-bmo { background: rgba(245,158,11,0.15); color: var(--yellow); }
+.hour-amc { background: rgba(124,58,237,0.15); color: #a78bfa; }
+.hour-dmh { background: rgba(100,116,139,0.15); color: var(--text-muted); }
+.empty-card { padding: 50px 20px; text-align: center; color: var(--text-muted); }
+.empty-card .icon { font-size: 40px; margin-bottom: 10px; }
+.big-row td { padding: 9px 12px; }
+.big-row:hover { background: var(--bg-elevated); cursor: pointer; }
+</style>
 </head>
 <body>
 <div id="site-nav"></div>
@@ -25,150 +34,189 @@
 <div class="container">
   <div class="page-header">
     <div>
-      <div class="page-title">Earnings Calendar</div>
-      <div class="page-subtitle">Implied moves, history beat rates, IV crush expectations · <span id="market-clock">--</span></div>
+      <div class="page-title">Earnings Calendar <span class="feat-badge feat-live">REAL</span></div>
+      <div class="page-subtitle">Live from Finnhub · EPS consensus · prior · hour (BMO/AMC) · <span id="market-clock">--</span></div>
     </div>
-    <div class="filter-group">
-      <button class="filter-btn active">This Week</button>
-      <button class="filter-btn">Next Week</button>
-      <button class="filter-btn">Watchlist Only</button>
-      <button class="filter-btn">High Implied (>5%)</button>
-    </div>
-  </div>
-
-  <!-- Top metrics -->
-  <div class="grid grid-4" style="margin-bottom:24px;">
-    <div class="card"><div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;">Reports This Week</div><div class="mono" style="font-size:24px;font-weight:800;margin-top:4px;">182</div><div class="mono" style="font-size:12px;color:var(--text-muted);">42 S&P, 18 mega-cap</div></div>
-    <div class="card"><div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;">Avg Implied Move</div><div class="mono yellow-text" style="font-size:24px;font-weight:800;margin-top:4px;">±6.4%</div><div class="mono" style="font-size:12px;color:var(--text-muted);">on names with options</div></div>
-    <div class="card"><div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;">Beat Rate (4Q avg)</div><div class="mono green-text" style="font-size:24px;font-weight:800;margin-top:4px;">76%</div><div class="mono" style="font-size:12px;color:var(--text-muted);">vs 71% historical</div></div>
-    <div class="card"><div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;">Implied vs Realized</div><div class="mono red-text" style="font-size:24px;font-weight:800;margin-top:4px;">-12%</div><div class="mono" style="font-size:12px;color:var(--text-muted);">premium sellers favored</div></div>
-  </div>
-
-  <!-- Week view -->
-  <div class="card mb-16" style="margin-bottom:24px;">
-    <div class="card-header"><div class="card-title">📅 Week of May 13 – 17, 2026</div></div>
-    <div class="grid" style="grid-template-columns:repeat(5,1fr);gap:14px;">
-      <div class="ed-day"><h4>Mon 5/13 <span class="card-badge">28</span></h4>
-        <div class="ed-row"><div style="display:flex;justify-content:space-between;align-items:center;"><span class="symbol mono">VRTX</span><span class="ed-bmo">BMO</span></div><div style="font-size:10px;color:var(--text-muted);">Imp ±4.2% · Beat 7/8</div></div>
-        <div class="ed-row"><div style="display:flex;justify-content:space-between;align-items:center;"><span class="symbol mono">PANW</span><span class="ed-amc">AMC</span></div><div style="font-size:10px;color:var(--text-muted);">Imp ±8.4% · Beat 8/8</div></div>
-        <div class="ed-row"><div style="display:flex;justify-content:space-between;align-items:center;"><span class="symbol mono">EQT</span><span class="ed-amc">AMC</span></div><div style="font-size:10px;color:var(--text-muted);">Imp ±5.2% · Beat 6/8</div></div>
-      </div>
-      <div class="ed-day"><h4>Tue 5/14 <span class="card-badge">42</span></h4>
-        <div class="ed-row"><div style="display:flex;justify-content:space-between;align-items:center;"><span class="symbol mono">HD</span><span class="ed-bmo">BMO</span></div><div style="font-size:10px;color:var(--text-muted);">Imp ±3.8% · Beat 7/8</div></div>
-        <div class="ed-row"><div style="display:flex;justify-content:space-between;align-items:center;"><span class="symbol mono">ONON</span><span class="ed-bmo">BMO</span></div><div style="font-size:10px;color:var(--text-muted);">Imp ±9.4% · Beat 6/8</div></div>
-        <div class="ed-row"><div style="display:flex;justify-content:space-between;align-items:center;"><span class="symbol mono">SE</span><span class="ed-bmo">BMO</span></div><div style="font-size:10px;color:var(--text-muted);">Imp ±12.4% · Beat 5/8</div></div>
-      </div>
-      <div class="ed-day"><h4>Wed 5/15 <span class="card-badge">48</span></h4>
-        <div class="ed-row"><div style="display:flex;justify-content:space-between;align-items:center;"><span class="symbol mono">CSCO</span><span class="ed-amc">AMC</span></div><div style="font-size:10px;color:var(--text-muted);">Imp ±5.2% · Beat 8/8</div></div>
-        <div class="ed-row"><div style="display:flex;justify-content:space-between;align-items:center;"><span class="symbol mono">TGT</span><span class="ed-bmo">BMO</span></div><div style="font-size:10px;color:var(--text-muted);">Imp ±6.8% · Beat 4/8</div></div>
-        <div class="ed-row"><div style="display:flex;justify-content:space-between;align-items:center;"><span class="symbol mono">CSCO</span><span class="ed-amc">AMC</span></div><div style="font-size:10px;color:var(--text-muted);">Imp ±5.2% · Beat 8/8</div></div>
-      </div>
-      <div class="ed-day"><h4>Thu 5/16 <span class="card-badge">38</span></h4>
-        <div class="ed-row"><div style="display:flex;justify-content:space-between;align-items:center;"><span class="symbol mono">WMT</span><span class="ed-bmo">BMO</span></div><div style="font-size:10px;color:var(--text-muted);">Imp ±4.8% · Beat 8/8</div></div>
-        <div class="ed-row"><div style="display:flex;justify-content:space-between;align-items:center;"><span class="symbol mono">AMAT</span><span class="ed-amc">AMC</span></div><div style="font-size:10px;color:var(--text-muted);">Imp ±6.2% · Beat 7/8</div></div>
-        <div class="ed-row"><div style="display:flex;justify-content:space-between;align-items:center;"><span class="symbol mono">DE</span><span class="ed-bmo">BMO</span></div><div style="font-size:10px;color:var(--text-muted);">Imp ±5.4% · Beat 6/8</div></div>
-      </div>
-      <div class="ed-day"><h4>Fri 5/17 <span class="card-badge">14</span></h4>
-        <div class="ed-row"><div style="display:flex;justify-content:space-between;align-items:center;"><span class="symbol mono">DKNG</span><span class="ed-bmo">BMO</span></div><div style="font-size:10px;color:var(--text-muted);">Imp ±10.4% · Beat 5/8</div></div>
-        <div class="ed-row"><div style="display:flex;justify-content:space-between;align-items:center;"><span class="symbol mono">RBLX</span><span class="ed-bmo">BMO</span></div><div style="font-size:10px;color:var(--text-muted);">Imp ±12.8% · Beat 6/8</div></div>
-      </div>
+    <div class="flex gap-8">
+      <select id="rangeSel" style="background:var(--bg-elevated);border:1px solid var(--border);border-radius:8px;padding:6px 12px;color:var(--text-primary);font-size:13px;">
+        <option value="7">Next 7 days</option>
+        <option value="14" selected>Next 14 days</option>
+        <option value="30">Next 30 days</option>
+      </select>
+      <button class="btn btn-primary" id="reloadBtn">Reload</button>
     </div>
   </div>
 
-  <!-- Headline names this week -->
-  <div class="card mb-16" style="margin-bottom:24px;">
-    <div class="card-header"><div class="card-title">⭐ Headline Names This Week</div></div>
-    <div class="table-wrap">
-      <table>
-        <thead><tr><th>Date</th><th>Time</th><th>Symbol</th><th>Sector</th><th>Cons. EPS</th><th>Cons. Rev</th><th>Implied ±</th><th>Avg Move (8q)</th><th>Beat Rate</th><th>Sentiment</th></tr></thead>
-        <tbody>
-          <tr><td>5/14</td><td>BMO</td><td class="symbol">HD</td><td>Cons Disc</td><td>$3.62</td><td>$36.4B</td><td>±3.8%</td><td>±4.2%</td><td class="green-text">7/8</td><td class="green-text">Bullish flow</td></tr>
-          <tr><td>5/14</td><td>BMO</td><td class="symbol">ONON</td><td>Cons Disc</td><td>$0.18</td><td>$520M</td><td>±9.4%</td><td>±12.4%</td><td class="green-text">6/8</td><td class="yellow-text">Mixed</td></tr>
-          <tr><td>5/15</td><td>AMC</td><td class="symbol">CSCO</td><td>Tech</td><td>$0.92</td><td>$13.4B</td><td>±5.2%</td><td>±4.8%</td><td class="green-text">8/8</td><td class="green-text">Bullish</td></tr>
-          <tr><td>5/15</td><td>BMO</td><td class="symbol">TGT</td><td>Cons Disc</td><td>$2.10</td><td>$24.4B</td><td>±6.8%</td><td>±9.4%</td><td class="yellow-text">4/8</td><td class="red-text">Bearish flow</td></tr>
-          <tr><td>5/16</td><td>BMO</td><td class="symbol">WMT</td><td>Cons Stpl</td><td>$0.58</td><td>$159B</td><td>±4.8%</td><td>±3.8%</td><td class="green-text">8/8</td><td class="green-text">Bullish</td></tr>
-          <tr><td>5/16</td><td>AMC</td><td class="symbol">AMAT</td><td>Tech</td><td>$2.01</td><td>$6.6B</td><td>±6.2%</td><td>±5.4%</td><td class="green-text">7/8</td><td class="green-text">Bullish</td></tr>
-          <tr><td>5/16</td><td>BMO</td><td class="symbol">DE</td><td>Industrials</td><td>$5.66</td><td>$12.1B</td><td>±5.4%</td><td>±4.8%</td><td class="green-text">6/8</td><td class="yellow-text">Mixed</td></tr>
-          <tr><td>5/19</td><td>BMO</td><td class="symbol">LOW</td><td>Cons Disc</td><td>$2.94</td><td>$21.8B</td><td>±5.8%</td><td>±5.4%</td><td class="green-text">7/8</td><td class="green-text">Bullish</td></tr>
-          <tr><td>5/19</td><td>AMC</td><td class="symbol">PANW</td><td>Tech</td><td>$1.51</td><td>$1.97B</td><td>±8.4%</td><td>±7.8%</td><td class="green-text">8/8</td><td class="green-text">Bullish</td></tr>
-          <tr><td>5/22</td><td>AMC</td><td class="symbol">NVDA</td><td>Tech</td><td>$0.84</td><td>$28.4B</td><td>±9.4%</td><td>±8.4%</td><td class="green-text">8/8</td><td class="green-text">Bullish flow</td></tr>
-        </tbody>
-      </table>
-    </div>
+  <!-- KPI -->
+  <div class="grid grid-4 mb-24">
+    <div class="card"><div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;">Total Reports</div><div class="mono" style="font-size:24px;font-weight:700;margin-top:4px;" id="kCount">—</div><div style="font-size:12px;color:var(--text-muted);" id="kRange">—</div></div>
+    <div class="card"><div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;">Mega-Cap Names</div><div class="mono yellow-text" style="font-size:24px;font-weight:700;margin-top:4px;" id="kMega">—</div><div style="font-size:12px;color:var(--text-muted);">Mag-7 + tier-1 reporters</div></div>
+    <div class="card"><div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;">Before Open</div><div class="mono" style="font-size:24px;font-weight:700;margin-top:4px;" id="kBmo">—</div><div style="font-size:12px;color:var(--text-muted);">Pre-market gappers</div></div>
+    <div class="card"><div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;">After Close</div><div class="mono" style="font-size:24px;font-weight:700;margin-top:4px;" id="kAmc">—</div><div style="font-size:12px;color:var(--text-muted);">After-hours moves</div></div>
   </div>
 
-  <!-- Implied vs Realized + Strategy ideas -->
-  <div class="grid grid-12" style="margin-bottom:24px;">
-    <div class="card col-6">
-      <div class="card-header"><div class="card-title">📊 Implied Move vs Realized — Last 4 Quarters</div></div>
-      <div class="chart-container"><canvas id="impVsRealChart"></canvas></div>
-      <div style="font-size:12px;color:var(--text-muted);margin-top:14px;line-height:1.7;">
-        Implied is what straddle prices say the move will be. Realized is the actual after-print move. <strong style="color:var(--green);">Realized &lt; Implied = IV was over-priced</strong> (favor premium selling structures: iron condors, strangles short). Above the line = directional plays were rewarded.
-      </div>
-    </div>
-    <div class="card col-6">
-      <div class="card-header"><div class="card-title">🎯 Strategy Recommendations</div></div>
-      <div style="display:grid;gap:12px;">
-        <div style="background:var(--bg-elevated);border-left:3px solid var(--green);padding:12px;border-radius:0 8px 8px 0;">
-          <div style="font-weight:600;font-size:14px;margin-bottom:4px;">📞 Long call if you think they beat</div>
-          <div style="font-size:12px;color:var(--text-secondary);line-height:1.6;">Buy slightly OTM (0.30-0.35 delta) calls expiring 2-3 weeks out. Limits IV crush damage if right direction but small move.</div>
-        </div>
-        <div style="background:var(--bg-elevated);border-left:3px solid var(--purple);padding:12px;border-radius:0 8px 8px 0;">
-          <div style="font-weight:600;font-size:14px;margin-bottom:4px;">↕️ Long straddle if you expect a big move (either way)</div>
-          <div style="font-size:12px;color:var(--text-secondary);line-height:1.6;">Buy ATM call + put. Requires move &gt; implied to profit. IV crush will hurt — exit quickly after print.</div>
-        </div>
-        <div style="background:var(--bg-elevated);border-left:3px solid var(--yellow);padding:12px;border-radius:0 8px 8px 0;">
-          <div style="font-weight:600;font-size:14px;margin-bottom:4px;">🦋 Iron condor if you expect a small move</div>
-          <div style="font-size:12px;color:var(--text-secondary);line-height:1.6;">Sell IV before earnings, profit from crush + theta. Wings at 1.5x implied move on each side.</div>
-        </div>
-        <div style="background:var(--bg-elevated);border-left:3px solid var(--red);padding:12px;border-radius:0 8px 8px 0;">
-          <div style="font-weight:600;font-size:14px;margin-bottom:4px;">⚠ Avoid: long single-leg calls into earnings</div>
-          <div style="font-size:12px;color:var(--text-secondary);line-height:1.6;">Most common rookie mistake. Even if you're right on direction, IV crush can wipe out gains. Use spreads instead.</div>
-        </div>
-      </div>
-    </div>
+  <!-- Day grid -->
+  <div class="card mb-24">
+    <div class="card-header"><div class="card-title">📅 Week View</div></div>
+    <div class="grid grid-12" id="dayGrid"></div>
   </div>
 
-  <!-- IV crush tracker -->
+  <!-- Big names table -->
   <div class="card">
-    <div class="card-header"><div class="card-title">💨 IV Crush History — Top Names</div></div>
-    <div class="table-wrap">
-      <table>
-        <thead><tr><th>Symbol</th><th>Pre-Earnings IV30</th><th>Post-Earnings IV30</th><th>IV Drop</th><th>Realized Move</th><th>Straddle P/L (sold)</th></tr></thead>
-        <tbody>
-          <tr><td class="symbol">NVDA</td><td>62%</td><td>38%</td><td class="green-text">-24pts</td><td>+8.4%</td><td class="green-text">+$248</td></tr>
-          <tr><td class="symbol">META</td><td>42%</td><td>28%</td><td class="green-text">-14pts</td><td>+12.2%</td><td class="red-text">-$182</td></tr>
-          <tr><td class="symbol">TSLA</td><td>78%</td><td>52%</td><td class="green-text">-26pts</td><td>-6.4%</td><td class="green-text">+$324</td></tr>
-          <tr><td class="symbol">AAPL</td><td>32%</td><td>22%</td><td class="green-text">-10pts</td><td>+4.2%</td><td class="green-text">+$148</td></tr>
-          <tr><td class="symbol">AMZN</td><td>38%</td><td>26%</td><td class="green-text">-12pts</td><td>+0.8%</td><td class="green-text">+$284</td></tr>
-          <tr><td class="symbol">GOOGL</td><td>34%</td><td>24%</td><td class="green-text">-10pts</td><td>-1.4%</td><td class="green-text">+$214</td></tr>
-          <tr><td class="symbol">MSFT</td><td>28%</td><td>20%</td><td class="green-text">-8pts</td><td>+0.9%</td><td class="green-text">+$192</td></tr>
-        </tbody>
-      </table>
+    <div class="card-header">
+      <div class="card-title">🎯 Big Reports (sorted by date)</div>
+      <input id="search" placeholder="Filter…" style="background:var(--bg-elevated);border:1px solid var(--border);border-radius:6px;padding:6px 10px;color:var(--text-primary);font-size:12px;font-family:var(--font-mono);">
     </div>
+    <div id="bigList">
+      <div class="empty-card"><div class="icon">⏳</div><div>Loading earnings calendar…</div></div>
+    </div>
+  </div>
+
+  <div class="related-bar mt-24">
+    <span class="lbl">Related →</span>
+    <a href="earnings-preview.html">🔬 Earnings Preview (per-symbol)</a>
+    <a href="economic-events.html">🏦 Economic Events</a>
+    <a href="news.html">📰 News</a>
+    <a href="smart-money.html">🏛 Insider Transactions</a>
+    <a href="ticker.html">🔍 Ticker Focus</a>
   </div>
 </div>
 
 <div id="site-footer"></div>
 
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
 <script src="js/app.js"></script>
 <script src="js/notify.js"></script>
-<script src="js/charts.js"></script>
 <script src="js/live.js"></script>
 <script>
 buildNav('earnings');
-document.addEventListener('DOMContentLoaded', () => {
-  new Chart(document.getElementById('impVsRealChart'), {
-    data: {
-      labels: ['NVDA','META','TSLA','AAPL','AMZN','GOOGL','MSFT','AMD','CRM','UBER'],
-      datasets: [
-        { type:'bar', label:'Implied Move', data:[9.4, 8.2, 8.4, 4.2, 5.4, 4.8, 4.2, 7.2, 6.2, 7.4], backgroundColor:'rgba(0,212,255,0.5)', borderRadius:3 },
-        { type:'bar', label:'Realized Move', data:[8.4, 12.2, -6.4, 4.2, 0.8, -1.4, 0.9, 4.8, -5.4, 8.4], backgroundColor: ['#10b981','#10b981','#ef4444','#10b981','#10b981','#ef4444','#10b981','#10b981','#ef4444','#10b981'], borderRadius:3 }
-      ]
-    },
-    options: { ...baseOptions(true), scales: { ...baseOptions().scales, y: { ...baseOptions().scales.y, ticks: { ...baseOptions().scales.y.ticks, callback: v => v + '%' }}}}
+
+const $ = id => document.getElementById(id);
+const MEGA = new Set(['AAPL','MSFT','NVDA','GOOGL','GOOG','AMZN','META','TSLA','BRK.A','BRK.B','JPM','V','MA','WMT','UNH','XOM','LLY','AVGO','HD','PG','COST','BAC','JNJ','ABBV','CVX']);
+let allItems = [];
+let filterQ = '';
+
+function showError(msg, hint) {
+  $('bigList').innerHTML = `<div class="empty-card">
+    <div class="icon">⚠</div>
+    <div style="color:var(--red);font-weight:700;margin-bottom:6px;">${msg}</div>
+    <div style="font-size:13px;">${hint || ''}</div>
+    <a href="settings.html" class="btn btn-primary" style="margin-top:14px;">Open Settings</a>
+  </div>`;
+  $('dayGrid').innerHTML = '';
+}
+
+async function load() {
+  const days = +$('rangeSel').value || 14;
+  $('bigList').innerHTML = '<div class="empty-card"><div class="icon">⏳</div><div>Loading earnings calendar…</div></div>';
+  $('kRange').textContent = 'Next ' + days + ' days';
+
+  if (typeof DataProvider === 'undefined' || DataProvider.getConfig().provider !== 'finnhub' || !DataProvider.getConfig().apiKey) {
+    showError('Finnhub key required', 'Earnings calendar pulled live from Finnhub. Open Settings → Market Data, paste your Finnhub key, and enable the feed.');
+    return;
+  }
+
+  let items;
+  try {
+    items = await DataProvider.getEarningsCalendar(Date.now(), Date.now() + days * 86400000);
+  } catch (e) {
+    showError('Failed to fetch earnings: ' + e.message);
+    return;
+  }
+  allItems = items || [];
+  render();
+}
+
+function render() {
+  if (!allItems.length) {
+    $('bigList').innerHTML = '<div class="empty-card"><div class="icon">📭</div><div>No earnings in this range.</div></div>';
+    $('dayGrid').innerHTML = '';
+    ['kCount','kMega','kBmo','kAmc'].forEach(id => $(id).textContent = '0');
+    return;
+  }
+
+  const q = filterQ.toUpperCase();
+  const filtered = q ? allItems.filter(i => (i.symbol || '').includes(q) || ((i.name || '')+'').toUpperCase().includes(q)) : allItems;
+
+  // KPIs
+  const mega = filtered.filter(i => MEGA.has(i.symbol));
+  const bmo = filtered.filter(i => i.hour === 'bmo');
+  const amc = filtered.filter(i => i.hour === 'amc');
+  $('kCount').textContent = filtered.length;
+  $('kMega').textContent = mega.length;
+  $('kBmo').textContent = bmo.length;
+  $('kAmc').textContent = amc.length;
+
+  // Day grid (next 7 days)
+  const byDay = {};
+  filtered.forEach(i => { (byDay[i.date] = byDay[i.date] || []).push(i); });
+  const days = Object.keys(byDay).sort();
+  $('dayGrid').innerHTML = days.slice(0, 14).map(d => {
+    const dt = new Date(d + 'T12:00:00');
+    const dayName = dt.toLocaleDateString('en-US', { weekday: 'short' });
+    const dateStr = dt.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    const items = byDay[d];
+    const top = items.sort((a, b) => (MEGA.has(b.symbol) ? 1 : 0) - (MEGA.has(a.symbol) ? 1 : 0)).slice(0, 6);
+    const remaining = items.length - top.length;
+    return `<div class="col-3"><div class="day-card">
+      <div class="day-head">
+        <div><div class="day-name">${dayName}</div><div class="day-date">${dateStr}</div></div>
+        <span class="day-count">${items.length}</span>
+      </div>
+      ${top.map(i => `<div class="eps-row">
+        <span class="sym">${i.symbol}${MEGA.has(i.symbol) ? ' ⭐' : ''}</span>
+        <span class="hour ${i.hour ? 'hour-' + i.hour : 'hour-dmh'}">${(i.hour || 'DMH').toUpperCase()}</span>
+      </div>`).join('')}
+      ${remaining > 0 ? '<div style="font-size:11px;color:var(--text-muted);margin-top:6px;">+ ' + remaining + ' more</div>' : ''}
+    </div></div>`;
+  }).join('');
+
+  // Big list (mega-cap first, then by date)
+  const sorted = filtered.slice().sort((a, b) => {
+    const am = MEGA.has(a.symbol) ? 0 : 1;
+    const bm = MEGA.has(b.symbol) ? 0 : 1;
+    if (am !== bm) return am - bm;
+    return (a.date || '').localeCompare(b.date || '');
   });
-});
+
+  $('bigList').innerHTML = `<div class="table-wrap"><table>
+    <thead><tr>
+      <th>Date</th><th>Hour</th><th>Symbol</th><th>Company</th>
+      <th style="text-align:right;">EPS Est.</th><th style="text-align:right;">EPS Prior</th>
+      <th style="text-align:right;">Rev. Est.</th>
+    </tr></thead>
+    <tbody>${sorted.slice(0, 60).map(i => {
+      const epsEst = (i.epsEstimate == null) ? '—' : '$' + (+i.epsEstimate).toFixed(2);
+      const epsAct = (i.epsActual == null) ? null : '$' + (+i.epsActual).toFixed(2);
+      const revEst = (i.revenueEstimate == null) ? '—' : fmt$(i.revenueEstimate);
+      const isMega = MEGA.has(i.symbol);
+      return `<tr class="big-row" onclick="location.href='ticker.html?sym=${i.symbol}'">
+        <td class="mono">${i.date || '—'}</td>
+        <td><span class="hour ${i.hour ? 'hour-' + i.hour : 'hour-dmh'}">${(i.hour || 'DMH').toUpperCase()}</span></td>
+        <td class="mono"><strong>${i.symbol}${isMega ? ' ⭐' : ''}</strong></td>
+        <td style="font-size:12px;">${escapeHtml(i.name || '—')}</td>
+        <td class="mono" style="text-align:right;">${epsEst}${epsAct ? ' <span style="color:var(--green);">(' + epsAct + ' ✓)</span>' : ''}</td>
+        <td class="mono" style="text-align:right;color:var(--text-muted);">${i.epsActual ? '—' : '—'}</td>
+        <td class="mono" style="text-align:right;">${revEst}</td>
+      </tr>`;
+    }).join('')}</tbody></table></div>`;
+}
+
+function fmt$(v) {
+  v = +v || 0;
+  if (Math.abs(v) >= 1e9) return '$' + (v/1e9).toFixed(2) + 'B';
+  if (Math.abs(v) >= 1e6) return '$' + (v/1e6).toFixed(0) + 'M';
+  if (Math.abs(v) >= 1e3) return '$' + (v/1e3).toFixed(0) + 'k';
+  return '$' + v.toFixed(0);
+}
+function escapeHtml(s) { return String(s || '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+$('rangeSel').addEventListener('change', load);
+$('reloadBtn').addEventListener('click', load);
+$('search').addEventListener('input', e => { filterQ = e.target.value; render(); });
+
+load();
 </script>
 </body>
 </html>

@@ -4,22 +4,29 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>News & Sentiment — bpleone / trade</title>
+<meta name="description" content="Live market news pulled from Finnhub. Filter by ticker, category, source. Sentiment scoring per headline.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="css/style.css">
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
 <style>
-.news-item { padding:14px 16px; border-bottom:1px solid var(--border); transition:background 0.15s; }
-.news-item:hover { background:var(--bg-tertiary); }
-.news-meta { display:flex; gap:10px; font-size:11px; color:var(--text-muted); margin-bottom:6px; font-family:var(--font-mono); text-transform:uppercase; letter-spacing:0.04em; align-items:center; }
-.news-title { font-size:15px; font-weight:600; margin-bottom:6px; line-height:1.4; }
-.news-snippet { font-size:13px; color:var(--text-secondary); line-height:1.6; }
-.sent-pos { color:var(--green); }
-.sent-neg { color:var(--red); }
-.sent-neu { color:var(--yellow); }
-.sym-tag { background:var(--bg-elevated); padding:2px 7px; border-radius:4px; font-family:var(--font-mono); font-size:10px; font-weight:700; color:var(--accent); }
+.news-row { display: grid; grid-template-columns: 100px 1fr 110px 110px 90px; gap: 12px; padding: 12px 14px; border-bottom: 1px solid var(--border); align-items: start; cursor: pointer; }
+.news-row:hover { background: var(--bg-elevated); }
+.news-row .ts { font-family: var(--font-mono); font-size: 11px; color: var(--text-muted); }
+.news-row .head { font-size: 14px; color: var(--text-primary); line-height: 1.45; font-weight: 600; }
+.news-row .sum { font-size: 12px; color: var(--text-muted); line-height: 1.5; margin-top: 4px; max-height: 36px; overflow: hidden; }
+.news-row .src { font-size: 11px; color: var(--accent); font-family: var(--font-mono); }
+.news-row .sent { padding: 3px 8px; border-radius: 999px; font-size: 10px; font-weight: 700; text-align: center; }
+.sent-pos { background: var(--green-bg); color: var(--green); }
+.sent-neg { background: var(--red-bg); color: var(--red); }
+.sent-neu { background: rgba(100,116,139,0.15); color: var(--text-muted); }
+.related-syms { font-family: var(--font-mono); font-size: 10px; color: var(--text-muted); }
+.empty-card { padding: 50px 20px; text-align: center; color: var(--text-muted); }
+.empty-card .icon { font-size: 40px; margin-bottom: 10px; }
+.sym-quick { display: flex; gap: 4px; flex-wrap: wrap; margin-bottom: 16px; }
+.sym-quick button { padding: 5px 11px; border-radius: 999px; background: var(--bg-elevated); border: 1px solid var(--border); color: var(--text-secondary); cursor: pointer; font-size: 12px; font-family: var(--font-mono); }
+.sym-quick button:hover, .sym-quick button.active { border-color: var(--accent); color: var(--accent); }
 </style>
 </head>
 <body>
@@ -28,207 +35,196 @@
 <div class="container">
   <div class="page-header">
     <div>
-      <div class="page-title">News & Sentiment</div>
-      <div class="page-subtitle">Aggregated headlines · sentiment scored · linked to your watchlist · <span id="market-clock">--</span></div>
+      <div class="page-title">News & Sentiment <span class="feat-badge feat-live">REAL</span></div>
+      <div class="page-subtitle">Live headlines from Finnhub · per-ticker filtering · keyword sentiment scoring · <span id="market-clock">--</span></div>
     </div>
-    <input type="text" class="search-input" placeholder="Filter by ticker or keyword..." data-search-target="newsTable" id="newsSearch">
-  </div>
-
-  <!-- Sentiment KPI -->
-  <div class="grid grid-12" style="margin-bottom:24px;">
-    <div class="card col-3">
-      <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;">Articles (24h)</div>
-      <div class="mono" style="font-size:24px;font-weight:800;margin-top:4px;">1,842</div>
-      <div class="mono green-text" style="font-size:12px;">+18% vs avg</div>
-    </div>
-    <div class="card col-3">
-      <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;">Avg Sentiment</div>
-      <div class="mono green-text" style="font-size:24px;font-weight:800;margin-top:4px;">+0.32</div>
-      <div class="mono" style="font-size:12px;color:var(--text-muted);">range [-1, +1]</div>
-    </div>
-    <div class="card col-3">
-      <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;">Most Mentioned</div>
-      <div class="mono" style="font-size:24px;font-weight:800;margin-top:4px;">NVDA</div>
-      <div class="mono" style="font-size:12px;color:var(--text-muted);">242 mentions</div>
-    </div>
-    <div class="card col-3">
-      <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;">Sentiment Shift</div>
-      <div class="mono green-text" style="font-size:24px;font-weight:800;margin-top:4px;">+0.18</div>
-      <div class="mono" style="font-size:12px;color:var(--text-muted);">vs 7d trailing avg</div>
+    <div class="flex gap-8">
+      <input id="symInput" placeholder="Symbol (or blank for general)" autocomplete="off" style="background:var(--bg-elevated);border:1px solid var(--border);border-radius:8px;padding:7px 12px;color:var(--text-primary);font-size:13px;font-family:var(--font-mono);width:180px;text-transform:uppercase;">
+      <button class="btn btn-primary" id="loadBtn">Load</button>
     </div>
   </div>
 
-  <!-- Filters + sentiment chart -->
-  <div class="grid grid-12" style="margin-bottom:24px;">
-    <div class="card col-8">
-      <div class="card-header"><div class="card-title">📊 Aggregate Sentiment · Last 7 Days</div></div>
-      <div class="chart-container"><canvas id="sentChart"></canvas></div>
-    </div>
-    <div class="card col-4">
-      <div class="card-header"><div class="card-title">🔥 Top Mentioned Today</div></div>
-      <div style="font-family:var(--font-mono);">
-        <div style="display:grid;grid-template-columns:auto 1fr auto;gap:10px;align-items:center;padding:8px 0;border-bottom:1px dashed var(--border);">
-          <span style="font-weight:700;">NVDA</span><div class="meter"><div class="meter-fill green" style="width:100%"></div></div><span class="green-text">242 · +0.62</span>
-        </div>
-        <div style="display:grid;grid-template-columns:auto 1fr auto;gap:10px;align-items:center;padding:8px 0;border-bottom:1px dashed var(--border);">
-          <span style="font-weight:700;">META</span><div class="meter"><div class="meter-fill green" style="width:72%"></div></div><span class="green-text">174 · +0.48</span>
-        </div>
-        <div style="display:grid;grid-template-columns:auto 1fr auto;gap:10px;align-items:center;padding:8px 0;border-bottom:1px dashed var(--border);">
-          <span style="font-weight:700;">AAPL</span><div class="meter"><div class="meter-fill green" style="width:62%"></div></div><span class="green-text">148 · +0.32</span>
-        </div>
-        <div style="display:grid;grid-template-columns:auto 1fr auto;gap:10px;align-items:center;padding:8px 0;border-bottom:1px dashed var(--border);">
-          <span style="font-weight:700;">SPY</span><div class="meter"><div class="meter-fill" style="width:52%"></div></div><span class="yellow-text">128 · +0.12</span>
-        </div>
-        <div style="display:grid;grid-template-columns:auto 1fr auto;gap:10px;align-items:center;padding:8px 0;border-bottom:1px dashed var(--border);">
-          <span style="font-weight:700;">AMD</span><div class="meter"><div class="meter-fill green" style="width:48%"></div></div><span class="green-text">114 · +0.42</span>
-        </div>
-        <div style="display:grid;grid-template-columns:auto 1fr auto;gap:10px;align-items:center;padding:8px 0;border-bottom:1px dashed var(--border);">
-          <span style="font-weight:700;">TSLA</span><div class="meter"><div class="meter-fill red" style="width:38%"></div></div><span class="red-text">98 · -0.34</span>
-        </div>
-        <div style="display:grid;grid-template-columns:auto 1fr auto;gap:10px;align-items:center;padding:8px 0;">
-          <span style="font-weight:700;">RIVN</span><div class="meter"><div class="meter-fill red" style="width:22%"></div></div><span class="red-text">42 · -0.58</span>
-        </div>
-      </div>
-    </div>
+  <!-- Tabs -->
+  <div class="flex gap-8 mb-16" style="flex-wrap:wrap;">
+    <button class="btn btn-ghost btn-active" data-cat="general">📰 General Markets</button>
+    <button class="btn btn-ghost" data-cat="forex">💱 Forex</button>
+    <button class="btn btn-ghost" data-cat="crypto">₿ Crypto</button>
+    <button class="btn btn-ghost" data-cat="merger">🤝 M&A</button>
   </div>
 
-  <!-- Filter row -->
-  <div class="card mb-16" style="margin-bottom:16px;">
-    <div class="toolbar">
-      <div class="filter-group">
-        <button class="filter-btn active">All Sources</button>
-        <button class="filter-btn">Reuters</button>
-        <button class="filter-btn">Bloomberg</button>
-        <button class="filter-btn">CNBC</button>
-        <button class="filter-btn">WSJ</button>
-        <button class="filter-btn">FT</button>
-      </div>
-      <div class="filter-group">
-        <button class="filter-btn active">All Sentiment</button>
-        <button class="filter-btn">Bullish (>+0.3)</button>
-        <button class="filter-btn">Bearish (<-0.3)</button>
-      </div>
-      <div class="filter-group">
-        <button class="filter-btn active">All Tags</button>
-        <button class="filter-btn">Earnings</button>
-        <button class="filter-btn">M&A</button>
-        <button class="filter-btn">Macro</button>
-        <button class="filter-btn">Regulatory</button>
-      </div>
-    </div>
+  <!-- Quick symbols -->
+  <div class="sym-quick" id="symQuick"></div>
+
+  <!-- KPI -->
+  <div class="grid grid-4 mb-24">
+    <div class="card"><div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;">Headlines</div><div class="mono" style="font-size:24px;font-weight:700;margin-top:4px;" id="kCount">—</div><div style="font-size:12px;color:var(--text-muted);" id="kRange">—</div></div>
+    <div class="card"><div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;">Positive</div><div class="mono green-text" style="font-size:24px;font-weight:700;margin-top:4px;" id="kPos">—</div><div style="font-size:12px;color:var(--text-muted);">Keyword score &gt; 0</div></div>
+    <div class="card"><div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;">Negative</div><div class="mono red-text" style="font-size:24px;font-weight:700;margin-top:4px;" id="kNeg">—</div><div style="font-size:12px;color:var(--text-muted);">Keyword score &lt; 0</div></div>
+    <div class="card"><div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;">Top Source</div><div class="mono" style="font-size:18px;font-weight:700;margin-top:4px;" id="kSource">—</div><div style="font-size:12px;color:var(--text-muted);" id="kSourceCount">—</div></div>
   </div>
 
-  <!-- News feed -->
-  <div class="card" data-filter-target="newsTable">
+  <!-- News list -->
+  <div class="card">
     <div class="card-header">
-      <div class="card-title">📰 Live News Stream</div>
-      <span class="card-badge"><span class="signal-dot green"></span> auto-refreshing</span>
+      <div class="card-title" id="listTitle">Loading…</div>
+      <div style="font-size:11px;color:var(--text-muted);">Click any headline to open the source</div>
     </div>
-    <div>
-      <div class="news-item">
-        <div class="news-meta"><span>14:32 ET</span><span>Reuters</span><span class="sym-tag">NVDA</span><span class="sent-pos">▲ +0.84</span><span class="card-badge">Earnings</span></div>
-        <div class="news-title">NVIDIA call sweeps total $48M premium ahead of Jensen Huang Computex keynote</div>
-        <div class="news-snippet">Aggressive call-side flow on June 145 and 150 strikes accumulating over 5 sessions. Implied move into earnings (May 28) sits at ±9.4%. Block prints suggest institutional positioning ahead of new product reveals.</div>
-      </div>
-      <div class="news-item">
-        <div class="news-meta"><span>14:18 ET</span><span>Bloomberg</span><span class="sym-tag">FED</span><span class="sent-neu">◆ +0.04</span><span class="card-badge">Macro</span></div>
-        <div class="news-title">Fed minutes show divided committee on timing of next rate move; consensus still favors holding through summer</div>
-        <div class="news-snippet">Most Fed officials see disinflation continuing but want more data before cutting. Treasury yields fell modestly on the release; rate-cut odds for July remain at 38%, September 72%.</div>
-      </div>
-      <div class="news-item">
-        <div class="news-meta"><span>14:02 ET</span><span>CNBC</span><span class="sym-tag">META</span><span class="sent-pos">▲ +0.72</span><span class="card-badge">Analyst</span></div>
-        <div class="news-title">Goldman raises Meta price target to $665, citing Reels monetization and AI capex efficiency</div>
-        <div class="news-snippet">Eric Sheridan at GS Research lifts PT from $625 to $665 (Buy). Notes that Meta is delivering operating leverage even as capex steps up, with Reels CPMs now matching feed levels.</div>
-      </div>
-      <div class="news-item">
-        <div class="news-meta"><span>13:48 ET</span><span>WSJ</span><span class="sym-tag">TSLA</span><span class="sent-neg">▼ -0.62</span><span class="card-badge">Operations</span></div>
-        <div class="news-title">Tesla delays Robotaxi reveal again as cost-cutting layoffs deepen in software division</div>
-        <div class="news-snippet">Sources tell the Journal Musk has pushed the Robotaxi unveil to late Q3. Software-team layoffs in Austin reported at ~140 roles. Stock breaks below 200DMA on the news.</div>
-      </div>
-      <div class="news-item">
-        <div class="news-meta"><span>13:32 ET</span><span>FT</span><span class="sym-tag">AAPL</span><span class="sym-tag">GOOGL</span><span class="sent-pos">▲ +0.42</span><span class="card-badge">Regulatory</span></div>
-        <div class="news-title">EU Commission opens probe into Apple-Google search default deal under Digital Markets Act</div>
-        <div class="news-snippet">Brussels investigates whether the multi-billion-dollar default-search payments violate fair competition rules. Both names trading muted on the news; impact seen as immaterial near-term.</div>
-      </div>
-      <div class="news-item">
-        <div class="news-meta"><span>13:14 ET</span><span>Reuters</span><span class="sym-tag">PLTR</span><span class="sent-pos">▲ +0.68</span><span class="card-badge">Contract</span></div>
-        <div class="news-title">Palantir wins $480M Army contract extension for Maven battlefield AI platform</div>
-        <div class="news-snippet">5-year extension brings cumulative Army Maven value to $1.2B. Civilian-side commercial pipeline now ~$3.4B per recent CFO commentary.</div>
-      </div>
-      <div class="news-item">
-        <div class="news-meta"><span>12:58 ET</span><span>Bloomberg</span><span class="sym-tag">WMT</span><span class="sent-pos">▲ +0.54</span><span class="card-badge">Earnings</span></div>
-        <div class="news-title">Walmart beats Q1 estimates, raises FY guidance on grocery and e-commerce strength</div>
-        <div class="news-snippet">EPS $0.61 vs $0.58e; revenue $159.4B vs $159.1B. US comps +3.8%. Raises FY operating-income guide. Stock +3.2% in pre-market.</div>
-      </div>
-      <div class="news-item">
-        <div class="news-meta"><span>12:32 ET</span><span>WSJ</span><span class="sym-tag">SMCI</span><span class="sent-pos">▲ +0.62</span><span class="card-badge">Earnings</span></div>
-        <div class="news-title">Super Micro raises capacity guidance as AI-server backlog grows past 8 months</div>
-        <div class="news-snippet">Charles Liang says liquid-cooling demand "unprecedented." Capex up 38% Y/Y. Citi reiterates Buy with $62 PT (vs $48 spot).</div>
-      </div>
-      <div class="news-item">
-        <div class="news-meta"><span>12:14 ET</span><span>CNBC</span><span class="sym-tag">BTC</span><span class="sent-pos">▲ +0.58</span><span class="card-badge">Crypto</span></div>
-        <div class="news-title">Spot Bitcoin ETFs see $568M net inflow today, IBIT crosses $48B AUM</div>
-        <div class="news-snippet">BlackRock's IBIT continues to dominate flows. GBTC sheds $84M today, now down $18.4B YTD as legacy holders rotate to lower-fee products.</div>
-      </div>
-      <div class="news-item">
-        <div class="news-meta"><span>11:48 ET</span><span>FT</span><span class="sym-tag">EUR</span><span class="sent-neu">◆ -0.08</span><span class="card-badge">Macro</span></div>
-        <div class="news-title">ECB's Lagarde signals June cut "appropriate" but disagreement on subsequent pace</div>
-        <div class="news-snippet">Hawks Schnabel and Holzmann pushing back against multiple cuts in 2026. Market still prices 75 bps of ECB easing this year.</div>
-      </div>
-      <div class="news-item">
-        <div class="news-meta"><span>11:14 ET</span><span>Reuters</span><span class="sym-tag">XLE</span><span class="sym-tag">CVX</span><span class="sent-neg">▼ -0.48</span><span class="card-badge">Sector</span></div>
-        <div class="news-title">Crude inventories build 4.2M barrels vs draw expected; energy stocks slide</div>
-        <div class="news-snippet">EIA data shows largest weekly build since February. WTI -2.4%, with CVX, XOM, COP all giving back recent gains. XLE breaks May trend support.</div>
-      </div>
-      <div class="news-item">
-        <div class="news-meta"><span>10:42 ET</span><span>Bloomberg</span><span class="sym-tag">RIVN</span><span class="sent-neg">▼ -0.82</span><span class="card-badge">Production</span></div>
-        <div class="news-title">Rivian cuts FY production guidance again; layoffs hit 10% of salaried staff</div>
-        <div class="news-snippet">New guide of 47-49k units vs prior 57k. Cash burn pace remains elevated. Wedbush downgrades to Hold from Outperform with $11 PT.</div>
-      </div>
-      <div class="news-item">
-        <div class="news-meta"><span>10:14 ET</span><span>WSJ</span><span class="sym-tag">UBER</span><span class="sent-pos">▲ +0.38</span><span class="card-badge">M&A</span></div>
-        <div class="news-title">Uber in talks to acquire Foodpanda Taiwan unit for $1.2B in cash</div>
-        <div class="news-snippet">Would add ~$420M in run-rate revenue and consolidate Uber's #1 position in the market. Deal could close Q3 pending regulatory.</div>
-      </div>
+    <div class="news-row" style="background:var(--bg-elevated);color:var(--text-muted);font-weight:700;font-size:10px;letter-spacing:0.5px;text-transform:uppercase;cursor:default;">
+      <div>Time</div><div>Headline</div><div>Source</div><div>Tickers</div><div style="text-align:center;">Sentiment</div>
     </div>
+    <div id="newsList"></div>
+  </div>
+
+  <div class="related-bar mt-24">
+    <span class="lbl">Related →</span>
+    <a href="smart-money.html">🏛 Insider Transactions</a>
+    <a href="earnings-calendar.html">📅 Earnings</a>
+    <a href="ticker.html" id="tickerLink">🔍 Ticker Focus</a>
+    <a href="economic-events.html">🏦 Economic Events</a>
+    <a href="hot-movers.html">🔥 Hot Movers</a>
   </div>
 </div>
 
 <div id="site-footer"></div>
 
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
 <script src="js/app.js"></script>
 <script src="js/notify.js"></script>
-<script src="js/charts.js"></script>
 <script src="js/live.js"></script>
 <script>
 buildNav('news');
-document.addEventListener('DOMContentLoaded', () => {
-  // Sentiment chart
-  const n = 168; // 7 days × 24 hours
-  const data = [];
-  for (let i = 0; i < n; i++) {
-    data.push(+(0.15 + Math.sin(i/12) * 0.25 + (Math.random()-0.5) * 0.18).toFixed(3));
-  }
-  new Chart(document.getElementById('sentChart'), {
-    type:'line',
-    data: { labels: Array.from({length:n}, (_,i) => 'H'+(i+1)), datasets: [{
-      data, borderColor:'#00d4ff', backgroundColor: 'rgba(0,212,255,0.15)', borderWidth: 2, tension: 0.3, pointRadius: 0, fill: true
-    }]},
-    options: { ...baseOptions(), plugins:{ ...baseOptions().plugins, legend:{display:false}}, scales: { ...baseOptions().scales, y: { ...baseOptions().scales.y, min: -1, max: 1, ticks: { ...baseOptions().scales.y.ticks, callback: v => v.toFixed(2) }}}}
-  });
 
-  // Search: filter news items by text content
-  const search = document.getElementById('newsSearch');
-  if (search) {
-    search.addEventListener('input', () => {
-      const q = search.value.trim().toUpperCase();
-      document.querySelectorAll('.news-item').forEach(it => {
-        const txt = it.textContent.toUpperCase();
-        it.style.display = txt.indexOf(q) !== -1 ? '' : 'none';
-      });
-    });
+const $ = id => document.getElementById(id);
+const POPULAR = ['NVDA','AAPL','MSFT','META','GOOGL','AMZN','TSLA','AMD','PLTR','COIN','SMCI','SHOP','BABA','SPY','QQQ'];
+
+let activeCat = 'general';
+let activeSym = '';
+
+const POS_WORDS = ['beat','beats','surge','surges','rally','rallies','soar','soars','jump','jumps','gain','gains','climb','climbs','record','high','outperform','upgrade','upgraded','bullish','strong','strength','positive','exceed','exceeds','top','tops','grow','growth','expand','breakthrough','approval','approved','win','wins','launch','launches','partner','partnership','milestone','momentum','revenue','profit'];
+const NEG_WORDS = ['miss','misses','plunge','plunges','crash','crashes','fall','falls','drop','drops','decline','declines','tumble','tumbles','slip','slips','low','underperform','downgrade','downgraded','bearish','weak','weakness','negative','disappoint','disappoints','warn','warning','cut','cuts','layoff','layoffs','lawsuit','probe','investigation','recall','fine','penalty','default','bankrupt','bankruptcy','loss','losses','slowdown'];
+
+function scoreSentiment(text) {
+  const t = (text || '').toLowerCase();
+  let pos = 0, neg = 0;
+  POS_WORDS.forEach(w => { if (t.includes(w)) pos++; });
+  NEG_WORDS.forEach(w => { if (t.includes(w)) neg++; });
+  if (pos === 0 && neg === 0) return { label: 'neutral', score: 0 };
+  if (pos > neg) return { label: 'positive', score: pos - neg };
+  if (neg > pos) return { label: 'negative', score: pos - neg };
+  return { label: 'neutral', score: 0 };
+}
+
+function renderQuick() {
+  $('symQuick').innerHTML = '<button class="' + (activeSym === '' ? 'active' : '') + '" data-sym="">All / General</button>' +
+    POPULAR.map(s => `<button class="${s === activeSym ? 'active' : ''}" data-sym="${s}">${s}</button>`).join('');
+  $('symQuick').querySelectorAll('button').forEach(b => b.addEventListener('click', () => {
+    activeSym = b.dataset.sym;
+    $('symInput').value = activeSym;
+    load();
+  }));
+}
+
+function showError(msg, hint) {
+  $('newsList').innerHTML = `<div class="empty-card">
+    <div class="icon">⚠</div>
+    <div style="color:var(--red);font-weight:700;margin-bottom:6px;">${msg}</div>
+    <div style="font-size:13px;">${hint || ''}</div>
+    <a href="settings.html" class="btn btn-primary" style="margin-top:14px;">Open Settings</a>
+  </div>`;
+}
+
+function fmtTime(ms) {
+  const d = new Date(ms);
+  const diff = (Date.now() - ms) / 1000;
+  if (diff < 60) return Math.floor(diff) + 's ago';
+  if (diff < 3600) return Math.floor(diff / 60) + 'm ago';
+  if (diff < 86400) return Math.floor(diff / 3600) + 'h ago';
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) + ' · ' + d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+}
+
+async function load() {
+  activeSym = ($('symInput').value || '').trim().toUpperCase();
+  renderQuick();
+  $('listTitle').textContent = activeSym ? activeSym + ' news' : (activeCat[0].toUpperCase() + activeCat.slice(1) + ' markets news');
+  $('tickerLink').href = 'ticker.html?sym=' + (activeSym || 'SPY');
+  $('newsList').innerHTML = '<div class="empty-card"><div class="icon">⏳</div><div>Loading headlines…</div></div>';
+
+  if (typeof DataProvider === 'undefined' || DataProvider.getConfig().provider !== 'finnhub' || !DataProvider.getConfig().apiKey) {
+    showError('Finnhub key required', 'News is pulled live from Finnhub. Open Settings → Market Data, paste your Finnhub key, and enable the feed.');
+    return;
   }
-});
+
+  let items;
+  try {
+    if (activeSym) {
+      items = await DataProvider.getCompanyNews(activeSym, Date.now() - 14 * 86400000, Date.now());
+    } else {
+      items = await DataProvider.getMarketNews(activeCat);
+    }
+  } catch (e) {
+    showError('Failed to fetch news: ' + e.message);
+    return;
+  }
+  render(items || []);
+}
+
+function render(items) {
+  if (!items.length) {
+    $('newsList').innerHTML = '<div class="empty-card"><div class="icon">📭</div><div>No headlines.</div></div>';
+    ['kCount','kPos','kNeg','kSource'].forEach(id => $(id).textContent = '0');
+    return;
+  }
+
+  items.sort((a, b) => (b.datetime || 0) - (a.datetime || 0));
+
+  let pos = 0, neg = 0;
+  const sourceCounts = {};
+  items.forEach(it => {
+    const s = scoreSentiment(it.headline + ' ' + (it.summary || ''));
+    it._sent = s;
+    if (s.label === 'positive') pos++;
+    else if (s.label === 'negative') neg++;
+    sourceCounts[it.source] = (sourceCounts[it.source] || 0) + 1;
+  });
+  const topSource = Object.entries(sourceCounts).sort((a,b) => b[1] - a[1])[0];
+
+  $('kCount').textContent = items.length;
+  $('kRange').textContent = activeSym ? 'Last 14d for ' + activeSym : 'Latest from Finnhub';
+  $('kPos').textContent = pos;
+  $('kNeg').textContent = neg;
+  $('kSource').textContent = topSource ? topSource[0] : '—';
+  $('kSourceCount').textContent = topSource ? topSource[1] + ' headlines' : '';
+
+  $('newsList').innerHTML = items.slice(0, 60).map(it => {
+    const sentCls = it._sent.label === 'positive' ? 'sent-pos' : it._sent.label === 'negative' ? 'sent-neg' : 'sent-neu';
+    const tickers = it.related ? String(it.related).split(',').filter(Boolean).slice(0, 4).join(', ') : '—';
+    return `<a href="${it.url}" target="_blank" rel="noopener" class="news-row" style="text-decoration:none;color:inherit;">
+      <div class="ts">${fmtTime(it.datetime)}</div>
+      <div>
+        <div class="head">${escapeHtml(it.headline)}</div>
+        <div class="sum">${escapeHtml((it.summary || '').slice(0, 200))}</div>
+      </div>
+      <div class="src">${escapeHtml(it.source || '—')}</div>
+      <div class="related-syms">${escapeHtml(tickers)}</div>
+      <div><span class="sent ${sentCls}">${it._sent.label.toUpperCase()}</span></div>
+    </a>`;
+  }).join('');
+}
+
+function escapeHtml(s) { return String(s || '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+$('loadBtn').addEventListener('click', load);
+$('symInput').addEventListener('keydown', e => { if (e.key === 'Enter') load(); });
+document.querySelectorAll('[data-cat]').forEach(b => b.addEventListener('click', () => {
+  document.querySelectorAll('[data-cat]').forEach(x => x.classList.remove('btn-active'));
+  b.classList.add('btn-active');
+  activeCat = b.dataset.cat;
+  if (!activeSym) load();
+}));
+
+renderQuick();
+load();
 </script>
 </body>
 </html>

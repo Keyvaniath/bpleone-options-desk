@@ -111,6 +111,9 @@ const DataProvider = (function() {
     if (typeof QUOTES === 'undefined' || !QUOTES[sym]) return;
     const q = QUOTES[sym];
     q.last = +price;
+    q.fresh = true;
+    q.source = q.source || config.provider;
+    q.lastTickAt = Date.now();
     if (size && size > 0) q.volume = (q.volume || 0) + size;
     if (typeof computeDerived === 'function') computeDerived(q);
     if (typeof Feed !== 'undefined') Feed.publish(sym, q);
@@ -170,16 +173,34 @@ const DataProvider = (function() {
   }
 
   // ---------- Provider: Finnhub ----------
+  // Map our local symbols → Finnhub's symbol convention.
+  // Finnhub uses BINANCE: prefix for crypto, bare tickers for US equities.
+  const FINNHUB_SYM_MAP = {
+    BTC: 'BINANCE:BTCUSDT',
+    ETH: 'BINANCE:ETHUSDT'
+  };
+  function toFinnhub(sym) { return FINNHUB_SYM_MAP[sym] || sym; }
+  function fromFinnhub(fhSym) {
+    for (const [local, fh] of Object.entries(FINNHUB_SYM_MAP)) {
+      if (fh === fhSym) return local;
+    }
+    return fhSym;
+  }
+
   // On connect, also bootstrap prevClose + spot for each symbol via REST so
   // change/changePct are accurate from tick #1 (Finnhub WS only sends last
   // trade price, not prevClose).
+  // CRITICAL: every page reads QUOTES synchronously on initial render. We
+  // run this bootstrap, mark each symbol fresh, then fire Feed.publish('*')
+  // so all pages re-render with real values.
   async function bootstrapFinnhub() {
     if (typeof QUOTES === 'undefined') return;
     const syms = symbolsToSubscribe();
-    // Run in parallel, ignore failures per-symbol
+    const updated = [];
     await Promise.all(syms.map(async sym => {
       try {
-        const r = await fetch('https://finnhub.io/api/v1/quote?symbol=' + encodeURIComponent(sym) + '&token=' + encodeURIComponent(config.apiKey));
+        const fhSym = toFinnhub(sym);
+        const r = await fetch('https://finnhub.io/api/v1/quote?symbol=' + encodeURIComponent(fhSym) + '&token=' + encodeURIComponent(config.apiKey));
         if (!r.ok) return;
         const j = await r.json();
         if (!QUOTES[sym]) return;
@@ -187,11 +208,24 @@ const DataProvider = (function() {
         if (typeof j.pc === 'number' && j.pc > 0) QUOTES[sym].prevClose = j.pc;
         if (typeof j.c === 'number' && j.c > 0) {
           QUOTES[sym].last = j.c;
+          QUOTES[sym].fresh = true;          // mark as confirmed-from-feed
+          QUOTES[sym].source = 'finnhub';
+          if (typeof j.h === 'number') QUOTES[sym].dayHigh = j.h;
+          if (typeof j.l === 'number') QUOTES[sym].dayLow = j.l;
+          if (typeof j.o === 'number') QUOTES[sym].dayOpen = j.o;
           if (typeof computeDerived === 'function') computeDerived(QUOTES[sym]);
           if (typeof Feed !== 'undefined') Feed.publish(sym, QUOTES[sym]);
+          updated.push(sym);
         }
       } catch (e) {}
     }));
+    // Fire wildcard so every page subscribed to '*' re-renders with the
+    // freshly-bootstrapped data.
+    if (typeof Feed !== 'undefined' && typeof QUOTES !== 'undefined') {
+      Feed.publish('*', QUOTES);
+    }
+    console.log('[DataProvider] Finnhub bootstrap done — fresh for ' + updated.length + '/' + syms.length + ': ' + updated.join(','));
+    return updated;
   }
 
   function connectFinnhub() {
@@ -201,7 +235,7 @@ const DataProvider = (function() {
     ws = new WebSocket('wss://ws.finnhub.io?token=' + encodeURIComponent(config.apiKey));
     ws.onopen = () => {
       symbolsToSubscribe().forEach(sym => {
-        ws.send(JSON.stringify({ type: 'subscribe', symbol: sym }));
+        ws.send(JSON.stringify({ type: 'subscribe', symbol: toFinnhub(sym) }));
       });
       setStatus('connected');
       clearReconnect();
@@ -212,7 +246,7 @@ const DataProvider = (function() {
         bytesReceived += ev.data.length;
         const msg = JSON.parse(ev.data);
         if (msg.type === 'trade' && Array.isArray(msg.data)) {
-          msg.data.forEach(t => applyTrade(t.s, t.p, t.v));
+          msg.data.forEach(t => applyTrade(fromFinnhub(t.s), t.p, t.v));
         } else if (msg.type === 'ping') {
           // ignore
         } else if (msg.type === 'error') {
@@ -467,6 +501,64 @@ const DataProvider = (function() {
     return bars;
   }
 
+  // ---------- Finnhub-specific helpers for real fundamental/insider/news data ----------
+  // These call Finnhub REST endpoints directly. They throw if no key or wrong provider.
+  // Pages can call e.g. DataProvider.getInsiderTransactions('NVDA') to get real data.
+  function _fhKey() {
+    if (config.provider !== 'finnhub' || !config.apiKey) throw new Error('Finnhub key not configured');
+    return encodeURIComponent(config.apiKey);
+  }
+  async function _fhGet(path, params) {
+    const key = _fhKey();
+    const qs = Object.entries(params || {}).map(([k,v]) => k + '=' + encodeURIComponent(v)).join('&');
+    const url = 'https://finnhub.io/api/v1' + path + '?' + qs + '&token=' + key;
+    const r = await fetch(url);
+    if (!r.ok) throw new Error('Finnhub ' + path + ' failed: ' + r.status);
+    return r.json();
+  }
+  async function getInsiderTransactions(symbol) {
+    const j = await _fhGet('/stock/insider-transactions', { symbol });
+    return (j.data || []).map(t => ({
+      symbol: t.symbol, name: t.name, share: t.share, change: t.change,
+      filingDate: t.filingDate, transactionDate: t.transactionDate,
+      transactionPrice: t.transactionPrice, transactionCode: t.transactionCode,
+      isBuy: (t.change || 0) > 0
+    }));
+  }
+  async function getInsiderSentiment(symbol, fromMs, toMs) {
+    const fmt = ms => new Date(ms).toISOString().slice(0,10);
+    const j = await _fhGet('/stock/insider-sentiment', { symbol, from: fmt(fromMs || Date.now() - 365*86400000), to: fmt(toMs || Date.now()) });
+    return (j.data || []);
+  }
+  async function getCompanyNews(symbol, fromMs, toMs) {
+    const fmt = ms => new Date(ms).toISOString().slice(0,10);
+    const j = await _fhGet('/company-news', { symbol, from: fmt(fromMs || Date.now() - 7*86400000), to: fmt(toMs || Date.now()) });
+    return (j || []).map(n => ({ id: n.id, headline: n.headline, summary: n.summary, source: n.source, url: n.url, datetime: n.datetime*1000, category: n.category, image: n.image, related: n.related }));
+  }
+  async function getMarketNews(category) {
+    const j = await _fhGet('/news', { category: category || 'general' });
+    return (j || []).map(n => ({ id: n.id, headline: n.headline, summary: n.summary, source: n.source, url: n.url, datetime: n.datetime*1000, category: n.category, image: n.image, related: n.related }));
+  }
+  async function getEarningsCalendar(fromMs, toMs) {
+    const fmt = ms => new Date(ms).toISOString().slice(0,10);
+    const j = await _fhGet('/calendar/earnings', { from: fmt(fromMs || Date.now()), to: fmt(toMs || Date.now() + 14*86400000) });
+    return (j.earningsCalendar || []);
+  }
+  async function getRecommendations(symbol) {
+    const j = await _fhGet('/stock/recommendation', { symbol });
+    return Array.isArray(j) ? j : [];
+  }
+  async function getStockProfile(symbol) {
+    return _fhGet('/stock/profile2', { symbol });
+  }
+  async function getBasicFinancials(symbol) {
+    const j = await _fhGet('/stock/metric', { symbol, metric: 'all' });
+    return j.metric || {};
+  }
+  async function getQuote(symbol) {
+    return _fhGet('/quote', { symbol: toFinnhub(symbol) });
+  }
+
   // ---------- Init ----------
   function init() {
     config = loadConfig();
@@ -488,6 +580,16 @@ const DataProvider = (function() {
     getConfig,
     getStatus,
     onStatus,
-    getHistorical
+    getHistorical,
+    // Real-data helpers (Finnhub)
+    getInsiderTransactions,
+    getInsiderSentiment,
+    getCompanyNews,
+    getMarketNews,
+    getEarningsCalendar,
+    getRecommendations,
+    getStockProfile,
+    getBasicFinancials,
+    getQuote
   };
 })();
