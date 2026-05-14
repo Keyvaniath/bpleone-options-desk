@@ -205,8 +205,171 @@ const Learn = (function () {
 
   function getWeights() { return load().weights; }
 
-  // Auto-seed on load
-  try { seedIfEmpty(); } catch (e) {}
+  // ---------------- Conditional / contextual learning ----------------
+  // Tracks weights by (setup × dimension × bucket), e.g. setup='macd-cross'
+  // dimension='sector' bucket='Tech' => weight for that combination.
+  // Score formula: adjusted = raw × base × product(conditional adjustments)
+  // Adjustments are mild (multiplicative around 1.0) so they refine — not flip — the base.
+  function bucketDayOfWeek(ts) { return new Date(ts).toLocaleDateString('en-US', { weekday: 'short' }); }
+  function bucketHoldBand(holdDays) {
+    if (holdDays < 1) return 'Intraday';
+    if (holdDays < 4) return '1-3d';
+    if (holdDays < 10) return '4-9d';
+    if (holdDays < 30) return '10-29d';
+    return '30d+';
+  }
+  function bucketVixRegime(vix) {
+    if (vix == null) return 'unknown';
+    if (vix < 14) return 'low';        // complacent
+    if (vix < 20) return 'normal';
+    if (vix < 30) return 'elevated';
+    return 'panic';
+  }
 
-  return { recordTrade, closeTrade, recordSignal, adjustedScore, stats, getWeights, rebalanceWeights, reset, load };
+  function currentVix() {
+    if (typeof QUOTES !== 'undefined' && QUOTES.VIX) return QUOTES.VIX.last;
+    return null;
+  }
+
+  // Compute conditional adjustment factors from history. Stored on state.conditional.
+  function rebalanceConditional() {
+    const state = load();
+    if (!state.conditional) state.conditional = {};
+    const closed = state.trades.filter(t => t.result);
+    if (closed.length < 8) { save(state); return state.conditional; }
+
+    function bucketsFor(t) {
+      return {
+        sector: t.sector || '—',
+        dow: bucketDayOfWeek(t.ts),
+        hold: bucketHoldBand(t.holdDays || 0),
+        bias: t.bias || '—',
+        // Use stored regime if present; otherwise treat as 'normal'
+        regime: t.vixRegime || 'normal'
+      };
+    }
+
+    const acc = {}; // setup -> dim -> bucket -> { sum, n }
+    closed.forEach(t => {
+      const buckets = bucketsFor(t);
+      if (!acc[t.setup]) acc[t.setup] = {};
+      Object.keys(buckets).forEach(dim => {
+        if (!acc[t.setup][dim]) acc[t.setup][dim] = {};
+        const b = buckets[dim];
+        if (!acc[t.setup][dim][b]) acc[t.setup][dim][b] = { sum: 0, n: 0 };
+        acc[t.setup][dim][b].sum += t.R || 0;
+        acc[t.setup][dim][b].n += 1;
+      });
+    });
+
+    const out = {};
+    Object.keys(acc).forEach(setup => {
+      out[setup] = {};
+      Object.keys(acc[setup]).forEach(dim => {
+        out[setup][dim] = {};
+        Object.keys(acc[setup][dim]).forEach(bucket => {
+          const v = acc[setup][dim][bucket];
+          if (v.n < 3) return;
+          const expectancy = v.sum / v.n;
+          // Conditional adjustment is gentler than base — squashed to [0.7, 1.35]
+          const adj = Math.max(0.7, Math.min(1.35, 1 + expectancy * 0.18));
+          out[setup][dim][bucket] = { adj: +adj.toFixed(3), n: v.n, expectancy: +expectancy.toFixed(2), winRate: +(closed.filter(t => t.setup===setup && bucketsFor(t)[dim] === bucket && t.result==='win').length / v.n).toFixed(3) };
+        });
+      });
+    });
+    state.conditional = out;
+    save(state);
+    return out;
+  }
+
+  // adjustedScoreCtx: raw score adjusted by base × all relevant conditional adjustments.
+  // ctx = { sector, dow?, hold?, bias?, regime? } — any subset is fine.
+  function adjustedScoreCtx(rawScore, type, ctx) {
+    const state = load();
+    const base = state.weights[type] || 1.0;
+    let mult = base;
+    const cond = state.conditional && state.conditional[type];
+    if (cond && ctx) {
+      Object.keys(ctx).forEach(dim => {
+        const bucket = ctx[dim];
+        const entry = cond[dim] && cond[dim][bucket];
+        if (entry && typeof entry.adj === 'number') mult *= entry.adj;
+      });
+    }
+    return Math.max(0, Math.min(100, Math.round(rawScore * mult)));
+  }
+
+  // Plain-English explanation: returns array of strings like
+  // "Tech sector has been favorable (+1.4R avg over 12 trades)"
+  function explain(type, ctx) {
+    const state = load();
+    const reasons = [];
+    const base = state.weights[type] || 1.0;
+    reasons.push({
+      kind: 'base',
+      text: `Base weight for ${type}: ${base.toFixed(2)}× (${base >= 1.1 ? 'favored' : base <= 0.9 ? 'penalized' : 'neutral'})`,
+      impact: (base - 1)
+    });
+    const cond = state.conditional && state.conditional[type];
+    if (cond && ctx) {
+      Object.keys(ctx).forEach(dim => {
+        const bucket = ctx[dim];
+        const e = cond[dim] && cond[dim][bucket];
+        if (e) {
+          const verb = e.adj > 1.05 ? 'favored' : e.adj < 0.95 ? 'penalized' : 'neutral';
+          reasons.push({
+            kind: 'conditional',
+            dim, bucket,
+            text: `${dim}=${bucket}: ${verb} — avg ${e.expectancy >= 0 ? '+' : ''}${e.expectancy}R over ${e.n} prior trades, win rate ${Math.round(e.winRate*100)}%`,
+            impact: (e.adj - 1)
+          });
+        }
+      });
+    }
+    return reasons;
+  }
+
+  // High-level "what the system has learned" digest — used by learn-dashboard.html.
+  function insights(maxItems) {
+    const state = load();
+    const cond = state.conditional || {};
+    const items = [];
+    Object.keys(cond).forEach(setup => {
+      Object.keys(cond[setup]).forEach(dim => {
+        Object.keys(cond[setup][dim]).forEach(bucket => {
+          const e = cond[setup][dim][bucket];
+          if (!e || e.n < 4) return;
+          const direction = e.adj > 1.0 ? 'boosts' : 'fades';
+          const strength = Math.abs(e.adj - 1) * 100;
+          items.push({
+            setup, dim, bucket,
+            adj: e.adj, n: e.n, expectancy: e.expectancy, winRate: e.winRate,
+            strength,
+            sentence: `${setup} on ${dim}=${bucket} → ${direction} (${(e.adj * 100).toFixed(0)}% scaling, ${Math.round(e.winRate*100)}% win-rate over ${e.n})`
+          });
+        });
+      });
+    });
+    items.sort((a, b) => b.strength - a.strength);
+    return items.slice(0, maxItems || 20);
+  }
+
+  // Mark this position's regime at open time so closeTrade keeps regime correlation
+  function tagRegime(trade) {
+    const v = currentVix();
+    trade.vixRegime = bucketVixRegime(v);
+    return trade;
+  }
+
+  // Auto-seed on load
+  try { seedIfEmpty(); rebalanceConditional(); } catch (e) {}
+
+  return {
+    recordTrade, closeTrade, recordSignal, adjustedScore, stats, getWeights,
+    rebalanceWeights, reset, load,
+    // new conditional API
+    rebalanceConditional, adjustedScoreCtx, explain, insights, tagRegime,
+    // helpers
+    bucketVixRegime, currentVix
+  };
 })();

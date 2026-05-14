@@ -2,6 +2,23 @@
    BPLEONE TRADING - CORE APP JS
    =========================================== */
 
+// Auto-load companion modules on any page that includes this script.
+// Pages that already imported these get a no-op (idempotent).
+(function loadCompanions() {
+  const want = ['js/toast.js', 'js/command-palette.js', 'js/hotkeys.js', 'js/onboarding.js'];
+  const have = new Set([...document.querySelectorAll('script[src]')].map(s => {
+    try { return new URL(s.src, location.href).pathname.split('/').slice(-2).join('/'); } catch (e) { return s.src; }
+  }));
+  want.forEach(rel => {
+    const key = rel;
+    if (have.has(key) || [...document.querySelectorAll('script[src]')].some(s => s.src.endsWith(rel))) return;
+    const s = document.createElement('script');
+    s.src = rel;
+    s.async = false;
+    document.head.appendChild(s);
+  });
+})();
+
 const TICKER_SYMBOLS = ['SPY','QQQ','IWM','DIA','AAPL','NVDA','TSLA','MSFT','META','AMZN','GOOGL','AMD','BTC','ETH','VIX','GLD','TLT','USO','SMCI','PLTR','COIN'];
 
 function buildTicker() {
@@ -50,9 +67,9 @@ function buildTicker() {
 
 function buildNav(activePage) {
   activePage = activePage || '';
-  const playsGrp = ['totd','plays','signals','earnings','pre-market','zero-dte','setup-wizard'];
-  const tradeGrp = ['flow','chain','ta','momentum','market-internals','smart-money','heatmap','watchlists','vol-surface','gex','tape','sectors','pairs','calendar-analyzer','vol-cone','dark-pool','short-interest','etf-flows'];
-  const toolsGrp = ['risk','fundamentals','backtester','edge','crypto','journal','alerts','macro','news','screener','anomalies','assistant','portfolio-builder','position-sizing','execution','strategies','api','seasonality','economic-events','settings'];
+  const playsGrp = ['totd','plays','signals','earnings','pre-market','zero-dte','setup-wizard','paper-trade'];
+  const tradeGrp = ['flow','chain','ta','momentum','market-internals','smart-money','heatmap','watchlists','vol-surface','gex','tape','sectors','pairs','calendar-analyzer','vol-cone','dark-pool','short-interest','etf-flows','volume-profile','order-flow','ticker'];
+  const toolsGrp = ['risk','fundamentals','backtester','edge','learn','crypto','journal','alerts','macro','news','screener','anomalies','assistant','portfolio-builder','position-sizing','execution','strategies','api','seasonality','economic-events','settings'];
   const isTrade = tradeGrp.indexOf(activePage) !== -1;
   const isPlays = playsGrp.indexOf(activePage) !== -1;
   const isTools = toolsGrp.indexOf(activePage) !== -1;
@@ -72,6 +89,7 @@ function buildNav(activePage) {
     + '<a href="earnings-calendar.html">📅 Earnings Calendar</a>'
     + '<a href="zero-dte.html">⚡ 0DTE Dashboard</a>'
     + '<a href="setup-wizard.html">🧙 Setup Wizard</a>'
+    + '<a href="paper-trade.html">🎮 Paper Trading <span class="feat-badge feat-new" style="font-size:8px;padding:0 5px;">NEW</span></a>'
     + '</div></li>'
     + '<li class="nav-dd"><a href="#" class="' + (isTrade?'active':'') + '">Trading ▾</a>'
     + '<div class="nav-dropdown">'
@@ -93,6 +111,9 @@ function buildNav(activePage) {
     + '<a href="dark-pool.html">🌑 Dark Pool Tracker</a>'
     + '<a href="short-interest.html">🩳 Short Interest</a>'
     + '<a href="etf-flows.html">💸 ETF Flows</a>'
+    + '<a href="volume-profile.html">📊 Volume Profile <span class="feat-badge feat-pro" style="font-size:8px;padding:0 5px;">PRO</span></a>'
+    + '<a href="order-flow.html">🔥 Order Flow <span class="feat-badge feat-new" style="font-size:8px;padding:0 5px;">NEW</span></a>'
+    + '<a href="ticker.html">🔍 Ticker Focus <span class="feat-badge feat-new" style="font-size:8px;padding:0 5px;">NEW</span></a>'
     + '</div></li>'
     + '<li class="nav-dd"><a href="#" class="' + (isTools?'active':'') + '">Tools ▾</a>'
     + '<div class="nav-dropdown">'
@@ -104,6 +125,7 @@ function buildNav(activePage) {
     + '<a href="journal.html">📓 Trade Journal</a>'
     + '<a href="alerts.html">🔔 Alerts</a>'
     + '<a href="edge-analytics.html">🧠 Edge Analytics</a>'
+    + '<a href="learn-dashboard.html">🧠 Learn Dashboard <span class="feat-badge feat-new" style="font-size:8px;padding:0 5px;">NEW</span></a>'
     + '<a href="crypto.html">₿ Crypto Desk</a>'
     + '<a href="screener.html">🔎 Multi-Factor Screener</a>'
     + '<a href="anomalies.html">⚠ Anomaly Detector</a>'
@@ -121,6 +143,7 @@ function buildNav(activePage) {
     + '</ul>'
     + '<div class="nav-actions">'
     + '<a id="dataStatusPill" href="settings.html" title="Data feed status — click to configure" class="data-pill data-pill-mock"><span class="data-pill-dot"></span><span class="data-pill-label">MOCK</span></a>'
+    + '<button id="cmdkBtn" title="Search & navigate (⌘K)" class="btn btn-ghost" style="padding:6px 10px;font-size:11px;font-family:var(--font-mono);">⌘K</button>'
     + '<button id="notifyBtn" title="Enable signal alerts" class="btn btn-ghost" style="padding:6px 10px;">🔔</button>'
     + '<a href="about.html#subscribe" class="btn btn-ghost">Sign In</a>'
     + '<a href="about.html#subscribe" class="btn btn-primary">Get Pro</a>'
@@ -129,6 +152,8 @@ function buildNav(activePage) {
   if (slot) slot.innerHTML = navHtml;
   buildTicker();
   wireDataPill();
+  const cmdkBtn = document.getElementById('cmdkBtn');
+  if (cmdkBtn && window.CmdPalette) cmdkBtn.addEventListener('click', () => CmdPalette.open());
   const nb = document.getElementById('notifyBtn');
   if (nb && typeof Notify !== 'undefined') {
     function refreshLabel() {
@@ -196,6 +221,7 @@ function buildFooter() {
     + '<li><a href="earnings-calendar.html">Earnings</a></li>'
     + '<li><a href="zero-dte.html">0DTE</a></li>'
     + '<li><a href="setup-wizard.html">Setup Wizard</a></li>'
+    + '<li><a href="paper-trade.html">Paper Trade</a></li>'
     + '</ul></div>'
     + '<div class="footer-col"><h4>Trading</h4><ul>'
     + '<li><a href="dashboard.html">Dashboard</a></li>'
@@ -217,6 +243,9 @@ function buildFooter() {
     + '<li><a href="dark-pool.html">Dark Pool</a></li>'
     + '<li><a href="short-interest.html">Short Interest</a></li>'
     + '<li><a href="etf-flows.html">ETF Flows</a></li>'
+    + '<li><a href="volume-profile.html">Volume Profile</a></li>'
+    + '<li><a href="order-flow.html">Order Flow</a></li>'
+    + '<li><a href="ticker.html">Ticker Focus</a></li>'
     + '</ul></div>'
     + '<div class="footer-col"><h4>Tools</h4><ul>'
     + '<li><a href="fundamentals.html">Fundamentals</a></li>'
@@ -227,6 +256,7 @@ function buildFooter() {
     + '<li><a href="journal.html">Journal</a></li>'
     + '<li><a href="alerts.html">Alerts</a></li>'
     + '<li><a href="edge-analytics.html">Edge Analytics</a></li>'
+    + '<li><a href="learn-dashboard.html">Learn Dashboard</a></li>'
     + '<li><a href="crypto.html">Crypto</a></li>'
     + '<li><a href="screener.html">Screener</a></li>'
     + '<li><a href="anomalies.html">Anomalies</a></li>'

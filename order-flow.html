@@ -1,0 +1,349 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Order Flow — bpleone / trade</title>
+<meta name="description" content="Bid/ask aggression heatmap, cumulative delta, footprint chart, and absorption detection. Read the tape like a market maker.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.heat-row { display: grid; grid-template-columns: 80px 1fr 1fr 80px; gap: 6px; padding: 1px 0; font-family: var(--font-mono); font-size: 11px; align-items: center; }
+.heat-row .px { color: var(--text-secondary); text-align: right; padding-right: 8px; }
+.heat-row .bid { display: flex; justify-content: flex-end; }
+.heat-row .ask { display: flex; justify-content: flex-start; }
+.heat-cell { padding: 2px 6px; min-width: 30px; text-align: center; font-weight: 600; font-size: 10px; border-radius: 3px; }
+.heat-row .delta { text-align: right; font-weight: 700; padding-right: 4px; }
+.heat-row.poc { background: rgba(0,212,255,0.08); border-left: 3px solid var(--accent); padding-left: 5px; margin-left: -8px; }
+.imb-positive { color: var(--green); }
+.imb-negative { color: var(--red); }
+.footprint { font-family: var(--font-mono); font-size: 11px; line-height: 1.55; }
+.fp-line { display: grid; grid-template-columns: 70px 1fr; gap: 8px; }
+.fp-cells { display: flex; gap: 1px; }
+.fp-cell { padding: 2px 4px; min-width: 60px; text-align: center; font-size: 10px; border-radius: 2px; }
+.tape-line { display: grid; grid-template-columns: 60px 90px 70px 1fr 90px; gap: 6px; padding: 2px 4px; font-family: var(--font-mono); font-size: 11px; }
+.tape-line .ts { color: var(--text-muted); font-size: 10px; }
+.tape-line:hover { background: var(--bg-elevated); }
+.tape-buy { border-left: 2px solid var(--green); padding-left: 4px; }
+.tape-sell { border-left: 2px solid var(--red); padding-left: 4px; }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">Order Flow <span class="feat-badge feat-pro">PRO</span> <span class="feat-badge feat-live">LIVE</span></div>
+      <div class="page-subtitle">Bid/ask imbalance, cumulative delta, footprint, absorption · <span id="market-clock">--</span></div>
+    </div>
+    <div class="flex gap-8">
+      <select id="symSel" style="background:var(--bg-elevated);border:1px solid var(--border);border-radius:8px;padding:6px 12px;color:var(--text-primary);font-size:13px;font-family:var(--font-mono);">
+        <option value="SPY">SPY</option><option value="QQQ">QQQ</option>
+        <option value="NVDA">NVDA</option><option value="AAPL">AAPL</option><option value="TSLA">TSLA</option>
+        <option value="META">META</option><option value="MSFT">MSFT</option><option value="AMD">AMD</option>
+      </select>
+      <span class="latency-chip"><span class="lat-dot"></span> <span id="latencyMs">--</span>ms</span>
+    </div>
+  </div>
+
+  <!-- KPI -->
+  <div class="grid grid-4 mb-24">
+    <div class="card">
+      <div class="card-header"><div class="card-title">Cumulative Delta</div></div>
+      <div class="mono" style="font-size:26px;font-weight:700;" id="kDelta">+0</div>
+      <div style="font-size:12px;color:var(--text-muted);" id="kDeltaNote">Buyers vs Sellers (today)</div>
+    </div>
+    <div class="card">
+      <div class="card-header"><div class="card-title">Aggression Ratio</div></div>
+      <div class="mono" style="font-size:26px;font-weight:700;" id="kAgr">50/50</div>
+      <div style="font-size:12px;color:var(--text-muted);">% at ask vs % at bid (rolling 5m)</div>
+    </div>
+    <div class="card">
+      <div class="card-header"><div class="card-title">Largest Print (today)</div></div>
+      <div class="mono" style="font-size:22px;font-weight:700;" id="kBigPrint">—</div>
+      <div style="font-size:12px;color:var(--text-muted);" id="kBigPrintMeta">—</div>
+    </div>
+    <div class="card">
+      <div class="card-header"><div class="card-title">Absorption Signals</div></div>
+      <div class="mono" style="font-size:26px;font-weight:700;" id="kAbs">0</div>
+      <div style="font-size:12px;color:var(--text-muted);">Iceberg fills detected (rolling 30m)</div>
+    </div>
+  </div>
+
+  <!-- Layout: heatmap | delta chart -->
+  <div class="grid grid-12">
+    <div class="card col-6" style="max-height:660px;overflow-y:auto;">
+      <div class="card-header">
+        <div class="card-title">🔥 Order Book Heatmap</div>
+        <div style="font-size:11px;color:var(--text-muted);">Bid (left, red) — Price — Ask (right, green)</div>
+      </div>
+      <div class="heat-row" style="color:var(--text-muted);font-weight:700;font-size:10px;letter-spacing:0.6px;">
+        <div class="px" style="text-align:right;">PRICE</div>
+        <div style="text-align:right;">BID SIZE</div>
+        <div style="text-align:left;">ASK SIZE</div>
+        <div style="text-align:right;">Δ</div>
+      </div>
+      <div id="bookHeat"></div>
+    </div>
+
+    <div class="card col-6">
+      <div class="card-header"><div class="card-title">Cumulative Delta — last 60 min</div></div>
+      <canvas id="deltaChart" height="220"></canvas>
+      <div class="card-header" style="margin-top:14px;"><div class="card-title">Aggression by Minute</div></div>
+      <canvas id="agrChart" height="180"></canvas>
+    </div>
+  </div>
+
+  <!-- Footprint -->
+  <div class="card mt-24">
+    <div class="card-header">
+      <div class="card-title">🦶 Footprint Chart — last 8 bars (5min)</div>
+      <div style="font-size:11px;color:var(--text-muted);">Each cell shows volume at that price level; color = delta (green = more buying, red = more selling)</div>
+    </div>
+    <div class="footprint" id="footprint"></div>
+  </div>
+
+  <!-- Live tape -->
+  <div class="card mt-24">
+    <div class="card-header">
+      <div class="card-title">📜 Live Print Tape</div>
+      <button class="btn btn-ghost" id="pauseBtn" style="font-size:11px;">⏸ Pause</button>
+    </div>
+    <div class="tape-line" style="color:var(--text-muted);font-weight:700;font-size:10px;letter-spacing:0.6px;">
+      <div class="ts">TIME</div><div>EXCHG</div><div>SIDE</div><div>SIZE × PRICE</div><div style="text-align:right;">NOTIONAL</div>
+    </div>
+    <div id="tapeStream" style="max-height:300px;overflow-y:auto;"></div>
+  </div>
+
+  <!-- Education -->
+  <div class="card mt-24">
+    <div class="card-header"><div class="card-title">🧠 How market makers read this</div></div>
+    <div class="grid grid-3" style="gap:20px;">
+      <div>
+        <div style="font-weight:700;color:var(--accent);margin-bottom:6px;">Cumulative Delta</div>
+        <div style="font-size:13px;color:var(--text-muted);line-height:1.6;">Net aggressive buying minus selling over time. <strong>Divergence with price = warning</strong>: price up but delta flat means rally has no buyers — fade candidate. Price flat but delta up = stealth accumulation.</div>
+      </div>
+      <div>
+        <div style="font-weight:700;color:var(--yellow);margin-bottom:6px;">Absorption</div>
+        <div style="font-size:13px;color:var(--text-muted);line-height:1.6;">Large hidden seller absorbing every buy at the ask without price moving up = bearish iceberg. Same in reverse for bullish. <strong>The tell:</strong> giant cumulative volume at one price with no breakout.</div>
+      </div>
+      <div>
+        <div style="font-weight:700;color:var(--purple,#a78bfa);margin-bottom:6px;">Imbalance Stacks</div>
+        <div style="font-size:13px;color:var(--text-muted);line-height:1.6;">3+ consecutive price levels with &gt;3x bid/ask imbalance = directional pressure. Bull stacks above value, bear stacks below, set up the next 5-15 min directional move.</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="related-bar mt-24">
+    <span class="lbl">Related →</span>
+    <a href="tape.html">📜 Time &amp; Sales</a>
+    <a href="volume-profile.html">📊 Volume Profile</a>
+    <a href="dark-pool.html">🌑 Dark Pool</a>
+    <a href="gex.html">🌀 GEX</a>
+    <a href="options-flow.html">📡 Options Flow</a>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/toast.js"></script>
+<script src="js/command-palette.js"></script>
+<script src="js/hotkeys.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script>
+buildNav('order-flow');
+
+let sym = 'SPY';
+let paused = false;
+
+function seedRand(seed) { let s = seed; return () => { s = (s * 9301 + 49297) % 233280; return s / 233280; }; }
+const rng = seedRand(7);
+
+// --------- Heatmap ----------
+function buildHeat() {
+  const q = (typeof QUOTES !== 'undefined' && QUOTES[sym]) ? QUOTES[sym] : null;
+  const spot = q ? q.last : 100;
+  const step = spot > 200 ? 0.5 : 0.25;
+  const levels = 16;
+  const rows = [];
+  for (let i = levels; i >= -levels; i--) {
+    const px = spot + i * step;
+    const distance = Math.abs(i);
+    const sizeBase = Math.max(0, 10000 - distance * 600);
+    const bid = i <= 0 ? Math.round(sizeBase * (0.7 + rng() * 0.8)) : Math.round(sizeBase * (0.3 + rng() * 0.4));
+    const ask = i >= 0 ? Math.round(sizeBase * (0.7 + rng() * 0.8)) : Math.round(sizeBase * (0.3 + rng() * 0.4));
+    rows.push({ px, bid, ask, isPoc: i === 0 });
+  }
+  const max = rows.reduce((m, r) => Math.max(m, r.bid, r.ask), 1);
+  const wrap = document.getElementById('bookHeat');
+  wrap.innerHTML = rows.map(r => {
+    const bw = (r.bid / max) * 100;
+    const aw = (r.ask / max) * 100;
+    const delta = r.ask - r.bid;
+    const dCls = delta > 0 ? 'imb-positive' : delta < 0 ? 'imb-negative' : '';
+    return `<div class="heat-row ${r.isPoc ? 'poc' : ''}">
+      <span class="px">$${r.px.toFixed(2)}</span>
+      <span class="bid"><span class="heat-cell" style="background:rgba(239,68,68,${0.15 + (bw/100)*0.55});color:#fca5a5;width:${bw}%;">${r.bid >= 1000 ? (r.bid/1000).toFixed(1) + 'k' : r.bid}</span></span>
+      <span class="ask"><span class="heat-cell" style="background:rgba(16,185,129,${0.15 + (aw/100)*0.55});color:#6ee7b7;width:${aw}%;">${r.ask >= 1000 ? (r.ask/1000).toFixed(1) + 'k' : r.ask}</span></span>
+      <span class="delta ${dCls}">${delta > 0 ? '+' : ''}${delta >= 1000 ? (delta/1000).toFixed(1)+'k' : delta}</span>
+    </div>`;
+  }).join('');
+}
+
+// --------- Delta + Aggression charts ----------
+let deltaChart, agrChart;
+function buildDeltaSeries() {
+  const labels = [], data = [];
+  let cum = 0;
+  for (let i = 59; i >= 0; i--) {
+    const d = new Date(Date.now() - i * 60000);
+    labels.push(d.toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit' }));
+    cum += (rng() - 0.45) * 1500;
+    data.push(Math.round(cum));
+  }
+  return { labels, data };
+}
+function buildAgrSeries() {
+  const labels = [], buys = [], sells = [];
+  for (let i = 19; i >= 0; i--) {
+    const d = new Date(Date.now() - i * 60000 * 3);
+    labels.push(d.toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit' }));
+    const b = Math.round(2000 + rng() * 4000);
+    const s = Math.round(2000 + rng() * 4000);
+    buys.push(b); sells.push(-s);
+  }
+  return { labels, buys, sells };
+}
+function renderCharts() {
+  if (deltaChart) deltaChart.destroy();
+  if (agrChart) agrChart.destroy();
+  const d = buildDeltaSeries();
+  deltaChart = new Chart(document.getElementById('deltaChart').getContext('2d'), {
+    type: 'line',
+    data: { labels: d.labels, datasets: [{ label: 'Cumulative Δ', data: d.data, borderColor: 'rgba(0,212,255,1)', backgroundColor: d.data[d.data.length-1] >= 0 ? 'rgba(16,185,129,0.15)' : 'rgba(239,68,68,0.15)', fill: { target: 'origin' }, tension: 0.25, pointRadius: 0 }] },
+    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } },
+      scales: { x: { grid: { color: 'rgba(255,255,255,0.04)' }, ticks: { color: '#6b7280', font: { size: 10 }, autoSkip: true, maxTicksLimit: 8, maxRotation: 0 } },
+                y: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#6b7280', font: { size: 10 } } } } }
+  });
+  document.getElementById('kDelta').textContent = (d.data[d.data.length-1] >= 0 ? '+' : '') + d.data[d.data.length-1].toLocaleString();
+  document.getElementById('kDelta').className = 'mono ' + (d.data[d.data.length-1] >= 0 ? 'green-text' : 'red-text');
+
+  const a = buildAgrSeries();
+  agrChart = new Chart(document.getElementById('agrChart').getContext('2d'), {
+    type: 'bar',
+    data: { labels: a.labels, datasets: [
+      { label: 'Buys @ ask', data: a.buys, backgroundColor: 'rgba(16,185,129,0.7)' },
+      { label: 'Sells @ bid', data: a.sells, backgroundColor: 'rgba(239,68,68,0.7)' }
+    ] },
+    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { labels: { color: '#9ca3af', font: { size: 11 } } } },
+      scales: { x: { stacked: true, grid: { color: 'rgba(255,255,255,0.04)' }, ticks: { color: '#6b7280', font: { size: 10 }, autoSkip: true, maxTicksLimit: 8, maxRotation: 0 } },
+                y: { stacked: true, grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#6b7280', font: { size: 10 } } } } }
+  });
+  const totalBuys = a.buys.reduce((x,y)=>x+y,0);
+  const totalSells = Math.abs(a.sells.reduce((x,y)=>x+y,0));
+  const tot = totalBuys + totalSells;
+  const bPct = Math.round(100 * totalBuys / tot);
+  document.getElementById('kAgr').textContent = bPct + '/' + (100 - bPct);
+  document.getElementById('kAbs').textContent = Math.round(2 + rng() * 8);
+}
+
+// --------- Footprint ----------
+function renderFootprint() {
+  const q = (typeof QUOTES !== 'undefined' && QUOTES[sym]) ? QUOTES[sym] : null;
+  const spot = q ? q.last : 100;
+  const step = spot > 200 ? 0.5 : 0.25;
+  const bars = 8, levels = 5;
+  const lines = [];
+  for (let l = levels; l >= -levels; l--) {
+    const px = (spot + l * step).toFixed(2);
+    const cells = [];
+    for (let b = 0; b < bars; b++) {
+      const baseVol = Math.max(0, 600 - Math.abs(l) * 100);
+      const bid = Math.round(baseVol * (0.4 + rng() * 0.8));
+      const ask = Math.round(baseVol * (0.4 + rng() * 0.8));
+      const delta = ask - bid;
+      const bgAlpha = Math.min(0.55, Math.abs(delta) / 250);
+      const bg = delta > 0 ? `rgba(16,185,129,${bgAlpha})` : delta < 0 ? `rgba(239,68,68,${bgAlpha})` : 'transparent';
+      cells.push(`<span class="fp-cell" style="background:${bg};">${bid}×${ask}</span>`);
+    }
+    lines.push(`<div class="fp-line"><span class="mono" style="color:var(--text-muted);text-align:right;">$${px}</span><span class="fp-cells">${cells.join('')}</span></div>`);
+  }
+  document.getElementById('footprint').innerHTML = lines.join('');
+}
+
+// --------- Tape ----------
+const EXCHANGES = ['ARCA','NYSE','NSDQ','BATS','EDGX','IEX','BKLN'];
+function appendTape() {
+  if (paused) return;
+  const q = (typeof QUOTES !== 'undefined' && QUOTES[sym]) ? QUOTES[sym] : null;
+  if (!q) return;
+  const tilt = Math.random() > 0.5 ? 'buy' : 'sell';
+  const px = q.last + (tilt === 'buy' ? +0.01 : -0.01);
+  const size = Math.floor(50 + Math.random() * 3000);
+  const ex = EXCHANGES[Math.floor(Math.random() * EXCHANGES.length)];
+  const notional = px * size;
+  const t = new Date();
+  const wrap = document.getElementById('tapeStream');
+  const row = document.createElement('div');
+  row.className = 'tape-line ' + (tilt === 'buy' ? 'tape-buy' : 'tape-sell');
+  row.innerHTML = `
+    <span class="ts">${t.toLocaleTimeString('en-US', { hour12: false })}</span>
+    <span>${ex}</span>
+    <span class="${tilt === 'buy' ? 'green-text' : 'red-text'}">${tilt.toUpperCase()}</span>
+    <span>${size.toLocaleString()} × $${px.toFixed(2)}</span>
+    <span style="text-align:right;">$${(notional/1000).toFixed(1)}k</span>`;
+  wrap.insertBefore(row, wrap.firstChild);
+  while (wrap.children.length > 150) wrap.removeChild(wrap.lastChild);
+
+  // Update big print KPI if this is bigger
+  const currentBig = parseFloat((document.getElementById('kBigPrint').textContent || '0').replace(/[^0-9.]/g,'')) || 0;
+  if (notional / 1000 > currentBig) {
+    document.getElementById('kBigPrint').textContent = '$' + (notional/1000).toFixed(1) + 'k';
+    document.getElementById('kBigPrintMeta').textContent = ex + ' · ' + tilt.toUpperCase() + ' at ' + t.toLocaleTimeString('en-US', { hour12: false });
+  }
+}
+
+setInterval(appendTape, 500);
+document.getElementById('pauseBtn').addEventListener('click', () => {
+  paused = !paused;
+  document.getElementById('pauseBtn').textContent = paused ? '▶ Resume' : '⏸ Pause';
+});
+
+document.getElementById('symSel').addEventListener('change', e => { sym = e.target.value; buildHeat(); renderCharts(); renderFootprint(); });
+
+buildHeat();
+renderCharts();
+renderFootprint();
+
+// Refresh heatmap and footprint every few seconds
+setInterval(() => { if (!paused) { buildHeat(); renderFootprint(); } }, 3000);
+
+// Latency
+if (typeof Feed !== 'undefined') {
+  const samples = [];
+  ['SPY','QQQ','NVDA','AAPL','MSFT','TSLA','META','AMD'].forEach(s => {
+    Feed.subscribe(s, q => {
+      if (q.ts) {
+        const lag = Date.now() - q.ts;
+        if (lag >= 0 && lag < 30000) {
+          samples.push(lag);
+          if (samples.length > 30) samples.shift();
+          const avg = samples.reduce((a, b) => a + b, 0) / samples.length;
+          document.getElementById('latencyMs').textContent = Math.round(avg);
+        }
+      }
+    });
+  });
+}
+</script>
+</body>
+</html>

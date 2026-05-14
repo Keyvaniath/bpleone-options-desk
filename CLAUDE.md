@@ -1,6 +1,6 @@
 # ⚠️ YOU ARE MID-PROJECT. READ THIS FIRST.
 
-> **Hi Claude. This is a continued session.** Prior Claudes built 50 HTML pages, 7 JS modules — institutional-grade trading platform with real-time data adapters (Finnhub/Polygon/Tradier/Alpaca), real Claude API integration in the assistant, and a settings page for API key config. **DO NOT RESTART.** Don't propose to rebuild anything. Read this file fully, then ask the user what specific thing they want next.
+> **Hi Claude. This is a continued session.** Prior Claudes built 55 HTML pages, 11 JS modules — institutional-grade trading platform with real-time data adapters (Finnhub/Polygon/Tradier/Alpaca), real Claude API integration in the assistant, a settings page for API key config, plus paper trading, single-symbol focus, volume profile, order flow heatmap, a plain-English learn dashboard, command palette (⌘K), global hotkeys, toast system, and a first-visit onboarding tour. **DO NOT RESTART.** Don't propose to rebuild anything. Read this file fully, then ask the user what specific thing they want next.
 >
 > **TL;DR for Brandon (the user):** he's building `options.bpleone.com` as a subdomain of `bpleone.com` (his Squarespace hub site). The Pokémon TCG desk already lives at `pokemon.bpleone.com`. This is the equity / options / TA desk going to `options.bpleone.com`. It's BUILT but NOT DEPLOYED yet.
 >
@@ -33,8 +33,8 @@ The site is **static HTML/CSS/JS** (no build step, no framework). Drop the folde
 | | |
 |---|---|
 | **Domain** | `options.bpleone.com` (CNAME file at repo root) |
-| **Pages** | 50 HTML files at the root (no `pages/` subdir) |
-| **JS modules** | 7 files in `js/` — `app.js`, `charts.js`, `live.js`, `learn.js`, `notify.js`, `data-provider.js`, `ai-client.js` |
+| **Pages** | 55 HTML files at the root (no `pages/` subdir) |
+| **JS modules** | 11 files in `js/` — `app.js`, `charts.js`, `live.js`, `learn.js`, `notify.js`, `data-provider.js`, `ai-client.js`, `command-palette.js`, `hotkeys.js`, `onboarding.js`, `toast.js` |
 | **CSS** | Single file: `css/style.css` (~1,460 lines, dark institutional theme) |
 | **Assets** | `assets/icon.svg` + root `favicon.svg` |
 | **PWA** | `manifest.json` at root, theme color `#00d4ff` |

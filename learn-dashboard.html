@@ -1,0 +1,363 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Learn Dashboard — bpleone / trade</title>
+<meta name="description" content="The self-learning brain in plain English. What setups it has learned to favor, fade, and amplify — by sector, day-of-week, and volatility regime.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.insight-card { padding: 14px 16px; background: var(--bg-elevated); border-left: 4px solid var(--accent); border-radius: 8px; margin-bottom: 8px; }
+.insight-card.bull { border-left-color: var(--green); }
+.insight-card.bear { border-left-color: var(--red); }
+.insight-card.warn { border-left-color: var(--yellow); }
+.insight-row { display: flex; justify-content: space-between; align-items: center; }
+.insight-title { font-weight: 700; font-size: 14px; }
+.insight-meta { font-size: 12px; color: var(--text-muted); margin-top: 4px; line-height: 1.6; }
+.weight-bar { height: 14px; background: var(--bg-tertiary); border-radius: 7px; overflow: hidden; position: relative; }
+.weight-bar .fill { height: 100%; }
+.weight-bar .mid { position: absolute; top: 0; bottom: 0; left: 50%; width: 1px; background: rgba(255,255,255,0.25); }
+.bias-pos { color: var(--green); }
+.bias-neg { color: var(--red); }
+.bias-neu { color: var(--text-muted); }
+.brain-note { padding: 18px; background: var(--bg-elevated); border-radius: 10px; border: 1px solid var(--border); font-size: 13px; color: var(--text-secondary); line-height: 1.7; }
+.brain-note strong { color: var(--accent); }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">Learn Dashboard <span class="feat-badge feat-new">NEW</span></div>
+      <div class="page-subtitle">What the brain has learned — in plain English · <span id="market-clock">--</span></div>
+    </div>
+    <div class="flex gap-8">
+      <button class="btn btn-secondary" id="rebalanceBtn">⚖ Rebalance Now</button>
+      <a href="edge-analytics.html" class="btn btn-ghost">Numerical view →</a>
+    </div>
+  </div>
+
+  <!-- Top stats -->
+  <div class="grid grid-4 mb-24">
+    <div class="card">
+      <div class="card-header"><div class="card-title">Trades in memory</div></div>
+      <div class="mono" style="font-size:28px;font-weight:700;" id="kTotal">—</div>
+      <div style="font-size:12px;color:var(--text-muted);" id="kTotalSub">— closed · — open</div>
+    </div>
+    <div class="card">
+      <div class="card-header"><div class="card-title">Win rate</div></div>
+      <div class="mono green-text" style="font-size:28px;font-weight:700;" id="kWin">—</div>
+      <div style="font-size:12px;color:var(--text-muted);">Realized outcomes only</div>
+    </div>
+    <div class="card">
+      <div class="card-header"><div class="card-title">Avg R per trade</div></div>
+      <div class="mono" style="font-size:28px;font-weight:700;" id="kAvgR">—</div>
+      <div style="font-size:12px;color:var(--text-muted);" id="kAvgRSub">Expectancy</div>
+    </div>
+    <div class="card">
+      <div class="card-header"><div class="card-title">Conditional rules learned</div></div>
+      <div class="mono" style="font-size:28px;font-weight:700;" id="kRules">—</div>
+      <div style="font-size:12px;color:var(--text-muted);">Per setup × dimension × bucket</div>
+    </div>
+  </div>
+
+  <!-- Brain summary -->
+  <div class="card mb-24">
+    <div class="card-header">
+      <div class="card-title">🧠 What the brain thinks right now</div>
+      <span class="feat-badge feat-live">REAL</span>
+    </div>
+    <div class="brain-note" id="brainNote">Computing…</div>
+  </div>
+
+  <!-- Base weights -->
+  <div class="card">
+    <div class="card-header">
+      <div class="card-title">Base Setup Weights</div>
+      <div style="font-size:11px;color:var(--text-muted);">Multipliers applied to raw signal scores. 1.00 = neutral, &gt;1.0 = boost, &lt;1.0 = fade.</div>
+    </div>
+    <div id="baseWeights"></div>
+  </div>
+
+  <!-- Top insights -->
+  <div class="grid grid-12 mt-24">
+    <div class="card col-7">
+      <div class="card-header"><div class="card-title">🔝 Top 12 Conditional Insights</div></div>
+      <div id="insightsList"></div>
+    </div>
+
+    <div class="card col-5">
+      <div class="card-header"><div class="card-title">Performance by Sector</div></div>
+      <canvas id="secChart" height="240"></canvas>
+      <div class="card-header" style="margin-top:14px;"><div class="card-title">By Day of Week</div></div>
+      <canvas id="dowChart" height="180"></canvas>
+    </div>
+  </div>
+
+  <!-- Hold period + bias -->
+  <div class="grid grid-12 mt-24">
+    <div class="card col-6">
+      <div class="card-header"><div class="card-title">By Hold Period</div></div>
+      <canvas id="holdChart" height="220"></canvas>
+    </div>
+
+    <div class="card col-6">
+      <div class="card-header"><div class="card-title">Setup Expectancy Distribution</div></div>
+      <canvas id="setupChart" height="220"></canvas>
+    </div>
+  </div>
+
+  <!-- Education -->
+  <div class="card mt-24">
+    <div class="card-header"><div class="card-title">🧬 How the self-learning works</div></div>
+    <div class="grid grid-3" style="gap:20px;">
+      <div>
+        <div style="font-weight:700;color:var(--accent);margin-bottom:6px;">1. Record every trade</div>
+        <div style="font-size:13px;color:var(--text-muted);line-height:1.6;">Open in Journal or via Paper Trade → close → expectancy in R is computed (P&amp;L ÷ stop distance). Win/loss flagged. Sector, day-of-week, VIX regime captured.</div>
+      </div>
+      <div>
+        <div style="font-weight:700;color:var(--green);margin-bottom:6px;">2. Rebalance setup weights</div>
+        <div style="font-size:13px;color:var(--text-muted);line-height:1.6;">Once a setup has 3+ closed trades, the base weight gets re-scored from realized expectancy and squashed to [0.5, 1.6]. High-edge setups amplified; low-edge faded.</div>
+      </div>
+      <div>
+        <div style="font-weight:700;color:var(--yellow);margin-bottom:6px;">3. Conditional adjustments</div>
+        <div style="font-size:13px;color:var(--text-muted);line-height:1.6;">For each setup × dimension (sector / DoW / hold band / regime), conditional adj. factors are computed and applied multiplicatively. Final score = raw × base × Π(conditional adj.). Squashed gentler [0.7, 1.35].</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="related-bar mt-24">
+    <span class="lbl">Related →</span>
+    <a href="edge-analytics.html">📊 Edge Analytics (numerical)</a>
+    <a href="journal.html">📓 Trade Journal</a>
+    <a href="paper-trade.html">🎮 Paper Trade</a>
+    <a href="signals.html">⚡ Signals (learn-adjusted)</a>
+    <a href="settings.html">⚙ Reset Memory</a>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/toast.js"></script>
+<script src="js/command-palette.js"></script>
+<script src="js/hotkeys.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script src="js/learn.js"></script>
+<script>
+buildNav('learn');
+
+function fmtPct(v, dp) { dp = dp == null ? 1 : dp; return (v >= 0 ? '+' : '') + v.toFixed(dp) + '%'; }
+function fmtR(v) { return (v >= 0 ? '+' : '') + v.toFixed(2) + 'R'; }
+
+function pickKindByExpectancy(exp) {
+  if (exp >= 0.5) return 'bull';
+  if (exp <= -0.3) return 'bear';
+  if (Math.abs(exp) > 0.15) return 'warn';
+  return '';
+}
+
+function renderTop() {
+  const state = Learn.load();
+  const closed = state.trades.filter(t => t.result);
+  const open = state.trades.filter(t => !t.result);
+  document.getElementById('kTotal').textContent = state.trades.length;
+  document.getElementById('kTotalSub').textContent = closed.length + ' closed · ' + open.length + ' open';
+  const wins = closed.filter(t => t.result === 'win').length;
+  const wr = closed.length ? (100 * wins / closed.length) : 0;
+  document.getElementById('kWin').textContent = wr.toFixed(1) + '%';
+  document.getElementById('kWin').className = 'mono ' + (wr >= 60 ? 'green-text' : wr >= 50 ? 'yellow-text' : 'red-text');
+  const avgR = closed.length ? closed.reduce((a, t) => a + (t.R || 0), 0) / closed.length : 0;
+  document.getElementById('kAvgR').textContent = fmtR(avgR);
+  document.getElementById('kAvgR').className = 'mono ' + (avgR >= 0.5 ? 'green-text' : avgR >= 0 ? 'yellow-text' : 'red-text');
+
+  // Conditional rule count
+  let ruleCount = 0;
+  const cond = state.conditional || {};
+  Object.keys(cond).forEach(s => Object.keys(cond[s]).forEach(d => ruleCount += Object.keys(cond[s][d]).length));
+  document.getElementById('kRules').textContent = ruleCount;
+}
+
+function renderBrainNote() {
+  const state = Learn.load();
+  const closed = state.trades.filter(t => t.result);
+  if (closed.length < 5) {
+    document.getElementById('brainNote').innerHTML = 'Not enough closed trades yet to learn. Log a handful via <a href="journal.html" style="color:var(--accent);">Journal</a> or <a href="paper-trade.html" style="color:var(--accent);">Paper Trade</a> and come back.';
+    return;
+  }
+  const wins = closed.filter(t => t.result === 'win');
+  const wr = wins.length / closed.length;
+  const avgWin = wins.length ? wins.reduce((a, t) => a + t.R, 0) / wins.length : 0;
+  const losses = closed.filter(t => t.result === 'loss');
+  const avgLoss = losses.length ? losses.reduce((a, t) => a + t.R, 0) / losses.length : 0;
+
+  // Find best/worst setup
+  const bySetup = {};
+  closed.forEach(t => {
+    if (!bySetup[t.setup]) bySetup[t.setup] = { count: 0, sumR: 0, wins: 0 };
+    bySetup[t.setup].count++;
+    bySetup[t.setup].sumR += t.R || 0;
+    if (t.result === 'win') bySetup[t.setup].wins++;
+  });
+  const sorted = Object.entries(bySetup).filter(([_,v]) => v.count >= 3).sort((a, b) => (b[1].sumR/b[1].count) - (a[1].sumR/a[1].count));
+  const best = sorted[0], worst = sorted[sorted.length - 1];
+
+  const insights = Learn.insights(5);
+  const insightLine = insights.length
+    ? '<br><br><strong>Strongest conditional rules:</strong> ' + insights.slice(0, 3).map(i => i.sentence).join(' · ')
+    : '';
+
+  const html = `
+    Across <strong>${closed.length}</strong> closed trades I have a <strong>${(wr*100).toFixed(1)}%</strong> win rate, averaging <strong>${fmtR(avgWin)}</strong> on winners and <strong>${fmtR(avgLoss)}</strong> on losers — expectancy <strong>${fmtR(wr*avgWin + (1-wr)*avgLoss)}</strong> per trade.
+    ${best ? `<br><br>My best setup is <strong>${best[0]}</strong> (${best[1].count} trades, avg ${fmtR(best[1].sumR/best[1].count)}); worst is <strong>${worst[0]}</strong> (${worst[1].count} trades, avg ${fmtR(worst[1].sumR/worst[1].count)}).` : ''}
+    ${insightLine}
+    <br><br>Right now I'm scaling signal scores by these weights when I see new setups — so the same raw ${(60).toString()}/100 score on a high-edge setup in a favored sector becomes a much stronger conviction than the same number on a fading combination.
+  `;
+  document.getElementById('brainNote').innerHTML = html;
+}
+
+function renderBaseWeights() {
+  const state = Learn.load();
+  const w = state.weights;
+  const closed = state.trades.filter(t => t.result);
+  const cnt = {};
+  closed.forEach(t => { cnt[t.setup] = (cnt[t.setup] || 0) + 1; });
+  const rows = Object.entries(w).sort((a, b) => b[1] - a[1]);
+  let html = '';
+  rows.forEach(([type, wt]) => {
+    const dev = (wt - 1);                          // -0.5 .. +0.6
+    const pos = (wt - 0.5) / 1.1 * 100;            // 0..100% across the bar
+    const color = wt > 1.05 ? 'var(--green)' : wt < 0.95 ? 'var(--red)' : 'var(--text-muted)';
+    const bias = wt > 1.05 ? 'bias-pos' : wt < 0.95 ? 'bias-neg' : 'bias-neu';
+    html += `<div style="display:grid;grid-template-columns:160px 1fr 80px 80px;align-items:center;gap:12px;padding:8px 0;border-bottom:1px solid var(--border);">
+      <span class="mono" style="font-size:12px;">${type}</span>
+      <span class="weight-bar"><span class="fill" style="width:${pos}%;background:${color};"></span><span class="mid"></span></span>
+      <span class="mono ${bias}" style="text-align:right;">${wt.toFixed(2)}×</span>
+      <span style="text-align:right;font-size:11px;color:var(--text-muted);">${cnt[type] || 0} trades</span>
+    </div>`;
+  });
+  document.getElementById('baseWeights').innerHTML = html;
+}
+
+function renderInsights() {
+  const items = Learn.insights(12);
+  const wrap = document.getElementById('insightsList');
+  if (!items.length) { wrap.innerHTML = '<div style="color:var(--text-muted);padding:20px;text-align:center;">No conditional rules yet — keep trading.</div>'; return; }
+  wrap.innerHTML = items.map(i => {
+    const kind = i.adj > 1.1 ? 'bull' : i.adj < 0.9 ? 'bear' : 'warn';
+    const direction = i.adj > 1.0 ? 'boosts' : 'fades';
+    const sign = (i.adj - 1) >= 0 ? '+' : '';
+    return `<div class="insight-card ${kind}">
+      <div class="insight-row">
+        <div>
+          <div class="insight-title">${i.setup} <span style="color:var(--text-muted);font-weight:400;">@ ${i.dim} = </span>${i.bucket}</div>
+          <div class="insight-meta">Avg ${fmtR(i.expectancy)} over ${i.n} prior trades · win rate ${Math.round(i.winRate*100)}% · the brain ${direction} this combo</div>
+        </div>
+        <div style="text-align:right;">
+          <div class="mono" style="font-size:18px;font-weight:700;color:${i.adj > 1 ? 'var(--green)' : 'var(--red)'};">${sign}${((i.adj - 1) * 100).toFixed(1)}%</div>
+          <div style="font-size:11px;color:var(--text-muted);">${i.adj.toFixed(2)}× multiplier</div>
+        </div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function renderCharts() {
+  const state = Learn.load();
+  const closed = state.trades.filter(t => t.result);
+
+  // By sector
+  const sec = {};
+  closed.forEach(t => { if (!sec[t.sector]) sec[t.sector] = { sumR: 0, n: 0 }; sec[t.sector].sumR += t.R || 0; sec[t.sector].n++; });
+  const secLabels = Object.keys(sec);
+  const secData = secLabels.map(k => sec[k].sumR / sec[k].n);
+  if (window._secChart) _secChart.destroy();
+  window._secChart = new Chart(document.getElementById('secChart').getContext('2d'), {
+    type: 'bar',
+    data: { labels: secLabels, datasets: [{ label: 'avg R', data: secData, backgroundColor: secData.map(v => v >= 0 ? 'rgba(16,185,129,0.7)' : 'rgba(239,68,68,0.7)') }] },
+    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } },
+      scales: { x: { grid: { color: 'rgba(255,255,255,0.04)' }, ticks: { color: '#6b7280', font: { size: 10 }, maxRotation: 45 } },
+                y: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#6b7280', font: { size: 10 }, callback: v => v.toFixed(1) + 'R' } } } }
+  });
+
+  // By DoW
+  const dow = {};
+  ['Mon','Tue','Wed','Thu','Fri'].forEach(d => dow[d] = { sumR: 0, n: 0 });
+  closed.forEach(t => {
+    const d = new Date(t.ts).toLocaleDateString('en-US', { weekday: 'short' });
+    if (!dow[d]) dow[d] = { sumR: 0, n: 0 };
+    dow[d].sumR += t.R || 0; dow[d].n++;
+  });
+  const dowLabels = Object.keys(dow);
+  const dowData = dowLabels.map(k => dow[k].n ? dow[k].sumR / dow[k].n : 0);
+  if (window._dowChart) _dowChart.destroy();
+  window._dowChart = new Chart(document.getElementById('dowChart').getContext('2d'), {
+    type: 'bar',
+    data: { labels: dowLabels, datasets: [{ label: 'avg R', data: dowData, backgroundColor: dowData.map(v => v >= 0 ? 'rgba(16,185,129,0.7)' : 'rgba(239,68,68,0.7)') }] },
+    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } },
+      scales: { x: { grid: { color: 'rgba(255,255,255,0.04)' }, ticks: { color: '#6b7280', font: { size: 10 } } },
+                y: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#6b7280', font: { size: 10 }, callback: v => v.toFixed(2) + 'R' } } } }
+  });
+
+  // By hold period
+  const hp = { 'Intraday': { sumR: 0, n: 0 }, '1–3d': { sumR: 0, n: 0 }, '4–9d': { sumR: 0, n: 0 }, '10–29d': { sumR: 0, n: 0 }, '30d+': { sumR: 0, n: 0 } };
+  closed.forEach(t => {
+    const h = t.holdDays || 0;
+    const k = h < 1 ? 'Intraday' : h < 4 ? '1–3d' : h < 10 ? '4–9d' : h < 30 ? '10–29d' : '30d+';
+    hp[k].sumR += t.R || 0; hp[k].n++;
+  });
+  const hpLabels = Object.keys(hp);
+  const hpData = hpLabels.map(k => hp[k].n ? hp[k].sumR / hp[k].n : 0);
+  if (window._holdChart) _holdChart.destroy();
+  window._holdChart = new Chart(document.getElementById('holdChart').getContext('2d'), {
+    type: 'bar',
+    data: { labels: hpLabels, datasets: [{ label: 'avg R', data: hpData, backgroundColor: hpData.map(v => v >= 0 ? 'rgba(16,185,129,0.7)' : 'rgba(239,68,68,0.7)') }] },
+    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } },
+      scales: { x: { grid: { color: 'rgba(255,255,255,0.04)' }, ticks: { color: '#6b7280', font: { size: 10 } } },
+                y: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#6b7280', font: { size: 10 }, callback: v => v.toFixed(2) + 'R' } } } }
+  });
+
+  // Setup distribution
+  const bySetup = {};
+  closed.forEach(t => { if (!bySetup[t.setup]) bySetup[t.setup] = { sumR: 0, n: 0 }; bySetup[t.setup].sumR += t.R || 0; bySetup[t.setup].n++; });
+  const setupLabels = Object.keys(bySetup);
+  const setupData = setupLabels.map(k => bySetup[k].sumR / bySetup[k].n);
+  if (window._setupChart) _setupChart.destroy();
+  window._setupChart = new Chart(document.getElementById('setupChart').getContext('2d'), {
+    type: 'bar',
+    data: { labels: setupLabels, datasets: [{ label: 'avg R', data: setupData, backgroundColor: setupData.map(v => v >= 0 ? 'rgba(16,185,129,0.7)' : 'rgba(239,68,68,0.7)') }] },
+    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } },
+      scales: { x: { grid: { color: 'rgba(255,255,255,0.04)' }, ticks: { color: '#6b7280', font: { size: 9 }, maxRotation: 45 } },
+                y: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#6b7280', font: { size: 10 }, callback: v => v.toFixed(2) + 'R' } } } }
+  });
+}
+
+function renderAll() {
+  Learn.rebalanceWeights();
+  Learn.rebalanceConditional();
+  renderTop();
+  renderBrainNote();
+  renderBaseWeights();
+  renderInsights();
+  renderCharts();
+}
+
+document.getElementById('rebalanceBtn').addEventListener('click', () => {
+  renderAll();
+  if (window.Toast) Toast.show('Brain rebalanced from memory', { kind: 'success' });
+});
+
+renderAll();
+</script>
+</body>
+</html>

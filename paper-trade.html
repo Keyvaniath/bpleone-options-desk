@@ -1,0 +1,497 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Paper Trading — bpleone / trade</title>
+<meta name="description" content="Paper trade against live market data. Place market/limit orders, track live P&L, feeds the trade journal and self-learning brain.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.order-pad { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.order-pad .full { grid-column: 1/-1; }
+.order-pad label { font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; }
+.order-pad input, .order-pad select { background: var(--bg-elevated); border: 1px solid var(--border); color: var(--text-primary); padding: 8px 10px; border-radius: 6px; font-family: inherit; font-size: 13px; width: 100%; box-sizing: border-box; }
+.buy-btn { background: var(--green) !important; color: #062c1c !important; border-color: var(--green) !important; }
+.sell-btn { background: var(--red) !important; color: #2c0606 !important; border-color: var(--red) !important; }
+.pos-row .sym { font-family: var(--font-mono); font-weight: 700; }
+.pos-row .pnl-pos { color: var(--green); }
+.pos-row .pnl-neg { color: var(--red); }
+.bal-card { padding: 14px; background: var(--bg-elevated); border-radius: 10px; }
+.bal-card .lab { font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.6px; }
+.bal-card .val { font-family: var(--font-mono); font-size: 22px; font-weight: 700; margin-top: 4px; }
+.bal-card .sub { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
+.fast-keys { display: flex; gap: 4px; flex-wrap: wrap; }
+.fast-keys span { padding: 2px 8px; border-radius: 4px; background: var(--bg-secondary); border: 1px solid var(--border); font-family: var(--font-mono); font-size: 11px; cursor: pointer; }
+.fast-keys span:hover { border-color: var(--accent); color: var(--accent); }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">Paper Trading <span class="feat-badge feat-new">NEW</span> <span class="feat-badge feat-live">LIVE</span></div>
+      <div class="page-subtitle">Practice against live ticks. P&amp;L feeds Journal &amp; Edge Analytics. · <span id="market-clock">--</span></div>
+    </div>
+    <div class="flex gap-8">
+      <span class="latency-chip"><span class="lat-dot"></span> <span id="latencyMs">--</span>ms</span>
+      <button class="btn btn-ghost" id="resetBtn">↻ Reset Account</button>
+    </div>
+  </div>
+
+  <!-- KPI ROW -->
+  <div class="grid grid-4 mb-24">
+    <div class="bal-card"><div class="lab">Cash</div><div class="val mono" id="kpiCash">$100,000.00</div><div class="sub">Buying power</div></div>
+    <div class="bal-card"><div class="lab">Equity (mark-to-mkt)</div><div class="val mono" id="kpiEquity">$100,000.00</div><div class="sub">Cash + open P&amp;L</div></div>
+    <div class="bal-card"><div class="lab">Open P&amp;L</div><div class="val mono" id="kpiOpenPnl">$0.00</div><div class="sub" id="kpiOpenCount">0 positions</div></div>
+    <div class="bal-card"><div class="lab">Realized P&amp;L</div><div class="val mono" id="kpiRealized">$0.00</div><div class="sub" id="kpiRealizedCount">0 closed</div></div>
+  </div>
+
+  <!-- 3-col layout: chart | order pad | book -->
+  <div class="grid grid-12">
+    <div class="card col-7">
+      <div class="card-header">
+        <div class="card-title">
+          <span class="mono" id="chartSym">SPY</span>
+          <span class="mono" id="chartLast" style="margin-left:10px;">$0.00</span>
+          <span class="mono" id="chartChg" style="margin-left:6px;font-size:12px;"></span>
+        </div>
+        <div class="fast-keys" id="symKeys"></div>
+      </div>
+      <canvas id="priceChart" height="320"></canvas>
+      <div style="display:flex;gap:14px;padding:10px 0 0;font-size:11px;color:var(--text-muted);">
+        <span>Ticking against the live feed — every quote is a real data point.</span>
+      </div>
+    </div>
+
+    <div class="card col-5">
+      <div class="card-header">
+        <div class="card-title">Order Ticket</div>
+        <span class="feat-badge feat-pro">PRO</span>
+      </div>
+
+      <div class="order-pad">
+        <div class="full"><label>Symbol</label><input id="ordSym" value="SPY" autocomplete="off"></div>
+        <div><label>Side</label>
+          <select id="ordSide"><option value="buy">BUY (long)</option><option value="sell">SELL (short)</option></select>
+        </div>
+        <div><label>Type</label>
+          <select id="ordType"><option value="market">Market</option><option value="limit">Limit</option><option value="stop">Stop</option></select>
+        </div>
+        <div><label>Qty (shares)</label><input id="ordQty" type="number" value="100" min="1"></div>
+        <div><label>Limit / Stop Price</label><input id="ordPx" type="number" step="0.01" placeholder="auto"></div>
+
+        <div class="full"><label>Stop-Loss (optional)</label><input id="ordSL" type="number" step="0.01" placeholder="e.g. 558.20"></div>
+        <div class="full"><label>Target (optional)</label><input id="ordTP" type="number" step="0.01" placeholder="e.g. 565.00"></div>
+
+        <div class="full" style="display:flex;gap:8px;margin-top:6px;">
+          <button class="btn buy-btn" id="placeBuy" style="flex:1;font-weight:700;">BUY</button>
+          <button class="btn sell-btn" id="placeSell" style="flex:1;font-weight:700;">SELL SHORT</button>
+        </div>
+
+        <div class="full" style="margin-top:8px;font-size:11px;color:var(--text-muted);line-height:1.6;">
+          Hotkeys: <kbd>B</kbd> buy · <kbd>S</kbd> sell · <kbd>C</kbd> cancel ticket. Tickets fill instantly on market; limit/stop orders sit in the book and trigger on the next tick that crosses.
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Positions + Open orders -->
+  <div class="grid grid-12 mt-24">
+    <div class="card col-7">
+      <div class="card-header"><div class="card-title">Open Positions</div></div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Symbol</th><th>Side</th><th>Qty</th><th>Avg Entry</th><th>Last</th><th>Open P&amp;L</th><th>%</th><th>Stop</th><th>Target</th><th></th></tr></thead>
+          <tbody id="positionsBody"><tr><td colspan="10" style="text-align:center;color:var(--text-muted);padding:30px;">No open positions</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="card col-5">
+      <div class="card-header"><div class="card-title">Working Orders</div></div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Symbol</th><th>Side</th><th>Type</th><th>Qty</th><th>Price</th><th></th></tr></thead>
+          <tbody id="ordersBody"><tr><td colspan="6" style="text-align:center;color:var(--text-muted);padding:30px;">No working orders</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- Recent fills -->
+  <div class="card mt-24">
+    <div class="card-header"><div class="card-title">Recent Fills</div></div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Time</th><th>Symbol</th><th>Side</th><th>Qty</th><th>Price</th><th>Type</th><th>Note</th></tr></thead>
+        <tbody id="fillsBody"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="related-bar mt-24">
+    <span class="lbl">Related →</span>
+    <a href="journal.html">📓 Trade Journal</a>
+    <a href="edge-analytics.html">🧠 Edge Analytics</a>
+    <a href="learn-dashboard.html">🧠 Learn Dashboard</a>
+    <a href="position-sizing.html">📐 Position Sizing</a>
+    <a href="risk-dashboard.html">⚖️ Risk Dashboard</a>
+    <a href="tape.html">📜 Time &amp; Sales</a>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/toast.js"></script>
+<script src="js/command-palette.js"></script>
+<script src="js/hotkeys.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script src="js/learn.js"></script>
+<script>
+buildNav('paper-trade');
+
+// ---------------- State ----------------
+const KEY = 'bpleone_paper_v1';
+function loadState() { try { return JSON.parse(localStorage.getItem(KEY) || '{}'); } catch (e) { return {}; } }
+function saveState(s) { try { localStorage.setItem(KEY, JSON.stringify(s)); } catch (e) {} }
+let state = Object.assign({
+  cash: 100000, realized: 0, positions: [], orders: [], fills: []
+}, loadState());
+
+function persist() { saveState(state); render(); }
+
+// ---------------- Chart ----------------
+let chart;
+const priceHistory = { SPY: [], NVDA: [], TSLA: [], QQQ: [], AAPL: [], MSFT: [], META: [] };
+const SYMBOLS = ['SPY','QQQ','NVDA','AAPL','MSFT','META','TSLA','AMD','PLTR'];
+let activeSym = 'SPY';
+
+function ensureSym(sym) { if (!priceHistory[sym]) priceHistory[sym] = []; return priceHistory[sym]; }
+
+function pushTick(sym, price, ts) {
+  const h = ensureSym(sym);
+  h.push({ t: ts || Date.now(), p: price });
+  while (h.length > 240) h.shift();
+}
+
+function initChart() {
+  const ctx = document.getElementById('priceChart').getContext('2d');
+  chart = new Chart(ctx, {
+    type: 'line',
+    data: { labels: [], datasets: [{ label: activeSym, data: [], borderColor: 'rgba(0,212,255,1)', backgroundColor: 'rgba(0,212,255,0.10)', tension: 0.2, pointRadius: 0, fill: true }] },
+    options: {
+      responsive: true, maintainAspectRatio: false, animation: false,
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { grid: { color: 'rgba(255,255,255,0.04)' }, ticks: { color: '#6b7280', font: { size: 10 }, maxRotation: 0, autoSkip: true, maxTicksLimit: 8 } },
+        y: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#6b7280', font: { size: 10 } } }
+      }
+    }
+  });
+}
+
+function refreshChart() {
+  const h = ensureSym(activeSym);
+  chart.data.labels = h.map(p => new Date(p.t).toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' }));
+  chart.data.datasets[0].label = activeSym;
+  chart.data.datasets[0].data = h.map(p => p.p);
+  chart.update('none');
+}
+
+initChart();
+
+// ---------------- Symbol selector ----------------
+const symKeys = document.getElementById('symKeys');
+SYMBOLS.forEach(s => {
+  const el = document.createElement('span');
+  el.textContent = s;
+  el.dataset.sym = s;
+  if (s === activeSym) el.style.color = 'var(--accent)';
+  el.addEventListener('click', () => {
+    activeSym = s;
+    document.querySelectorAll('#symKeys span').forEach(x => x.style.color = '');
+    el.style.color = 'var(--accent)';
+    document.getElementById('chartSym').textContent = s;
+    document.getElementById('ordSym').value = s;
+    refreshChart();
+  });
+  symKeys.appendChild(el);
+});
+
+// ---------------- Live tick consumer ----------------
+let lastTickTs = 0;
+let latencySamples = [];
+if (typeof Feed !== 'undefined') {
+  SYMBOLS.forEach(sym => {
+    Feed.subscribe(sym, q => {
+      const now = Date.now();
+      if (q.ts) {
+        const lag = now - q.ts;
+        if (lag >= 0 && lag < 30000) {
+          latencySamples.push(lag);
+          if (latencySamples.length > 30) latencySamples.shift();
+          const avg = latencySamples.reduce((a, b) => a + b, 0) / latencySamples.length;
+          document.getElementById('latencyMs').textContent = Math.round(avg);
+        }
+      }
+      lastTickTs = now;
+      pushTick(sym, q.last, q.ts);
+      if (sym === activeSym) {
+        const last = document.getElementById('chartLast');
+        const chg = document.getElementById('chartChg');
+        last.textContent = '$' + q.last.toFixed(2);
+        const cls = q.changePct >= 0 ? 'green-text' : 'red-text';
+        chg.className = 'mono ' + cls;
+        chg.textContent = (q.changePct >= 0 ? '+' : '') + q.changePct.toFixed(2) + '%';
+        if (chart.data.labels.length < 240) refreshChart();
+        else {
+          // shift the chart in-place
+          chart.data.labels.push(new Date(q.ts || now).toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' }));
+          chart.data.datasets[0].data.push(q.last);
+          chart.data.labels.shift();
+          chart.data.datasets[0].data.shift();
+          chart.update('none');
+        }
+      }
+      // Open positions reprice + check stops/targets
+      checkPositions();
+      // Working orders crossing?
+      checkOrders();
+    });
+  });
+}
+
+// ---------------- Order pad ----------------
+const ordSym = document.getElementById('ordSym');
+const ordSide = document.getElementById('ordSide');
+const ordType = document.getElementById('ordType');
+const ordQty = document.getElementById('ordQty');
+const ordPx = document.getElementById('ordPx');
+const ordSL = document.getElementById('ordSL');
+const ordTP = document.getElementById('ordTP');
+
+function placeOrder(side) {
+  const sym = (ordSym.value || '').trim().toUpperCase();
+  const qty = Math.max(1, parseInt(ordQty.value, 10) || 0);
+  const type = ordType.value;
+  const px = parseFloat(ordPx.value);
+  const sl = parseFloat(ordSL.value);
+  const tp = parseFloat(ordTP.value);
+  if (!sym || !qty) { Toast.show('Symbol and qty required', { kind: 'warn' }); return; }
+  const q = (typeof QUOTES !== 'undefined' && QUOTES[sym]) ? QUOTES[sym] : null;
+  if (!q) { Toast.show('No quote for ' + sym + ' — pick a known symbol', { kind: 'error' }); return; }
+  if (type === 'market') {
+    fill(sym, side, qty, q.last, 'market', sl, tp);
+  } else {
+    if (!isFinite(px)) { Toast.show(type + ' order needs price', { kind: 'warn' }); return; }
+    state.orders.push({
+      id: 'o_' + Date.now(), sym, side, qty, type, px,
+      stopLoss: isFinite(sl) ? sl : null, target: isFinite(tp) ? tp : null,
+      ts: Date.now()
+    });
+    Toast.show(type.toUpperCase() + ' ' + side.toUpperCase() + ' ' + qty + ' ' + sym + ' @ $' + px.toFixed(2), { kind: 'info' });
+    persist();
+  }
+  // clear ticket
+  ordPx.value = ''; ordSL.value = ''; ordTP.value = '';
+}
+
+function fill(sym, side, qty, price, type, sl, tp) {
+  // Match against existing position (FIFO)
+  const existing = state.positions.find(p => p.sym === sym);
+  let note = 'open';
+  if (existing) {
+    if (existing.side === side) {
+      // add to position — recompute avg
+      const totalCost = existing.avgEntry * existing.qty + price * qty;
+      existing.qty += qty;
+      existing.avgEntry = +(totalCost / existing.qty).toFixed(4);
+      if (isFinite(sl)) existing.stop = sl;
+      if (isFinite(tp)) existing.target = tp;
+      note = 'add';
+    } else {
+      // closing or flipping
+      const closingQty = Math.min(existing.qty, qty);
+      const remainingFlip = qty - closingQty;
+      const pnl = (existing.side === 'buy' ? (price - existing.avgEntry) : (existing.avgEntry - price)) * closingQty;
+      state.realized += pnl;
+      // Record into Learn engine
+      try {
+        if (typeof Learn !== 'undefined') {
+          const stopDist = existing.stop ? Math.abs(existing.avgEntry - existing.stop) : Math.abs(price - existing.avgEntry) || 0.01;
+          const R = pnl / (Math.abs(stopDist) * closingQty);
+          const t = Learn.recordTrade({
+            symbol: sym, setup: 'paper-trade', sector: '—',
+            bias: existing.side === 'buy' ? 'bull' : 'bear',
+            entry: existing.avgEntry, stop: existing.stop || existing.avgEntry,
+            score: 60
+          });
+          Learn.closeTrade(t.id, price, pnl >= 0 ? 'target' : 'stop');
+        }
+      } catch (e) { console.warn(e); }
+      existing.qty -= closingQty;
+      note = 'close P/L ' + (pnl >= 0 ? '+' : '') + '$' + pnl.toFixed(2);
+      if (existing.qty <= 0) state.positions = state.positions.filter(p => p.sym !== sym);
+      if (remainingFlip > 0) {
+        state.positions.push({ sym, side, qty: remainingFlip, avgEntry: price, stop: sl || null, target: tp || null, openedTs: Date.now() });
+        note += ' / flipped ' + remainingFlip;
+      }
+    }
+  } else {
+    state.positions.push({ sym, side, qty, avgEntry: price, stop: isFinite(sl) ? sl : null, target: isFinite(tp) ? tp : null, openedTs: Date.now() });
+  }
+  state.cash -= (side === 'buy' ? 1 : -1) * price * qty;
+  state.fills.unshift({ ts: Date.now(), sym, side, qty, price, type, note });
+  if (state.fills.length > 200) state.fills.pop();
+  Toast.show(side.toUpperCase() + ' ' + qty + ' ' + sym + ' @ $' + price.toFixed(2) + ' filled', { kind: side === 'buy' ? 'success' : 'info' });
+  persist();
+}
+
+function checkOrders() {
+  if (!state.orders.length) return;
+  const survivors = [];
+  state.orders.forEach(o => {
+    const q = (typeof QUOTES !== 'undefined' && QUOTES[o.sym]) ? QUOTES[o.sym] : null;
+    if (!q) { survivors.push(o); return; }
+    let fired = false;
+    if (o.type === 'limit') {
+      if (o.side === 'buy' && q.last <= o.px) fired = true;
+      if (o.side === 'sell' && q.last >= o.px) fired = true;
+    } else if (o.type === 'stop') {
+      if (o.side === 'buy' && q.last >= o.px) fired = true;
+      if (o.side === 'sell' && q.last <= o.px) fired = true;
+    }
+    if (fired) fill(o.sym, o.side, o.qty, q.last, o.type + '-trigger', o.stopLoss, o.target);
+    else survivors.push(o);
+  });
+  state.orders = survivors;
+}
+
+function checkPositions() {
+  let touched = false;
+  state.positions.slice().forEach(p => {
+    const q = (typeof QUOTES !== 'undefined' && QUOTES[p.sym]) ? QUOTES[p.sym] : null;
+    if (!q) return;
+    if (p.side === 'buy') {
+      if (p.stop && q.last <= p.stop) { fill(p.sym, 'sell', p.qty, q.last, 'stop-loss'); touched = true; }
+      else if (p.target && q.last >= p.target) { fill(p.sym, 'sell', p.qty, q.last, 'target'); touched = true; }
+    } else {
+      if (p.stop && q.last >= p.stop) { fill(p.sym, 'buy', p.qty, q.last, 'stop-loss'); touched = true; }
+      else if (p.target && q.last <= p.target) { fill(p.sym, 'buy', p.qty, q.last, 'target'); touched = true; }
+    }
+  });
+  if (!touched) render();
+}
+
+// ---------------- Render ----------------
+function render() {
+  // KPIs
+  let openPnl = 0;
+  state.positions.forEach(p => {
+    const q = (typeof QUOTES !== 'undefined' && QUOTES[p.sym]) ? QUOTES[p.sym] : null;
+    if (!q) return;
+    const pnl = (p.side === 'buy' ? (q.last - p.avgEntry) : (p.avgEntry - q.last)) * p.qty;
+    p._pnl = pnl;
+    p._last = q.last;
+    openPnl += pnl;
+  });
+  const equity = state.cash + openPnl + state.positions.reduce((a, p) => a + p.avgEntry * p.qty * (p.side === 'buy' ? 1 : 0), 0);
+  document.getElementById('kpiCash').textContent = '$' + state.cash.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  document.getElementById('kpiEquity').textContent = '$' + equity.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const pnlEl = document.getElementById('kpiOpenPnl');
+  pnlEl.textContent = (openPnl >= 0 ? '+$' : '-$') + Math.abs(openPnl).toFixed(2);
+  pnlEl.className = 'val mono ' + (openPnl >= 0 ? 'green-text' : 'red-text');
+  document.getElementById('kpiOpenCount').textContent = state.positions.length + ' position' + (state.positions.length === 1 ? '' : 's');
+  const realEl = document.getElementById('kpiRealized');
+  realEl.textContent = (state.realized >= 0 ? '+$' : '-$') + Math.abs(state.realized).toFixed(2);
+  realEl.className = 'val mono ' + (state.realized >= 0 ? 'green-text' : 'red-text');
+  document.getElementById('kpiRealizedCount').textContent = state.fills.filter(f => f.note && f.note.startsWith('close')).length + ' closed';
+
+  // Positions
+  const tbody = document.getElementById('positionsBody');
+  if (!state.positions.length) tbody.innerHTML = '<tr><td colspan="10" style="text-align:center;color:var(--text-muted);padding:30px;">No open positions</td></tr>';
+  else tbody.innerHTML = state.positions.map((p, i) => {
+    const pnl = p._pnl || 0;
+    const pct = p._last ? (((p.side === 'buy' ? p._last - p.avgEntry : p.avgEntry - p._last) / p.avgEntry) * 100) : 0;
+    const pnlCls = pnl >= 0 ? 'green-text' : 'red-text';
+    return `<tr class="pos-row">
+      <td class="mono"><strong>${p.sym}</strong></td>
+      <td><span class="${p.side === 'buy' ? 'green-text' : 'red-text'} mono">${p.side === 'buy' ? 'LONG' : 'SHORT'}</span></td>
+      <td class="mono">${p.qty}</td>
+      <td class="mono">$${p.avgEntry.toFixed(2)}</td>
+      <td class="mono">${p._last ? '$' + p._last.toFixed(2) : '—'}</td>
+      <td class="mono ${pnlCls}">${pnl >= 0 ? '+' : ''}$${pnl.toFixed(2)}</td>
+      <td class="mono ${pnlCls}">${pct >= 0 ? '+' : ''}${pct.toFixed(2)}%</td>
+      <td class="mono">${p.stop ? '$' + p.stop.toFixed(2) : '—'}</td>
+      <td class="mono">${p.target ? '$' + p.target.toFixed(2) : '—'}</td>
+      <td><button class="btn btn-ghost" style="padding:4px 10px;font-size:11px;" onclick="closePos(${i})">CLOSE</button></td>
+    </tr>`;
+  }).join('');
+
+  // Working orders
+  const obody = document.getElementById('ordersBody');
+  if (!state.orders.length) obody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--text-muted);padding:30px;">No working orders</td></tr>';
+  else obody.innerHTML = state.orders.map((o, i) => `<tr>
+    <td class="mono"><strong>${o.sym}</strong></td>
+    <td class="${o.side === 'buy' ? 'green-text' : 'red-text'} mono">${o.side.toUpperCase()}</td>
+    <td class="mono">${o.type.toUpperCase()}</td>
+    <td class="mono">${o.qty}</td>
+    <td class="mono">$${o.px.toFixed(2)}</td>
+    <td><button class="btn btn-ghost" style="padding:4px 10px;font-size:11px;" onclick="cancelOrder(${i})">CANCEL</button></td>
+  </tr>`).join('');
+
+  // Fills
+  const fbody = document.getElementById('fillsBody');
+  fbody.innerHTML = state.fills.slice(0, 20).map(f => `<tr>
+    <td class="mono" style="font-size:11px;color:var(--text-muted);">${new Date(f.ts).toLocaleTimeString('en-US', { hour12: false })}</td>
+    <td class="mono"><strong>${f.sym}</strong></td>
+    <td class="${f.side === 'buy' ? 'green-text' : 'red-text'} mono">${f.side.toUpperCase()}</td>
+    <td class="mono">${f.qty}</td>
+    <td class="mono">$${f.price.toFixed(2)}</td>
+    <td class="mono" style="font-size:11px;">${f.type}</td>
+    <td style="font-size:11px;color:var(--text-muted);">${f.note || ''}</td>
+  </tr>`).join('');
+}
+
+window.closePos = function(idx) {
+  const p = state.positions[idx];
+  if (!p) return;
+  const q = (typeof QUOTES !== 'undefined' && QUOTES[p.sym]) ? QUOTES[p.sym] : null;
+  if (!q) return;
+  fill(p.sym, p.side === 'buy' ? 'sell' : 'buy', p.qty, q.last, 'manual-close');
+};
+window.cancelOrder = function(idx) { state.orders.splice(idx, 1); persist(); Toast.show('Order cancelled'); };
+
+document.getElementById('placeBuy').addEventListener('click', () => placeOrder('buy'));
+document.getElementById('placeSell').addEventListener('click', () => placeOrder('sell'));
+document.getElementById('resetBtn').addEventListener('click', () => {
+  if (!confirm('Reset paper account to $100k and clear positions?')) return;
+  state = { cash: 100000, realized: 0, positions: [], orders: [], fills: [] };
+  persist();
+  Toast.show('Account reset', { kind: 'success' });
+});
+
+// page hotkeys (don't conflict with the global hotkeys.js since those check isTyping)
+document.addEventListener('keydown', e => {
+  if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT')) return;
+  if (e.metaKey || e.ctrlKey || e.altKey) return;
+  if (e.key === 'b' || e.key === 'B') { e.preventDefault(); placeOrder('buy'); }
+  if (e.key === 's' || e.key === 'S') { e.preventDefault(); placeOrder('sell'); }
+  if (e.key === 'c' || e.key === 'C') { e.preventDefault(); ordPx.value=''; ordSL.value=''; ordTP.value=''; }
+});
+
+render();
+</script>
+</body>
+</html>

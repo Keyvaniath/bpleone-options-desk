@@ -1,0 +1,322 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Volume Profile — bpleone / trade</title>
+<meta name="description" content="Volume-by-price (VPVR), point-of-control (POC), value area, and Market Profile (TPO) for any ticker. Find where the smart money has accepted price.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.vp-row { display: grid; grid-template-columns: 64px 1fr 80px; align-items: center; gap: 8px; padding: 1px 0; font-family: var(--font-mono); font-size: 11px; }
+.vp-row.poc { background: rgba(0,212,255,0.08); border-left: 3px solid var(--accent); padding-left: 6px; margin-left: -9px; }
+.vp-row.va { background: rgba(16,185,129,0.04); }
+.vp-row .px { color: var(--text-secondary); text-align: right; padding-right: 6px; }
+.vp-row .bar { height: 14px; background: rgba(0,212,255,0.25); border-radius: 2px; transition: width 0.2s; }
+.vp-row .bar.poc-bar { background: rgba(0,212,255,0.6); }
+.vp-row .bar.va-bar { background: rgba(16,185,129,0.45); }
+.vp-row .vol { color: var(--text-muted); font-size: 10px; }
+.tpo-grid { font-family: var(--font-mono); font-size: 11px; line-height: 1.4; white-space: pre; color: var(--text-secondary); padding: 12px; background: var(--bg-elevated); border-radius: 8px; overflow-x: auto; }
+.legend-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 4px; vertical-align: middle; }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">Volume Profile <span class="feat-badge feat-pro">PRO</span></div>
+      <div class="page-subtitle">VPVR + POC + Value Area + Market Profile (TPO) · <span id="market-clock">--</span></div>
+    </div>
+    <div class="flex gap-8">
+      <select id="symSel" style="background:var(--bg-elevated);border:1px solid var(--border);border-radius:8px;padding:6px 12px;color:var(--text-primary);font-size:13px;font-family:var(--font-mono);">
+        <option value="SPY">SPY</option><option value="QQQ">QQQ</option><option value="IWM">IWM</option>
+        <option value="NVDA">NVDA</option><option value="AAPL">AAPL</option><option value="TSLA">TSLA</option>
+        <option value="META">META</option><option value="MSFT">MSFT</option><option value="AMD">AMD</option>
+      </select>
+      <select id="periodSel" style="background:var(--bg-elevated);border:1px solid var(--border);border-radius:8px;padding:6px 12px;color:var(--text-primary);font-size:13px;">
+        <option value="1">Today (1D)</option>
+        <option value="5">5 days</option>
+        <option value="20" selected>20 days</option>
+        <option value="60">3 months</option>
+        <option value="252">1 year</option>
+      </select>
+    </div>
+  </div>
+
+  <!-- KPI -->
+  <div class="grid grid-4 mb-24">
+    <div class="card">
+      <div class="card-header"><div class="card-title">POC (Point of Control)</div></div>
+      <div class="mono" style="font-size:26px;font-weight:700;" id="kPoc">$0.00</div>
+      <div style="font-size:12px;color:var(--text-muted);">Highest-volume price bucket</div>
+    </div>
+    <div class="card">
+      <div class="card-header"><div class="card-title">Value Area High</div></div>
+      <div class="mono green-text" style="font-size:26px;font-weight:700;" id="kVah">$0.00</div>
+      <div style="font-size:12px;color:var(--text-muted);">70% of volume — upper bound</div>
+    </div>
+    <div class="card">
+      <div class="card-header"><div class="card-title">Value Area Low</div></div>
+      <div class="mono red-text" style="font-size:26px;font-weight:700;" id="kVal">$0.00</div>
+      <div style="font-size:12px;color:var(--text-muted);">70% of volume — lower bound</div>
+    </div>
+    <div class="card">
+      <div class="card-header"><div class="card-title">Volume in Range</div></div>
+      <div class="mono" style="font-size:26px;font-weight:700;" id="kTotalVol">—</div>
+      <div style="font-size:12px;color:var(--text-muted);" id="kBuckets">— price buckets</div>
+    </div>
+  </div>
+
+  <!-- Layout: Profile (left, tall) | Chart with overlays (right) -->
+  <div class="grid grid-12">
+    <div class="card col-4" style="max-height:680px;overflow-y:auto;">
+      <div class="card-header"><div class="card-title">📊 Volume by Price (VPVR)</div></div>
+      <div id="vpvr"></div>
+      <div style="display:flex;gap:14px;margin-top:12px;font-size:11px;color:var(--text-muted);">
+        <span><span class="legend-dot" style="background:rgba(0,212,255,0.6);"></span>POC</span>
+        <span><span class="legend-dot" style="background:rgba(16,185,129,0.45);"></span>Value Area (70%)</span>
+        <span><span class="legend-dot" style="background:rgba(0,212,255,0.25);"></span>Outside VA</span>
+      </div>
+    </div>
+
+    <div class="card col-8">
+      <div class="card-header"><div class="card-title">Price + VPVR overlay</div></div>
+      <canvas id="priceChart" height="340"></canvas>
+      <div style="margin-top:14px;font-size:13px;color:var(--text-muted);line-height:1.6;" id="readout"></div>
+    </div>
+  </div>
+
+  <!-- Market Profile (TPO) -->
+  <div class="card mt-24">
+    <div class="card-header">
+      <div class="card-title">🕓 Market Profile (TPO) — Today</div>
+      <div style="font-size:11px;color:var(--text-muted);">Each letter is a 30-min "Time Price Opportunity". Letters: A=9:30-10:00, B=10:00-10:30, …</div>
+    </div>
+    <div class="tpo-grid" id="tpoGrid"></div>
+    <div style="margin-top:12px;display:flex;gap:14px;font-size:11px;color:var(--text-muted);flex-wrap:wrap;">
+      <span><strong style="color:var(--accent);">D-Shape (normal):</strong> balanced auction</span>
+      <span><strong style="color:var(--green);">P-Shape:</strong> short covering / one-time-frame buyer</span>
+      <span><strong style="color:var(--red);">b-Shape:</strong> long liquidation / one-time-frame seller</span>
+      <span><strong style="color:var(--yellow);">Trend day:</strong> elongated profile, narrow VA</span>
+    </div>
+  </div>
+
+  <!-- Educational interpretation -->
+  <div class="card mt-24">
+    <div class="card-header"><div class="card-title">🧠 How to trade volume profile</div></div>
+    <div class="grid grid-3" style="gap:20px;">
+      <div>
+        <div style="font-weight:700;color:var(--accent);margin-bottom:6px;">POC = magnet</div>
+        <div style="font-size:13px;color:var(--text-muted);line-height:1.6;">Price tends to revisit POC because it's where the most participants accepted prior trade. Use POC from prior session as a key intra-day target/resistance.</div>
+      </div>
+      <div>
+        <div style="font-weight:700;color:var(--green);margin-bottom:6px;">Value Area edges = fade zones</div>
+        <div style="font-size:13px;color:var(--text-muted);line-height:1.6;">Breakouts above VAH that fail back in often pull all the way through value to VAL. Same in reverse. The "80% rule": if price re-enters value after opening outside, ~80% chance it traverses the full VA.</div>
+      </div>
+      <div>
+        <div style="font-weight:700;color:var(--yellow);margin-bottom:6px;">Low-Volume Nodes (LVN) = thin air</div>
+        <div style="font-size:13px;color:var(--text-muted);line-height:1.6;">Gaps between high-volume nodes are "thin" zones where price moves fast. Find LVNs as fade or breakout points. Often these are stop-run zones.</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="related-bar mt-24">
+    <span class="lbl">Related →</span>
+    <a href="order-flow.html">🔥 Order Flow</a>
+    <a href="tape.html">📜 Time &amp; Sales</a>
+    <a href="ticker.html">🔍 Ticker Focus</a>
+    <a href="technical-analysis.html">📊 TA Scanner</a>
+    <a href="gex.html">🌀 Gamma Exposure</a>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/toast.js"></script>
+<script src="js/command-palette.js"></script>
+<script src="js/hotkeys.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script>
+buildNav('volume-profile');
+
+let sym = 'SPY';
+let periodDays = 20;
+
+function seedRand(seed) { let s = seed; return () => { s = (s * 9301 + 49297) % 233280; return s / 233280; }; }
+
+// Build a synthetic price series and bucket volume by price.
+function buildProfile() {
+  const q = (typeof QUOTES !== 'undefined' && QUOTES[sym]) ? QUOTES[sym] : null;
+  const spot = q ? q.last : 100;
+  const sigma = 0.015 * Math.sqrt(periodDays);
+  const rng = seedRand(sym.charCodeAt(0) * 41 + periodDays);
+  // generate per-bar price + volume
+  const bars = [];
+  let px = spot * (0.98 + rng() * 0.04);
+  const N = periodDays * 26; // 26 bars/day approx
+  let totalVol = 0;
+  for (let i = 0; i < N; i++) {
+    const drift = (spot - px) / spot * 0.06;
+    const shock = (rng() - 0.5) * sigma / Math.sqrt(N) * 6;
+    px = Math.max(0.01, px * (1 + drift + shock));
+    const v = Math.round((q ? q.volume/200 : 5e5) * (0.5 + rng() * 1.5));
+    bars.push({ p: px, v });
+    totalVol += v;
+  }
+  if (bars.length) bars[bars.length - 1].p = spot;
+
+  // Bucket
+  const min = bars.reduce((m, b) => Math.min(m, b.p), Infinity);
+  const max = bars.reduce((m, b) => Math.max(m, b.p), -Infinity);
+  const buckets = 36;
+  const step = (max - min) / buckets || 1;
+  const vol = new Array(buckets).fill(0);
+  bars.forEach(b => {
+    let idx = Math.floor((b.p - min) / step);
+    if (idx >= buckets) idx = buckets - 1;
+    if (idx < 0) idx = 0;
+    vol[idx] += b.v;
+  });
+  // POC + Value Area (70%)
+  const maxV = Math.max(...vol);
+  const pocIdx = vol.indexOf(maxV);
+  const target = totalVol * 0.7;
+  let acc = vol[pocIdx];
+  let lo = pocIdx, hi = pocIdx;
+  while (acc < target && (lo > 0 || hi < buckets - 1)) {
+    const upV = hi < buckets - 1 ? vol[hi + 1] : -1;
+    const dnV = lo > 0 ? vol[lo - 1] : -1;
+    if (upV >= dnV) { hi++; acc += vol[hi]; }
+    else { lo--; acc += vol[lo]; }
+  }
+  return { bars, min, max, step, vol, maxV, pocIdx, vaLo: lo, vaHi: hi, totalVol };
+}
+
+function renderProfile() {
+  const p = buildProfile();
+  const wrap = document.getElementById('vpvr');
+  let html = '';
+  // Render top→bottom so highest price is at top
+  for (let i = p.vol.length - 1; i >= 0; i--) {
+    const pxMid = p.min + (i + 0.5) * p.step;
+    const width = (p.vol[i] / p.maxV) * 100;
+    const inVA = i >= p.vaLo && i <= p.vaHi;
+    const isPoc = i === p.pocIdx;
+    const cls = isPoc ? 'vp-row poc' : (inVA ? 'vp-row va' : 'vp-row');
+    const barCls = isPoc ? 'bar poc-bar' : (inVA ? 'bar va-bar' : 'bar');
+    html += `<div class="${cls}">
+      <span class="px">$${pxMid.toFixed(2)}</span>
+      <span><div class="${barCls}" style="width:${width}%;"></div></span>
+      <span class="vol">${(p.vol[i]/1e6).toFixed(1)}M</span>
+    </div>`;
+  }
+  wrap.innerHTML = html;
+
+  // KPIs
+  const poc = p.min + (p.pocIdx + 0.5) * p.step;
+  const vah = p.min + (p.vaHi + 1) * p.step;
+  const val = p.min + p.vaLo * p.step;
+  document.getElementById('kPoc').textContent = '$' + poc.toFixed(2);
+  document.getElementById('kVah').textContent = '$' + vah.toFixed(2);
+  document.getElementById('kVal').textContent = '$' + val.toFixed(2);
+  document.getElementById('kTotalVol').textContent = (p.totalVol / 1e9 >= 1 ? (p.totalVol/1e9).toFixed(2) + 'B' : (p.totalVol/1e6).toFixed(0) + 'M');
+  document.getElementById('kBuckets').textContent = p.vol.length + ' price buckets · ' + p.bars.length + ' bars';
+
+  // Chart overlay
+  const labels = p.bars.map((_, i) => i);
+  if (chart) { chart.destroy(); chart = null; }
+  const ctx = document.getElementById('priceChart').getContext('2d');
+  chart = new Chart(ctx, {
+    type: 'line',
+    data: { labels, datasets: [{ label: sym, data: p.bars.map(b => b.p), borderColor: 'rgba(0,212,255,1)', backgroundColor: 'rgba(0,212,255,0.08)', tension: 0.2, pointRadius: 0, fill: true }] },
+    options: {
+      responsive: true, maintainAspectRatio: false, animation: false,
+      plugins: {
+        legend: { display: false },
+        annotation: undefined
+      },
+      scales: {
+        x: { grid: { color: 'rgba(255,255,255,0.04)' }, ticks: { display: false } },
+        y: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#6b7280', font: { size: 10 } } }
+      }
+    },
+    plugins: [{
+      id: 'hlines',
+      afterDraw(chart) {
+        const { ctx, chartArea: a, scales: { y } } = chart;
+        function line(yVal, color, label) {
+          const py = y.getPixelForValue(yVal);
+          if (py < a.top || py > a.bottom) return;
+          ctx.save();
+          ctx.strokeStyle = color;
+          ctx.lineWidth = 1;
+          ctx.setLineDash([4, 3]);
+          ctx.beginPath();
+          ctx.moveTo(a.left, py); ctx.lineTo(a.right, py); ctx.stroke();
+          ctx.setLineDash([]);
+          ctx.fillStyle = color;
+          ctx.font = '10px "JetBrains Mono", monospace';
+          ctx.textAlign = 'left';
+          ctx.fillText(label, a.left + 6, py - 3);
+          ctx.restore();
+        }
+        line(poc, '#00d4ff', 'POC $' + poc.toFixed(2));
+        line(vah, '#10b981', 'VAH $' + vah.toFixed(2));
+        line(val, '#ef4444', 'VAL $' + val.toFixed(2));
+      }
+    }]
+  });
+
+  // Readout
+  const spot = p.bars[p.bars.length - 1].p;
+  let action = '';
+  if (spot > vah) action = 'Above value — auction is extending up. Buyers in control. <strong>Watch</strong>: rejection back into VAH = short signal; acceptance = continuation.';
+  else if (spot < val) action = 'Below value — auction extending down. <strong>Watch</strong>: rejection back above VAL = long signal; acceptance = continuation.';
+  else action = 'Inside value — balanced. <strong>Mean-reversion</strong> trades favored to POC. Breakout above VAH or below VAL = directional setup.';
+  document.getElementById('readout').innerHTML = '<strong>' + sym + '</strong> at $' + spot.toFixed(2) + ' — ' + action;
+
+  // TPO grid
+  renderTPO(p.bars.slice(-13), p);
+}
+
+let chart;
+
+function renderTPO(bars, p) {
+  // Map letters A-M (9:30-15:30 = 12 half hours) to row positions
+  const letters = 'ABCDEFGHIJKLM';
+  // Build per-bucket TPO letters: which letters fell in this price range
+  const buckets = p.vol.length;
+  const min = p.min, max = p.max, step = p.step;
+  const rows = new Array(buckets).fill('');
+  bars.forEach((b, i) => {
+    let idx = Math.floor((b.p - min) / step);
+    if (idx >= buckets) idx = buckets - 1;
+    if (idx < 0) idx = 0;
+    const c = letters[i] || '·';
+    rows[idx] = (rows[idx] + c).slice(0, 13);
+  });
+  let txt = '';
+  for (let i = buckets - 1; i >= 0; i--) {
+    const px = (min + (i + 0.5) * step).toFixed(2).padStart(8);
+    txt += '$' + px + '  │ ' + rows[i].padEnd(13, ' ') + ' │\n';
+  }
+  document.getElementById('tpoGrid').textContent = txt;
+}
+
+document.getElementById('symSel').addEventListener('change', e => { sym = e.target.value; renderProfile(); });
+document.getElementById('periodSel').addEventListener('change', e => { periodDays = +e.target.value; renderProfile(); });
+
+renderProfile();
+</script>
+</body>
+</html>
