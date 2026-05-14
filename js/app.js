@@ -181,6 +181,7 @@ function buildNav(activePage) {
   const slot = document.getElementById('site-nav');
   if (slot) slot.innerHTML = navHtml;
   buildTicker();
+  buildMobileTabs(activePage);
   wireDataPill();
   const cmdkBtn = document.getElementById('cmdkBtn');
   if (cmdkBtn && window.CmdPalette) cmdkBtn.addEventListener('click', () => CmdPalette.open());
@@ -222,6 +223,24 @@ function buildNav(activePage) {
       refreshLabel();
     });
   }
+}
+
+function buildMobileTabs(activePage) {
+  // Idempotent — if already injected, just update active state
+  let bar = document.querySelector('.mobile-tab-bar');
+  const tabs = [
+    { key: 'game-plan',   icon: '📋', label: 'Plan',    url: 'game-plan.html' },
+    { key: 'hot-movers',  icon: '🔥', label: 'Movers',  url: 'hot-movers.html' },
+    { key: 'plays',       icon: '⭐', label: 'Plays',   url: 'plays.html' },
+    { key: 'ticker',      icon: '🔍', label: 'Ticker',  url: 'ticker.html' },
+    { key: 'assistant',   icon: '🤖', label: 'AI',      url: 'assistant.html' }
+  ];
+  if (!bar) {
+    bar = document.createElement('nav');
+    bar.className = 'mobile-tab-bar';
+    document.body.appendChild(bar);
+  }
+  bar.innerHTML = tabs.map(t => `<a href="${t.url}" class="${t.key === activePage ? 'active' : ''}"><span class="icon">${t.icon}</span><span>${t.label}</span></a>`).join('');
 }
 
 function wireDataPill() {
