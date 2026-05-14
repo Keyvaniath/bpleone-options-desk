@@ -97,6 +97,16 @@ const DataProvider = (function() {
   }
 
   // ---------- Quote application ----------
+  // Throttle wildcard publishes so pages subscribed to '*' don't re-render on
+  // every single tick (Finnhub can fire many trades per second).
+  let lastWildcardAt = 0;
+  function publishWildcardThrottled() {
+    const now = Date.now();
+    if (now - lastWildcardAt < 250) return;  // 4Hz max
+    lastWildcardAt = now;
+    if (typeof Feed !== 'undefined' && typeof QUOTES !== 'undefined') Feed.publish('*', QUOTES);
+  }
+
   function applyTrade(sym, price, size) {
     if (typeof QUOTES === 'undefined' || !QUOTES[sym]) return;
     const q = QUOTES[sym];
@@ -104,6 +114,7 @@ const DataProvider = (function() {
     if (size && size > 0) q.volume = (q.volume || 0) + size;
     if (typeof computeDerived === 'function') computeDerived(q);
     if (typeof Feed !== 'undefined') Feed.publish(sym, q);
+    publishWildcardThrottled();
     messagesReceived++;
     lastMessageAt = Date.now();
   }
@@ -121,6 +132,7 @@ const DataProvider = (function() {
       }
     }
     if (typeof Feed !== 'undefined') Feed.publish(sym, q);
+    publishWildcardThrottled();
     messagesReceived++;
     lastMessageAt = Date.now();
   }
