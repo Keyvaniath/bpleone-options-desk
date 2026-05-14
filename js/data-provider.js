@@ -158,8 +158,34 @@ const DataProvider = (function() {
   }
 
   // ---------- Provider: Finnhub ----------
+  // On connect, also bootstrap prevClose + spot for each symbol via REST so
+  // change/changePct are accurate from tick #1 (Finnhub WS only sends last
+  // trade price, not prevClose).
+  async function bootstrapFinnhub() {
+    if (typeof QUOTES === 'undefined') return;
+    const syms = symbolsToSubscribe();
+    // Run in parallel, ignore failures per-symbol
+    await Promise.all(syms.map(async sym => {
+      try {
+        const r = await fetch('https://finnhub.io/api/v1/quote?symbol=' + encodeURIComponent(sym) + '&token=' + encodeURIComponent(config.apiKey));
+        if (!r.ok) return;
+        const j = await r.json();
+        if (!QUOTES[sym]) return;
+        // Finnhub: c=current, pc=previous close, o=open, h=high, l=low, t=timestamp
+        if (typeof j.pc === 'number' && j.pc > 0) QUOTES[sym].prevClose = j.pc;
+        if (typeof j.c === 'number' && j.c > 0) {
+          QUOTES[sym].last = j.c;
+          if (typeof computeDerived === 'function') computeDerived(QUOTES[sym]);
+          if (typeof Feed !== 'undefined') Feed.publish(sym, QUOTES[sym]);
+        }
+      } catch (e) {}
+    }));
+  }
+
   function connectFinnhub() {
     if (!config.apiKey) throw new Error('Finnhub requires an API key');
+    // Fire bootstrap REST calls (don't await — let WS connect in parallel)
+    bootstrapFinnhub();
     ws = new WebSocket('wss://ws.finnhub.io?token=' + encodeURIComponent(config.apiKey));
     ws.onopen = () => {
       symbolsToSubscribe().forEach(sym => {
