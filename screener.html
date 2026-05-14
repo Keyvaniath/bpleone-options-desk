@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Multi-Factor Screener — bpleone / trade</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.fac-row { display:grid; grid-template-columns:140px 1fr 60px 50px; gap:10px; align-items:center; padding:8px 0; border-bottom:1px dashed var(--border); }
+.fac-row input[type=range] { width:100%; accent-color:var(--accent); }
+.preset { background:var(--bg-elevated); border:1px solid var(--border); padding:6px 10px; border-radius:6px; font-size:12px; cursor:pointer; transition:all 0.15s; }
+.preset:hover { border-color:var(--accent); color:var(--accent); }
+.preset.active { background:rgba(0,212,255,0.15); border-color:var(--accent); color:var(--accent); }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">Multi-Factor Screener</div>
+      <div class="page-subtitle">Goldman/MS-style 12-factor composite ranking · custom weights · <span id="market-clock">--</span></div>
+    </div>
+    <div class="flex gap-8">
+      <button class="btn btn-secondary" id="resetBtn">↺ Reset</button>
+      <button class="btn btn-primary" id="runBtn">▶ Run Screen</button>
+    </div>
+  </div>
+
+  <div class="grid grid-12">
+    <!-- Factor weights panel -->
+    <div class="card col-4" style="height:fit-content;">
+      <div class="card-header"><div class="card-title">⚙️ Factor Weights</div></div>
+
+      <div style="margin-bottom:14px;">
+        <div class="section-label">Presets</div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;">
+          <div class="preset active" data-preset="balanced">Balanced</div>
+          <div class="preset" data-preset="growth">Growth</div>
+          <div class="preset" data-preset="value">Value</div>
+          <div class="preset" data-preset="quality">Quality</div>
+          <div class="preset" data-preset="momentum">Momentum</div>
+          <div class="preset" data-preset="dividend">Dividend</div>
+        </div>
+      </div>
+
+      <div id="factorList">
+        <div class="fac-row"><label>Momentum (12-1)</label><input type="range" min="0" max="100" value="20" data-fac="momentum"><span class="mono" data-w="momentum">20</span><span style="font-size:10px;color:var(--text-muted);">%</span></div>
+        <div class="fac-row"><label>Relative Strength</label><input type="range" min="0" max="100" value="15" data-fac="rs"><span class="mono" data-w="rs">15</span><span style="font-size:10px;color:var(--text-muted);">%</span></div>
+        <div class="fac-row"><label>Earnings Growth</label><input type="range" min="0" max="100" value="12" data-fac="growth"><span class="mono" data-w="growth">12</span><span style="font-size:10px;color:var(--text-muted);">%</span></div>
+        <div class="fac-row"><label>FCF Yield</label><input type="range" min="0" max="100" value="10" data-fac="fcf"><span class="mono" data-w="fcf">10</span><span style="font-size:10px;color:var(--text-muted);">%</span></div>
+        <div class="fac-row"><label>Quality (ROE)</label><input type="range" min="0" max="100" value="10" data-fac="quality"><span class="mono" data-w="quality">10</span><span style="font-size:10px;color:var(--text-muted);">%</span></div>
+        <div class="fac-row"><label>Value (P/E rank)</label><input type="range" min="0" max="100" value="8" data-fac="value"><span class="mono" data-w="value">8</span><span style="font-size:10px;color:var(--text-muted);">%</span></div>
+        <div class="fac-row"><label>Low Beta</label><input type="range" min="0" max="100" value="5" data-fac="lowbeta"><span class="mono" data-w="lowbeta">5</span><span style="font-size:10px;color:var(--text-muted);">%</span></div>
+        <div class="fac-row"><label>Dividend Yield</label><input type="range" min="0" max="100" value="5" data-fac="dividend"><span class="mono" data-w="dividend">5</span><span style="font-size:10px;color:var(--text-muted);">%</span></div>
+        <div class="fac-row"><label>Analyst Upgrades</label><input type="range" min="0" max="100" value="6" data-fac="analyst"><span class="mono" data-w="analyst">6</span><span style="font-size:10px;color:var(--text-muted);">%</span></div>
+        <div class="fac-row"><label>Insider Buying</label><input type="range" min="0" max="100" value="3" data-fac="insider"><span class="mono" data-w="insider">3</span><span style="font-size:10px;color:var(--text-muted);">%</span></div>
+        <div class="fac-row"><label>Options Sentiment</label><input type="range" min="0" max="100" value="3" data-fac="options"><span class="mono" data-w="options">3</span><span style="font-size:10px;color:var(--text-muted);">%</span></div>
+        <div class="fac-row"><label>Short Interest</label><input type="range" min="0" max="100" value="3" data-fac="shortint"><span class="mono" data-w="shortint">3</span><span style="font-size:10px;color:var(--text-muted);">%</span></div>
+      </div>
+
+      <div style="background:var(--bg-elevated);padding:10px 14px;border-radius:6px;margin-top:14px;font-family:var(--font-mono);font-size:13px;display:flex;justify-content:space-between;">
+        <span style="color:var(--text-muted);">Total weight</span><span id="totalW">100%</span>
+      </div>
+
+      <div style="margin-top:18px;">
+        <div class="section-label">Filters</div>
+        <div style="font-size:12px;line-height:1.8;margin-top:8px;">
+          <label style="display:flex;align-items:center;gap:8px;cursor:pointer;"><input type="checkbox" checked> Market cap &gt; $1B</label>
+          <label style="display:flex;align-items:center;gap:8px;cursor:pointer;"><input type="checkbox" checked> Above 50DMA</label>
+          <label style="display:flex;align-items:center;gap:8px;cursor:pointer;"><input type="checkbox"> S&P 500 only</label>
+          <label style="display:flex;align-items:center;gap:8px;cursor:pointer;"><input type="checkbox"> Profitable (TTM)</label>
+          <label style="display:flex;align-items:center;gap:8px;cursor:pointer;"><input type="checkbox"> Avg vol &gt; 1M</label>
+        </div>
+      </div>
+    </div>
+
+    <!-- Results -->
+    <div class="card col-8">
+      <div class="card-header"><div class="card-title">🏆 Top Ranked — Composite Score</div><span class="card-badge" id="resultCount">18 names</span></div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr>
+            <th>#</th><th>Symbol</th><th>Sector</th><th>Last</th>
+            <th class="sortable" data-type="num">Mom</th>
+            <th class="sortable" data-type="num">RS</th>
+            <th class="sortable" data-type="num">Growth</th>
+            <th class="sortable" data-type="num">FCF</th>
+            <th class="sortable" data-type="num">Quality</th>
+            <th class="sortable" data-type="num">Value</th>
+            <th class="sortable" data-type="num">Score</th>
+          </tr></thead>
+          <tbody id="screenerBody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script>
+buildNav('screener');
+
+// 18 stocks × 12 factor scores (0-100, higher = better)
+const UNIVERSE = [
+  { sym:'NVDA', sec:'Tech',     last:138.27, scores:{ momentum:94, rs:96, growth:98, fcf:78, quality:99, value:18, lowbeta:24, dividend:8, analyst:96, insider:18, options:92, shortint:62 }},
+  { sym:'SMCI', sec:'Tech',     last:48.21,  scores:{ momentum:98, rs:99, growth:92, fcf:62, quality:78, value:48, lowbeta:12, dividend:0, analyst:88, insider:48, options:94, shortint:48 }},
+  { sym:'META', sec:'CommSvc',  last:587.42, scores:{ momentum:84, rs:82, growth:88, fcf:86, quality:92, value:42, lowbeta:38, dividend:18, analyst:90, insider:24, options:84, shortint:72 }},
+  { sym:'PLTR', sec:'Tech',     last:31.84,  scores:{ momentum:92, rs:91, growth:82, fcf:62, quality:62, value:14, lowbeta:18, dividend:0, analyst:78, insider:42, options:88, shortint:38 }},
+  { sym:'AMD',  sec:'Tech',     last:162.18, scores:{ momentum:78, rs:84, growth:78, fcf:62, quality:74, value:32, lowbeta:22, dividend:0, analyst:88, insider:38, options:82, shortint:56 }},
+  { sym:'MSFT', sec:'Tech',     last:425.18, scores:{ momentum:62, rs:72, growth:68, fcf:88, quality:96, value:38, lowbeta:54, dividend:42, analyst:84, insider:18, options:62, shortint:84 }},
+  { sym:'AAPL', sec:'Tech',     last:218.94, scores:{ momentum:68, rs:74, growth:54, fcf:84, quality:92, value:42, lowbeta:58, dividend:48, analyst:78, insider:14, options:64, shortint:82 }},
+  { sym:'AVGO', sec:'Tech',     last:1684,   scores:{ momentum:78, rs:80, growth:84, fcf:88, quality:90, value:48, lowbeta:48, dividend:54, analyst:88, insider:32, options:76, shortint:72 }},
+  { sym:'GOOGL',sec:'CommSvc',  last:178.32, scores:{ momentum:58, rs:62, growth:62, fcf:88, quality:92, value:62, lowbeta:54, dividend:0, analyst:80, insider:18, options:58, shortint:82 }},
+  { sym:'COIN', sec:'Fin',      last:248.92, scores:{ momentum:88, rs:92, growth:84, fcf:54, quality:62, value:28, lowbeta:14, dividend:0, analyst:74, insider:38, options:88, shortint:42 }},
+  { sym:'CRM',  sec:'Tech',     last:278.40, scores:{ momentum:54, rs:58, growth:62, fcf:78, quality:82, value:62, lowbeta:48, dividend:0, analyst:72, insider:42, options:54, shortint:74 }},
+  { sym:'NFLX', sec:'CommSvc',  last:684,    scores:{ momentum:74, rs:76, growth:78, fcf:74, quality:84, value:34, lowbeta:32, dividend:0, analyst:82, insider:28, options:72, shortint:74 }},
+  { sym:'V',    sec:'Fin',      last:288.40, scores:{ momentum:48, rs:54, growth:64, fcf:92, quality:98, value:52, lowbeta:62, dividend:38, analyst:86, insider:22, options:48, shortint:88 }},
+  { sym:'AMZN', sec:'ConsDisc', last:213.55, scores:{ momentum:62, rs:68, growth:74, fcf:78, quality:82, value:38, lowbeta:42, dividend:0, analyst:84, insider:18, options:62, shortint:78 }},
+  { sym:'JPM',  sec:'Fin',      last:218.40, scores:{ momentum:48, rs:52, growth:48, fcf:74, quality:84, value:62, lowbeta:54, dividend:62, analyst:78, insider:24, options:48, shortint:84 }},
+  { sym:'COST', sec:'ConsStpl', last:842,    scores:{ momentum:62, rs:64, growth:54, fcf:84, quality:96, value:24, lowbeta:68, dividend:38, analyst:84, insider:22, options:54, shortint:88 }},
+  { sym:'LLY',  sec:'HC',       last:842,    scores:{ momentum:62, rs:64, growth:92, fcf:78, quality:88, value:18, lowbeta:54, dividend:34, analyst:86, insider:18, options:62, shortint:82 }},
+  { sym:'XOM',  sec:'Energy',   last:118.40, scores:{ momentum:38, rs:24, growth:42, fcf:78, quality:72, value:78, lowbeta:62, dividend:84, analyst:62, insider:34, options:42, shortint:84 }},
+];
+
+const PRESETS = {
+  balanced: { momentum:20, rs:15, growth:12, fcf:10, quality:10, value:8, lowbeta:5, dividend:5, analyst:6, insider:3, options:3, shortint:3 },
+  growth:   { momentum:18, rs:14, growth:24, fcf:8, quality:8, value:2, lowbeta:2, dividend:0, analyst:10, insider:4, options:6, shortint:4 },
+  value:    { momentum:6, rs:4, growth:8, fcf:18, quality:12, value:28, lowbeta:8, dividend:8, analyst:4, insider:2, options:0, shortint:2 },
+  quality:  { momentum:10, rs:8, growth:8, fcf:14, quality:28, value:8, lowbeta:8, dividend:6, analyst:6, insider:0, options:2, shortint:2 },
+  momentum: { momentum:30, rs:24, growth:8, fcf:6, quality:6, value:0, lowbeta:0, dividend:0, analyst:12, insider:4, options:8, shortint:2 },
+  dividend: { momentum:6, rs:6, growth:8, fcf:14, quality:14, value:14, lowbeta:14, dividend:18, analyst:2, insider:0, options:2, shortint:2 }
+};
+
+function getWeights() {
+  const w = {};
+  document.querySelectorAll('[data-fac]').forEach(i => { w[i.dataset.fac] = +i.value; });
+  return w;
+}
+function setWeights(w) {
+  Object.entries(w).forEach(([k, v]) => {
+    const i = document.querySelector(`[data-fac="${k}"]`);
+    if (i) { i.value = v; document.querySelector(`[data-w="${k}"]`).textContent = v; }
+  });
+  updateTotal();
+}
+function updateTotal() {
+  const total = Object.values(getWeights()).reduce((a, b) => a + b, 0);
+  const el = document.getElementById('totalW');
+  el.textContent = total + '%';
+  el.style.color = total === 100 ? 'var(--green)' : 'var(--yellow)';
+}
+
+function runScreen() {
+  const w = getWeights();
+  const tw = Object.values(w).reduce((a, b) => a + b, 0) || 1;
+  const ranked = UNIVERSE.map(s => {
+    let score = 0;
+    Object.entries(s.scores).forEach(([k, v]) => { score += (w[k] || 0) * v / tw; });
+    return { ...s, score: +score.toFixed(1) };
+  }).sort((a, b) => b.score - a.score);
+
+  document.getElementById('screenerBody').innerHTML = ranked.map((s, i) => `
+    <tr>
+      <td>${i+1}</td>
+      <td class="symbol">${s.sym}</td>
+      <td>${s.sec}</td>
+      <td>$${s.last.toFixed(2)}</td>
+      <td>${s.scores.momentum}</td>
+      <td>${s.scores.rs}</td>
+      <td>${s.scores.growth}</td>
+      <td>${s.scores.fcf}</td>
+      <td>${s.scores.quality}</td>
+      <td>${s.scores.value}</td>
+      <td><strong style="color:${s.score>=80?'var(--green)':s.score>=60?'var(--yellow)':'var(--text-secondary)'};">${s.score}</strong></td>
+    </tr>
+  `).join('');
+  document.getElementById('resultCount').textContent = ranked.length + ' names';
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  document.querySelectorAll('[data-fac]').forEach(i => i.addEventListener('input', () => {
+    document.querySelector(`[data-w="${i.dataset.fac}"]`).textContent = i.value;
+    updateTotal();
+  }));
+  document.querySelectorAll('.preset').forEach(b => b.addEventListener('click', () => {
+    document.querySelectorAll('.preset').forEach(x => x.classList.remove('active'));
+    b.classList.add('active');
+    setWeights(PRESETS[b.dataset.preset]);
+    runScreen();
+  }));
+  document.getElementById('runBtn').addEventListener('click', runScreen);
+  document.getElementById('resetBtn').addEventListener('click', () => { setWeights(PRESETS.balanced); runScreen(); });
+  updateTotal();
+  runScreen();
+});
+</script>
+</body>
+</html>

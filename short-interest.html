@@ -1,0 +1,312 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Short Interest Tracker — bpleone / trade</title>
+<meta name="description" content="Short interest percent of float, days-to-cover, squeeze candidates, FTDs, and short-volume ratio. Find the asymmetric setups before the squeeze.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.squeeze-card { padding:16px; background:var(--bg-elevated); border:1px solid var(--border); border-radius:10px; }
+.squeeze-card .sym { font-size:22px; font-weight:800; }
+.squeeze-card .score { padding:3px 10px; border-radius:999px; font-size:11px; font-weight:700; }
+.score-extreme { background:var(--red-bg); color:var(--red); }
+.score-high { background:rgba(245,158,11,0.15); color:var(--yellow); }
+.score-medium { background:var(--green-bg); color:var(--green); }
+.metric-mini { display:flex; justify-content:space-between; padding:4px 0; font-size:12px; }
+.metric-mini .k { color:var(--text-muted); }
+.metric-mini .v { font-family:var(--font-mono); font-weight:600; }
+.heat-row td { padding:8px 10px; }
+.bar-inline { height:6px; border-radius:3px; background:var(--bg-tertiary); overflow:hidden; }
+.bar-inline div { height:100%; }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">Short Interest Tracker</div>
+      <div class="page-subtitle">SI%, days-to-cover, squeeze candidates, FTDs · <span id="market-clock">--</span></div>
+    </div>
+    <div class="flex gap-8">
+      <div class="search-input" style="background:var(--bg-elevated);border:1px solid var(--border);border-radius:8px;padding:6px 12px;display:flex;align-items:center;gap:8px;">
+        <input id="searchSym" placeholder="Search symbol…" style="background:transparent;border:none;outline:none;color:var(--text-primary);width:160px;font-size:13px;" />
+      </div>
+    </div>
+  </div>
+
+  <!-- KPI ROW -->
+  <div class="grid grid-4 mb-24">
+    <div class="card">
+      <div class="card-header"><div class="card-title">Universe Avg SI %</div></div>
+      <div class="mono" style="font-size:28px;font-weight:700;">12.4%</div>
+      <div class="green-text mono" style="font-size:12px;">↓ from 13.2% (2w prior)</div>
+    </div>
+    <div class="card">
+      <div class="card-header"><div class="card-title">Avg Days-to-Cover</div></div>
+      <div class="mono" style="font-size:28px;font-weight:700;">3.8</div>
+      <div class="mono" style="font-size:12px;color:var(--text-muted);">Range 0.8 — 21.2</div>
+    </div>
+    <div class="card">
+      <div class="card-header"><div class="card-title">Squeeze Watchlist</div></div>
+      <div class="mono" style="font-size:28px;font-weight:700;">14</div>
+      <div class="yellow-text mono" style="font-size:12px;">Score &gt; 75 / 100</div>
+    </div>
+    <div class="card">
+      <div class="card-header"><div class="card-title">Reg SHO Threshold List</div></div>
+      <div class="mono" style="font-size:28px;font-weight:700;">38</div>
+      <div class="red-text mono" style="font-size:12px;">↑ from 31 (5d ago)</div>
+    </div>
+  </div>
+
+  <!-- SQUEEZE CANDIDATES -->
+  <div class="card">
+    <div class="card-header">
+      <div class="card-title">🔥 Top Squeeze Candidates</div>
+      <div style="font-size:11px;color:var(--text-muted);">Score = (SI% × 0.4) + (DTC × 5) + (Borrow% × 0.3) + Trend (5d)</div>
+    </div>
+    <div class="grid grid-3" style="gap:12px;">
+      <div class="squeeze-card">
+        <div class="flex" style="justify-content:space-between;align-items:flex-start;">
+          <div><div class="sym">CVNA</div><div style="font-size:12px;color:var(--text-muted);">Carvana Co.</div></div>
+          <div class="score score-extreme">EXTREME · 94</div>
+        </div>
+        <div style="margin-top:12px;">
+          <div class="metric-mini"><span class="k">SI % of float</span><span class="v">36.8%</span></div>
+          <div class="metric-mini"><span class="k">Days to cover</span><span class="v">11.4</span></div>
+          <div class="metric-mini"><span class="k">Borrow cost (APR)</span><span class="v red-text">82.4%</span></div>
+          <div class="metric-mini"><span class="k">5d price</span><span class="v green-text">+18.4%</span></div>
+          <div class="metric-mini"><span class="k">Float</span><span class="v">82.4M</span></div>
+        </div>
+      </div>
+      <div class="squeeze-card">
+        <div class="flex" style="justify-content:space-between;align-items:flex-start;">
+          <div><div class="sym">GME</div><div style="font-size:12px;color:var(--text-muted);">GameStop Corp.</div></div>
+          <div class="score score-extreme">EXTREME · 91</div>
+        </div>
+        <div style="margin-top:12px;">
+          <div class="metric-mini"><span class="k">SI % of float</span><span class="v">22.4%</span></div>
+          <div class="metric-mini"><span class="k">Days to cover</span><span class="v">8.2</span></div>
+          <div class="metric-mini"><span class="k">Borrow cost (APR)</span><span class="v red-text">48.2%</span></div>
+          <div class="metric-mini"><span class="k">5d price</span><span class="v green-text">+24.8%</span></div>
+          <div class="metric-mini"><span class="k">Float</span><span class="v">281.8M</span></div>
+        </div>
+      </div>
+      <div class="squeeze-card">
+        <div class="flex" style="justify-content:space-between;align-items:flex-start;">
+          <div><div class="sym">UPST</div><div style="font-size:12px;color:var(--text-muted);">Upstart Holdings</div></div>
+          <div class="score score-high">HIGH · 86</div>
+        </div>
+        <div style="margin-top:12px;">
+          <div class="metric-mini"><span class="k">SI % of float</span><span class="v">28.4%</span></div>
+          <div class="metric-mini"><span class="k">Days to cover</span><span class="v">5.8</span></div>
+          <div class="metric-mini"><span class="k">Borrow cost (APR)</span><span class="v yellow-text">28.4%</span></div>
+          <div class="metric-mini"><span class="k">5d price</span><span class="v green-text">+8.2%</span></div>
+          <div class="metric-mini"><span class="k">Float</span><span class="v">94.2M</span></div>
+        </div>
+      </div>
+      <div class="squeeze-card">
+        <div class="flex" style="justify-content:space-between;align-items:flex-start;">
+          <div><div class="sym">BYND</div><div style="font-size:12px;color:var(--text-muted);">Beyond Meat</div></div>
+          <div class="score score-high">HIGH · 82</div>
+        </div>
+        <div style="margin-top:12px;">
+          <div class="metric-mini"><span class="k">SI % of float</span><span class="v">42.1%</span></div>
+          <div class="metric-mini"><span class="k">Days to cover</span><span class="v">7.4</span></div>
+          <div class="metric-mini"><span class="k">Borrow cost (APR)</span><span class="v red-text">68.2%</span></div>
+          <div class="metric-mini"><span class="k">5d price</span><span class="v red-text">-4.2%</span></div>
+          <div class="metric-mini"><span class="k">Float</span><span class="v">61.2M</span></div>
+        </div>
+      </div>
+      <div class="squeeze-card">
+        <div class="flex" style="justify-content:space-between;align-items:flex-start;">
+          <div><div class="sym">FUBO</div><div style="font-size:12px;color:var(--text-muted);">fuboTV Inc.</div></div>
+          <div class="score score-high">HIGH · 78</div>
+        </div>
+        <div style="margin-top:12px;">
+          <div class="metric-mini"><span class="k">SI % of float</span><span class="v">19.4%</span></div>
+          <div class="metric-mini"><span class="k">Days to cover</span><span class="v">6.1</span></div>
+          <div class="metric-mini"><span class="k">Borrow cost (APR)</span><span class="v yellow-text">22.1%</span></div>
+          <div class="metric-mini"><span class="k">5d price</span><span class="v green-text">+12.4%</span></div>
+          <div class="metric-mini"><span class="k">Float</span><span class="v">301.4M</span></div>
+        </div>
+      </div>
+      <div class="squeeze-card">
+        <div class="flex" style="justify-content:space-between;align-items:flex-start;">
+          <div><div class="sym">RIVN</div><div style="font-size:12px;color:var(--text-muted);">Rivian Automotive</div></div>
+          <div class="score score-medium">MED · 71</div>
+        </div>
+        <div style="margin-top:12px;">
+          <div class="metric-mini"><span class="k">SI % of float</span><span class="v">14.8%</span></div>
+          <div class="metric-mini"><span class="k">Days to cover</span><span class="v">3.8</span></div>
+          <div class="metric-mini"><span class="k">Borrow cost (APR)</span><span class="v">12.4%</span></div>
+          <div class="metric-mini"><span class="k">5d price</span><span class="v red-text">-2.4%</span></div>
+          <div class="metric-mini"><span class="k">Float</span><span class="v">948M</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- FULL TABLE + RECENT CHANGES -->
+  <div class="grid grid-12 mt-24">
+    <div class="card col-8">
+      <div class="card-header"><div class="card-title">Universe — Short Interest Detail</div></div>
+      <div class="table-wrap">
+        <table data-filter-target="si-table">
+          <thead><tr>
+            <th>Symbol</th>
+            <th class="sortable" data-type="num">SI % Float</th>
+            <th class="sortable" data-type="num">DTC</th>
+            <th class="sortable" data-type="num">Borrow</th>
+            <th>5d Change</th>
+            <th class="sortable" data-type="num">Float (M)</th>
+            <th>Updated</th>
+          </tr></thead>
+          <tbody id="siTable"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="card col-4">
+      <div class="card-header"><div class="card-title">📈 Recent Changes (since prior report)</div></div>
+      <table>
+        <thead><tr><th>Symbol</th><th>Δ SI %</th><th>Now</th></tr></thead>
+        <tbody>
+          <tr><td class="mono"><strong>CVNA</strong></td><td class="mono red-text">+4.2%</td><td class="mono">36.8%</td></tr>
+          <tr><td class="mono"><strong>UPST</strong></td><td class="mono red-text">+3.8%</td><td class="mono">28.4%</td></tr>
+          <tr><td class="mono"><strong>BYND</strong></td><td class="mono red-text">+2.1%</td><td class="mono">42.1%</td></tr>
+          <tr><td class="mono"><strong>SMCI</strong></td><td class="mono red-text">+1.8%</td><td class="mono">18.4%</td></tr>
+          <tr><td class="mono"><strong>RIVN</strong></td><td class="mono green-text">-2.4%</td><td class="mono">14.8%</td></tr>
+          <tr><td class="mono"><strong>PLTR</strong></td><td class="mono green-text">-1.8%</td><td class="mono">4.2%</td></tr>
+          <tr><td class="mono"><strong>GME</strong></td><td class="mono green-text">-1.4%</td><td class="mono">22.4%</td></tr>
+        </tbody>
+      </table>
+      <div style="margin-top:14px; padding:10px 12px; background:var(--bg-elevated); border-radius:8px; font-size:12px; color:var(--text-muted); line-height:1.6;">
+        FINRA short interest is reported on the 15th and last day of each month. Updates lag by ~9 business days. For real-time intent, look at short-volume ratio (lit short sales as % of total) and FTDs.
+      </div>
+    </div>
+  </div>
+
+  <!-- FTD + REG SHO -->
+  <div class="grid grid-12 mt-24">
+    <div class="card col-7">
+      <div class="card-header"><div class="card-title">⚠ Reg SHO Threshold List</div></div>
+      <div style="font-size:13px; color:var(--text-muted); margin-bottom:14px;">Securities with persistent fails-to-deliver. 5+ days on the list often precedes a covering rally as MMs are forced to source borrow.</div>
+      <table>
+        <thead><tr><th>Symbol</th><th>Days on list</th><th>FTD shares</th><th>Avg daily vol</th><th>FTD / DV</th></tr></thead>
+        <tbody>
+          <tr><td class="mono"><strong>FFIE</strong></td><td class="mono red-text">14</td><td class="mono">2.84M</td><td class="mono">11.2M</td><td class="mono red-text">25.4%</td></tr>
+          <tr><td class="mono"><strong>CVNA</strong></td><td class="mono red-text">12</td><td class="mono">1.92M</td><td class="mono">8.4M</td><td class="mono red-text">22.8%</td></tr>
+          <tr><td class="mono"><strong>UPST</strong></td><td class="mono yellow-text">8</td><td class="mono">684k</td><td class="mono">3.2M</td><td class="mono yellow-text">21.4%</td></tr>
+          <tr><td class="mono"><strong>BYND</strong></td><td class="mono yellow-text">7</td><td class="mono">428k</td><td class="mono">2.8M</td><td class="mono">15.3%</td></tr>
+          <tr><td class="mono"><strong>SMCI</strong></td><td class="mono">5</td><td class="mono">412k</td><td class="mono">28.4M</td><td class="mono">1.5%</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="card col-5">
+      <div class="card-header"><div class="card-title">Short Volume Ratio — Universe</div></div>
+      <canvas id="svrChart" height="240"></canvas>
+      <div style="font-size:12px; color:var(--text-muted); margin-top:8px;">Daily FINRA short volume / total reported volume. Persistent &gt;55% = supply pressure. Note: doesn't include market-maker short prints exempt from SHO.</div>
+    </div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script src="js/charts.js"></script>
+<script>
+buildNav('short-interest');
+
+// ---------------- Universe table ----------------
+const UNIVERSE = [
+  { sym:'CVNA', si:36.8, dtc:11.4, borrow:82.4, chg5:18.4, float:82.4 },
+  { sym:'BYND', si:42.1, dtc:7.4,  borrow:68.2, chg5:-4.2, float:61.2 },
+  { sym:'UPST', si:28.4, dtc:5.8,  borrow:28.4, chg5:8.2,  float:94.2 },
+  { sym:'GME',  si:22.4, dtc:8.2,  borrow:48.2, chg5:24.8, float:281.8 },
+  { sym:'FUBO', si:19.4, dtc:6.1,  borrow:22.1, chg5:12.4, float:301.4 },
+  { sym:'SMCI', si:18.4, dtc:1.2,  borrow:14.2, chg5:8.8,  float:48.4 },
+  { sym:'RIVN', si:14.8, dtc:3.8,  borrow:12.4, chg5:-2.4, float:948 },
+  { sym:'COIN', si:11.2, dtc:2.4,  borrow:8.4,  chg5:5.2,  float:225.1 },
+  { sym:'PLTR', si:4.2,  dtc:1.1,  borrow:2.1,  chg5:6.2,  float:2010 },
+  { sym:'TSLA', si:2.8,  dtc:0.8,  borrow:0.4,  chg5:-2.18,float:3190 },
+  { sym:'NVDA', si:1.4,  dtc:0.4,  borrow:0.3,  chg5:3.21, float:2460 },
+  { sym:'AAPL', si:0.8,  dtc:0.5,  borrow:0.25, chg5:1.84, float:15110 },
+  { sym:'SPY',  si:1.2,  dtc:0.6,  borrow:0.4,  chg5:0.84, float:0 },
+  { sym:'AMD',  si:2.4,  dtc:0.8,  borrow:0.5,  chg5:2.4,  float:1620 },
+  { sym:'META', si:1.4,  dtc:0.6,  borrow:0.3,  chg5:1.67, float:2240 },
+  { sym:'AMZN', si:0.9,  dtc:0.5,  borrow:0.25, chg5:0.88, float:10470 },
+  { sym:'GOOGL',si:0.7,  dtc:0.4,  borrow:0.2,  chg5:-0.42,float:5790 }
+];
+
+const tbody = document.getElementById('siTable');
+function siColor(v) { if (v > 25) return 'red-text'; if (v > 10) return 'yellow-text'; return ''; }
+function dtcColor(v) { if (v > 5) return 'red-text'; if (v > 2) return 'yellow-text'; return ''; }
+function chgColor(v) { return v >= 0 ? 'green-text' : 'red-text'; }
+function siBar(v) {
+  const w = Math.min(100, v * 2);
+  const c = v > 25 ? 'var(--red)' : v > 10 ? 'var(--yellow)' : 'var(--green)';
+  return '<div class="bar-inline"><div style="width:' + w + '%;background:' + c + ';"></div></div>';
+}
+UNIVERSE.forEach(d => {
+  const tr = document.createElement('tr');
+  tr.innerHTML = '<td class="mono"><strong>' + d.sym + '</strong></td>'
+    + '<td><div style="display:flex;flex-direction:column;gap:4px;"><span class="mono ' + siColor(d.si) + '">' + d.si.toFixed(1) + '%</span>' + siBar(d.si) + '</div></td>'
+    + '<td class="mono ' + dtcColor(d.dtc) + '">' + d.dtc.toFixed(1) + '</td>'
+    + '<td class="mono">' + d.borrow.toFixed(1) + '%</td>'
+    + '<td class="mono ' + chgColor(d.chg5) + '">' + (d.chg5 >= 0 ? '+' : '') + d.chg5.toFixed(2) + '%</td>'
+    + '<td class="mono">' + d.float.toFixed(1) + '</td>'
+    + '<td style="font-size:11px;color:var(--text-muted);">2026-05-14</td>';
+  tbody.appendChild(tr);
+});
+
+// Search filter
+document.getElementById('searchSym').addEventListener('input', e => {
+  const q = e.target.value.trim().toUpperCase();
+  tbody.querySelectorAll('tr').forEach(r => {
+    r.style.display = r.textContent.toUpperCase().indexOf(q) !== -1 ? '' : 'none';
+  });
+});
+
+// ---------------- SVR chart ----------------
+const svrCtx = document.getElementById('svrChart').getContext('2d');
+const labels = [];
+const data = [];
+for (let i = 19; i >= 0; i--) {
+  const d = new Date(); d.setDate(d.getDate() - i);
+  labels.push(d.toLocaleDateString('en-US', { month:'short', day:'numeric' }));
+  data.push(45 + Math.sin(i / 3) * 5 + Math.random() * 4);
+}
+new Chart(svrCtx, {
+  type: 'line',
+  data: {
+    labels,
+    datasets: [
+      { label:'Short Volume Ratio', data, borderColor:'rgba(0,212,255,1)', backgroundColor:'rgba(0,212,255,0.15)', fill:true, tension:0.3, pointRadius:0 },
+      { label:'55% threshold', data: labels.map(() => 55), borderColor:'rgba(239,68,68,0.6)', borderDash:[4,4], pointRadius:0, fill:false }
+    ]
+  },
+  options: {
+    responsive:true, maintainAspectRatio:false,
+    plugins:{ legend:{ labels:{ color:'#9ca3af', font:{size:11} } } },
+    scales:{
+      x:{ grid:{ color:'rgba(255,255,255,0.05)' }, ticks:{ color:'#6b7280', font:{size:10} } },
+      y:{ grid:{ color:'rgba(255,255,255,0.05)' }, ticks:{ color:'#6b7280', font:{size:10}, callback:v=>v+'%' }, min:30, max:70 }
+    }
+  }
+});
+</script>
+</body>
+</html>

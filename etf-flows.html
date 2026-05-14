@@ -1,0 +1,341 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ETF Flows — bpleone / trade</title>
+<meta name="description" content="Daily ETF creation/redemption, $ flows by ETF, sector rotation tracker, leveraged-ETF rebalances, and inflow/outflow leaderboard.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.flow-row td { padding:10px 12px; }
+.flow-pos { color:var(--green); font-weight:600; }
+.flow-neg { color:var(--red); font-weight:600; }
+.sector-tile { padding:18px; background:var(--bg-elevated); border:1px solid var(--border); border-radius:10px; position:relative; overflow:hidden; }
+.sector-tile .ticker { font-size:18px; font-weight:800; }
+.sector-tile .name { font-size:11px; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.5px; margin-top:2px; }
+.sector-tile .flow { font-size:22px; font-weight:700; margin-top:10px; font-family:var(--font-mono); }
+.sector-tile .flow-pos { color:var(--green); }
+.sector-tile .flow-neg { color:var(--red); }
+.sector-tile .mtd { font-size:12px; color:var(--text-muted); margin-top:4px; }
+.tile-bg { position:absolute; right:-10px; bottom:-10px; font-size:60px; opacity:0.05; font-weight:900; }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">ETF Flows</div>
+      <div class="page-subtitle">Daily creation/redemption · sector rotation · leveraged-ETF rebalance · <span id="market-clock">--</span></div>
+    </div>
+    <div class="flex gap-8">
+      <button class="btn btn-ghost btn-active" data-window="1d">1D</button>
+      <button class="btn btn-ghost" data-window="5d">5D</button>
+      <button class="btn btn-ghost" data-window="mtd">MTD</button>
+      <button class="btn btn-ghost" data-window="ytd">YTD</button>
+    </div>
+  </div>
+
+  <!-- KPI ROW -->
+  <div class="grid grid-4 mb-24">
+    <div class="card">
+      <div class="card-header"><div class="card-title">Net Equity ETF Flows</div></div>
+      <div class="mono green-text" style="font-size:28px;font-weight:700;">+$4.82B</div>
+      <div class="mono" style="font-size:12px;color:var(--text-muted);">5d cum: +$18.4B</div>
+    </div>
+    <div class="card">
+      <div class="card-header"><div class="card-title">Bond ETF Flows</div></div>
+      <div class="mono green-text" style="font-size:28px;font-weight:700;">+$1.24B</div>
+      <div class="mono" style="font-size:12px;color:var(--text-muted);">TLT/AGG/LQD all inflows</div>
+    </div>
+    <div class="card">
+      <div class="card-header"><div class="card-title">Bitcoin ETFs (Spot)</div></div>
+      <div class="mono green-text" style="font-size:28px;font-weight:700;">+$284M</div>
+      <div class="mono" style="font-size:12px;color:var(--text-muted);">IBIT lead +$182M</div>
+    </div>
+    <div class="card">
+      <div class="card-header"><div class="card-title">Levered ETF Rebalance ≈</div></div>
+      <div class="mono yellow-text" style="font-size:28px;font-weight:700;">+$1.8B</div>
+      <div class="mono" style="font-size:12px;color:var(--text-muted);">Buy-to-rebalance into close</div>
+    </div>
+  </div>
+
+  <!-- SECTOR TILES -->
+  <div class="card">
+    <div class="card-header"><div class="card-title">🏢 Sector ETFs — Today's Net Flow</div></div>
+    <div class="grid grid-4" style="gap:14px;">
+      <div class="sector-tile">
+        <div class="ticker">XLK</div><div class="name">Technology</div>
+        <div class="flow flow-pos">+$842M</div>
+        <div class="mtd">MTD: +$2.4B · YTD: +$18.2B</div>
+        <div class="tile-bg">💻</div>
+      </div>
+      <div class="sector-tile">
+        <div class="ticker">XLF</div><div class="name">Financials</div>
+        <div class="flow flow-pos">+$412M</div>
+        <div class="mtd">MTD: +$1.8B · YTD: +$4.2B</div>
+        <div class="tile-bg">🏦</div>
+      </div>
+      <div class="sector-tile">
+        <div class="ticker">XLV</div><div class="name">Healthcare</div>
+        <div class="flow flow-neg">-$184M</div>
+        <div class="mtd">MTD: -$420M · YTD: -$2.1B</div>
+        <div class="tile-bg">⚕</div>
+      </div>
+      <div class="sector-tile">
+        <div class="ticker">XLE</div><div class="name">Energy</div>
+        <div class="flow flow-neg">-$324M</div>
+        <div class="mtd">MTD: -$1.2B · YTD: -$3.4B</div>
+        <div class="tile-bg">🛢</div>
+      </div>
+      <div class="sector-tile">
+        <div class="ticker">XLY</div><div class="name">Consumer Discretionary</div>
+        <div class="flow flow-pos">+$218M</div>
+        <div class="mtd">MTD: +$0.8B · YTD: +$2.4B</div>
+        <div class="tile-bg">🛍</div>
+      </div>
+      <div class="sector-tile">
+        <div class="ticker">XLP</div><div class="name">Consumer Staples</div>
+        <div class="flow flow-neg">-$92M</div>
+        <div class="mtd">MTD: -$340M · YTD: -$1.4B</div>
+        <div class="tile-bg">🥫</div>
+      </div>
+      <div class="sector-tile">
+        <div class="ticker">XLI</div><div class="name">Industrials</div>
+        <div class="flow flow-pos">+$148M</div>
+        <div class="mtd">MTD: +$1.2B · YTD: +$3.8B</div>
+        <div class="tile-bg">🏗</div>
+      </div>
+      <div class="sector-tile">
+        <div class="ticker">XLB</div><div class="name">Materials</div>
+        <div class="flow flow-neg">-$48M</div>
+        <div class="mtd">MTD: +$280M · YTD: +$1.1B</div>
+        <div class="tile-bg">⚙</div>
+      </div>
+      <div class="sector-tile">
+        <div class="ticker">XLU</div><div class="name">Utilities</div>
+        <div class="flow flow-pos">+$82M</div>
+        <div class="mtd">MTD: +$580M · YTD: +$1.8B</div>
+        <div class="tile-bg">⚡</div>
+      </div>
+      <div class="sector-tile">
+        <div class="ticker">XLRE</div><div class="name">Real Estate</div>
+        <div class="flow flow-neg">-$124M</div>
+        <div class="mtd">MTD: -$280M · YTD: -$1.2B</div>
+        <div class="tile-bg">🏢</div>
+      </div>
+      <div class="sector-tile">
+        <div class="ticker">XLC</div><div class="name">Communication</div>
+        <div class="flow flow-pos">+$184M</div>
+        <div class="mtd">MTD: +$680M · YTD: +$2.8B</div>
+        <div class="tile-bg">📡</div>
+      </div>
+      <div class="sector-tile">
+        <div class="ticker">SMH</div><div class="name">Semiconductors</div>
+        <div class="flow flow-pos">+$524M</div>
+        <div class="mtd">MTD: +$3.2B · YTD: +$12.4B</div>
+        <div class="tile-bg">🧠</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- LEADERBOARDS -->
+  <div class="grid grid-12 mt-24">
+    <div class="card col-6">
+      <div class="card-header"><div class="card-title">⬆ Top Inflows — All ETFs</div></div>
+      <table>
+        <thead><tr><th>Ticker</th><th>Net Flow</th><th>AUM</th><th>% AUM</th><th>Class</th></tr></thead>
+        <tbody>
+          <tr><td class="mono"><strong>VOO</strong></td><td class="mono flow-pos">+$1.42B</td><td class="mono">$485B</td><td class="mono">+0.29%</td><td>S&amp;P 500</td></tr>
+          <tr><td class="mono"><strong>QQQ</strong></td><td class="mono flow-pos">+$842M</td><td class="mono">$258B</td><td class="mono">+0.33%</td><td>Nasdaq 100</td></tr>
+          <tr><td class="mono"><strong>SMH</strong></td><td class="mono flow-pos">+$524M</td><td class="mono">$23.4B</td><td class="mono">+2.24%</td><td>Semis</td></tr>
+          <tr><td class="mono"><strong>SPY</strong></td><td class="mono flow-pos">+$418M</td><td class="mono">$524B</td><td class="mono">+0.08%</td><td>S&amp;P 500</td></tr>
+          <tr><td class="mono"><strong>XLK</strong></td><td class="mono flow-pos">+$398M</td><td class="mono">$78.4B</td><td class="mono">+0.51%</td><td>Tech</td></tr>
+          <tr><td class="mono"><strong>VTI</strong></td><td class="mono flow-pos">+$324M</td><td class="mono">$418B</td><td class="mono">+0.08%</td><td>Total Mkt</td></tr>
+          <tr><td class="mono"><strong>IBIT</strong></td><td class="mono flow-pos">+$182M</td><td class="mono">$24.8B</td><td class="mono">+0.73%</td><td>Bitcoin</td></tr>
+          <tr><td class="mono"><strong>IVV</strong></td><td class="mono flow-pos">+$148M</td><td class="mono">$485B</td><td class="mono">+0.03%</td><td>S&amp;P 500</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="card col-6">
+      <div class="card-header"><div class="card-title">⬇ Top Outflows — All ETFs</div></div>
+      <table>
+        <thead><tr><th>Ticker</th><th>Net Flow</th><th>AUM</th><th>% AUM</th><th>Class</th></tr></thead>
+        <tbody>
+          <tr><td class="mono"><strong>XLE</strong></td><td class="mono flow-neg">-$324M</td><td class="mono">$32.8B</td><td class="mono">-0.99%</td><td>Energy</td></tr>
+          <tr><td class="mono"><strong>EEM</strong></td><td class="mono flow-neg">-$284M</td><td class="mono">$24.4B</td><td class="mono">-1.16%</td><td>EM</td></tr>
+          <tr><td class="mono"><strong>XLV</strong></td><td class="mono flow-neg">-$184M</td><td class="mono">$38.4B</td><td class="mono">-0.48%</td><td>Healthcare</td></tr>
+          <tr><td class="mono"><strong>FXI</strong></td><td class="mono flow-neg">-$148M</td><td class="mono">$4.8B</td><td class="mono">-3.08%</td><td>China</td></tr>
+          <tr><td class="mono"><strong>XLRE</strong></td><td class="mono flow-neg">-$124M</td><td class="mono">$8.4B</td><td class="mono">-1.48%</td><td>REIT</td></tr>
+          <tr><td class="mono"><strong>TBT</strong></td><td class="mono flow-neg">-$92M</td><td class="mono">$0.5B</td><td class="mono">-18.40%</td><td>2x Inv Bond</td></tr>
+          <tr><td class="mono"><strong>SQQQ</strong></td><td class="mono flow-neg">-$84M</td><td class="mono">$2.1B</td><td class="mono">-4.00%</td><td>3x Inv QQQ</td></tr>
+          <tr><td class="mono"><strong>EFA</strong></td><td class="mono flow-neg">-$48M</td><td class="mono">$58.4B</td><td class="mono">-0.08%</td><td>DM ex-US</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- CHARTS: TIME SERIES + ROTATION -->
+  <div class="grid grid-12 mt-24">
+    <div class="card col-7">
+      <div class="card-header"><div class="card-title">Daily Net Flows — 30d</div></div>
+      <canvas id="flowsChart" height="240"></canvas>
+    </div>
+    <div class="card col-5">
+      <div class="card-header"><div class="card-title">5d Sector Rotation Quadrant</div></div>
+      <canvas id="rotChart" height="240"></canvas>
+      <div style="font-size:12px;color:var(--text-muted);margin-top:8px;">X: 5d return · Y: 5d flow / AUM · Top-right = leadership · Bottom-left = abandonment</div>
+    </div>
+  </div>
+
+  <!-- LEVERED REBALANCE -->
+  <div class="card mt-24">
+    <div class="card-header">
+      <div class="card-title">🔄 Levered/Inverse ETF Rebalance — close estimate</div>
+      <div style="font-size:11px;color:var(--text-muted);">MOC notional after 3:45 PM ET</div>
+    </div>
+    <div class="grid grid-3" style="gap:14px;">
+      <div class="sector-tile">
+        <div class="ticker">TQQQ + SOXL</div><div class="name">Up-day rebalance</div>
+        <div class="flow flow-pos">+$1.42B BUY</div>
+        <div class="mtd">SPX +0.84% · supports trend close</div>
+      </div>
+      <div class="sector-tile">
+        <div class="ticker">SQQQ + SOXS</div><div class="name">Inverse rebalance</div>
+        <div class="flow flow-neg">+$340M BUY</div>
+        <div class="mtd">Inverses also buy on up-days (cover)</div>
+      </div>
+      <div class="sector-tile">
+        <div class="ticker">SPXL/UPRO/TMF</div><div class="name">3x family</div>
+        <div class="flow flow-pos">+$240M BUY</div>
+        <div class="mtd">Net long delta added at close</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card mt-24">
+    <div class="card-header"><div class="card-title">🧠 How to read this page</div></div>
+    <div class="grid grid-3" style="gap:20px;">
+      <div>
+        <div style="font-weight:700;color:var(--accent);margin-bottom:6px;">Net flow vs price</div>
+        <div style="font-size:13px;color:var(--text-muted);line-height:1.6;">If price up + flows up: confirmed leadership. If price up + flows down: short squeeze / no real demand, suspect. If price down + flows up: dip-buying conviction.</div>
+      </div>
+      <div>
+        <div style="font-weight:700;color:var(--yellow);margin-bottom:6px;">Sector rotation</div>
+        <div style="font-size:13px;color:var(--text-muted);line-height:1.6;">Look at *both* 5d return and 5d flow as % of AUM. Top-right quadrant = leadership AND money following it. That's the trade.</div>
+      </div>
+      <div>
+        <div style="font-weight:700;color:var(--purple,#a78bfa);margin-bottom:6px;">Levered rebalance</div>
+        <div style="font-size:13px;color:var(--text-muted);line-height:1.6;">3x ETFs must rebalance daily to maintain leverage. On up-days they BUY at the close — exaggerating moves. Track at 3:45 PM for the last-15-min squeeze setup.</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script src="js/charts.js"></script>
+<script>
+buildNav('etf-flows');
+
+// ---------------- Time series ----------------
+const labels30 = [];
+const flowsData = [];
+const flowsCum = [];
+let cum = 0;
+for (let i = 29; i >= 0; i--) {
+  const d = new Date(); d.setDate(d.getDate() - i);
+  labels30.push(d.toLocaleDateString('en-US',{month:'short',day:'numeric'}));
+  const v = (Math.random() - 0.42) * 3.5;
+  flowsData.push(+v.toFixed(2));
+  cum += v;
+  flowsCum.push(+cum.toFixed(2));
+}
+new Chart(document.getElementById('flowsChart').getContext('2d'), {
+  type: 'bar',
+  data: { labels: labels30,
+    datasets: [
+      { type:'bar', label:'Daily ($B)', data: flowsData, backgroundColor: flowsData.map(v => v >= 0 ? 'rgba(16,185,129,0.6)' : 'rgba(239,68,68,0.6)') },
+      { type:'line', label:'Cumulative ($B)', data: flowsCum, borderColor: 'rgba(0,212,255,1)', tension:0.25, pointRadius:0, fill:false, yAxisID:'y1' }
+    ]
+  },
+  options: {
+    responsive: true, maintainAspectRatio: false,
+    plugins:{ legend:{ labels:{ color:'#9ca3af', font:{size:11} } } },
+    scales:{
+      x:{ grid:{color:'rgba(255,255,255,0.05)'}, ticks:{color:'#6b7280', font:{size:10}, maxRotation:0} },
+      y:{ grid:{color:'rgba(255,255,255,0.05)'}, ticks:{color:'#6b7280', font:{size:10}, callback:v=>'$'+v+'B'} },
+      y1:{ position:'right', grid:{display:false}, ticks:{color:'#6b7280', font:{size:10}, callback:v=>'$'+v+'B'} }
+    }
+  }
+});
+
+// ---------------- Sector rotation quadrant ----------------
+const sectors = [
+  { ticker:'XLK', x:3.8, y:0.51, r:14 },
+  { ticker:'XLF', x:1.4, y:0.42, r:10 },
+  { ticker:'XLV', x:-0.8, y:-0.48, r:10 },
+  { ticker:'XLE', x:-1.4, y:-0.99, r:10 },
+  { ticker:'XLY', x:2.1, y:0.31, r:10 },
+  { ticker:'XLP', x:0.4, y:-0.24, r:8 },
+  { ticker:'XLI', x:1.8, y:0.45, r:10 },
+  { ticker:'XLB', x:-0.4, y:0.18, r:8 },
+  { ticker:'XLU', x:1.2, y:0.32, r:8 },
+  { ticker:'XLRE',x:-1.1, y:-0.42, r:8 },
+  { ticker:'XLC', x:2.4, y:0.42, r:10 },
+  { ticker:'SMH', x:4.4, y:2.24, r:14 }
+];
+new Chart(document.getElementById('rotChart').getContext('2d'), {
+  type: 'scatter',
+  data: {
+    datasets: [{
+      label: '5d',
+      data: sectors.map(s => ({ x:s.x, y:s.y, label:s.ticker, r:s.r })),
+      backgroundColor: sectors.map(s => (s.x > 0 && s.y > 0) ? 'rgba(16,185,129,0.7)' :
+                                  (s.x < 0 && s.y < 0) ? 'rgba(239,68,68,0.7)' :
+                                  'rgba(245,158,11,0.7)'),
+      borderColor: 'rgba(255,255,255,0.4)', borderWidth: 1
+    }]
+  },
+  options: {
+    responsive:true, maintainAspectRatio:false,
+    plugins: {
+      legend: { display: false },
+      tooltip: { callbacks: { label: (c) => c.raw.label + ' · ret ' + c.raw.x + '% · flow ' + c.raw.y + '%' } }
+    },
+    scales: {
+      x: {
+        grid: { color: ctx => ctx.tick.value === 0 ? 'rgba(255,255,255,0.2)' : 'rgba(255,255,255,0.05)' },
+        ticks: { color:'#6b7280', font:{size:10}, callback: v => v + '%' },
+        title: { display:true, text:'5d return', color:'#6b7280' }
+      },
+      y: {
+        grid: { color: ctx => ctx.tick.value === 0 ? 'rgba(255,255,255,0.2)' : 'rgba(255,255,255,0.05)' },
+        ticks: { color:'#6b7280', font:{size:10}, callback: v => v + '%' },
+        title: { display:true, text:'5d flow / AUM', color:'#6b7280' }
+      }
+    }
+  }
+});
+
+document.querySelectorAll('[data-window]').forEach(b => {
+  b.addEventListener('click', () => {
+    document.querySelectorAll('[data-window]').forEach(x => x.classList.remove('btn-active'));
+    b.classList.add('btn-active');
+  });
+});
+</script>
+</body>
+</html>

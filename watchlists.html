@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Watchlists — bpleone / trade</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">Watchlists</div>
+      <div class="page-subtitle">Build, save, and stream price action across your custom lists · <span id="market-clock">--</span></div>
+    </div>
+    <div class="flex gap-8">
+      <input id="newWlName" class="search-input" placeholder="New watchlist name..." style="width:200px;">
+      <button class="btn btn-primary" id="newWlBtn">+ Create</button>
+    </div>
+  </div>
+
+  <div class="grid grid-12">
+    <!-- Sidebar with lists -->
+    <div class="card col-3" style="height:fit-content;">
+      <div class="card-header"><div class="card-title">📁 My Watchlists</div></div>
+      <div id="wlList"></div>
+      <div style="margin-top:14px;padding-top:14px;border-top:1px solid var(--border);">
+        <div class="section-label">Quick add to active list</div>
+        <div style="display:flex;gap:6px;margin-top:8px;">
+          <input id="quickSym" class="search-input" placeholder="SYMBOL" style="width:auto;flex:1;text-transform:uppercase;">
+          <button class="btn btn-secondary" id="quickAdd" style="padding:8px 12px;">Add</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Main panel: active watchlist -->
+    <div class="card col-9">
+      <div class="card-header">
+        <div class="card-title">⭐ <span id="activeName">—</span></div>
+        <div class="filter-group">
+          <button class="filter-btn active">Compact</button>
+          <button class="filter-btn">Detailed</button>
+        </div>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Symbol</th><th>Last</th><th>Chg $</th><th>Chg %</th><th>Bid</th><th>Ask</th><th>Spread</th><th></th></tr></thead>
+          <tbody id="wlRows"></tbody>
+        </table>
+      </div>
+      <div id="wlEmpty" style="display:none;text-align:center;padding:48px;color:var(--text-muted);font-size:14px;">
+        No symbols in this list yet. Use the "Quick add" box on the left to add tickers.
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script>
+buildNav('watchlists');
+
+const STORE = 'bpleone_watchlists_v1';
+function loadAll() {
+  try { return JSON.parse(localStorage.getItem(STORE)) || defaults(); }
+  catch (e) { return defaults(); }
+}
+function saveAll(data) { try { localStorage.setItem(STORE, JSON.stringify(data)); } catch (e) {} }
+function defaults() {
+  return {
+    active: 'Mega Cap Tech',
+    lists: {
+      'Mega Cap Tech':    ['AAPL','MSFT','NVDA','GOOGL','META','AMZN'],
+      'High Beta Movers': ['SMCI','PLTR','COIN','TSLA','AMD','RIVN','MARA'],
+      'Index ETFs':       ['SPY','QQQ','IWM','DIA','VIX'],
+      'Crypto Adjacent':  ['COIN','MARA','MSTR','RIOT'],
+      'My Trades':        ['NVDA','META','AMD']
+    }
+  };
+}
+
+function renderSidebar() {
+  const data = loadAll();
+  const el = document.getElementById('wlList');
+  el.innerHTML = Object.keys(data.lists).map(name => {
+    const isActive = name === data.active;
+    const count = data.lists[name].length;
+    return `<div data-wl="${name}" style="display:flex;justify-content:space-between;align-items:center;padding:8px 10px;border-radius:6px;cursor:pointer;margin-bottom:4px;background:${isActive?'rgba(0,212,255,0.1)':'transparent'};color:${isActive?'var(--accent)':'var(--text-secondary)'};font-weight:${isActive?600:500};">
+      <span>${name}</span><span style="font-family:var(--font-mono);font-size:11px;color:var(--text-muted);">${count}</span>
+    </div>`;
+  }).join('');
+  el.querySelectorAll('[data-wl]').forEach(d => d.addEventListener('click', () => {
+    const data = loadAll();
+    data.active = d.dataset.wl;
+    saveAll(data);
+    renderAll();
+  }));
+}
+
+function renderActive() {
+  const data = loadAll();
+  document.getElementById('activeName').textContent = data.active;
+  const syms = data.lists[data.active] || [];
+  const tbody = document.getElementById('wlRows');
+  const empty = document.getElementById('wlEmpty');
+  if (syms.length === 0) {
+    tbody.innerHTML = '';
+    empty.style.display = '';
+    return;
+  }
+  empty.style.display = 'none';
+  tbody.innerHTML = syms.map(s => {
+    const q = (typeof QUOTES !== 'undefined' && QUOTES[s]) ? QUOTES[s] : null;
+    if (!q) {
+      return `<tr><td class="symbol">${s}</td><td colspan="6" style="color:var(--text-muted);">No live feed for ${s} — try a major symbol</td>
+        <td><button class="btn btn-ghost" style="padding:2px 6px;font-size:11px;" data-rm="${s}">✕</button></td></tr>`;
+    }
+    const spread = (q.ask - q.bid).toFixed(2);
+    return `<tr>
+      <td class="symbol">${s}</td>
+      <td class="mono" data-live="${s}:last">$${q.last.toFixed(2)}</td>
+      <td class="mono" data-live="${s}:change">${q.change>=0?'+':''}${q.change.toFixed(2)}</td>
+      <td class="mono" data-live="${s}:changePct">${q.changePct>=0?'+':''}${q.changePct.toFixed(2)}%</td>
+      <td class="mono">$${q.bid.toFixed(2)}</td>
+      <td class="mono">$${q.ask.toFixed(2)}</td>
+      <td class="mono" style="color:var(--text-muted);">$${spread}</td>
+      <td><button class="btn btn-ghost" style="padding:2px 6px;font-size:11px;" data-rm="${s}">✕</button></td>
+    </tr>`;
+  }).join('');
+  // Wire remove buttons
+  tbody.querySelectorAll('[data-rm]').forEach(b => b.addEventListener('click', () => {
+    const data = loadAll();
+    data.lists[data.active] = data.lists[data.active].filter(x => x !== b.dataset.rm);
+    saveAll(data);
+    renderAll();
+  }));
+  // Re-bind live data on the new elements
+  if (typeof bindLive === 'function') bindLive();
+}
+
+function renderAll() {
+  renderSidebar();
+  renderActive();
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  renderAll();
+  document.getElementById('newWlBtn').addEventListener('click', () => {
+    const name = document.getElementById('newWlName').value.trim();
+    if (!name) return;
+    const data = loadAll();
+    if (data.lists[name]) return alert('That list already exists');
+    data.lists[name] = [];
+    data.active = name;
+    saveAll(data);
+    document.getElementById('newWlName').value = '';
+    renderAll();
+  });
+  document.getElementById('quickAdd').addEventListener('click', () => {
+    const sym = (document.getElementById('quickSym').value || '').trim().toUpperCase();
+    if (!sym) return;
+    const data = loadAll();
+    if (data.lists[data.active].includes(sym)) return;
+    data.lists[data.active].push(sym);
+    saveAll(data);
+    document.getElementById('quickSym').value = '';
+    renderActive();
+  });
+});
+</script>
+</body>
+</html>

@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Time & Sales — bpleone / trade</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.tape-row { display:grid; grid-template-columns:90px 80px 80px 90px 110px 80px; gap:8px; padding:5px 12px; font-family:var(--font-mono); font-size:12px; border-bottom:1px solid rgba(45,55,72,0.4); transition:background 0.3s; }
+.tape-row:hover { background:var(--bg-tertiary); }
+.tape-row.fresh { background:rgba(0,212,255,0.06); }
+.tape-buy { color:var(--green); }
+.tape-sell { color:var(--red); }
+.tape-mid { color:var(--text-secondary); }
+.tape-large { font-weight:700; }
+.book-row { display:grid; grid-template-columns:1fr 1fr 1fr; padding:4px 8px; font-family:var(--font-mono); font-size:12px; border-bottom:1px solid rgba(45,55,72,0.4); position:relative; }
+.book-bid { color:var(--green); }
+.book-ask { color:var(--red); }
+.book-bar { position:absolute; top:0; bottom:0; opacity:0.12; }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">Time & Sales</div>
+      <div class="page-subtitle">Live tape · level 2 depth · large prints · <span id="market-clock">--</span></div>
+    </div>
+    <div class="flex gap-8">
+      <select id="tapeSymbol" style="background:var(--bg-tertiary);border:1px solid var(--border);color:var(--text-primary);padding:8px 14px;border-radius:8px;font-family:var(--font-mono);font-size:14px;font-weight:600;">
+        <option selected>NVDA</option><option>AAPL</option><option>MSFT</option><option>META</option><option>TSLA</option><option>AMD</option><option>SPY</option><option>QQQ</option>
+      </select>
+    </div>
+  </div>
+
+  <!-- Quote strip -->
+  <div class="grid grid-12" style="margin-bottom:20px;">
+    <div class="card col-3">
+      <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;">Last</div>
+      <div class="mono" style="font-size:28px;font-weight:800;margin-top:4px;"><span data-live="NVDA:last">$138.27</span></div>
+      <div class="mono" style="font-size:12px;"><span data-live="NVDA:change" class="green-text">+4.31</span> (<span data-live="NVDA:changePct" class="green-text">+3.21%</span>)</div>
+    </div>
+    <div class="card col-3">
+      <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;">Bid × Size</div>
+      <div class="mono green-text" style="font-size:24px;font-weight:800;margin-top:4px;"><span data-live="NVDA:bid">$138.26</span></div>
+      <div class="mono" style="font-size:12px;color:var(--text-muted);">2,400 sh</div>
+    </div>
+    <div class="card col-3">
+      <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;">Ask × Size</div>
+      <div class="mono red-text" style="font-size:24px;font-weight:800;margin-top:4px;"><span data-live="NVDA:ask">$138.28</span></div>
+      <div class="mono" style="font-size:12px;color:var(--text-muted);">1,800 sh</div>
+    </div>
+    <div class="card col-3">
+      <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;">Vol / Avg</div>
+      <div class="mono" style="font-size:24px;font-weight:800;margin-top:4px;">248M / 135M</div>
+      <div class="mono yellow-text" style="font-size:12px;">1.84x RVol</div>
+    </div>
+  </div>
+
+  <div class="grid grid-12">
+    <!-- Level 2 -->
+    <div class="card col-4">
+      <div class="card-header"><div class="card-title">📚 Level 2 — Market Depth</div></div>
+      <div style="background:var(--bg-elevated);padding:8px 12px;font-family:var(--font-mono);font-size:11px;color:var(--text-muted);text-transform:uppercase;display:grid;grid-template-columns:1fr 1fr 1fr;border-radius:4px;">
+        <div>Bid Size</div><div style="text-align:center;">Price</div><div style="text-align:right;">Ask Size</div>
+      </div>
+      <div id="bookList" style="margin-top:6px;"></div>
+    </div>
+
+    <!-- Tape -->
+    <div class="card col-8">
+      <div class="card-header">
+        <div class="card-title">📡 Live Tape</div>
+        <div class="filter-group">
+          <button class="filter-btn active">All</button>
+          <button class="filter-btn">Block (>10k)</button>
+          <button class="filter-btn">Sweep</button>
+          <button class="filter-btn">Dark Pool</button>
+        </div>
+      </div>
+      <div style="background:var(--bg-elevated);padding:6px 12px;font-family:var(--font-mono);font-size:10px;color:var(--text-muted);text-transform:uppercase;display:grid;grid-template-columns:90px 80px 80px 90px 110px 80px;gap:8px;border-radius:4px;letter-spacing:0.05em;">
+        <div>Time</div><div>Price</div><div>Size</div><div>Side</div><div>Exchange</div><div>Cond</div>
+      </div>
+      <div id="tapeList" style="max-height:520px;overflow-y:auto;"></div>
+    </div>
+  </div>
+
+  <div class="card" style="margin-top:24px;">
+    <div class="card-header"><div class="card-title">💡 Reading the Tape</div></div>
+    <div class="grid grid-3">
+      <div>
+        <div class="section-label">Side · Buy vs Sell</div>
+        <div style="font-size:13px;color:var(--text-secondary);line-height:1.7;">Tape "buy" = print at or above ask (aggressive buyer). "Sell" = print at or below bid (aggressive seller). Mid = in the spread, often negotiated.</div>
+      </div>
+      <div>
+        <div class="section-label">Block & Sweep</div>
+        <div style="font-size:13px;color:var(--text-secondary);line-height:1.7;">Block = single large print at one venue. Sweep = same order split across exchanges to take liquidity. Sweeps especially urgent.</div>
+      </div>
+      <div>
+        <div class="section-label">Cond Codes</div>
+        <div style="font-size:13px;color:var(--text-secondary);line-height:1.7;"><strong>FT</strong> = form-T (after hours). <strong>D</strong> = dark pool. <strong>OPEN/CLOSE</strong> = MOO/MOC. <strong>REG</strong> = regular way. Special codes can flag late-reported institutional flow.</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script>
+buildNav('tape');
+
+let CURR = 'NVDA';
+const EXCHANGES = ['NYSE','NASDAQ','ARCA','IEX','EDGX','BATS','MIAX'];
+const CONDS = ['REG','REG','REG','REG','D','REG','REG','BLOCK','SWEEP'];
+let tapeRows = [];
+
+function tickTape() {
+  if (typeof QUOTES === 'undefined') return;
+  const q = QUOTES[CURR]; if (!q) return;
+  const side = Math.random() < 0.55 ? 'buy' : Math.random() < 0.85 ? 'sell' : 'mid';
+  const px = side === 'buy' ? q.ask : side === 'sell' ? q.bid : +((q.bid+q.ask)/2).toFixed(2);
+  const size = Math.random() < 0.93 ? Math.floor(Math.random() * 800 + 100) : Math.floor(Math.random() * 12000 + 2000);
+  const exch = EXCHANGES[Math.floor(Math.random() * EXCHANGES.length)];
+  const cond = size > 5000 ? (Math.random() < 0.5 ? 'BLOCK' : 'SWEEP') : (Math.random() < 0.1 ? 'D' : 'REG');
+  const ts = new Date().toLocaleTimeString('en-US', { hour:'2-digit', minute:'2-digit', second:'2-digit', hour12:false }) + '.' + Math.floor(Math.random()*1000).toString().padStart(3,'0');
+  tapeRows.unshift({ ts, px, size, side, exch, cond, fresh:true });
+  if (tapeRows.length > 80) tapeRows = tapeRows.slice(0, 80);
+  renderTape();
+  setTimeout(() => { tapeRows.forEach(r => r.fresh = false); }, 300);
+}
+
+function renderTape() {
+  const list = document.getElementById('tapeList');
+  list.innerHTML = tapeRows.map(r => {
+    const sideClass = r.side === 'buy' ? 'tape-buy' : r.side === 'sell' ? 'tape-sell' : 'tape-mid';
+    const large = r.size > 5000 ? 'tape-large' : '';
+    return `<div class="tape-row ${r.fresh?'fresh':''}">
+      <div>${r.ts}</div>
+      <div class="${sideClass} ${large}">$${r.px.toFixed(2)}</div>
+      <div class="${large}">${r.size.toLocaleString()}</div>
+      <div class="${sideClass}" style="text-transform:uppercase;font-weight:700;">${r.side}</div>
+      <div style="color:var(--text-muted);">${r.exch}</div>
+      <div>${r.cond === 'BLOCK' ? '<span class="pill block">BLOCK</span>' : r.cond === 'SWEEP' ? '<span class="pill sweep">SWEEP</span>' : r.cond === 'D' ? '<span class="pill" style="background:rgba(139,92,246,0.15);color:var(--purple);">DARK</span>' : r.cond}</div>
+    </div>`;
+  }).join('');
+}
+
+function renderBook() {
+  if (typeof QUOTES === 'undefined') return;
+  const q = QUOTES[CURR]; if (!q) return;
+  const html = [];
+  // Asks (top down, highest first)
+  for (let i = 5; i >= 1; i--) {
+    const px = +(q.ask + i * 0.01).toFixed(2);
+    const sz = Math.floor(Math.random() * 4000 + 500);
+    const pct = Math.min(95, sz / 50);
+    html.push(`<div class="book-row">
+      <span class="book-bar" style="background:var(--red);left:0;width:${pct}%;"></span>
+      <div></div><div style="text-align:center;color:var(--red);font-weight:600;">$${px.toFixed(2)}</div><div style="text-align:right;">${sz.toLocaleString()}</div>
+    </div>`);
+  }
+  // Spread row
+  const spread = +(q.ask - q.bid).toFixed(2);
+  html.push(`<div style="display:grid;grid-template-columns:1fr 1fr 1fr;padding:6px 8px;background:var(--bg-elevated);font-family:var(--font-mono);font-size:11px;color:var(--text-muted);">
+    <div></div><div style="text-align:center;">spread $${spread}</div><div></div>
+  </div>`);
+  // Bids (top down, highest first)
+  for (let i = 1; i <= 5; i++) {
+    const px = +(q.bid - (i-1) * 0.01).toFixed(2);
+    const sz = Math.floor(Math.random() * 4000 + 500);
+    const pct = Math.min(95, sz / 50);
+    html.push(`<div class="book-row">
+      <span class="book-bar" style="background:var(--green);left:0;width:${pct}%;"></span>
+      <div>${sz.toLocaleString()}</div><div style="text-align:center;color:var(--green);font-weight:600;">$${px.toFixed(2)}</div><div></div>
+    </div>`);
+  }
+  document.getElementById('bookList').innerHTML = html.join('');
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  // Re-route live binding to selected symbol
+  document.getElementById('tapeSymbol').addEventListener('change', e => {
+    CURR = e.target.value;
+    document.querySelectorAll('[data-live]').forEach(el => {
+      const [_, field] = el.dataset.live.split(':');
+      el.dataset.live = CURR + ':' + field;
+    });
+    if (typeof bindLive === 'function') bindLive();
+    tapeRows = [];
+    renderTape();
+    renderBook();
+  });
+
+  // Initial render
+  renderBook();
+  setInterval(tickTape, 600);
+  setInterval(renderBook, 2000);
+});
+</script>
+</body>
+</html>

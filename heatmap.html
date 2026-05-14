@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Market Heatmap — bpleone / trade</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.hm-grid { display:grid; gap:2px; background:var(--border); padding:2px; border-radius:6px; }
+.hm-cell { padding:6px 8px; display:flex; flex-direction:column; justify-content:center; align-items:center; text-align:center; transition:transform 0.15s, box-shadow 0.15s; cursor:pointer; }
+.hm-cell:hover { transform:scale(1.02); z-index:2; box-shadow:0 4px 20px rgba(0,0,0,0.5); }
+.hm-sym { font-family:var(--font-mono); font-weight:700; font-size:13px; color:#fff; text-shadow:0 1px 2px rgba(0,0,0,0.4); }
+.hm-pct { font-family:var(--font-mono); font-size:11px; color:#fff; opacity:0.92; text-shadow:0 1px 2px rgba(0,0,0,0.4); margin-top:2px; }
+.hm-sector { background:var(--bg-secondary); border:1px solid var(--border); border-radius:8px; padding:14px; margin-bottom:14px; }
+.hm-sector-head { display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; padding-bottom:8px; border-bottom:1px solid var(--border); }
+.hm-sector-title { font-size:13px; font-weight:700; }
+.hm-sector-meta { font-size:11px; color:var(--text-muted); font-family:var(--font-mono); }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">Market Heatmap</div>
+      <div class="page-subtitle">Visual market map · sized by market cap · colored by today's move · <span id="market-clock">--</span></div>
+    </div>
+    <div class="filter-group">
+      <button class="filter-btn active" data-tf="1D">1D</button>
+      <button class="filter-btn" data-tf="1W">1W</button>
+      <button class="filter-btn" data-tf="1M">1M</button>
+      <button class="filter-btn" data-tf="YTD">YTD</button>
+    </div>
+  </div>
+
+  <!-- KPI strip -->
+  <div class="grid grid-4" style="margin-bottom:24px;">
+    <div class="card"><div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;">Advancers</div><div class="mono green-text" style="font-size:24px;font-weight:800;">312</div><div style="font-size:11px;color:var(--text-muted);">of 500 (62.4%)</div></div>
+    <div class="card"><div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;">Decliners</div><div class="mono red-text" style="font-size:24px;font-weight:800;">188</div><div style="font-size:11px;color:var(--text-muted);">of 500 (37.6%)</div></div>
+    <div class="card"><div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;">Sector Leader</div><div class="mono green-text" style="font-size:20px;font-weight:800;margin-top:4px;">Tech +1.84%</div></div>
+    <div class="card"><div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;">Sector Laggard</div><div class="mono red-text" style="font-size:20px;font-weight:800;margin-top:4px;">Energy -1.24%</div></div>
+  </div>
+
+  <div class="grid grid-12" style="margin-bottom:24px;">
+    <!-- Tech sector -->
+    <div class="hm-sector col-6" id="hm-tech"></div>
+    <div class="hm-sector col-6" id="hm-comm"></div>
+    <div class="hm-sector col-6" id="hm-disc"></div>
+    <div class="hm-sector col-6" id="hm-fin"></div>
+    <div class="hm-sector col-4" id="hm-hc"></div>
+    <div class="hm-sector col-4" id="hm-ind"></div>
+    <div class="hm-sector col-4" id="hm-energy"></div>
+    <div class="hm-sector col-4" id="hm-cs"></div>
+    <div class="hm-sector col-4" id="hm-util"></div>
+    <div class="hm-sector col-4" id="hm-mat"></div>
+  </div>
+
+  <!-- Legend -->
+  <div class="card">
+    <div class="card-header"><div class="card-title">🎨 Legend</div></div>
+    <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap;font-size:12px;color:var(--text-secondary);">
+      <span style="display:inline-block;width:16px;height:16px;background:#10b981;border-radius:3px;"></span> &gt; +3%
+      <span style="display:inline-block;width:16px;height:16px;background:#34d399;border-radius:3px;"></span> +1% to +3%
+      <span style="display:inline-block;width:16px;height:16px;background:#6ee7b7;border-radius:3px;"></span> 0% to +1%
+      <span style="display:inline-block;width:16px;height:16px;background:#64748b;border-radius:3px;"></span> flat
+      <span style="display:inline-block;width:16px;height:16px;background:#fca5a5;border-radius:3px;"></span> 0% to -1%
+      <span style="display:inline-block;width:16px;height:16px;background:#f87171;border-radius:3px;"></span> -1% to -3%
+      <span style="display:inline-block;width:16px;height:16px;background:#ef4444;border-radius:3px;"></span> &lt; -3%
+      <span style="margin-left:auto;color:var(--text-muted);">Tile size = relative market cap within sector</span>
+    </div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script>
+buildNav('heatmap');
+
+const SECTORS = {
+  'hm-tech':   { name:'Technology', avg:1.84, stocks:[
+    { s:'MSFT', cap:3300, pct:0.93 }, { s:'NVDA', cap:3400, pct:3.21 }, { s:'AAPL', cap:3400, pct:1.84 },
+    { s:'GOOGL', cap:2100, pct:-0.42 }, { s:'META', cap:1500, pct:1.67 }, { s:'AVGO', cap:780, pct:2.18 },
+    { s:'ORCL', cap:480, pct:0.84 }, { s:'AMD', cap:262, pct:2.34 }, { s:'CRM', cap:260, pct:0.92 },
+    { s:'ADBE', cap:228, pct:0.42 }, { s:'CSCO', cap:198, pct:1.18 }, { s:'INTC', cap:192, pct:-1.42 },
+    { s:'QCOM', cap:214, pct:1.84 }, { s:'TXN', cap:178, pct:0.62 }, { s:'NOW', cap:152, pct:1.42 },
+    { s:'INTU', cap:142, pct:0.84 }, { s:'AMAT', cap:148, pct:2.42 }, { s:'PLTR', cap:74, pct:6.18 },
+    { s:'SMCI', cap:28, pct:8.42 }, { s:'SHOP', cap:88, pct:2.18 }
+  ]},
+  'hm-comm':   { name:'Communication Services', avg:1.42, stocks:[
+    { s:'GOOGL', cap:2100, pct:-0.42 }, { s:'META', cap:1500, pct:1.67 }, { s:'NFLX', cap:284, pct:2.84 },
+    { s:'DIS', cap:184, pct:0.42 }, { s:'CMCSA', cap:148, pct:-0.18 }, { s:'TMUS', cap:198, pct:0.92 },
+    { s:'VZ', cap:178, pct:0.18 }, { s:'T', cap:122, pct:-0.42 }, { s:'EA', cap:38, pct:1.42 },
+    { s:'TTWO', cap:28, pct:2.18 }
+  ]},
+  'hm-disc':   { name:'Consumer Discretionary', avg:0.92, stocks:[
+    { s:'AMZN', cap:2200, pct:0.88 }, { s:'TSLA', cap:790, pct:-2.18 }, { s:'HD', cap:340, pct:0.42 },
+    { s:'MCD', cap:204, pct:-0.18 }, { s:'NKE', cap:142, pct:0.84 }, { s:'BKNG', cap:118, pct:1.42 },
+    { s:'CMG', cap:88, pct:0.62 }, { s:'SBUX', cap:108, pct:-0.42 }, { s:'TGT', cap:78, pct:0.18 },
+    { s:'LOW', cap:148, pct:0.92 }, { s:'F', cap:48, pct:1.84 }, { s:'GM', cap:54, pct:2.18 },
+    { s:'ABNB', cap:108, pct:1.62 }, { s:'UBER', cap:142, pct:0.28 }
+  ]},
+  'hm-fin':    { name:'Financials', avg:0.41, stocks:[
+    { s:'JPM', cap:638, pct:0.42 }, { s:'V', cap:578, pct:0.18 }, { s:'MA', cap:438, pct:0.32 },
+    { s:'BAC', cap:312, pct:0.84 }, { s:'WFC', cap:212, pct:0.62 }, { s:'GS', cap:158, pct:1.18 },
+    { s:'MS', cap:158, pct:0.92 }, { s:'AXP', cap:178, pct:0.18 }, { s:'BLK', cap:128, pct:0.42 },
+    { s:'C', cap:118, pct:-0.18 }, { s:'SCHW', cap:138, pct:-0.42 }, { s:'COIN', cap:62, pct:5.21 },
+    { s:'PYPL', cap:68, pct:1.42 }
+  ]},
+  'hm-hc':     { name:'Healthcare', avg:0.18, stocks:[
+    { s:'LLY', cap:778, pct:0.84 }, { s:'UNH', cap:478, pct:0.42 }, { s:'JNJ', cap:388, pct:-0.18 },
+    { s:'NVO', cap:548, pct:0.62 }, { s:'MRK', cap:328, pct:-0.42 }, { s:'PFE', cap:158, pct:-1.24 },
+    { s:'ABBV', cap:298, pct:0.18 }, { s:'TMO', cap:228, pct:0.42 }, { s:'ABT', cap:198, pct:0.62 }
+  ]},
+  'hm-ind':    { name:'Industrials', avg:-0.08, stocks:[
+    { s:'GE', cap:178, pct:0.42 }, { s:'CAT', cap:178, pct:-0.42 }, { s:'BA', cap:108, pct:-1.84 },
+    { s:'HON', cap:138, pct:0.18 }, { s:'UPS', cap:118, pct:-0.62 }, { s:'RTX', cap:148, pct:0.62 },
+    { s:'LMT', cap:108, pct:0.42 }, { s:'DE', cap:108, pct:0.18 }
+  ]},
+  'hm-energy': { name:'Energy', avg:-1.24, stocks:[
+    { s:'XOM', cap:478, pct:-1.42 }, { s:'CVX', cap:298, pct:-1.18 }, { s:'COP', cap:138, pct:-1.84 },
+    { s:'SLB', cap:68, pct:-2.42 }, { s:'EOG', cap:78, pct:-0.84 }, { s:'PSX', cap:62, pct:-1.42 },
+    { s:'OXY', cap:62, pct:-1.18 }, { s:'MPC', cap:68, pct:-0.42 }
+  ]},
+  'hm-cs':     { name:'Consumer Staples', avg:-0.92, stocks:[
+    { s:'WMT', cap:548, pct:0.42 }, { s:'PG', cap:388, pct:-0.42 }, { s:'COST', cap:328, pct:0.18 },
+    { s:'KO', cap:268, pct:-0.84 }, { s:'PEP', cap:228, pct:-1.18 }, { s:'PM', cap:148, pct:-0.42 },
+    { s:'MO', cap:78, pct:-1.42 }
+  ]},
+  'hm-util':   { name:'Utilities', avg:-0.78, stocks:[
+    { s:'NEE', cap:148, pct:-0.42 }, { s:'SO', cap:78, pct:-0.84 }, { s:'DUK', cap:78, pct:-1.18 },
+    { s:'CEG', cap:62, pct:0.62 }, { s:'AEP', cap:48, pct:-1.42 }, { s:'VST', cap:32, pct:1.84 }
+  ]},
+  'hm-mat':    { name:'Materials', avg:-0.34, stocks:[
+    { s:'LIN', cap:208, pct:-0.18 }, { s:'SHW', cap:78, pct:-0.42 }, { s:'APD', cap:58, pct:-0.84 },
+    { s:'FCX', cap:78, pct:1.42 }, { s:'NEM', cap:48, pct:0.62 }, { s:'CTVA', cap:42, pct:-0.42 }
+  ]}
+};
+
+function pctColor(p) {
+  if (p > 3)  return '#10b981';
+  if (p > 1)  return '#34d399';
+  if (p > 0)  return '#6ee7b7';
+  if (p > -1) return '#fca5a5';
+  if (p > -3) return '#f87171';
+  return '#ef4444';
+}
+function pctText(p) { return (p>=0?'+':'') + p.toFixed(2) + '%'; }
+
+function renderSector(id, data) {
+  const el = document.getElementById(id);
+  const totalCap = data.stocks.reduce((a, s) => a + s.cap, 0);
+  const headerColor = data.avg >= 0 ? 'var(--green)' : 'var(--red)';
+  el.innerHTML = `
+    <div class="hm-sector-head">
+      <div class="hm-sector-title">${data.name}</div>
+      <div class="hm-sector-meta" style="color:${headerColor};">${pctText(data.avg)}</div>
+    </div>
+    <div class="hm-grid" style="grid-template-columns: repeat(${Math.min(5, Math.ceil(Math.sqrt(data.stocks.length)))}, 1fr);">
+      ${data.stocks.map(s => {
+        const sz = Math.max(60, Math.min(120, 60 + (s.cap / totalCap) * 360));
+        return `<div class="hm-cell" style="background:${pctColor(s.pct)};min-height:${sz*0.55}px;" title="${s.s}: ${pctText(s.pct)}">
+          <div class="hm-sym">${s.s}</div>
+          <div class="hm-pct">${pctText(s.pct)}</div>
+        </div>`;
+      }).join('')}
+    </div>
+  `;
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  Object.entries(SECTORS).forEach(([id, data]) => renderSector(id, data));
+});
+</script>
+</body>
+</html>

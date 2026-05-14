@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Execution Calculator — bpleone / trade</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">Execution Calculator</div>
+      <div class="page-subtitle">TWAP · VWAP · Implementation Shortfall · slippage estimator · <span id="market-clock">--</span></div>
+    </div>
+  </div>
+
+  <div class="grid grid-12">
+    <!-- Inputs -->
+    <div class="card col-4">
+      <div class="card-header"><div class="card-title">⚙️ Order Details</div></div>
+      <div class="ps-field">
+        <label style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.05em;">Symbol</label>
+        <select id="exSym" style="width:100%;padding:10px;background:var(--bg-elevated);border:1px solid var(--border);color:var(--text-primary);border-radius:6px;margin-top:6px;font-family:var(--font-mono);">
+          <option selected>NVDA</option><option>SPY</option><option>QQQ</option><option>AAPL</option><option>TSLA</option><option>META</option><option>AMD</option>
+        </select>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:14px;">
+        <div><label style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.05em;">Side</label>
+          <select id="exSide" style="width:100%;padding:10px;background:var(--bg-elevated);border:1px solid var(--border);color:var(--text-primary);border-radius:6px;margin-top:6px;">
+            <option>BUY</option><option>SELL</option>
+          </select></div>
+        <div><label style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.05em;">Shares</label>
+          <input id="exShares" type="number" value="100000" style="width:100%;padding:10px;background:var(--bg-elevated);border:1px solid var(--border);color:var(--text-primary);border-radius:6px;margin-top:6px;font-family:var(--font-mono);"></div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:14px;">
+        <div><label style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.05em;">Decision Price</label>
+          <input id="exPx" type="number" step="0.01" value="138.27" style="width:100%;padding:10px;background:var(--bg-elevated);border:1px solid var(--border);color:var(--text-primary);border-radius:6px;margin-top:6px;font-family:var(--font-mono);"></div>
+        <div><label style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.05em;">ADV (M sh)</label>
+          <input id="exADV" type="number" step="0.1" value="248" style="width:100%;padding:10px;background:var(--bg-elevated);border:1px solid var(--border);color:var(--text-primary);border-radius:6px;margin-top:6px;font-family:var(--font-mono);"></div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:14px;">
+        <div><label style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.05em;">Spread (bps)</label>
+          <input id="exSpread" type="number" step="0.1" value="2.5" style="width:100%;padding:10px;background:var(--bg-elevated);border:1px solid var(--border);color:var(--text-primary);border-radius:6px;margin-top:6px;font-family:var(--font-mono);"></div>
+        <div><label style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.05em;">Vol (% ann.)</label>
+          <input id="exVol" type="number" step="0.1" value="42" style="width:100%;padding:10px;background:var(--bg-elevated);border:1px solid var(--border);color:var(--text-primary);border-radius:6px;margin-top:6px;font-family:var(--font-mono);"></div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+        <div><label style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.05em;">Horizon (min)</label>
+          <input id="exHorizon" type="number" value="60" style="width:100%;padding:10px;background:var(--bg-elevated);border:1px solid var(--border);color:var(--text-primary);border-radius:6px;margin-top:6px;font-family:var(--font-mono);"></div>
+        <div><label style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.05em;">Strategy</label>
+          <select id="exStrat" style="width:100%;padding:10px;background:var(--bg-elevated);border:1px solid var(--border);color:var(--text-primary);border-radius:6px;margin-top:6px;">
+            <option>VWAP</option><option selected>TWAP</option><option>Implementation Shortfall</option><option>Aggressive (IOC)</option><option>Passive (limit)</option>
+          </select></div>
+      </div>
+    </div>
+
+    <!-- Results -->
+    <div class="col-8">
+      <div class="grid grid-3" style="margin-bottom:18px;">
+        <div class="card" style="border-left:3px solid var(--accent);padding:18px;">
+          <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;">Expected Impact</div>
+          <div class="mono yellow-text" id="exImpact" style="font-size:24px;font-weight:800;margin-top:4px;">8.4 bps</div>
+          <div style="font-size:12px;color:var(--text-muted);">temp + perm</div>
+        </div>
+        <div class="card" style="border-left:3px solid var(--yellow);padding:18px;">
+          <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;">Spread Cost</div>
+          <div class="mono red-text" id="exSpreadCost" style="font-size:24px;font-weight:800;margin-top:4px;">1.25 bps</div>
+          <div style="font-size:12px;color:var(--text-muted);">half-spread × pct hit</div>
+        </div>
+        <div class="card" style="border-left:3px solid var(--red);padding:18px;">
+          <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;">Implementation Shortfall</div>
+          <div class="mono red-text" id="exIS" style="font-size:24px;font-weight:800;margin-top:4px;">$9.65</div>
+          <div style="font-size:12px;color:var(--text-muted);">per share total</div>
+        </div>
+      </div>
+
+      <div class="card mb-16" style="margin-bottom:18px;">
+        <div class="card-header"><div class="card-title">📊 Execution Schedule (60-minute TWAP)</div></div>
+        <div class="chart-container"><canvas id="schedChart"></canvas></div>
+      </div>
+
+      <div class="card">
+        <div class="card-header"><div class="card-title">📋 Cost Breakdown</div></div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Component</th><th>Formula</th><th>Value</th><th>Notes</th></tr></thead>
+            <tbody style="font-family:var(--font-mono);font-size:12px;">
+              <tr><td>Spread Cost</td><td>½ × spread × % crossed</td><td id="cBSpread">$3,460</td><td>Half-spread × aggressive ratio</td></tr>
+              <tr><td>Temporary Impact</td><td>η × σ × √(Q/V)</td><td id="cBTemp">$8,420</td><td>Reverts after order completes</td></tr>
+              <tr><td>Permanent Impact</td><td>γ × σ × Q/V</td><td id="cBPerm">$2,840</td><td>Information leakage, leaks into price</td></tr>
+              <tr><td>Timing Risk</td><td>σ × √T / √2</td><td id="cBTiming">$11,240</td><td>Adverse drift during execution</td></tr>
+              <tr><td>Opportunity Cost</td><td>Missed shares × move</td><td id="cBOpp">$0</td><td>Assumes full fill</td></tr>
+              <tr style="background:var(--bg-elevated);font-weight:700;"><td>Total IS</td><td>Sum above</td><td id="cBTotal" style="color:var(--red);">$25,960</td><td>vs decision price</td></tr>
+              <tr style="background:var(--bg-elevated);"><td>As % of notional</td><td>IS / (Q × P)</td><td id="cBPct" style="color:var(--red);">18.8 bps</td><td>Industry good = &lt; 10 bps</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div style="font-size:12px;color:var(--text-muted);margin-top:14px;line-height:1.7;">
+          <strong style="color:var(--accent);">How to reduce IS:</strong> longer horizon = lower impact but higher timing risk. Aggressive crossing = fast but expensive. Almgren-Chriss optimal trajectory balances both. For 100k NVDA shares: ~1.5 hour TWAP is near-optimal. Anything &gt; 5% of ADV warrants a desk call.
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script>
+buildNav('execution');
+let CHART = null;
+
+function refresh() {
+  const shares = +document.getElementById('exShares').value;
+  const px = +document.getElementById('exPx').value;
+  const adv = +document.getElementById('exADV').value * 1e6;
+  const spread = +document.getElementById('exSpread').value;
+  const vol = +document.getElementById('exVol').value / 100;
+  const horizon = +document.getElementById('exHorizon').value;
+  const notional = shares * px;
+  const pctADV = shares / adv;
+  const dailyVol = vol / Math.sqrt(252);
+  const sigmaT = dailyVol * Math.sqrt(horizon / 390); // intraday minutes
+
+  // Almgren-Chriss style cost components (simplified)
+  const halfSpread = spread / 20000; // bps to fraction (half)
+  const eta = 0.142; // temp impact coefficient (typical equity)
+  const gamma = 0.04; // perm impact coefficient
+  const tempImpact = eta * dailyVol * Math.sqrt(pctADV);
+  const permImpact = gamma * dailyVol * pctADV;
+  const timingRisk = sigmaT / Math.sqrt(2);
+
+  const cSpread = halfSpread * notional * 0.5;
+  const cTemp = tempImpact * notional;
+  const cPerm = permImpact * notional;
+  const cTiming = timingRisk * notional;
+  const total = cSpread + cTemp + cPerm + cTiming;
+  const pctNotional = total / notional * 10000;
+
+  document.getElementById('exImpact').textContent = ((tempImpact + permImpact)*10000).toFixed(1) + ' bps';
+  document.getElementById('exSpreadCost').textContent = (halfSpread*10000*2).toFixed(2) + ' bps';
+  document.getElementById('exIS').textContent = '$' + (total/shares).toFixed(2);
+
+  document.getElementById('cBSpread').textContent = '$' + cSpread.toLocaleString(undefined, {maximumFractionDigits:0});
+  document.getElementById('cBTemp').textContent = '$' + cTemp.toLocaleString(undefined, {maximumFractionDigits:0});
+  document.getElementById('cBPerm').textContent = '$' + cPerm.toLocaleString(undefined, {maximumFractionDigits:0});
+  document.getElementById('cBTiming').textContent = '$' + cTiming.toLocaleString(undefined, {maximumFractionDigits:0});
+  document.getElementById('cBTotal').textContent = '$' + total.toLocaleString(undefined, {maximumFractionDigits:0});
+  document.getElementById('cBPct').textContent = pctNotional.toFixed(1) + ' bps';
+
+  // Schedule chart: TWAP = equal slices
+  const slices = 12;
+  const perSlice = shares / slices;
+  const labels = Array.from({length:slices}, (_,i) => 'T+' + ((i+1)*Math.round(horizon/slices)) + 'm');
+  const data = Array(slices).fill(perSlice);
+  // cumulative line
+  let cum = 0;
+  const cumData = data.map(d => { cum += d; return cum; });
+
+  if (CHART) CHART.destroy();
+  CHART = new Chart(document.getElementById('schedChart'), {
+    data: { labels, datasets: [
+      { type:'bar', label:'Shares / slice', data: data.map(d => Math.round(d)), backgroundColor:'rgba(0,212,255,0.5)', yAxisID:'y', borderRadius:3 },
+      { type:'line', label:'Cumulative', data: cumData.map(d => Math.round(d)), borderColor:'#10b981', borderWidth:2.5, tension:0.3, pointRadius:0, yAxisID:'y1' }
+    ]},
+    options: { ...baseOptions(true), scales: {
+      x: baseOptions().scales.x,
+      y:  { position:'left', ticks:{ color:'#64748b', callback:v=>(v/1000).toFixed(0)+'k', font:{family:'JetBrains Mono', size:10}}, grid:{color:'rgba(45,55,72,0.5)'}},
+      y1: { position:'right', ticks:{ color:'#10b981', callback:v=>(v/1000).toFixed(0)+'k', font:{family:'JetBrains Mono', size:10}}, grid:{display:false}}
+    }}
+  });
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  refresh();
+  document.querySelectorAll('#exShares, #exPx, #exADV, #exSpread, #exVol, #exHorizon').forEach(i => i.addEventListener('input', refresh));
+});
+</script>
+</body>
+</html>

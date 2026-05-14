@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Gamma Exposure (GEX) — bpleone / trade</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">Gamma Exposure (GEX) Map</div>
+      <div class="page-subtitle">Dealer positioning · vanna · charm · the hidden force on price · <span id="market-clock">--</span></div>
+    </div>
+    <div class="flex gap-8">
+      <select id="gexSymbol" style="background:var(--bg-tertiary);border:1px solid var(--border);color:var(--text-primary);padding:8px 14px;border-radius:8px;font-family:var(--font-mono);font-size:14px;font-weight:600;">
+        <option selected>SPX</option><option>SPY</option><option>QQQ</option><option>NDX</option><option>IWM</option><option>NVDA</option>
+      </select>
+    </div>
+  </div>
+
+  <!-- Regime banner -->
+  <div class="card mb-16" style="margin-bottom:24px;background:linear-gradient(135deg,rgba(16,185,129,0.06),rgba(0,212,255,0.06));border-color:rgba(16,185,129,0.3);">
+    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:14px;">
+      <div>
+        <div style="font-size:11px;color:var(--green);text-transform:uppercase;letter-spacing:0.1em;font-weight:700;">🟢 LONG GAMMA REGIME</div>
+        <div style="font-size:18px;font-weight:700;margin-top:4px;">Dealers absorbing volatility · range compression expected</div>
+        <div style="font-size:13px;color:var(--text-secondary);margin-top:6px;line-height:1.6;max-width:760px;">When dealers are net long gamma, they hedge by selling rallies and buying dips — this dampens intraday volatility and creates pinning behavior around large gamma strikes.</div>
+      </div>
+      <div style="font-family:var(--font-mono);">
+        <div style="font-size:28px;font-weight:800;color:var(--green);">+$8.4B</div>
+        <div style="font-size:11px;color:var(--text-muted);text-align:right;">Net GEX</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- KPI strip -->
+  <div class="grid grid-12" style="margin-bottom:24px;">
+    <div class="card col-3"><div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;">Gamma Flip</div><div class="mono yellow-text" style="font-size:24px;font-weight:800;margin-top:4px;">$5,572</div><div class="mono" style="font-size:12px;color:var(--text-muted);">below = short γ regime</div></div>
+    <div class="card col-3"><div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;">Largest Call Strike</div><div class="mono green-text" style="font-size:24px;font-weight:800;margin-top:4px;">$5,650</div><div class="mono" style="font-size:12px;color:var(--text-muted);">$2.8B in gamma</div></div>
+    <div class="card col-3"><div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;">Largest Put Strike</div><div class="mono red-text" style="font-size:24px;font-weight:800;margin-top:4px;">$5,500</div><div class="mono" style="font-size:12px;color:var(--text-muted);">$1.8B in gamma</div></div>
+    <div class="card col-3"><div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;">SPX Spot</div><div class="mono" style="font-size:24px;font-weight:800;margin-top:4px;">$5,621.84</div><div class="mono green-text" style="font-size:12px;">+$49 above flip</div></div>
+  </div>
+
+  <!-- GEX by strike chart -->
+  <div class="card mb-16" style="margin-bottom:24px;">
+    <div class="card-header"><div class="card-title">📊 Net Gamma Exposure by Strike</div></div>
+    <div class="chart-container large"><canvas id="gexChart"></canvas></div>
+    <div style="font-size:13px;color:var(--text-secondary);margin-top:14px;line-height:1.7;">
+      Each bar = dealer's net gamma at that strike (negative = dealers short calls or long puts). Spot at <strong>$5,621</strong> sits between the <strong style="color:var(--red);">$5,500 put wall</strong> (downside support) and <strong style="color:var(--green);">$5,650 call wall</strong> (upside resistance). Expect price-action to compress into this band until/unless a catalyst pushes through.
+    </div>
+  </div>
+
+  <!-- Vanna & Charm + history -->
+  <div class="grid grid-12" style="margin-bottom:24px;">
+    <div class="card col-6">
+      <div class="card-header"><div class="card-title">🌀 Vanna Exposure</div></div>
+      <div class="chart-container"><canvas id="vannaChart"></canvas></div>
+      <div style="font-size:12px;color:var(--text-muted);margin-top:14px;line-height:1.7;">
+        Vanna = ∂Δ/∂σ. When IV drops, dealers' delta hedge needs to shift. Negative vanna means a vol crush triggers dealer buying (supportive). Currently <strong style="color:var(--red);">-$1.84B vanna</strong> — VIX crush would create mechanical buy flow.
+      </div>
+    </div>
+    <div class="card col-6">
+      <div class="card-header"><div class="card-title">⏱ Charm (Δ-decay)</div></div>
+      <div class="chart-container"><canvas id="charmChart"></canvas></div>
+      <div style="font-size:12px;color:var(--text-muted);margin-top:14px;line-height:1.7;">
+        Charm = ∂Δ/∂t. As time passes, delta decays toward 0 (OTM) or ±1 (ITM). Heavy charm flow into OPEX week creates predictable hedging — particularly into Friday close. Watch for <strong style="color:var(--purple);">monthly OPEX pinning</strong> at $5,600 Friday.
+      </div>
+    </div>
+  </div>
+
+  <!-- GEX history -->
+  <div class="card">
+    <div class="card-header"><div class="card-title">📈 Net GEX vs SPX — Last 60d</div></div>
+    <div class="chart-container"><canvas id="gexHistChart"></canvas></div>
+    <div style="font-size:12px;color:var(--text-muted);margin-top:14px;line-height:1.7;">
+      <strong style="color:var(--accent);">How to read:</strong> Periods of negative GEX (gray fill below zero) correspond to higher realized volatility — short-gamma regime where dealers amplify moves. Positive GEX correlates with quiet, melt-up grinds. Today: comfortably long gamma — fade extreme moves.
+    </div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/charts.js"></script>
+<script src="js/live.js"></script>
+<script>
+buildNav('gex');
+document.addEventListener('DOMContentLoaded', () => {
+  // GEX by strike
+  const strikes = [5400,5450,5500,5550,5572,5600,5621,5650,5700,5750,5800,5850];
+  const gex     = [0.6, 0.8, -1.8, -1.4, 0.0, 1.2, 1.8, 2.8, 1.6, 0.9, 0.5, 0.2];
+  new Chart(document.getElementById('gexChart'), {
+    type:'bar',
+    data:{ labels: strikes, datasets:[{ data: gex, backgroundColor: gex.map(v => v >= 0 ? '#10b981' : '#ef4444'), borderRadius: 4 }]},
+    options:{ ...baseOptions(), plugins:{ ...baseOptions().plugins, legend:{display:false}}, scales:{ ...baseOptions().scales, y:{ ...baseOptions().scales.y, ticks:{ ...baseOptions().scales.y.ticks, callback: v => v + 'B' }}}}
+  });
+
+  // Vanna
+  const vannaData = strikes.map((_, i) => +((-2 + i*0.3) * (1 + Math.sin(i)*0.3)).toFixed(2));
+  new Chart(document.getElementById('vannaChart'), {
+    type:'bar',
+    data:{ labels: strikes, datasets:[{ data: vannaData, backgroundColor: vannaData.map(v => v >= 0 ? '#8b5cf6' : '#ec4899'), borderRadius: 3 }]},
+    options:{ ...baseOptions(), plugins:{ ...baseOptions().plugins, legend:{display:false}}, scales:{ ...baseOptions().scales, y:{ ...baseOptions().scales.y, ticks:{ ...baseOptions().scales.y.ticks, callback: v => v + 'B' }}}}
+  });
+
+  // Charm
+  const charmData = strikes.map((_, i) => +((-0.3 - Math.exp(-Math.abs(i-6)/4) * 0.8)).toFixed(3));
+  new Chart(document.getElementById('charmChart'), {
+    type:'bar',
+    data:{ labels: strikes, datasets:[{ data: charmData, backgroundColor: '#f59e0b', borderRadius: 3 }]},
+    options:{ ...baseOptions(), plugins:{ ...baseOptions().plugins, legend:{display:false}}, scales:{ ...baseOptions().scales, y:{ ...baseOptions().scales.y, ticks:{ ...baseOptions().scales.y.ticks, callback: v => v + 'B/d' }}}}
+  });
+
+  // GEX vs SPX history
+  const n = 60;
+  const gexHist = [];
+  const spxHist = [];
+  let g = 4, s = 5500;
+  for (let i = 0; i < n; i++) {
+    g += (Math.random() - 0.5) * 1.4 + (s > 5550 ? 0.1 : -0.1);
+    s += (Math.random() - 0.48) * 18 + (g > 0 ? 3 : -2);
+    gexHist.push(+g.toFixed(2));
+    spxHist.push(+s.toFixed(2));
+  }
+  new Chart(document.getElementById('gexHistChart'), {
+    data:{ labels: Array.from({length:n}, (_,i) => 'D'+(i+1)), datasets:[
+      { type:'bar', label:'Net GEX ($B)', data: gexHist, backgroundColor: gexHist.map(v => v >= 0 ? 'rgba(16,185,129,0.5)' : 'rgba(239,68,68,0.5)'), yAxisID:'y' },
+      { type:'line', label:'SPX', data: spxHist, borderColor:'#00d4ff', borderWidth: 2.5, tension: 0.3, pointRadius: 0, yAxisID: 'y1' }
+    ]},
+    options: { ...baseOptions(true), scales: {
+      x: baseOptions().scales.x,
+      y:  { position:'left', ticks:{ color:'#64748b', callback: v => v + 'B', font:{family:'JetBrains Mono', size:10}}, grid:{color:'rgba(45,55,72,0.5)'}},
+      y1: { position:'right', ticks:{ color:'#00d4ff', callback: v => v.toFixed(0), font:{family:'JetBrains Mono', size:10}}, grid:{display:false}}
+    }}
+  });
+});
+</script>
+</body>
+</html>

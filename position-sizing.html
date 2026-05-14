@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Position Sizing — bpleone / trade</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.ps-input { width:100%; padding:10px 12px; background:var(--bg-elevated); border:1px solid var(--border); color:var(--text-primary); border-radius:6px; font-family:var(--font-mono); font-size:14px; }
+.ps-label { font-size:11px; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.05em; margin-bottom:6px; display:block; }
+.ps-field { margin-bottom:14px; }
+.result-card { padding:18px; background:var(--bg-elevated); border-radius:10px; border-left:3px solid var(--accent); }
+.result-name { font-size:11px; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.05em; margin-bottom:4px; }
+.result-val { font-family:var(--font-mono); font-size:28px; font-weight:800; margin-bottom:4px; }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">Position Sizing Calculator</div>
+      <div class="page-subtitle">Fixed fractional · Kelly · ATR-based · Vol-targeted · <span id="market-clock">--</span></div>
+    </div>
+  </div>
+
+  <div class="grid grid-12">
+    <!-- Inputs -->
+    <div class="card col-4">
+      <div class="card-header"><div class="card-title">⚙️ Inputs</div></div>
+      <div class="ps-field"><label class="ps-label">Account Size ($)</label><input class="ps-input" id="psAcct" type="number" value="50000"></div>
+      <div class="ps-field"><label class="ps-label">Risk per Trade (%)</label><input class="ps-input" id="psRisk" type="number" step="0.1" value="1"></div>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+        <div class="ps-field"><label class="ps-label">Entry Price</label><input class="ps-input" id="psEntry" type="number" step="0.01" value="138.27"></div>
+        <div class="ps-field"><label class="ps-label">Stop Price</label><input class="ps-input" id="psStop" type="number" step="0.01" value="133.80"></div>
+      </div>
+
+      <div class="ps-field"><label class="ps-label">ATR (14)</label><input class="ps-input" id="psATR" type="number" step="0.01" value="4.18"></div>
+
+      <div style="border-top:1px solid var(--border);margin:18px 0;padding-top:14px;">
+        <div class="section-label" style="margin-bottom:12px;">Strategy Performance (for Kelly)</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+          <div class="ps-field"><label class="ps-label">Win Rate %</label><input class="ps-input" id="psWR" type="number" step="0.1" value="68.4"></div>
+          <div class="ps-field"><label class="ps-label">Avg R Multiple</label><input class="ps-input" id="psAvgR" type="number" step="0.01" value="1.87"></div>
+        </div>
+      </div>
+
+      <div style="border-top:1px solid var(--border);margin:18px 0;padding-top:14px;">
+        <div class="section-label" style="margin-bottom:12px;">Vol Targeting</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+          <div class="ps-field"><label class="ps-label">Target Vol (% ann.)</label><input class="ps-input" id="psTargetVol" type="number" step="0.1" value="12"></div>
+          <div class="ps-field"><label class="ps-label">Asset Vol (% ann.)</label><input class="ps-input" id="psAssetVol" type="number" step="0.1" value="42"></div>
+        </div>
+      </div>
+
+      <div style="border-top:1px solid var(--border);margin:18px 0;padding-top:14px;">
+        <div class="section-label" style="margin-bottom:12px;">Options Sizing</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+          <div class="ps-field"><label class="ps-label">Option Premium</label><input class="ps-input" id="psPrem" type="number" step="0.01" value="3.85"></div>
+          <div class="ps-field"><label class="ps-label">Option Delta</label><input class="ps-input" id="psDelta" type="number" step="0.01" value="0.38"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Results -->
+    <div class="col-8">
+      <div class="grid grid-2" style="margin-bottom:18px;">
+        <div class="result-card">
+          <div class="result-name">Fixed Fractional (recommended baseline)</div>
+          <div class="result-val green-text" id="rffShares">112 shares</div>
+          <div style="font-size:13px;color:var(--text-secondary);line-height:1.6;">Risk $<span id="rffRisk">500</span> / stop $<span id="rffStop">4.47</span> = 112 shares. Most-used institutional default. Doesn't break you on long losing streaks.</div>
+        </div>
+        <div class="result-card" style="border-color:var(--purple);">
+          <div class="result-name">Kelly Optimal (¼-Kelly applied)</div>
+          <div class="result-val purple-text" id="rkellyShares">298 shares</div>
+          <div style="font-size:13px;color:var(--text-secondary);line-height:1.6;">Full Kelly: <span class="mono" id="rkellyFull">51%</span> of account — too aggressive. ¼ Kelly (12.8%) more realistic for parameter uncertainty.</div>
+        </div>
+        <div class="result-card" style="border-color:var(--yellow);">
+          <div class="result-name">ATR-based (volatility-adjusted stop)</div>
+          <div class="result-val yellow-text" id="ratrShares">60 shares</div>
+          <div style="font-size:13px;color:var(--text-secondary);line-height:1.6;">Stop at <span id="ratrStop">$129.91</span> (2 × ATR below entry). Adjusts size for volatility — high-vol names get smaller positions.</div>
+        </div>
+        <div class="result-card" style="border-color:var(--green);">
+          <div class="result-name">Vol-Targeted (constant portfolio vol)</div>
+          <div class="result-val green-text" id="rvolShares">103 shares</div>
+          <div style="font-size:13px;color:var(--text-secondary);line-height:1.6;">Notional $<span id="rvolNotional">14,286</span>. Caps each position so its contribution to portfolio vol matches target. Best for multi-asset books.</div>
+        </div>
+      </div>
+
+      <!-- Options sizing -->
+      <div class="card mb-16" style="margin-bottom:18px;">
+        <div class="card-header"><div class="card-title">🎯 Options Position Sizing</div></div>
+        <div class="grid grid-3">
+          <div style="background:var(--bg-elevated);padding:14px;border-radius:8px;">
+            <div class="result-name">Long-Call Contracts (delta-equivalent)</div>
+            <div class="result-val accent-text" id="rOpt1" style="color:var(--accent);font-size:24px;">3</div>
+            <div style="font-size:12px;color:var(--text-muted);line-height:1.5;">Match 100×Δ exposure of the fixed-fractional share count. Buying 1 contract = 38 share-equivalents.</div>
+          </div>
+          <div style="background:var(--bg-elevated);padding:14px;border-radius:8px;">
+            <div class="result-name">Max Loss-Based Contracts</div>
+            <div class="result-val" id="rOpt2" style="font-size:24px;">1</div>
+            <div style="font-size:12px;color:var(--text-muted);line-height:1.5;">Cap contracts so total premium doesn't exceed your trade risk. <span id="rOpt2Note">$385/contract vs $500 risk</span>.</div>
+          </div>
+          <div style="background:var(--bg-elevated);padding:14px;border-radius:8px;">
+            <div class="result-name">Capital Required (cash)</div>
+            <div class="result-val" id="rOpt3" style="font-size:24px;">$1,155</div>
+            <div style="font-size:12px;color:var(--text-muted);line-height:1.5;">If you use the larger of the two above. 2.3% of account.</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Drawdown sim -->
+      <div class="card">
+        <div class="card-header"><div class="card-title">📉 Drawdown Simulation by Sizing Method</div></div>
+        <div class="chart-container"><canvas id="ddChart"></canvas></div>
+        <div style="font-size:12px;color:var(--text-muted);margin-top:14px;line-height:1.7;">
+          Monte Carlo simulation: 500 trades with your WR/avg-R, varying position sizing. Max drawdown shown for each method. Full Kelly's drawdowns are emotionally untradable — most pros use ¼ or ⅛ Kelly for this reason.
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script>
+buildNav('position-sizing');
+let DD_CHART = null;
+
+function refresh() {
+  const acct = +document.getElementById('psAcct').value;
+  const riskPct = +document.getElementById('psRisk').value / 100;
+  const entry = +document.getElementById('psEntry').value;
+  const stop = +document.getElementById('psStop').value;
+  const atr = +document.getElementById('psATR').value;
+  const wr = +document.getElementById('psWR').value / 100;
+  const avgR = +document.getElementById('psAvgR').value;
+  const tVol = +document.getElementById('psTargetVol').value / 100;
+  const aVol = +document.getElementById('psAssetVol').value / 100;
+  const prem = +document.getElementById('psPrem').value;
+  const delta = +document.getElementById('psDelta').value;
+
+  const riskDollar = acct * riskPct;
+  const stopDist = Math.abs(entry - stop);
+
+  // 1. Fixed-fractional
+  const ffShares = Math.floor(riskDollar / stopDist);
+  document.getElementById('rffShares').textContent = ffShares.toLocaleString() + ' shares';
+  document.getElementById('rffRisk').textContent = riskDollar.toFixed(0);
+  document.getElementById('rffStop').textContent = stopDist.toFixed(2);
+
+  // 2. Kelly: f* = WR - (1-WR)/avgR; ¼ Kelly applied
+  const fullKelly = wr - (1-wr)/avgR;
+  const quarterKelly = fullKelly / 4;
+  const kellyShares = Math.floor(acct * Math.max(0, quarterKelly) / entry);
+  document.getElementById('rkellyShares').textContent = kellyShares.toLocaleString() + ' shares';
+  document.getElementById('rkellyFull').textContent = (fullKelly * 100).toFixed(1) + '%';
+
+  // 3. ATR-based: stop = 2*ATR below entry
+  const atrStop = entry - 2*atr;
+  const atrShares = Math.floor(riskDollar / (2*atr));
+  document.getElementById('ratrShares').textContent = atrShares.toLocaleString() + ' shares';
+  document.getElementById('ratrStop').textContent = '$' + atrStop.toFixed(2);
+
+  // 4. Vol-target: notional = account * tVol/aVol
+  const volNotional = acct * (tVol / aVol);
+  const volShares = Math.floor(volNotional / entry);
+  document.getElementById('rvolShares').textContent = volShares.toLocaleString() + ' shares';
+  document.getElementById('rvolNotional').textContent = volNotional.toLocaleString(undefined, { maximumFractionDigits: 0 });
+
+  // Options
+  const optDeltaEquiv = Math.max(1, Math.round(ffShares / (100 * delta)));
+  const optMaxLoss = Math.max(1, Math.floor(riskDollar / (prem * 100)));
+  document.getElementById('rOpt1').textContent = optDeltaEquiv + ' contracts';
+  document.getElementById('rOpt2').textContent = optMaxLoss + ' contracts';
+  document.getElementById('rOpt2Note').textContent = '$' + (prem*100).toFixed(0) + '/contract vs $' + riskDollar.toFixed(0) + ' risk';
+  const optContracts = Math.min(optDeltaEquiv, optMaxLoss);
+  const optCap = optContracts * prem * 100;
+  document.getElementById('rOpt3').textContent = '$' + optCap.toLocaleString(undefined, { maximumFractionDigits: 0 });
+
+  // DD sim
+  renderDD(wr, avgR, riskPct);
+}
+
+function simulate(wr, avgR, riskPerTrade, scale, n) {
+  let eq = 1, peak = 1, maxDD = 0;
+  for (let i = 0; i < n; i++) {
+    const win = Math.random() < wr;
+    const r = win ? (1 + Math.random()*0.6) * avgR : -1;
+    eq *= (1 + r * riskPerTrade * scale);
+    peak = Math.max(peak, eq);
+    maxDD = Math.max(maxDD, 1 - eq/peak);
+  }
+  return { eq, maxDD };
+}
+
+function renderDD(wr, avgR, riskPct) {
+  // Run 30 simulations for each method
+  const labels = ['Fixed (1%)','Kelly Full','Kelly ¼','Vol-Target','Aggressive 5%'];
+  const scales = [1, (wr - (1-wr)/avgR) / riskPct, ((wr - (1-wr)/avgR)/4) / riskPct, 1.2, 5];
+  const results = scales.map(scale => {
+    let totalDD = 0;
+    for (let i = 0; i < 30; i++) totalDD += simulate(wr, avgR, riskPct, scale, 500).maxDD;
+    return -(totalDD / 30 * 100);
+  });
+  if (DD_CHART) DD_CHART.destroy();
+  DD_CHART = new Chart(document.getElementById('ddChart'), {
+    type:'bar',
+    data: { labels, datasets:[{ data: results.map(v => +v.toFixed(1)), backgroundColor: results.map(v => v < -50 ? '#ef4444' : v < -20 ? '#f59e0b' : '#10b981'), borderRadius:4 }]},
+    options: { ...baseOptions(), plugins:{ ...baseOptions().plugins, legend:{display:false}}, scales: { ...baseOptions().scales, y:{ ...baseOptions().scales.y, ticks:{ ...baseOptions().scales.y.ticks, callback:v=>v.toFixed(0)+'%' }}}}
+  });
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  refresh();
+  document.querySelectorAll('.ps-input').forEach(i => i.addEventListener('input', refresh));
+});
+</script>
+</body>
+</html>

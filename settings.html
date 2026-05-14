@@ -1,0 +1,549 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Settings — bpleone / trade</title>
+<meta name="description" content="Configure your real-time market data provider and AI assistant API key for the bpleone trading desk.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.settings-grid { display:grid; grid-template-columns: 280px 1fr; gap:24px; }
+.settings-nav { display:flex; flex-direction:column; gap:4px; }
+.settings-nav button { text-align:left; padding:12px 16px; background:transparent; border:1px solid transparent; color:var(--text-secondary); border-radius:8px; cursor:pointer; font-size:14px; font-weight:500; transition:all 0.15s; }
+.settings-nav button:hover { background:var(--bg-elevated); color:var(--text-primary); }
+.settings-nav button.active { background:var(--bg-elevated); color:var(--accent); border-color:var(--accent); }
+.settings-panel { display:none; }
+.settings-panel.active { display:block; }
+.form-row { display:flex; flex-direction:column; gap:8px; margin-bottom:18px; }
+.form-row label { font-size:13px; font-weight:600; color:var(--text-secondary); text-transform:uppercase; letter-spacing:0.5px; }
+.form-row input, .form-row select, .form-row textarea {
+  background:var(--bg-elevated); border:1px solid var(--border); color:var(--text-primary);
+  padding:10px 14px; border-radius:8px; font-family:inherit; font-size:14px;
+}
+.form-row input:focus, .form-row select:focus, .form-row textarea:focus { outline:none; border-color:var(--accent); }
+.form-row .hint { font-size:12px; color:var(--text-muted); line-height:1.6; }
+.form-row .hint a { color:var(--accent); }
+.kv-row { display:flex; justify-content:space-between; padding:10px 0; border-bottom:1px solid var(--border); font-size:13px; }
+.kv-row:last-child { border-bottom:none; }
+.kv-row .k { color:var(--text-muted); }
+.kv-row .v { color:var(--text-primary); font-family:var(--font-mono); }
+.status-pill { display:inline-flex; align-items:center; gap:6px; padding:4px 10px; border-radius:999px; font-size:12px; font-weight:600; }
+.status-pill.connected { background:var(--green-bg); color:var(--green); border:1px solid rgba(16,185,129,0.3); }
+.status-pill.disconnected { background:rgba(100,116,139,0.15); color:var(--text-muted); border:1px solid var(--border); }
+.status-pill.error { background:var(--red-bg); color:var(--red); border:1px solid rgba(239,68,68,0.3); }
+.status-pill.connecting, .status-pill.reconnecting { background:rgba(245,158,11,0.12); color:var(--yellow); border:1px solid rgba(245,158,11,0.3); }
+.status-pill.mock { background:rgba(124,58,237,0.12); color:var(--purple); border:1px solid rgba(124,58,237,0.3); }
+.dot { width:7px; height:7px; border-radius:50%; background:currentColor; }
+.provider-card { padding:14px; background:var(--bg-elevated); border:1px solid var(--border); border-radius:10px; cursor:pointer; transition:all 0.15s; }
+.provider-card:hover { border-color:var(--accent); }
+.provider-card.selected { border-color:var(--accent); background:rgba(0,212,255,0.06); }
+.provider-card .name { font-weight:700; font-size:15px; }
+.provider-card .tier { font-size:11px; padding:2px 8px; border-radius:999px; margin-left:8px; }
+.tier-free { background:var(--green-bg); color:var(--green); }
+.tier-paid { background:rgba(245,158,11,0.12); color:var(--yellow); }
+.tier-premium { background:var(--red-bg); color:var(--red); }
+.toggle { position:relative; width:44px; height:24px; background:var(--bg-tertiary); border-radius:999px; cursor:pointer; transition:background 0.2s; }
+.toggle.on { background:var(--accent); }
+.toggle-thumb { position:absolute; top:2px; left:2px; width:20px; height:20px; border-radius:50%; background:white; transition:transform 0.2s; }
+.toggle.on .toggle-thumb { transform:translateX(20px); }
+.danger-zone { border:1px solid rgba(239,68,68,0.3); border-radius:10px; padding:18px; background:rgba(239,68,68,0.04); margin-top:24px; }
+.danger-zone .card-title { color:var(--red); }
+@media (max-width: 900px) {
+  .settings-grid { grid-template-columns: 1fr; }
+  .settings-nav { flex-direction:row; flex-wrap:wrap; }
+}
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">Settings</div>
+      <div class="page-subtitle">Configure data providers, AI assistant, and desk preferences · <span id="market-clock">--</span></div>
+    </div>
+    <div class="flex gap-8">
+      <span id="dataStatusTop" class="status-pill mock"><span class="dot"></span> MOCK</span>
+      <span id="aiStatusTop" class="status-pill disconnected"><span class="dot"></span> AI OFF</span>
+    </div>
+  </div>
+
+  <div class="settings-grid">
+    <div class="settings-nav" role="tablist">
+      <button class="active" data-panel="data">📡 Market Data</button>
+      <button data-panel="ai">🤖 AI Assistant</button>
+      <button data-panel="prefs">⚙ Preferences</button>
+      <button data-panel="diag">🔍 Diagnostics</button>
+      <button data-panel="export">💾 Export / Reset</button>
+    </div>
+
+    <div>
+
+      <!-- DATA PANEL -->
+      <div class="settings-panel active" data-panel="data">
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title">Market Data Provider</div>
+            <span id="dataStatus" class="status-pill mock"><span class="dot"></span> MOCK</span>
+          </div>
+          <p style="color:var(--text-muted); font-size:13px; margin-bottom:20px;">
+            By default this desk runs on a built-in mock tick engine (synthetic OU random walks). Swap it for a real-time WebSocket feed by choosing a provider below and pasting your API credentials. Quotes will flow into every <code style="background:var(--bg-elevated);padding:2px 6px;border-radius:4px;">data-live</code> binding across the site automatically.
+          </p>
+
+          <div class="form-row">
+            <label>Provider</label>
+            <div class="grid grid-2" style="gap:10px;">
+              <div class="provider-card" data-provider="mock">
+                <div><span class="name">Mock Engine</span><span class="tier tier-free">BUILT-IN</span></div>
+                <div style="color:var(--text-muted); font-size:12px; margin-top:6px;">OU random walk on 28 symbols. No key needed. Best for design preview / demos.</div>
+              </div>
+              <div class="provider-card" data-provider="finnhub">
+                <div><span class="name">Finnhub</span><span class="tier tier-free">FREE TIER</span></div>
+                <div style="color:var(--text-muted); font-size:12px; margin-top:6px;">Real-time US equity trades over WebSocket. 60 calls/min REST. <a href="https://finnhub.io/register" target="_blank" rel="noopener">Get key →</a></div>
+              </div>
+              <div class="provider-card" data-provider="polygon">
+                <div><span class="name">Polygon.io</span><span class="tier tier-paid">PAID</span></div>
+                <div style="color:var(--text-muted); font-size:12px; margin-top:6px;">Institutional grade. Trades + quotes + aggregates. From $29/mo. <a href="https://polygon.io/dashboard" target="_blank" rel="noopener">Get key →</a></div>
+              </div>
+              <div class="provider-card" data-provider="alpaca">
+                <div><span class="name">Alpaca Markets</span><span class="tier tier-free">FREE TIER</span></div>
+                <div style="color:var(--text-muted); font-size:12px; margin-top:6px;">IEX feed via WS, plus paper trading. Free for personal use. <a href="https://alpaca.markets/" target="_blank" rel="noopener">Get key →</a></div>
+              </div>
+              <div class="provider-card" data-provider="tradier">
+                <div><span class="name">Tradier</span><span class="tier tier-paid">BROKER</span></div>
+                <div style="color:var(--text-muted); font-size:12px; margin-top:6px;">Real-time + execution. Best if you want to trade through the same desk. <a href="https://developer.tradier.com/" target="_blank" rel="noopener">Get token →</a></div>
+              </div>
+            </div>
+          </div>
+
+          <div class="form-row">
+            <label for="dataApiKey">API Key / Access Token</label>
+            <input type="password" id="dataApiKey" placeholder="paste key here…" autocomplete="off">
+            <div class="hint">Stored in browser localStorage (never sent to our servers). Treat this like a password — anyone with browser access can read it. For multi-user deployment, proxy the API through your own backend.</div>
+          </div>
+
+          <div class="form-row" id="dataSecretRow" style="display:none;">
+            <label for="dataApiSecret">API Secret (Alpaca only)</label>
+            <input type="password" id="dataApiSecret" placeholder="paste secret here…" autocomplete="off">
+          </div>
+
+          <div class="form-row">
+            <label>Enable Live Feed</label>
+            <div style="display:flex; align-items:center; gap:12px;">
+              <div class="toggle" id="enabledToggle"><div class="toggle-thumb"></div></div>
+              <span id="enabledLabel" style="font-size:13px; color:var(--text-muted);">Disabled — using mock data</span>
+            </div>
+          </div>
+
+          <div class="flex gap-8">
+            <button class="btn btn-primary" id="saveDataBtn">Save & Connect</button>
+            <button class="btn btn-secondary" id="reconnectBtn">Reconnect</button>
+            <button class="btn btn-ghost" id="disconnectBtn">Disconnect</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- AI PANEL -->
+      <div class="settings-panel" data-panel="ai">
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title">AI Assistant — Claude API</div>
+            <span id="aiStatus" class="status-pill disconnected"><span class="dot"></span> NOT CONFIGURED</span>
+          </div>
+          <p style="color:var(--text-muted); font-size:13px; margin-bottom:20px;">
+            Wire up your Anthropic API key to let the <a href="assistant.html" style="color:var(--accent);">Assistant page</a> use Claude as the trading desk brain instead of canned heuristic responses. The system prompt embeds the current market snapshot + desk methodology automatically.
+          </p>
+
+          <div class="form-row">
+            <label for="aiApiKey">Anthropic API Key</label>
+            <input type="password" id="aiApiKey" placeholder="sk-ant-…" autocomplete="off">
+            <div class="hint">Get a key at <a href="https://console.anthropic.com/" target="_blank" rel="noopener">console.anthropic.com</a>. The browser sends requests with the <code style="background:var(--bg-elevated);padding:2px 6px;border-radius:4px;">anthropic-dangerous-direct-browser-access</code> header — this is a single-user pattern, not safe for public deployment.</div>
+          </div>
+
+          <div class="form-row">
+            <label for="aiModel">Model</label>
+            <select id="aiModel">
+              <option value="claude-opus-4-7">Claude Opus 4.7 — deepest reasoning</option>
+              <option value="claude-sonnet-4-6">Claude Sonnet 4.6 — fast & balanced</option>
+              <option value="claude-haiku-4-5-20251001">Claude Haiku 4.5 — quick & cheap</option>
+            </select>
+            <div class="hint">Opus 4.7 is the strongest for nuanced trade reasoning. Haiku is the cheapest and is plenty for quick Q&amp;A.</div>
+          </div>
+
+          <div class="form-row">
+            <label for="aiMaxTokens">Max Tokens per Response</label>
+            <input type="number" id="aiMaxTokens" min="128" max="8192" value="1024">
+            <div class="hint">Cap on response length. 1024 ≈ 750 words. Bump to 4096 if you want long-form briefings.</div>
+          </div>
+
+          <div class="form-row">
+            <label>Enable Claude</label>
+            <div style="display:flex; align-items:center; gap:12px;">
+              <div class="toggle" id="aiEnabledToggle"><div class="toggle-thumb"></div></div>
+              <span id="aiEnabledLabel" style="font-size:13px; color:var(--text-muted);">Disabled — assistant uses canned responses</span>
+            </div>
+          </div>
+
+          <div class="flex gap-8">
+            <button class="btn btn-primary" id="saveAiBtn">Save</button>
+            <button class="btn btn-secondary" id="testAiBtn">Test Connection</button>
+          </div>
+          <div id="aiTestResult" style="margin-top:14px;"></div>
+        </div>
+      </div>
+
+      <!-- PREFS PANEL -->
+      <div class="settings-panel" data-panel="prefs">
+        <div class="card">
+          <div class="card-header"><div class="card-title">Desk Preferences</div></div>
+          <div class="form-row">
+            <label for="prefAccount">Account Size (for sizing math)</label>
+            <input type="number" id="prefAccount" placeholder="50000">
+            <div class="hint">Used by Position Sizing, Risk Dashboard, Trade Journal. Stored locally.</div>
+          </div>
+          <div class="form-row">
+            <label for="prefRiskPct">Default Risk per Trade (%)</label>
+            <input type="number" id="prefRiskPct" step="0.1" placeholder="1.0">
+          </div>
+          <div class="form-row">
+            <label for="prefBaseSymbol">Anchor Symbol</label>
+            <select id="prefBaseSymbol">
+              <option value="SPY">SPY</option><option value="QQQ">QQQ</option>
+              <option value="IWM">IWM</option><option value="DIA">DIA</option>
+              <option value="VIX">VIX</option>
+            </select>
+            <div class="hint">Used as the market anchor across dashboard, internals, and trade context.</div>
+          </div>
+          <div class="form-row">
+            <label>Sound on Signal Alerts</label>
+            <div style="display:flex; align-items:center; gap:12px;">
+              <div class="toggle" id="soundToggle"><div class="toggle-thumb"></div></div>
+              <span id="soundLabel" style="font-size:13px; color:var(--text-muted);">Off</span>
+            </div>
+          </div>
+          <button class="btn btn-primary" id="savePrefsBtn">Save Preferences</button>
+        </div>
+      </div>
+
+      <!-- DIAGNOSTICS PANEL -->
+      <div class="settings-panel" data-panel="diag">
+        <div class="card">
+          <div class="card-header"><div class="card-title">Live Connection</div></div>
+          <div id="diagStats"></div>
+          <div style="margin-top:16px;">
+            <button class="btn btn-secondary" id="refreshDiagBtn">Refresh Stats</button>
+          </div>
+        </div>
+
+        <div class="card" style="margin-top:16px;">
+          <div class="card-header"><div class="card-title">Recent Quotes</div></div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Symbol</th><th>Last</th><th>Δ</th><th>Δ%</th><th>Bid</th><th>Ask</th><th>Volume</th></tr></thead>
+              <tbody id="diagQuotes"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- EXPORT PANEL -->
+      <div class="settings-panel" data-panel="export">
+        <div class="card">
+          <div class="card-header"><div class="card-title">Backup &amp; Restore</div></div>
+          <p style="color:var(--text-muted); font-size:13px; margin-bottom:16px;">
+            Your trade journal, edge analytics, watchlists, alerts, and settings all live in browser <code style="background:var(--bg-elevated);padding:2px 6px;border-radius:4px;">localStorage</code>. Export a JSON snapshot here, then re-import on another browser or after a clear.
+          </p>
+          <div class="flex gap-8">
+            <button class="btn btn-primary" id="exportBtn">Download Backup</button>
+            <label class="btn btn-secondary" style="cursor:pointer;">
+              Import Backup
+              <input type="file" id="importInput" accept=".json,application/json" style="display:none;">
+            </label>
+          </div>
+        </div>
+
+        <div class="card danger-zone" style="margin-top:16px;">
+          <div class="card-header"><div class="card-title">Danger Zone</div></div>
+          <p style="color:var(--text-muted); font-size:13px; margin-bottom:16px;">
+            Permanent. Cannot be undone without a backup.
+          </p>
+          <div class="flex gap-8" style="flex-wrap:wrap;">
+            <button class="btn btn-secondary" id="resetLearnBtn">Reset Edge Analytics</button>
+            <button class="btn btn-secondary" id="resetJournalBtn">Reset Journal</button>
+            <button class="btn btn-secondary" id="resetWatchlistsBtn">Reset Watchlists</button>
+            <button class="btn btn-secondary" id="resetAlertsBtn">Reset Alerts</button>
+            <button class="btn btn-secondary" id="resetSettingsBtn" style="border-color:rgba(239,68,68,0.4); color:var(--red);">Reset ALL Settings</button>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script>
+buildNav('settings');
+
+// ---------------- Panel tabs ----------------
+document.querySelectorAll('.settings-nav button').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const p = btn.dataset.panel;
+    document.querySelectorAll('.settings-nav button').forEach(b => b.classList.toggle('active', b === btn));
+    document.querySelectorAll('.settings-panel').forEach(panel => panel.classList.toggle('active', panel.dataset.panel === p));
+    if (p === 'diag') refreshDiag();
+  });
+});
+
+// ---------------- DATA PANEL ----------------
+const dataApiKey = document.getElementById('dataApiKey');
+const dataApiSecret = document.getElementById('dataApiSecret');
+const dataSecretRow = document.getElementById('dataSecretRow');
+const enabledToggle = document.getElementById('enabledToggle');
+const enabledLabel = document.getElementById('enabledLabel');
+const dataStatus = document.getElementById('dataStatus');
+const dataStatusTop = document.getElementById('dataStatusTop');
+const providerCards = document.querySelectorAll('.provider-card');
+
+let dataCfg = DataProvider.getConfig();
+let selectedProvider = dataCfg.provider || 'mock';
+
+function selectProvider(p) {
+  selectedProvider = p;
+  providerCards.forEach(card => card.classList.toggle('selected', card.dataset.provider === p));
+  dataSecretRow.style.display = (p === 'alpaca') ? 'flex' : 'none';
+}
+providerCards.forEach(card => card.addEventListener('click', () => selectProvider(card.dataset.provider)));
+selectProvider(selectedProvider);
+
+dataApiKey.value = dataCfg.apiKey || '';
+dataApiSecret.value = dataCfg.apiSecret || '';
+
+function setToggle(t, on) {
+  t.classList.toggle('on', !!on);
+  t.dataset.on = on ? '1' : '0';
+}
+setToggle(enabledToggle, dataCfg.enabled);
+enabledLabel.textContent = dataCfg.enabled ? 'Live feed active' : 'Disabled — using mock data';
+
+enabledToggle.addEventListener('click', () => {
+  const on = enabledToggle.dataset.on !== '1';
+  setToggle(enabledToggle, on);
+  enabledLabel.textContent = on ? 'Live feed active' : 'Disabled — using mock data';
+});
+
+document.getElementById('saveDataBtn').addEventListener('click', () => {
+  DataProvider.saveConfig({
+    provider: selectedProvider,
+    apiKey: dataApiKey.value.trim(),
+    apiSecret: dataApiSecret.value.trim(),
+    enabled: enabledToggle.dataset.on === '1'
+  });
+  if (enabledToggle.dataset.on === '1' && selectedProvider !== 'mock') {
+    DataProvider.reconnect();
+  } else {
+    DataProvider.disconnect();
+  }
+});
+
+document.getElementById('reconnectBtn').addEventListener('click', () => DataProvider.reconnect());
+document.getElementById('disconnectBtn').addEventListener('click', () => DataProvider.disconnect());
+
+function renderDataStatus(s) {
+  let cls = 'mock', label = 'MOCK';
+  if (s.status === 'connected') { cls = 'connected'; label = 'LIVE · ' + s.provider.toUpperCase(); }
+  else if (s.status === 'connecting') { cls = 'connecting'; label = 'CONNECTING…'; }
+  else if (s.status === 'reconnecting') { cls = 'reconnecting'; label = 'RECONNECTING…'; }
+  else if (s.status === 'error') { cls = 'error'; label = 'ERROR'; }
+  else if (s.status === 'disconnected') { cls = 'disconnected'; label = 'OFFLINE'; }
+  [dataStatus, dataStatusTop].forEach(el => {
+    if (!el) return;
+    el.className = 'status-pill ' + cls;
+    el.innerHTML = '<span class="dot"></span> ' + label;
+  });
+}
+DataProvider.onStatus(renderDataStatus);
+
+// ---------------- AI PANEL ----------------
+const aiApiKey = document.getElementById('aiApiKey');
+const aiModel = document.getElementById('aiModel');
+const aiMaxTokens = document.getElementById('aiMaxTokens');
+const aiEnabledToggle = document.getElementById('aiEnabledToggle');
+const aiEnabledLabel = document.getElementById('aiEnabledLabel');
+const aiStatus = document.getElementById('aiStatus');
+const aiStatusTop = document.getElementById('aiStatusTop');
+const aiTestResult = document.getElementById('aiTestResult');
+
+const aiCfg = AIClient.getConfig();
+aiApiKey.value = aiCfg.apiKey || '';
+aiModel.value = aiCfg.model || 'claude-opus-4-7';
+aiMaxTokens.value = aiCfg.maxTokens || 1024;
+setToggle(aiEnabledToggle, aiCfg.enabled);
+aiEnabledLabel.textContent = aiCfg.enabled ? 'Claude is the assistant brain' : 'Disabled — assistant uses canned responses';
+
+aiEnabledToggle.addEventListener('click', () => {
+  const on = aiEnabledToggle.dataset.on !== '1';
+  setToggle(aiEnabledToggle, on);
+  aiEnabledLabel.textContent = on ? 'Claude is the assistant brain' : 'Disabled — assistant uses canned responses';
+});
+
+document.getElementById('saveAiBtn').addEventListener('click', () => {
+  AIClient.saveConfig({
+    apiKey: aiApiKey.value.trim(),
+    model: aiModel.value,
+    maxTokens: parseInt(aiMaxTokens.value, 10) || 1024,
+    enabled: aiEnabledToggle.dataset.on === '1'
+  });
+});
+
+document.getElementById('testAiBtn').addEventListener('click', async () => {
+  // Save first so the test uses the latest values
+  AIClient.saveConfig({
+    apiKey: aiApiKey.value.trim(),
+    model: aiModel.value,
+    maxTokens: parseInt(aiMaxTokens.value, 10) || 1024,
+    enabled: true
+  });
+  aiTestResult.innerHTML = '<div style="color:var(--text-muted);">Testing…</div>';
+  const r = await AIClient.testConnection();
+  if (r.ok) {
+    aiTestResult.innerHTML = '<div class="status-pill connected"><span class="dot"></span> Connected · sample reply: "' + (r.sample || '') + '"</div>';
+  } else {
+    aiTestResult.innerHTML = '<div class="status-pill error"><span class="dot"></span> ' + (r.error || 'Failed') + '</div>';
+  }
+});
+
+function renderAiStatus(s) {
+  const ok = s.enabled;
+  const el = aiStatus;
+  const top = aiStatusTop;
+  [el, top].forEach(x => {
+    if (!x) return;
+    x.className = 'status-pill ' + (ok ? 'connected' : 'disconnected');
+    x.innerHTML = '<span class="dot"></span> ' + (ok ? 'CLAUDE · ' + (s.model || '').replace('claude-','').toUpperCase() : 'AI OFF');
+  });
+}
+AIClient.onStatus(renderAiStatus);
+
+// ---------------- PREFS ----------------
+const PREFS_KEY = 'bpleone_prefs_v1';
+function loadPrefs() { try { return JSON.parse(localStorage.getItem(PREFS_KEY) || '{}'); } catch (e) { return {}; } }
+function savePrefs(p) { try { localStorage.setItem(PREFS_KEY, JSON.stringify(p)); } catch (e) {} }
+const prefs = loadPrefs();
+document.getElementById('prefAccount').value = prefs.account || '';
+document.getElementById('prefRiskPct').value = prefs.riskPct || '';
+if (prefs.baseSymbol) document.getElementById('prefBaseSymbol').value = prefs.baseSymbol;
+const soundToggle = document.getElementById('soundToggle');
+const soundLabel = document.getElementById('soundLabel');
+setToggle(soundToggle, !!prefs.sound);
+soundLabel.textContent = prefs.sound ? 'On' : 'Off';
+soundToggle.addEventListener('click', () => {
+  const on = soundToggle.dataset.on !== '1';
+  setToggle(soundToggle, on);
+  soundLabel.textContent = on ? 'On' : 'Off';
+});
+document.getElementById('savePrefsBtn').addEventListener('click', () => {
+  savePrefs({
+    account: +document.getElementById('prefAccount').value || null,
+    riskPct: +document.getElementById('prefRiskPct').value || null,
+    baseSymbol: document.getElementById('prefBaseSymbol').value,
+    sound: soundToggle.dataset.on === '1'
+  });
+});
+
+// ---------------- DIAGNOSTICS ----------------
+function refreshDiag() {
+  const s = DataProvider.getStatus();
+  const diagStats = document.getElementById('diagStats');
+  const since = s.lastMessageAt ? Math.round((Date.now() - s.lastMessageAt) / 1000) + 's ago' : '—';
+  diagStats.innerHTML = ''
+    + '<div class="kv-row"><span class="k">Status</span><span class="v">' + s.status + '</span></div>'
+    + '<div class="kv-row"><span class="k">Provider</span><span class="v">' + s.provider + '</span></div>'
+    + '<div class="kv-row"><span class="k">Enabled</span><span class="v">' + (s.enabled ? 'yes' : 'no') + '</span></div>'
+    + '<div class="kv-row"><span class="k">Messages received</span><span class="v">' + s.messagesReceived + '</span></div>'
+    + '<div class="kv-row"><span class="k">Bytes received</span><span class="v">' + s.bytesReceived.toLocaleString() + '</span></div>'
+    + '<div class="kv-row"><span class="k">Last message</span><span class="v">' + since + '</span></div>'
+    + '<div class="kv-row"><span class="k">Reconnect attempts</span><span class="v">' + s.reconnectAttempts + '</span></div>'
+    + '<div class="kv-row"><span class="k">Last error</span><span class="v">' + (s.lastError || '—') + '</span></div>';
+
+  const tbody = document.getElementById('diagQuotes');
+  tbody.innerHTML = '';
+  if (typeof QUOTES !== 'undefined') {
+    Object.values(QUOTES).slice(0, 16).forEach(q => {
+      const tr = document.createElement('tr');
+      const cls = q.changePct >= 0 ? 'green-text' : 'red-text';
+      tr.innerHTML = '<td class="mono">' + q.symbol + '</td>'
+        + '<td class="mono">$' + (q.last||0).toFixed(2) + '</td>'
+        + '<td class="mono ' + cls + '">' + ((q.change||0) >= 0 ? '+' : '') + (q.change||0).toFixed(2) + '</td>'
+        + '<td class="mono ' + cls + '">' + ((q.changePct||0) >= 0 ? '+' : '') + (q.changePct||0).toFixed(2) + '%</td>'
+        + '<td class="mono">' + (q.bid||0).toFixed(2) + '</td>'
+        + '<td class="mono">' + (q.ask||0).toFixed(2) + '</td>'
+        + '<td class="mono">' + ((q.volume||0)/1_000_000).toFixed(1) + 'M</td>';
+      tbody.appendChild(tr);
+    });
+  }
+}
+document.getElementById('refreshDiagBtn').addEventListener('click', refreshDiag);
+setInterval(() => {
+  if (document.querySelector('.settings-panel.active').dataset.panel === 'diag') refreshDiag();
+}, 2000);
+
+// ---------------- EXPORT / RESET ----------------
+const BACKUP_KEYS = [
+  'bpleone_data_v1','bpleone_ai_v1','bpleone_prefs_v1',
+  'bpleone_learn_v1','bpleone_journal','bpleone_watchlists',
+  'bpleone_alerts','bpleone_notify_prefs','bpleone_subscriber'
+];
+document.getElementById('exportBtn').addEventListener('click', () => {
+  const blob = {};
+  BACKUP_KEYS.forEach(k => { try { blob[k] = JSON.parse(localStorage.getItem(k) || 'null'); } catch (e) { blob[k] = localStorage.getItem(k); } });
+  const payload = { exportedAt: new Date().toISOString(), version: 'v1', data: blob };
+  const a = document.createElement('a');
+  const file = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+  a.href = URL.createObjectURL(file);
+  a.download = 'bpleone-backup-' + new Date().toISOString().slice(0,10) + '.json';
+  a.click();
+});
+document.getElementById('importInput').addEventListener('change', e => {
+  const file = e.target.files && e.target.files[0];
+  if (!file) return;
+  const r = new FileReader();
+  r.onload = () => {
+    try {
+      const parsed = JSON.parse(r.result);
+      if (!parsed.data) throw new Error('Invalid backup');
+      Object.entries(parsed.data).forEach(([k, v]) => {
+        if (v === null || v === undefined) return;
+        localStorage.setItem(k, typeof v === 'string' ? v : JSON.stringify(v));
+      });
+      alert('Imported. Reload the page to apply.');
+    } catch (err) { alert('Import failed: ' + err.message); }
+  };
+  r.readAsText(file);
+});
+
+function wipe(k, label) {
+  if (!confirm('Reset ' + label + '? This cannot be undone.')) return;
+  if (Array.isArray(k)) k.forEach(x => localStorage.removeItem(x));
+  else localStorage.removeItem(k);
+  alert(label + ' reset. Reload the page.');
+}
+document.getElementById('resetLearnBtn').addEventListener('click', () => wipe('bpleone_learn_v1', 'Edge Analytics'));
+document.getElementById('resetJournalBtn').addEventListener('click', () => wipe('bpleone_journal', 'Journal'));
+document.getElementById('resetWatchlistsBtn').addEventListener('click', () => wipe('bpleone_watchlists', 'Watchlists'));
+document.getElementById('resetAlertsBtn').addEventListener('click', () => wipe('bpleone_alerts', 'Alerts'));
+document.getElementById('resetSettingsBtn').addEventListener('click', () => wipe(BACKUP_KEYS, 'ALL settings & journal'));
+</script>
+</body>
+</html>

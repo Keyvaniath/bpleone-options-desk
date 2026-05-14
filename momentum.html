@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Momentum Scanner — bpleone / trade</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<style>
+.mom-bar { height: 4px; background: var(--bg-elevated); border-radius: 2px; overflow: hidden; min-width: 80px; }
+.mom-bar > span { display: block; height: 100%; }
+.heat-cell { display: inline-block; padding: 6px 10px; border-radius: 4px; font-family: var(--font-mono); font-size: 12px; font-weight: 600; min-width: 60px; text-align: center; }
+</style>
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">Momentum Scanner</div>
+      <div class="page-subtitle">Multi-timeframe RS, breakout, & momentum ranking across the universe · <span id="market-clock">--</span></div>
+    </div>
+    <div class="flex gap-8">
+      <input type="text" class="search-input" placeholder="Filter ticker..." data-search-target="momTable">
+      <button class="btn btn-primary">⚙ Save Scan</button>
+    </div>
+  </div>
+
+  <!-- Lookback toolbar -->
+  <div class="card mb-16" style="margin-bottom:16px;">
+    <div class="toolbar">
+      <span style="color:var(--text-muted);font-size:12px;">Lookback:</span>
+      <div class="filter-group">
+        <button class="filter-btn">1D</button>
+        <button class="filter-btn">5D</button>
+        <button class="filter-btn active">1M</button>
+        <button class="filter-btn">3M</button>
+        <button class="filter-btn">6M</button>
+        <button class="filter-btn">1Y</button>
+        <button class="filter-btn">YTD</button>
+      </div>
+      <span style="color:var(--text-muted);font-size:12px;margin-left:16px;">Universe:</span>
+      <div class="filter-group">
+        <button class="filter-btn active">All</button>
+        <button class="filter-btn">S&P 500</button>
+        <button class="filter-btn">Nasdaq 100</button>
+        <button class="filter-btn">My Watchlist</button>
+      </div>
+      <div style="margin-left:auto;font-size:12px;color:var(--text-muted);">
+        <span class="signal-dot green"></span> Auto-refreshing every 60s
+      </div>
+    </div>
+  </div>
+
+  <!-- Top performers strip -->
+  <div class="grid grid-4" style="margin-bottom:24px;">
+    <div class="card">
+      <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.05em;">📈 Top RS (1M)</div>
+      <div style="margin-top:10px;font-family:var(--font-mono);font-size:13px;line-height:1.9;">
+        <div style="display:flex;justify-content:space-between;"><span>SMCI</span><span class="green-text">+38.4%</span></div>
+        <div style="display:flex;justify-content:space-between;"><span>PLTR</span><span class="green-text">+28.2%</span></div>
+        <div style="display:flex;justify-content:space-between;"><span>NVDA</span><span class="green-text">+24.6%</span></div>
+        <div style="display:flex;justify-content:space-between;"><span>COIN</span><span class="green-text">+22.4%</span></div>
+        <div style="display:flex;justify-content:space-between;"><span>AMD</span><span class="green-text">+18.2%</span></div>
+      </div>
+    </div>
+    <div class="card">
+      <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.05em;">📉 Bottom RS (1M)</div>
+      <div style="margin-top:10px;font-family:var(--font-mono);font-size:13px;line-height:1.9;">
+        <div style="display:flex;justify-content:space-between;"><span>RIVN</span><span class="red-text">-18.4%</span></div>
+        <div style="display:flex;justify-content:space-between;"><span>MARA</span><span class="red-text">-14.2%</span></div>
+        <div style="display:flex;justify-content:space-between;"><span>XLE</span><span class="red-text">-6.4%</span></div>
+        <div style="display:flex;justify-content:space-between;"><span>TSLA</span><span class="red-text">-5.8%</span></div>
+        <div style="display:flex;justify-content:space-between;"><span>UBER</span><span class="red-text">-3.2%</span></div>
+      </div>
+    </div>
+    <div class="card">
+      <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.05em;">⚡ Breakouts (Today)</div>
+      <div style="margin-top:10px;font-family:var(--font-mono);font-size:13px;line-height:1.9;">
+        <div style="display:flex;justify-content:space-between;"><span>NVDA</span><span class="green-text">50DMA reclaim</span></div>
+        <div style="display:flex;justify-content:space-between;"><span>META</span><span class="green-text">Flag break</span></div>
+        <div style="display:flex;justify-content:space-between;"><span>SMCI</span><span class="green-text">52w high</span></div>
+        <div style="display:flex;justify-content:space-between;"><span>PLTR</span><span class="green-text">Triangle</span></div>
+        <div style="display:flex;justify-content:space-between;"><span>BABA</span><span class="green-text">Channel</span></div>
+      </div>
+    </div>
+    <div class="card">
+      <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.05em;">🔻 Breakdowns (Today)</div>
+      <div style="margin-top:10px;font-family:var(--font-mono);font-size:13px;line-height:1.9;">
+        <div style="display:flex;justify-content:space-between;"><span>TSLA</span><span class="red-text">200DMA loss</span></div>
+        <div style="display:flex;justify-content:space-between;"><span>RIVN</span><span class="red-text">52w low</span></div>
+        <div style="display:flex;justify-content:space-between;"><span>MARA</span><span class="red-text">Death cross</span></div>
+        <div style="display:flex;justify-content:space-between;"><span>UBER</span><span class="red-text">$67 break</span></div>
+        <div style="display:flex;justify-content:space-between;"><span>XLE</span><span class="red-text">Bear flag</span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Main momentum table -->
+  <div class="card mb-16" style="margin-bottom:24px;" data-filter-target="momTable">
+    <div class="card-header">
+      <div class="card-title">🚀 Momentum Universe — Ranked</div>
+      <span class="card-badge">Updated 14s ago</span>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>#</th>
+            <th class="sortable">Symbol</th>
+            <th class="sortable" data-type="num">Last</th>
+            <th class="sortable" data-type="num">1D %</th>
+            <th class="sortable" data-type="num">5D %</th>
+            <th class="sortable" data-type="num">1M %</th>
+            <th class="sortable" data-type="num">3M %</th>
+            <th class="sortable" data-type="num">YTD %</th>
+            <th class="sortable" data-type="num">vs SPY 1M</th>
+            <th class="sortable" data-type="num">RSI</th>
+            <th class="sortable" data-type="num">RVol</th>
+            <th class="sortable" data-type="num">% from 52H</th>
+            <th>52w Range</th>
+            <th class="sortable" data-type="num">RS Score</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td>1</td><td class="symbol">SMCI</td><td>$48.21</td><td class="green-text">+8.42%</td><td class="green-text">+14.20%</td><td class="green-text">+38.40%</td><td class="green-text">+62.10%</td><td class="green-text">+88.40%</td><td class="green-text">+32.18</td><td>68.4</td><td>3.42</td><td class="red-text">-22.4%</td><td><div class="mom-bar"><span style="width:78%;background:linear-gradient(90deg,#ef4444,#10b981);"></span></div></td><td><strong class="green-text">98.4</strong></td></tr>
+          <tr><td>2</td><td class="symbol">PLTR</td><td>$31.84</td><td class="green-text">+6.18%</td><td class="green-text">+12.40%</td><td class="green-text">+28.20%</td><td class="green-text">+58.40%</td><td class="green-text">+72.10%</td><td class="green-text">+22.40</td><td>72.1</td><td>2.84</td><td class="green-text">+0.0%</td><td><div class="mom-bar"><span style="width:100%;background:linear-gradient(90deg,#ef4444,#10b981);"></span></div></td><td><strong class="green-text">96.8</strong></td></tr>
+          <tr><td>3</td><td class="symbol">NVDA</td><td>$138.27</td><td class="green-text">+3.21%</td><td class="green-text">+8.40%</td><td class="green-text">+24.60%</td><td class="green-text">+42.80%</td><td class="green-text">+62.40%</td><td class="green-text">+18.42</td><td>54.2</td><td>1.84</td><td class="red-text">-4.3%</td><td><div class="mom-bar"><span style="width:96%;background:linear-gradient(90deg,#ef4444,#10b981);"></span></div></td><td><strong class="green-text">94.2</strong></td></tr>
+          <tr><td>4</td><td class="symbol">COIN</td><td>$248.92</td><td class="green-text">+5.21%</td><td class="green-text">+10.40%</td><td class="green-text">+22.40%</td><td class="green-text">+38.40%</td><td class="green-text">+58.40%</td><td class="green-text">+16.20</td><td>64.8</td><td>1.92</td><td class="red-text">-8.4%</td><td><div class="mom-bar"><span style="width:92%;background:linear-gradient(90deg,#ef4444,#10b981);"></span></div></td><td><strong class="green-text">92.4</strong></td></tr>
+          <tr><td>5</td><td class="symbol">META</td><td>$587.42</td><td class="green-text">+1.67%</td><td class="green-text">+4.20%</td><td class="green-text">+18.40%</td><td class="green-text">+28.40%</td><td class="green-text">+38.40%</td><td class="green-text">+12.18</td><td>58.1</td><td>1.42</td><td class="red-text">-2.1%</td><td><div class="mom-bar"><span style="width:97%;background:linear-gradient(90deg,#ef4444,#10b981);"></span></div></td><td><strong class="green-text">88.4</strong></td></tr>
+          <tr><td>6</td><td class="symbol">AMD</td><td>$162.18</td><td class="green-text">+2.34%</td><td class="green-text">+6.20%</td><td class="green-text">+18.20%</td><td class="green-text">+22.40%</td><td class="green-text">+24.80%</td><td class="green-text">+10.42</td><td>62.4</td><td>1.62</td><td class="red-text">-12.4%</td><td><div class="mom-bar"><span style="width:88%;background:linear-gradient(90deg,#ef4444,#10b981);"></span></div></td><td><strong class="green-text">85.2</strong></td></tr>
+          <tr><td>7</td><td class="symbol">BABA</td><td>$88.42</td><td class="green-text">+3.42%</td><td class="green-text">+5.80%</td><td class="green-text">+14.80%</td><td class="green-text">+18.40%</td><td class="green-text">+22.40%</td><td class="green-text">+8.82</td><td>58.4</td><td>1.84</td><td class="red-text">-15.4%</td><td><div class="mom-bar"><span style="width:84%;background:linear-gradient(90deg,#ef4444,#10b981);"></span></div></td><td><strong class="green-text">82.4</strong></td></tr>
+          <tr><td>8</td><td class="symbol">SHOP</td><td>$68.50</td><td class="green-text">+2.18%</td><td class="green-text">+4.40%</td><td class="green-text">+12.40%</td><td class="green-text">+16.20%</td><td class="green-text">+18.40%</td><td class="green-text">+6.42</td><td>54.2</td><td>1.42</td><td class="red-text">-18.4%</td><td><div class="mom-bar"><span style="width:80%;background:linear-gradient(90deg,#ef4444,#10b981);"></span></div></td><td><strong class="green-text">78.4</strong></td></tr>
+          <tr><td>9</td><td class="symbol">AAPL</td><td>$218.94</td><td class="green-text">+1.84%</td><td class="green-text">+3.20%</td><td class="green-text">+8.40%</td><td class="green-text">+12.40%</td><td class="green-text">+8.40%</td><td class="green-text">+2.42</td><td>56.2</td><td>1.34</td><td class="red-text">-5.2%</td><td><div class="mom-bar"><span style="width:92%;background:linear-gradient(90deg,#ef4444,#10b981);"></span></div></td><td><strong class="green-text">72.4</strong></td></tr>
+          <tr><td>10</td><td class="symbol">MSFT</td><td>$425.18</td><td class="green-text">+0.93%</td><td class="green-text">+2.40%</td><td class="green-text">+6.40%</td><td class="green-text">+8.40%</td><td class="green-text">+6.40%</td><td class="green-text">+0.42</td><td>52.4</td><td>1.12</td><td class="red-text">-3.8%</td><td><div class="mom-bar"><span style="width:94%;background:linear-gradient(90deg,#ef4444,#10b981);"></span></div></td><td><strong class="yellow-text">68.4</strong></td></tr>
+          <tr><td>11</td><td class="symbol">GOOGL</td><td>$178.32</td><td class="red-text">-0.42%</td><td class="green-text">+1.20%</td><td class="green-text">+4.40%</td><td class="green-text">+6.40%</td><td class="green-text">+8.40%</td><td class="red-text">-1.62</td><td>48.4</td><td>0.92</td><td class="red-text">-4.2%</td><td><div class="mom-bar"><span style="width:88%;background:linear-gradient(90deg,#ef4444,#10b981);"></span></div></td><td><strong class="yellow-text">62.4</strong></td></tr>
+          <tr><td>12</td><td class="symbol">AMZN</td><td>$213.55</td><td class="green-text">+0.88%</td><td class="green-text">+1.80%</td><td class="green-text">+3.20%</td><td class="green-text">+4.40%</td><td class="green-text">+12.40%</td><td class="red-text">-2.84</td><td>50.2</td><td>1.04</td><td class="red-text">-6.4%</td><td><div class="mom-bar"><span style="width:84%;background:linear-gradient(90deg,#ef4444,#10b981);"></span></div></td><td><strong class="yellow-text">58.2</strong></td></tr>
+          <tr><td>13</td><td class="symbol">SPY</td><td>$562.18</td><td class="green-text">+0.85%</td><td class="green-text">+1.60%</td><td class="green-text">+3.20%</td><td class="green-text">+4.20%</td><td class="green-text">+10.40%</td><td>—</td><td>54.8</td><td>0.92</td><td class="red-text">-0.5%</td><td><div class="mom-bar"><span style="width:99%;background:linear-gradient(90deg,#ef4444,#10b981);"></span></div></td><td><strong class="yellow-text">54.2</strong></td></tr>
+          <tr><td>14</td><td class="symbol">UBER</td><td>$68.20</td><td class="green-text">+0.28%</td><td class="red-text">-1.40%</td><td class="red-text">-3.20%</td><td class="red-text">-5.40%</td><td class="green-text">+2.40%</td><td class="red-text">-6.42</td><td>42.4</td><td>0.88</td><td class="red-text">-12.4%</td><td><div class="mom-bar"><span style="width:62%;background:linear-gradient(90deg,#ef4444,#10b981);"></span></div></td><td><strong class="yellow-text">42.4</strong></td></tr>
+          <tr><td>15</td><td class="symbol">TSLA</td><td>$248.61</td><td class="red-text">-2.18%</td><td class="red-text">-4.20%</td><td class="red-text">-5.80%</td><td class="red-text">-8.40%</td><td class="red-text">-12.40%</td><td class="red-text">-9.02</td><td>38.2</td><td>1.84</td><td class="red-text">-18.4%</td><td><div class="mom-bar"><span style="width:42%;background:linear-gradient(90deg,#ef4444,#10b981);"></span></div></td><td><strong class="red-text">28.4</strong></td></tr>
+          <tr><td>16</td><td class="symbol">XLE</td><td>$94.20</td><td class="red-text">-1.24%</td><td class="red-text">-2.40%</td><td class="red-text">-6.40%</td><td class="red-text">-4.20%</td><td class="green-text">+4.40%</td><td class="red-text">-9.62</td><td>42.1</td><td>1.24</td><td class="red-text">-8.4%</td><td><div class="mom-bar"><span style="width:48%;background:linear-gradient(90deg,#ef4444,#10b981);"></span></div></td><td><strong class="red-text">22.4</strong></td></tr>
+          <tr><td>17</td><td class="symbol">MARA</td><td>$18.42</td><td class="red-text">-4.82%</td><td class="red-text">-8.40%</td><td class="red-text">-14.20%</td><td class="red-text">-22.40%</td><td class="red-text">-38.40%</td><td class="red-text">-17.42</td><td>28.4</td><td>1.82</td><td class="red-text">-52.4%</td><td><div class="mom-bar"><span style="width:18%;background:linear-gradient(90deg,#ef4444,#10b981);"></span></div></td><td><strong class="red-text">12.4</strong></td></tr>
+          <tr><td>18</td><td class="symbol">RIVN</td><td>$12.18</td><td class="red-text">-3.92%</td><td class="red-text">-6.20%</td><td class="red-text">-18.40%</td><td class="red-text">-28.40%</td><td class="red-text">-42.40%</td><td class="red-text">-21.62</td><td>32.4</td><td>1.42</td><td class="red-text">-62.4%</td><td><div class="mom-bar"><span style="width:8%;background:linear-gradient(90deg,#ef4444,#10b981);"></span></div></td><td><strong class="red-text">8.4</strong></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Relative strength + sector rotation -->
+  <div class="grid grid-12" style="margin-bottom:24px;">
+    <div class="card col-6">
+      <div class="card-header"><div class="card-title">🏆 Relative Strength vs SPY (1M)</div></div>
+      <div class="chart-container"><canvas id="rsChart"></canvas></div>
+    </div>
+    <div class="card col-6">
+      <div class="card-header"><div class="card-title">🔄 Sector Rotation Map (Style)</div></div>
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;padding:10px;">
+        <div class="heat-cell" style="background:rgba(16,185,129,0.32);color:#fff;">Tech<br><strong>+1.84%</strong></div>
+        <div class="heat-cell" style="background:rgba(16,185,129,0.28);color:#fff;">Comm Svc<br><strong>+1.42%</strong></div>
+        <div class="heat-cell" style="background:rgba(16,185,129,0.18);color:#fff;">Cons Disc<br><strong>+0.92%</strong></div>
+        <div class="heat-cell" style="background:rgba(16,185,129,0.10);color:#fff;">Financials<br><strong>+0.41%</strong></div>
+        <div class="heat-cell" style="background:rgba(16,185,129,0.05);color:#fff;">Healthcare<br><strong>+0.18%</strong></div>
+        <div class="heat-cell" style="background:rgba(239,68,68,0.06);color:#fff;">Industrials<br><strong>-0.08%</strong></div>
+        <div class="heat-cell" style="background:rgba(239,68,68,0.12);color:#fff;">Materials<br><strong>-0.34%</strong></div>
+        <div class="heat-cell" style="background:rgba(239,68,68,0.18);color:#fff;">REITs<br><strong>-0.61%</strong></div>
+        <div class="heat-cell" style="background:rgba(239,68,68,0.20);color:#fff;">Utilities<br><strong>-0.78%</strong></div>
+        <div class="heat-cell" style="background:rgba(239,68,68,0.22);color:#fff;">Cons Stpl<br><strong>-0.92%</strong></div>
+        <div class="heat-cell" style="background:rgba(239,68,68,0.28);color:#fff;">Energy<br><strong>-1.24%</strong></div>
+        <div class="heat-cell" style="background:var(--bg-elevated);color:var(--text-muted);">— Add —</div>
+      </div>
+      <div style="background:var(--bg-elevated);border-radius:8px;padding:12px;margin:10px;font-size:12px;color:var(--text-secondary);line-height:1.6;">
+        <strong style="color:var(--accent);">Read:</strong> Growth (Tech/Comm Svc/Disc) leading defensives (Utes/Stpl) — classic risk-on rotation. Late-cycle warning would be Energy/Materials leading; we're not there.
+      </div>
+    </div>
+  </div>
+
+  <!-- Donchian / breakout scanner -->
+  <div class="card">
+    <div class="card-header">
+      <div class="card-title">🎯 Donchian Channel Breakouts (20/55-day)</div>
+      <span class="card-badge purple">Turtle Trader style</span>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr><th>Symbol</th><th>System</th><th>Last</th><th>20D High</th><th>20D Low</th><th>55D High</th><th>55D Low</th><th>Signal</th><th>Entry</th><th>Stop (2N)</th></tr>
+        </thead>
+        <tbody>
+          <tr><td class="symbol">SMCI</td><td>S1 (20/10)</td><td>$48.21</td><td>$48.21</td><td>$36.42</td><td>$62.40</td><td>$36.42</td><td><span class="pill call">LONG</span></td><td>$48.21</td><td>$42.84</td></tr>
+          <tr><td class="symbol">PLTR</td><td>S1 (20/10)</td><td>$31.84</td><td>$31.84</td><td>$26.42</td><td>$31.84</td><td>$22.40</td><td><span class="pill call">LONG</span></td><td>$31.84</td><td>$28.92</td></tr>
+          <tr><td class="symbol">NVDA</td><td>S2 (55/20)</td><td>$138.27</td><td>$142.50</td><td>$122.40</td><td>$144.42</td><td>$108.40</td><td><span style="color:var(--yellow);">PENDING</span></td><td>$144.42</td><td>$135.40</td></tr>
+          <tr><td class="symbol">META</td><td>S1 (20/10)</td><td>$587.42</td><td>$587.42</td><td>$542.40</td><td>$601.80</td><td>$522.40</td><td><span class="pill call">LONG</span></td><td>$587.42</td><td>$566.42</td></tr>
+          <tr><td class="symbol">COIN</td><td>S2 (55/20)</td><td>$248.92</td><td>$248.92</td><td>$208.40</td><td>$272.40</td><td>$198.40</td><td><span class="pill call">LONG</span></td><td>$248.92</td><td>$232.40</td></tr>
+          <tr><td class="symbol">TSLA</td><td>S1 (20/10)</td><td>$248.61</td><td>$278.40</td><td>$248.61</td><td>$298.40</td><td>$248.61</td><td><span class="pill put">SHORT</span></td><td>$248.61</td><td>$268.42</td></tr>
+          <tr><td class="symbol">RIVN</td><td>S2 (55/20)</td><td>$12.18</td><td>$14.40</td><td>$12.18</td><td>$18.40</td><td>$12.18</td><td><span class="pill put">SHORT</span></td><td>$12.18</td><td>$14.20</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div style="font-size:12px;color:var(--text-muted);margin-top:14px;line-height:1.7;">
+      <strong style="color:var(--accent);">S1</strong> enters on 20-day breakout, exits on 10-day breakdown. <strong style="color:var(--accent);">S2</strong> enters on 55-day breakout, exits on 20-day breakdown. Stop = entry ± 2N where N = 20-day ATR. Classic Turtle method scales position by volatility — equal dollar-risk per trade.
+    </div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/charts.js"></script>
+<script src="js/live.js"></script>
+<script>
+buildNav('momentum');
+document.addEventListener('DOMContentLoaded', () => {
+  // RS chart — top 12 by RS score
+  const labels = ['SMCI','PLTR','NVDA','COIN','META','AMD','BABA','SHOP','AAPL','MSFT','GOOGL','AMZN'];
+  const data   = [32.18, 22.40, 18.42, 16.20, 12.18, 10.42, 8.82, 6.42, 2.42, 0.42, -1.62, -2.84];
+  new Chart(document.getElementById('rsChart'), {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: [{
+        data,
+        backgroundColor: data.map(v => v >= 0 ? '#10b981' : '#ef4444'),
+        borderRadius: 4
+      }]
+    },
+    options: {
+      ...baseOptions(),
+      indexAxis: 'y',
+      plugins: { ...baseOptions().plugins, legend: { display: false } },
+      scales: {
+        x: { ...baseOptions().scales.x, ticks: { ...baseOptions().scales.x.ticks, callback: v => v + '%' }, grid: { color: 'rgba(45,55,72,0.5)' }},
+        y: { grid: { display: false }, ticks: { color: '#cbd5e1', font: { family: 'JetBrains Mono', size: 11, weight: 600 }}}
+      }
+    }
+  });
+});
+</script>
+</body>
+</html>

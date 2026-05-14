@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Alerts — bpleone / trade</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">Alerts</div>
+      <div class="page-subtitle">Custom triggers · price · RSI · IV · MA cross · gamma flip · <span id="market-clock">--</span></div>
+    </div>
+    <div class="flex gap-8">
+      <button class="btn btn-secondary" id="testBtn">🔔 Test Ping</button>
+      <button class="btn btn-primary" id="enableBtn">Enable Browser Notifications</button>
+    </div>
+  </div>
+
+  <!-- New alert form -->
+  <div class="card mb-16" style="margin-bottom:24px;">
+    <div class="card-header"><div class="card-title">➕ New Alert</div></div>
+    <form id="alertForm" style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr 1fr auto;gap:10px;align-items:end;">
+      <div><label style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.05em;display:block;margin-bottom:4px;">Symbol</label>
+        <input name="symbol" required placeholder="NVDA" style="text-transform:uppercase;width:100%;padding:8px;background:var(--bg-elevated);border:1px solid var(--border);color:var(--text-primary);border-radius:6px;font-family:var(--font-mono);"></div>
+      <div><label style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.05em;display:block;margin-bottom:4px;">Condition</label>
+        <select name="kind" style="width:100%;padding:8px;background:var(--bg-elevated);border:1px solid var(--border);color:var(--text-primary);border-radius:6px;">
+          <option value="price-above">Price &gt;=</option>
+          <option value="price-below">Price &lt;=</option>
+          <option value="pct-up">% up &gt;=</option>
+          <option value="pct-down">% down &gt;=</option>
+          <option value="vol-spike">Volume spike &gt;=</option>
+          <option value="rsi-above">RSI &gt;=</option>
+          <option value="rsi-below">RSI &lt;=</option>
+          <option value="iv-above">IV rank &gt;=</option>
+          <option value="ma-cross-up">50DMA reclaim</option>
+          <option value="ma-cross-down">50DMA break</option>
+          <option value="52w-high">52w high</option>
+          <option value="52w-low">52w low</option>
+        </select></div>
+      <div><label style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.05em;display:block;margin-bottom:4px;">Threshold</label>
+        <input name="threshold" type="number" step="0.01" placeholder="e.g. 145" style="width:100%;padding:8px;background:var(--bg-elevated);border:1px solid var(--border);color:var(--text-primary);border-radius:6px;font-family:var(--font-mono);"></div>
+      <div><label style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.05em;display:block;margin-bottom:4px;">Note</label>
+        <input name="note" placeholder="trade setup, why I care..." style="width:100%;padding:8px;background:var(--bg-elevated);border:1px solid var(--border);color:var(--text-primary);border-radius:6px;"></div>
+      <div><label style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.05em;display:block;margin-bottom:4px;">Repeat</label>
+        <select name="repeat" style="width:100%;padding:8px;background:var(--bg-elevated);border:1px solid var(--border);color:var(--text-primary);border-radius:6px;">
+          <option value="once">Once</option>
+          <option value="daily">Daily</option>
+          <option value="always">Every fire</option>
+        </select></div>
+      <button type="submit" class="btn btn-primary">+ Create</button>
+    </form>
+  </div>
+
+  <!-- Active alerts -->
+  <div class="card mb-16" style="margin-bottom:24px;">
+    <div class="card-header"><div class="card-title">🔔 Active Alerts</div><span class="card-badge" id="activeCount">0</span></div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Symbol</th><th>Condition</th><th>Threshold</th><th>Current</th><th>Status</th><th>Note</th><th>Repeat</th><th></th></tr></thead>
+        <tbody id="alertsTbody"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Fired log -->
+  <div class="card">
+    <div class="card-header"><div class="card-title">📋 Recent Fires (Last 50)</div></div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Time</th><th>Symbol</th><th>Condition</th><th>Threshold</th><th>Fire Px</th><th>Note</th></tr></thead>
+        <tbody id="firedTbody"><tr><td colspan="6" style="text-align:center;color:var(--text-muted);padding:24px;">No alerts fired yet.</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script>
+buildNav('alerts');
+
+const ALERT_KEY = 'bpleone_alerts_v1';
+const FIRED_KEY = 'bpleone_alerts_fired_v1';
+
+function loadAlerts() { try { return JSON.parse(localStorage.getItem(ALERT_KEY)) || []; } catch (e) { return []; } }
+function saveAlerts(a) { try { localStorage.setItem(ALERT_KEY, JSON.stringify(a)); } catch (e) {} }
+function loadFired() { try { return JSON.parse(localStorage.getItem(FIRED_KEY)) || []; } catch (e) { return []; } }
+function saveFired(a) { try { localStorage.setItem(FIRED_KEY, JSON.stringify(a)); } catch (e) {} }
+
+const COND_LABELS = {
+  'price-above':'Price ≥', 'price-below':'Price ≤',
+  'pct-up':'% up ≥', 'pct-down':'% down ≥',
+  'vol-spike':'Vol spike ≥', 'rsi-above':'RSI ≥', 'rsi-below':'RSI ≤',
+  'iv-above':'IV rank ≥', 'ma-cross-up':'50DMA reclaim', 'ma-cross-down':'50DMA break',
+  '52w-high':'52w high', '52w-low':'52w low'
+};
+
+function evalAlert(a, q) {
+  if (!q) return false;
+  switch(a.kind) {
+    case 'price-above': return q.last >= a.threshold;
+    case 'price-below': return q.last <= a.threshold;
+    case 'pct-up':      return q.changePct >= a.threshold;
+    case 'pct-down':    return q.changePct <= -Math.abs(a.threshold);
+    case '52w-high':    return q.changePct >= 4; // synth: big up move
+    case '52w-low':     return q.changePct <= -4;
+    default: return false;
+  }
+}
+
+function renderActive() {
+  const alerts = loadAlerts();
+  document.getElementById('activeCount').textContent = alerts.length + ' active';
+  const tbody = document.getElementById('alertsTbody');
+  if (alerts.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:var(--text-muted);padding:24px;">No alerts set. Add one above.</td></tr>';
+    return;
+  }
+  tbody.innerHTML = alerts.map(a => {
+    const q = (typeof QUOTES !== 'undefined') ? QUOTES[a.symbol] : null;
+    const cur = q ? '$' + q.last.toFixed(2) : '—';
+    const fired = evalAlert(a, q);
+    return `<tr style="${fired ? 'background:rgba(16,185,129,0.06);' : ''}">
+      <td class="symbol">${a.symbol}</td>
+      <td>${COND_LABELS[a.kind] || a.kind}</td>
+      <td class="mono">${a.threshold || '—'}</td>
+      <td class="mono">${cur}</td>
+      <td>${fired ? '<span class="pill call">FIRING</span>' : '<span class="pill" style="background:var(--bg-elevated);color:var(--text-muted);">armed</span>'}</td>
+      <td style="font-size:12px;color:var(--text-muted);">${a.note||''}</td>
+      <td><span class="card-badge">${a.repeat||'once'}</span></td>
+      <td><button class="btn btn-ghost" style="padding:2px 6px;font-size:11px;" data-rm="${a.id}">✕</button></td>
+    </tr>`;
+  }).join('');
+  tbody.querySelectorAll('[data-rm]').forEach(b => b.addEventListener('click', () => {
+    saveAlerts(loadAlerts().filter(a => a.id !== b.dataset.rm));
+    renderActive();
+  }));
+}
+
+function renderFired() {
+  const fired = loadFired().slice(-50).reverse();
+  const tbody = document.getElementById('firedTbody');
+  if (fired.length === 0) { tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--text-muted);padding:24px;">No alerts fired yet.</td></tr>'; return; }
+  tbody.innerHTML = fired.map(f => `
+    <tr>
+      <td class="mono">${new Date(f.ts).toLocaleTimeString()}</td>
+      <td class="symbol">${f.symbol}</td>
+      <td>${COND_LABELS[f.kind] || f.kind}</td>
+      <td class="mono">${f.threshold}</td>
+      <td class="mono">$${f.firePx.toFixed(2)}</td>
+      <td style="font-size:12px;color:var(--text-muted);">${f.note||''}</td>
+    </tr>`).join('');
+}
+
+function checkAlerts() {
+  const alerts = loadAlerts();
+  if (alerts.length === 0 || typeof QUOTES === 'undefined') return;
+  const fired = loadFired();
+  let changed = false;
+  alerts.forEach(a => {
+    const q = QUOTES[a.symbol];
+    if (!q) return;
+    if (evalAlert(a, q)) {
+      const last = a.lastFiredTs || 0;
+      const minGap = a.repeat === 'always' ? 60000 : a.repeat === 'daily' ? 86400000 : Infinity;
+      if (Date.now() - last < minGap) return;
+      a.lastFiredTs = Date.now();
+      fired.push({ ts: Date.now(), symbol:a.symbol, kind:a.kind, threshold:a.threshold, firePx:q.last, note:a.note });
+      if (typeof Notify !== 'undefined') {
+        Notify.fire(`🔔 ${a.symbol} ${COND_LABELS[a.kind]} ${a.threshold}`,
+          `Now $${q.last.toFixed(2)}. ${a.note||''}`, { tag: a.id, url: 'alerts.html' });
+      }
+      // remove if once
+      if (a.repeat === 'once') a._delete = true;
+      changed = true;
+    }
+  });
+  const surviving = alerts.filter(a => !a._delete);
+  saveAlerts(surviving);
+  saveFired(fired);
+  if (changed) { renderActive(); renderFired(); }
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  renderActive();
+  renderFired();
+
+  document.getElementById('alertForm').addEventListener('submit', e => {
+    e.preventDefault();
+    const fd = new FormData(e.target);
+    const data = { id: 'al_' + Date.now() };
+    fd.forEach((v, k) => { data[k] = k === 'threshold' ? +v : (k === 'symbol' ? v.toUpperCase() : v); });
+    const list = loadAlerts();
+    list.push(data);
+    saveAlerts(list);
+    e.target.reset();
+    renderActive();
+  });
+
+  document.getElementById('enableBtn').addEventListener('click', async () => {
+    const r = await Notify.request();
+    if (r === 'granted') Notify.testPing();
+  });
+
+  document.getElementById('testBtn').addEventListener('click', () => Notify.testPing());
+
+  setInterval(checkAlerts, 2500);
+});
+</script>
+</body>
+</html>

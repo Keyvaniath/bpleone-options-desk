@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Portfolio Builder — bpleone / trade</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.alloc-row { display:grid; grid-template-columns:90px 1fr 80px 50px; gap:10px; align-items:center; padding:8px 0; border-bottom:1px dashed var(--border); }
+.alloc-row input[type=range] { width:100%; accent-color:var(--accent); }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">Portfolio Builder</div>
+      <div class="page-subtitle">Mean-variance optimization · efficient frontier · custom weights · <span id="market-clock">--</span></div>
+    </div>
+    <div class="flex gap-8">
+      <button class="btn btn-secondary" id="resetBtn">↺ Reset</button>
+      <button class="btn btn-primary" id="optBtn">⚙ Optimize for Max Sharpe</button>
+    </div>
+  </div>
+
+  <!-- KPI strip -->
+  <div class="grid grid-12" style="margin-bottom:24px;">
+    <div class="card col-3"><div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;">Expected Return</div><div class="mono green-text" id="pRet" style="font-size:24px;font-weight:800;margin-top:4px;">+14.8%</div><div class="mono" style="font-size:12px;color:var(--text-muted);">annualized</div></div>
+    <div class="card col-3"><div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;">Volatility</div><div class="mono yellow-text" id="pVol" style="font-size:24px;font-weight:800;margin-top:4px;">18.4%</div><div class="mono" style="font-size:12px;color:var(--text-muted);">annualized σ</div></div>
+    <div class="card col-3"><div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;">Sharpe Ratio</div><div class="mono green-text" id="pSharpe" style="font-size:24px;font-weight:800;margin-top:4px;">0.84</div><div class="mono" style="font-size:12px;color:var(--text-muted);">rf = 4.5%</div></div>
+    <div class="card col-3"><div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;">Portfolio Beta</div><div class="mono" id="pBeta" style="font-size:24px;font-weight:800;margin-top:4px;">1.12</div><div class="mono" style="font-size:12px;color:var(--text-muted);">vs SPY</div></div>
+  </div>
+
+  <div class="grid grid-12">
+    <!-- Weights panel -->
+    <div class="card col-4">
+      <div class="card-header"><div class="card-title">⚙️ Asset Weights</div></div>
+      <div style="margin-bottom:12px;">
+        <span class="bt-label" style="font-size:11px;color:var(--text-muted);text-transform:uppercase;">Constraints</span>
+        <div style="display:flex;gap:8px;margin-top:6px;flex-wrap:wrap;">
+          <label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer;"><input type="checkbox" checked id="cstLong"> Long only</label>
+          <label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer;"><input type="checkbox" checked id="cstSum"> Sum = 100%</label>
+          <label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer;"><input type="checkbox" id="cstMax25"> Max 25% per name</label>
+        </div>
+      </div>
+      <div id="allocList"></div>
+      <div style="background:var(--bg-elevated);padding:10px 14px;border-radius:6px;margin-top:14px;font-family:var(--font-mono);font-size:13px;display:flex;justify-content:space-between;">
+        <span style="color:var(--text-muted);">Total weight</span><span id="totalW">100%</span>
+      </div>
+    </div>
+
+    <!-- Efficient frontier -->
+    <div class="card col-8">
+      <div class="card-header"><div class="card-title">📊 Efficient Frontier — Risk-Return</div></div>
+      <div class="chart-container large"><canvas id="efChart"></canvas></div>
+      <div style="font-size:13px;color:var(--text-secondary);margin-top:14px;line-height:1.7;">
+        Each blue dot is a randomly weighted portfolio. The <strong style="color:var(--green);">green dot</strong> is your current allocation. The <strong style="color:var(--yellow);">yellow line</strong> is the efficient frontier — for any return level, no portfolio achieves it with less risk. The <strong style="color:var(--accent);">cyan star</strong> is the max-Sharpe (tangency) portfolio.
+      </div>
+    </div>
+  </div>
+
+  <!-- Risk decomposition + correlation -->
+  <div class="grid grid-12" style="margin-top:24px;">
+    <div class="card col-6">
+      <div class="card-header"><div class="card-title">🎯 Risk Contribution by Asset</div></div>
+      <div class="chart-container"><canvas id="riskChart"></canvas></div>
+      <div style="font-size:12px;color:var(--text-muted);margin-top:12px;line-height:1.6;">
+        % of total portfolio variance attributable to each asset (accounts for correlation, not just weight). Concentrated risk = a few assets dominate the bar even at modest weights.
+      </div>
+    </div>
+    <div class="card col-6">
+      <div class="card-header"><div class="card-title">🕸️ Correlation Matrix (60d)</div></div>
+      <div id="corrGrid" style="font-family:var(--font-mono);font-size:11px;"></div>
+    </div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script>
+buildNav('portfolio-builder');
+
+const ASSETS = [
+  { sym:'SPY',  ret:10.2, vol:14, beta:1.0 },
+  { sym:'QQQ',  ret:14.5, vol:18, beta:1.18 },
+  { sym:'NVDA', ret:42.0, vol:42, beta:1.62 },
+  { sym:'AAPL', ret:14.0, vol:24, beta:1.18 },
+  { sym:'MSFT', ret:18.0, vol:22, beta:1.04 },
+  { sym:'META', ret:24.0, vol:32, beta:1.34 },
+  { sym:'TLT',  ret:4.0,  vol:14, beta:-0.2 },
+  { sym:'GLD',  ret:6.5,  vol:14, beta:0.18 }
+];
+const DEFAULT_WEIGHTS = [30, 20, 12, 8, 10, 8, 8, 4];
+const CORR = [
+  [1.00,0.88,0.62,0.74,0.78,0.74,-0.18,0.08],
+  [0.88,1.00,0.72,0.78,0.86,0.82,-0.22,0.04],
+  [0.62,0.72,1.00,0.68,0.74,0.78,-0.12,0.10],
+  [0.74,0.78,0.68,1.00,0.82,0.74,-0.18,0.06],
+  [0.78,0.86,0.74,0.82,1.00,0.84,-0.22,0.02],
+  [0.74,0.82,0.78,0.74,0.84,1.00,-0.16,0.04],
+  [-0.18,-0.22,-0.12,-0.18,-0.22,-0.16,1.00,0.32],
+  [0.08,0.04,0.10,0.06,0.02,0.04,0.32,1.00]
+];
+
+let weights = DEFAULT_WEIGHTS.slice();
+const RF = 4.5;
+let chartEF = null, chartRisk = null;
+
+function getWeights() {
+  return Array.from(document.querySelectorAll('[data-w]')).map(i => +i.value);
+}
+function setWeights(arr) {
+  const inputs = document.querySelectorAll('[data-w]');
+  arr.forEach((v, i) => {
+    inputs[i].value = v;
+    document.querySelector(`[data-wval="${i}"]`).textContent = v;
+  });
+}
+
+function portfolioStats(w) {
+  const sumW = w.reduce((a, b) => a + b, 0);
+  const nw = sumW > 0 ? w.map(x => x / sumW) : w;
+  let ret = 0, beta = 0;
+  ASSETS.forEach((a, i) => { ret += nw[i] * a.ret; beta += nw[i] * a.beta; });
+  // Variance with correlation
+  let varP = 0;
+  for (let i = 0; i < ASSETS.length; i++) {
+    for (let j = 0; j < ASSETS.length; j++) {
+      varP += nw[i] * nw[j] * ASSETS[i].vol * ASSETS[j].vol * CORR[i][j];
+    }
+  }
+  const vol = Math.sqrt(varP);
+  const sharpe = (ret - RF) / vol;
+  // Risk contribution per asset
+  const risk = ASSETS.map((_, i) => {
+    let v = 0;
+    for (let j = 0; j < ASSETS.length; j++) v += nw[j] * ASSETS[i].vol * ASSETS[j].vol * CORR[i][j];
+    return nw[i] * v / varP * 100;
+  });
+  return { ret, vol, sharpe, beta, risk };
+}
+
+function renderAlloc() {
+  document.getElementById('allocList').innerHTML = ASSETS.map((a, i) => `
+    <div class="alloc-row">
+      <label>${a.sym}</label>
+      <input type="range" min="0" max="60" value="${weights[i]}" data-w="${i}">
+      <span class="mono" data-wval="${i}">${weights[i]}</span>
+      <span style="font-size:10px;color:var(--text-muted);">%</span>
+    </div>
+  `).join('');
+  document.querySelectorAll('[data-w]').forEach(i => i.addEventListener('input', () => {
+    weights = getWeights();
+    document.querySelector(`[data-wval="${i.dataset.w}"]`).textContent = i.value;
+    refresh();
+  }));
+}
+
+function refresh() {
+  const s = portfolioStats(weights);
+  document.getElementById('pRet').textContent = (s.ret>=0?'+':'') + s.ret.toFixed(1) + '%';
+  document.getElementById('pVol').textContent = s.vol.toFixed(1) + '%';
+  document.getElementById('pSharpe').textContent = s.sharpe.toFixed(2);
+  document.getElementById('pBeta').textContent = s.beta.toFixed(2);
+  const total = weights.reduce((a,b)=>a+b, 0);
+  document.getElementById('totalW').textContent = total + '%';
+  document.getElementById('totalW').style.color = total === 100 ? 'var(--green)' : 'var(--yellow)';
+  // Risk chart
+  if (chartRisk) chartRisk.destroy();
+  chartRisk = new Chart(document.getElementById('riskChart'), {
+    type:'bar',
+    data: { labels: ASSETS.map(a => a.sym), datasets:[{ data: s.risk.map(v => +v.toFixed(1)), backgroundColor: ASSETS.map((_, i) => ['#00d4ff','#0891b2','#10b981','#8b5cf6','#f59e0b','#ec4899','#64748b','#94a3b8'][i % 8]), borderRadius:4 }]},
+    options: { ...baseOptions(), plugins:{ ...baseOptions().plugins, legend:{display:false}}, scales: { ...baseOptions().scales, y:{ ...baseOptions().scales.y, ticks:{ ...baseOptions().scales.y.ticks, callback:v=>v+'%' }}}}
+  });
+
+  // Update EF chart current point
+  if (chartEF && chartEF.data.datasets[2]) {
+    chartEF.data.datasets[2].data = [{ x: s.vol, y: s.ret }];
+    chartEF.update('none');
+  }
+}
+
+function renderEF() {
+  // Generate 600 random portfolios
+  const pts = [];
+  for (let i = 0; i < 600; i++) {
+    const w = ASSETS.map(() => Math.random());
+    const sumW = w.reduce((a,b)=>a+b, 0);
+    const nw = w.map(x => x / sumW * 100);
+    const s = portfolioStats(nw);
+    pts.push({ x: s.vol, y: s.ret });
+  }
+  // Frontier: bin by vol, take max return per bin
+  const bins = {};
+  pts.forEach(p => {
+    const k = Math.round(p.x * 2) / 2;
+    if (!bins[k] || bins[k].y < p.y) bins[k] = p;
+  });
+  const frontier = Object.values(bins).sort((a,b) => a.x - b.x);
+  // Max Sharpe portfolio
+  let maxS = { sharpe: -99, point: pts[0] };
+  pts.forEach(p => {
+    const sh = (p.y - RF) / p.x;
+    if (sh > maxS.sharpe) { maxS.sharpe = sh; maxS.point = p; }
+  });
+
+  if (chartEF) chartEF.destroy();
+  chartEF = new Chart(document.getElementById('efChart'), {
+    type: 'scatter',
+    data: {
+      datasets: [
+        { label:'Random portfolios', data: pts, backgroundColor:'rgba(0,212,255,0.18)', pointRadius:3 },
+        { label:'Efficient frontier', data: frontier, type:'line', borderColor:'#f59e0b', borderWidth:2, tension:0.3, pointRadius:0, fill:false, showLine:true, borderDash:[3,3] },
+        { label:'Your portfolio', data: [{ x: portfolioStats(weights).vol, y: portfolioStats(weights).ret }], backgroundColor:'#10b981', pointRadius:9, pointStyle:'rectRot' },
+        { label:'Max Sharpe', data: [maxS.point], backgroundColor:'#00d4ff', pointRadius:10, pointStyle:'star' }
+      ]
+    },
+    options: { ...baseOptions(true), scales: {
+      x: { ...baseOptions().scales.x, title:{ display:true, text:'Volatility (%)', color:'#64748b' }, ticks:{ ...baseOptions().scales.x.ticks, callback:v=>v.toFixed(0)+'%' }},
+      y: { ...baseOptions().scales.y, title:{ display:true, text:'Expected Return (%)', color:'#64748b' }, ticks:{ ...baseOptions().scales.y.ticks, callback:v=>v.toFixed(0)+'%' }}
+    }}
+  });
+}
+
+function renderCorr() {
+  const g = document.getElementById('corrGrid');
+  const cells = ['<div></div>', ...ASSETS.map(a => `<div style="text-align:center;color:var(--text-muted);">${a.sym}</div>`)];
+  ASSETS.forEach((a, i) => {
+    cells.push(`<div style="color:var(--text-muted);">${a.sym}</div>`);
+    ASSETS.forEach((b, j) => {
+      const c = CORR[i][j];
+      const intensity = Math.abs(c) * 0.4;
+      const color = c >= 0 ? `rgba(0,212,255,${intensity})` : `rgba(239,68,68,${intensity})`;
+      cells.push(`<div style="text-align:center;padding:6px 4px;background:${color};border-radius:3px;">${c.toFixed(2)}</div>`);
+    });
+  });
+  g.style.display = 'grid';
+  g.style.gridTemplateColumns = '60px repeat(' + ASSETS.length + ', 1fr)';
+  g.style.gap = '2px';
+  g.innerHTML = cells.join('');
+}
+
+function optimizeMaxSharpe() {
+  // Brute-force best Sharpe across random portfolios
+  let best = { sharpe: -99, w: weights };
+  for (let i = 0; i < 5000; i++) {
+    const w = ASSETS.map(() => Math.random());
+    const sumW = w.reduce((a,b)=>a+b, 0);
+    const nw = w.map(x => x / sumW * 100);
+    const s = portfolioStats(nw);
+    if (s.sharpe > best.sharpe) { best.sharpe = s.sharpe; best.w = nw.map(x => Math.round(x)); }
+  }
+  weights = best.w;
+  setWeights(weights);
+  refresh();
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  renderAlloc();
+  renderEF();
+  renderCorr();
+  refresh();
+  document.getElementById('optBtn').addEventListener('click', optimizeMaxSharpe);
+  document.getElementById('resetBtn').addEventListener('click', () => { weights = DEFAULT_WEIGHTS.slice(); setWeights(weights); refresh(); });
+});
+</script>
+</body>
+</html>

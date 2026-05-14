@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Anomaly Detector — bpleone / trade</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">Anomaly Detector</div>
+      <div class="page-subtitle">Statistical outliers · vol spikes · gap moves · regime shifts · <span id="market-clock">--</span></div>
+    </div>
+    <div class="filter-group">
+      <button class="filter-btn active">All</button>
+      <button class="filter-btn">High Severity</button>
+      <button class="filter-btn">Today</button>
+      <button class="filter-btn">Last 5d</button>
+    </div>
+  </div>
+
+  <!-- KPI strip -->
+  <div class="grid grid-12" style="margin-bottom:24px;">
+    <div class="card col-3"><div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;">Anomalies Today</div><div class="mono yellow-text" style="font-size:24px;font-weight:800;margin-top:4px;">18</div><div class="mono" style="font-size:12px;color:var(--text-muted);">+8 vs 30d avg</div></div>
+    <div class="card col-3"><div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;">High Severity</div><div class="mono red-text" style="font-size:24px;font-weight:800;margin-top:4px;">4</div><div class="mono" style="font-size:12px;color:var(--text-muted);">|Z| > 3</div></div>
+    <div class="card col-3"><div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;">Regime Status</div><div class="mono green-text" style="font-size:24px;font-weight:800;margin-top:4px;">Risk-On</div><div class="mono" style="font-size:12px;color:var(--text-muted);">no shift detected</div></div>
+    <div class="card col-3"><div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;">7d Hit Rate</div><div class="mono green-text" style="font-size:24px;font-weight:800;margin-top:4px;">72.4%</div><div class="mono" style="font-size:12px;color:var(--text-muted);">tradeable signal</div></div>
+  </div>
+
+  <!-- Anomaly cards -->
+  <div class="grid grid-3" style="margin-bottom:24px;">
+    <div class="card" style="border-left:3px solid var(--red);">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px;">
+        <span class="card-badge red" style="background:var(--red-bg);color:var(--red);">|Z| 4.2 · HIGH</span>
+        <span style="font-size:11px;color:var(--text-muted);font-family:var(--font-mono);">14:32 ET</span>
+      </div>
+      <div style="font-weight:700;font-size:15px;margin-bottom:6px;">SMCI · Volume Spike</div>
+      <div style="font-size:12px;color:var(--text-secondary);line-height:1.6;">28.4M shares vs 6.8M 20d avg. Coincides with +8.4% price move. Likely informed flow or capitulation. Probability of follow-through: 68%.</div>
+      <div style="margin-top:12px;font-family:var(--font-mono);font-size:11px;display:flex;gap:14px;color:var(--text-muted);">
+        <span>RVol <strong style="color:var(--accent);">4.18x</strong></span>
+        <span>Z-score <strong style="color:var(--red);">+4.2</strong></span>
+      </div>
+    </div>
+
+    <div class="card" style="border-left:3px solid var(--red);">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px;">
+        <span class="card-badge red" style="background:var(--red-bg);color:var(--red);">|Z| 3.8 · HIGH</span>
+        <span style="font-size:11px;color:var(--text-muted);font-family:var(--font-mono);">14:18 ET</span>
+      </div>
+      <div style="font-weight:700;font-size:15px;margin-bottom:6px;">RIVN · Earnings-Gap Down</div>
+      <div style="font-size:12px;color:var(--text-secondary);line-height:1.6;">Gap of -6.8% vs avg gap stdev of 1.8%. Production guide cut + layoffs. Hit 52-week low. Mean reversion historically poor — trend continuation 71%.</div>
+      <div style="margin-top:12px;font-family:var(--font-mono);font-size:11px;display:flex;gap:14px;color:var(--text-muted);">
+        <span>Gap <strong style="color:var(--red);">-6.8%</strong></span>
+        <span>Z-score <strong style="color:var(--red);">-3.8</strong></span>
+      </div>
+    </div>
+
+    <div class="card" style="border-left:3px solid var(--red);">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px;">
+        <span class="card-badge red" style="background:var(--red-bg);color:var(--red);">|Z| 3.4 · HIGH</span>
+        <span style="font-size:11px;color:var(--text-muted);font-family:var(--font-mono);">13:54 ET</span>
+      </div>
+      <div style="font-weight:700;font-size:15px;margin-bottom:6px;">NVDA · Unusual Options Flow</div>
+      <div style="font-size:12px;color:var(--text-secondary);line-height:1.6;">$48M call premium in 5 sessions vs avg 5d total of $14M. Concentrated at $145/$150 6/20 strikes. Strong informed-flow signal ahead of Computex.</div>
+      <div style="margin-top:12px;font-family:var(--font-mono);font-size:11px;display:flex;gap:14px;color:var(--text-muted);">
+        <span>Prem ratio <strong style="color:var(--accent);">3.43x</strong></span>
+        <span>Z-score <strong style="color:var(--accent);">+3.4</strong></span>
+      </div>
+    </div>
+
+    <div class="card" style="border-left:3px solid var(--yellow);">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px;">
+        <span class="card-badge yellow" style="background:var(--yellow-bg);color:var(--yellow);">|Z| 2.8 · MED</span>
+        <span style="font-size:11px;color:var(--text-muted);font-family:var(--font-mono);">13:18 ET</span>
+      </div>
+      <div style="font-weight:700;font-size:15px;margin-bottom:6px;">VIX Term Structure Flattening</div>
+      <div style="font-size:12px;color:var(--text-secondary);line-height:1.6;">M2-M1 spread compressed to 0.8 vs 30d avg 1.6. Often precedes vol expansion. Watch for breakout above front month over next 5 sessions.</div>
+      <div style="margin-top:12px;font-family:var(--font-mono);font-size:11px;display:flex;gap:14px;color:var(--text-muted);">
+        <span>M2-M1 <strong style="color:var(--yellow);">0.80</strong></span>
+        <span>Z-score <strong style="color:var(--yellow);">-2.8</strong></span>
+      </div>
+    </div>
+
+    <div class="card" style="border-left:3px solid var(--yellow);">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px;">
+        <span class="card-badge yellow" style="background:var(--yellow-bg);color:var(--yellow);">|Z| 2.6 · MED</span>
+        <span style="font-size:11px;color:var(--text-muted);font-family:var(--font-mono);">12:54 ET</span>
+      </div>
+      <div style="font-weight:700;font-size:15px;margin-bottom:6px;">META / GOOGL Pair Divergence</div>
+      <div style="font-size:12px;color:var(--text-secondary);line-height:1.6;">Z-score of cointegrated pair hit -2.84 σ. Mean reversion edge: long META, short GOOGL. Half-life 6.2 days. See Pair Trading page.</div>
+      <div style="margin-top:12px;font-family:var(--font-mono);font-size:11px;display:flex;gap:14px;color:var(--text-muted);">
+        <span>Spread Z <strong style="color:var(--yellow);">-2.84</strong></span>
+        <span>p-val <strong style="color:var(--green);">0.012</strong></span>
+      </div>
+    </div>
+
+    <div class="card" style="border-left:3px solid var(--yellow);">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px;">
+        <span class="card-badge yellow" style="background:var(--yellow-bg);color:var(--yellow);">|Z| 2.4 · MED</span>
+        <span style="font-size:11px;color:var(--text-muted);font-family:var(--font-mono);">12:14 ET</span>
+      </div>
+      <div style="font-weight:700;font-size:15px;margin-bottom:6px;">XLE Sector Capitulation</div>
+      <div style="font-size:12px;color:var(--text-secondary);line-height:1.6;">Energy sector -1.24% on inventory build, breaks May trend support. RSI 38, NH/NL ratio negative. Watch for reversal candle near $92.50.</div>
+      <div style="margin-top:12px;font-family:var(--font-mono);font-size:11px;display:flex;gap:14px;color:var(--text-muted);">
+        <span>RSI <strong style="color:var(--red);">38</strong></span>
+        <span>Z-score <strong style="color:var(--red);">-2.4</strong></span>
+      </div>
+    </div>
+
+    <div class="card" style="border-left:3px solid var(--accent);">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px;">
+        <span class="card-badge" style="background:rgba(0,212,255,0.15);color:var(--accent);">|Z| 2.2 · MED</span>
+        <span style="font-size:11px;color:var(--text-muted);font-family:var(--font-mono);">11:48 ET</span>
+      </div>
+      <div style="font-weight:700;font-size:15px;margin-bottom:6px;">QQQ Gamma Flip Crossed</div>
+      <div style="font-size:12px;color:var(--text-secondary);line-height:1.6;">Dealer positioning shifted from short to long gamma at $487. Above this level, dealer hedging dampens range. Expect tighter intraday ranges.</div>
+      <div style="margin-top:12px;font-family:var(--font-mono);font-size:11px;display:flex;gap:14px;color:var(--text-muted);">
+        <span>Flip @ <strong style="color:var(--accent);">$487</strong></span>
+        <span>Net γ <strong style="color:var(--green);">+$1.4B</strong></span>
+      </div>
+    </div>
+
+    <div class="card" style="border-left:3px solid var(--accent);">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px;">
+        <span class="card-badge" style="background:rgba(0,212,255,0.15);color:var(--accent);">|Z| 2.0 · MED</span>
+        <span style="font-size:11px;color:var(--text-muted);font-family:var(--font-mono);">11:22 ET</span>
+      </div>
+      <div style="font-weight:700;font-size:15px;margin-bottom:6px;">PLTR · Ascending Triangle Break</div>
+      <div style="font-size:12px;color:var(--text-secondary);line-height:1.6;">3-week triangle resolved upward on 2.84x avg volume. Measured-move target $36. Major resistance at $34.</div>
+      <div style="margin-top:12px;font-family:var(--font-mono);font-size:11px;display:flex;gap:14px;color:var(--text-muted);">
+        <span>RVol <strong style="color:var(--accent);">2.84x</strong></span>
+        <span>Target <strong style="color:var(--green);">$36</strong></span>
+      </div>
+    </div>
+
+    <div class="card" style="border-left:3px solid var(--purple);">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px;">
+        <span class="card-badge purple" style="background:var(--purple-bg);color:var(--purple);">META · LOW</span>
+        <span style="font-size:11px;color:var(--text-muted);font-family:var(--font-mono);">10:54 ET</span>
+      </div>
+      <div style="font-weight:700;font-size:15px;margin-bottom:6px;">Skew Inversion in 30-day Options</div>
+      <div style="font-size:12px;color:var(--text-secondary);line-height:1.6;">25-delta call IV exceeds 25-delta put IV by 0.4 pts — bullish skew shift. Indicates positive expected drift.</div>
+      <div style="margin-top:12px;font-family:var(--font-mono);font-size:11px;display:flex;gap:14px;color:var(--text-muted);">
+        <span>25Δ RR <strong style="color:var(--green);">+0.40</strong></span>
+        <span>Z-score <strong style="color:var(--green);">+1.8</strong></span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Anomaly history chart -->
+  <div class="card">
+    <div class="card-header"><div class="card-title">📊 Anomaly Frequency · Last 60 Days</div></div>
+    <div class="chart-container"><canvas id="anomChart"></canvas></div>
+    <div style="font-size:12px;color:var(--text-muted);margin-top:14px;line-height:1.7;">
+      Spikes in anomaly count correlate with vol regime changes. Persistent elevated counts (5+ daily for 5+ sessions) historically precede SPX drawdowns of -3% or more within 10 trading days.
+    </div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/charts.js"></script>
+<script src="js/live.js"></script>
+<script>
+buildNav('anomalies');
+document.addEventListener('DOMContentLoaded', () => {
+  const n = 60;
+  const counts = [];
+  for (let i = 0; i < n; i++) counts.push(2 + Math.floor(Math.random() * 8) + (i % 11 === 0 ? 10 : 0));
+  new Chart(document.getElementById('anomChart'), {
+    type: 'bar',
+    data: { labels: Array.from({length:n}, (_,i) => 'D'+(i+1)), datasets: [{ data: counts, backgroundColor: counts.map(v => v >= 12 ? '#ef4444' : v >= 6 ? '#f59e0b' : '#00d4ff'), borderRadius: 3 }]},
+    options: { ...baseOptions(), plugins:{ ...baseOptions().plugins, legend:{display:false}}}
+  });
+});
+</script>
+</body>
+</html>

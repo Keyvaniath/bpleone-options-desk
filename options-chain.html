@@ -1,0 +1,531 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Options Chain — bpleone / trade</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<style>
+  .chain-table { font-family: var(--font-mono); font-size: 11.5px; }
+  .chain-table th { text-align: right; padding: 8px 6px; font-size: 10px; }
+  .chain-table td { padding: 7px 6px; text-align: right; white-space: nowrap; border-bottom: 1px solid var(--border); }
+  .chain-table tr:hover td { background: var(--bg-tertiary); }
+  .chain-strike { text-align: center !important; font-weight: 700; background: var(--bg-elevated); color: var(--text-primary); }
+  .chain-call { background: rgba(16,185,129,0.02); }
+  .chain-put { background: rgba(239,68,68,0.02); }
+  .chain-itm { background: rgba(0,212,255,0.06) !important; font-weight: 600; }
+  .chain-bid { color: var(--green); }
+  .chain-ask { color: var(--red); }
+  .chain-table .divider { background: var(--border-light); width: 1px; padding: 0 !important; }
+  .underlying-strip {
+    background: linear-gradient(135deg, var(--bg-secondary), var(--bg-tertiary));
+    border: 1px solid var(--border-light);
+    border-radius: 12px;
+    padding: 20px;
+    margin-bottom: 16px;
+  }
+  .leg-row {
+    display: grid;
+    grid-template-columns: auto 1fr 1fr 1fr 1fr 1fr auto;
+    gap: 8px;
+    align-items: center;
+    padding: 8px 10px;
+    background: var(--bg-elevated);
+    border-radius: 6px;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    margin-bottom: 6px;
+  }
+  .leg-row select, .leg-row input {
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border);
+    color: var(--text-primary);
+    border-radius: 4px;
+    padding: 4px 6px;
+    font-family: inherit;
+    font-size: 12px;
+    width: 100%;
+  }
+  .calc-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .calc-grid label { font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; }
+  .calc-grid input { width: 100%; padding: 8px; background: var(--bg-elevated); border: 1px solid var(--border); color: var(--text-primary); border-radius: 6px; font-family: var(--font-mono); }
+</style>
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">Options Chain</div>
+      <div class="page-subtitle">Full chain with Greeks, IV smile, term structure · <span id="market-clock">--</span></div>
+    </div>
+    <div class="flex gap-8">
+      <select id="chainSymbol" style="background:var(--bg-tertiary);border:1px solid var(--border);color:var(--text-primary);padding:8px 14px;border-radius:8px;font-family:var(--font-mono);font-size:14px;font-weight:600;">
+        <option value="SPY">SPY</option>
+        <option value="QQQ">QQQ</option>
+        <option value="NVDA" selected>NVDA</option>
+        <option value="AAPL">AAPL</option>
+        <option value="TSLA">TSLA</option>
+        <option value="MSFT">MSFT</option>
+        <option value="META">META</option>
+        <option value="AMD">AMD</option>
+        <option value="GOOGL">GOOGL</option>
+        <option value="AMZN">AMZN</option>
+        <option value="IWM">IWM</option>
+      </select>
+      <select id="chainExpiry" style="background:var(--bg-tertiary);border:1px solid var(--border);color:var(--text-primary);padding:8px 14px;border-radius:8px;font-family:var(--font-mono);font-size:13px;"></select>
+    </div>
+  </div>
+
+  <!-- Underlying snapshot -->
+  <div class="underlying-strip">
+    <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:20px;align-items:center;">
+      <div>
+        <div style="font-family:var(--font-mono);font-size:28px;font-weight:800;" id="ulSymbol">NVDA</div>
+        <div style="font-size:11px;color:var(--text-muted);">NVIDIA Corporation</div>
+      </div>
+      <div>
+        <div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.05em;">Last</div>
+        <div class="mono" style="font-size:20px;font-weight:700;"><span data-live="NVDA:last">$138.27</span></div>
+      </div>
+      <div>
+        <div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.05em;">Change</div>
+        <div class="mono" style="font-size:14px;font-weight:600;"><span data-live="NVDA:change">+4.31</span> (<span data-live="NVDA:changePct">+3.21%</span>)</div>
+      </div>
+      <div>
+        <div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.05em;">IV Rank</div>
+        <div class="mono" style="font-size:14px;font-weight:600;color:var(--yellow);">42</div>
+      </div>
+      <div>
+        <div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.05em;">IV30</div>
+        <div class="mono" style="font-size:14px;font-weight:600;">38.4%</div>
+      </div>
+      <div>
+        <div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.05em;">HV30</div>
+        <div class="mono" style="font-size:14px;font-weight:600;">31.2%</div>
+      </div>
+      <div>
+        <div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.05em;">Earnings</div>
+        <div class="mono" style="font-size:14px;font-weight:600;color:var(--accent);">May 28 AMC</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Filter row -->
+  <div class="card mb-16" style="margin-bottom:16px;">
+    <div class="toolbar">
+      <div class="filter-group">
+        <button class="filter-btn active">All Strikes</button>
+        <button class="filter-btn">Near ATM</button>
+        <button class="filter-btn">OTM Only</button>
+        <button class="filter-btn">ITM Only</button>
+      </div>
+      <div class="filter-group">
+        <button class="filter-btn active">Price/Greeks</button>
+        <button class="filter-btn">Vol/OI</button>
+        <button class="filter-btn">IV</button>
+      </div>
+      <div style="margin-left:auto;color:var(--text-muted);font-size:12px;">
+        <span class="signal-dot green"></span> Streaming · <span class="mono" id="chainExpiryLabel">--</span> expiry
+      </div>
+    </div>
+  </div>
+
+  <!-- Chain table -->
+  <div class="card" style="margin-bottom:24px;padding:8px;">
+    <div style="overflow-x:auto;">
+      <table class="chain-table" style="width:100%;border-collapse:collapse;">
+        <thead style="background:var(--bg-tertiary);">
+          <tr>
+            <th colspan="8" style="text-align:center;color:var(--green);font-size:11px;text-transform:uppercase;letter-spacing:0.1em;border-right:1px solid var(--border-light);">CALLS</th>
+            <th style="text-align:center;color:var(--text-muted);font-size:11px;">STRIKE</th>
+            <th colspan="8" style="text-align:center;color:var(--red);font-size:11px;text-transform:uppercase;letter-spacing:0.1em;border-left:1px solid var(--border-light);">PUTS</th>
+          </tr>
+          <tr>
+            <th>Vol</th><th>OI</th><th>IV</th><th>Δ</th><th>Γ</th><th>Θ</th><th>Bid</th><th>Ask</th>
+            <th></th>
+            <th>Bid</th><th>Ask</th><th>Θ</th><th>Γ</th><th>Δ</th><th>IV</th><th>OI</th><th>Vol</th>
+          </tr>
+        </thead>
+        <tbody id="chainBody">
+          <!-- populated by JS -->
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Smile + Term Structure + Heatmap -->
+  <div class="grid grid-12" style="margin-bottom:24px;">
+    <div class="card col-4">
+      <div class="card-header"><div class="card-title">📈 Volatility Smile</div></div>
+      <div class="chart-container small"><canvas id="smileChart"></canvas></div>
+      <div style="text-align:center;font-size:11px;color:var(--text-muted);margin-top:6px;">IV by strike — selected expiry</div>
+    </div>
+    <div class="card col-4">
+      <div class="card-header"><div class="card-title">📉 Term Structure</div></div>
+      <div class="chart-container small"><canvas id="termChart"></canvas></div>
+      <div style="text-align:center;font-size:11px;color:var(--text-muted);margin-top:6px;">ATM IV across expiries — backwardation = bearish</div>
+    </div>
+    <div class="card col-4">
+      <div class="card-header"><div class="card-title">🌡️ Open Interest Heat</div></div>
+      <div class="chart-container small"><canvas id="oiHeat"></canvas></div>
+      <div style="text-align:center;font-size:11px;color:var(--text-muted);margin-top:6px;">Calls vs Puts OI by strike</div>
+    </div>
+  </div>
+
+  <!-- Strategy Builder + Greeks Calculator -->
+  <div class="grid grid-12" style="margin-bottom:24px;">
+    <!-- Strategy builder -->
+    <div class="card col-8">
+      <div class="card-header">
+        <div class="card-title">🎯 Strategy Builder &amp; P/L Diagram</div>
+        <div class="filter-group">
+          <button class="filter-btn active" data-strat="long-call">Long Call</button>
+          <button class="filter-btn" data-strat="long-put">Long Put</button>
+          <button class="filter-btn" data-strat="bull-call">Bull Call Spread</button>
+          <button class="filter-btn" data-strat="bear-put">Bear Put Spread</button>
+          <button class="filter-btn" data-strat="iron-condor">Iron Condor</button>
+          <button class="filter-btn" data-strat="straddle">Straddle</button>
+          <button class="filter-btn" data-strat="strangle">Strangle</button>
+          <button class="filter-btn" data-strat="covered-call">Covered Call</button>
+          <button class="filter-btn" data-strat="csp">Cash-Sec Put</button>
+        </div>
+      </div>
+      <div id="legList" style="margin:14px 0;"></div>
+      <div class="chart-container"><canvas id="payoffChart"></canvas></div>
+      <div id="payoffStats" class="grid grid-4" style="margin-top:14px;">
+        <div class="card" style="padding:12px;"><div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;">Max Profit</div><div class="mono" id="maxProfit" style="font-size:18px;font-weight:700;color:var(--green);">—</div></div>
+        <div class="card" style="padding:12px;"><div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;">Max Loss</div><div class="mono" id="maxLoss" style="font-size:18px;font-weight:700;color:var(--red);">—</div></div>
+        <div class="card" style="padding:12px;"><div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;">Break-even</div><div class="mono" id="breakEven" style="font-size:18px;font-weight:700;">—</div></div>
+        <div class="card" style="padding:12px;"><div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;">Net Debit/Credit</div><div class="mono" id="netCost" style="font-size:18px;font-weight:700;color:var(--accent);">—</div></div>
+      </div>
+    </div>
+
+    <!-- Greeks calculator -->
+    <div class="card col-4">
+      <div class="card-header"><div class="card-title">🧮 Black-Scholes Calculator</div></div>
+      <div class="calc-grid" style="margin-bottom:14px;">
+        <div><label>Type</label><select id="calcType" style="width:100%;padding:8px;background:var(--bg-elevated);border:1px solid var(--border);color:var(--text-primary);border-radius:6px;"><option value="call">Call</option><option value="put">Put</option></select></div>
+        <div><label>Spot (S)</label><input id="calcS" type="number" value="138.27" step="0.01"></div>
+        <div><label>Strike (K)</label><input id="calcK" type="number" value="140" step="0.5"></div>
+        <div><label>Days to Exp</label><input id="calcDTE" type="number" value="30" step="1"></div>
+        <div><label>IV %</label><input id="calcIV" type="number" value="38.4" step="0.1"></div>
+        <div><label>Risk-free %</label><input id="calcR" type="number" value="4.5" step="0.1"></div>
+      </div>
+      <div style="background:var(--bg-elevated);padding:14px;border-radius:8px;font-family:var(--font-mono);">
+        <div style="display:flex;justify-content:space-between;padding:6px 0;"><span style="color:var(--text-muted);">Theoretical Price</span><span id="calcPrice" style="color:var(--accent);font-weight:700;font-size:16px;">—</span></div>
+        <div style="display:flex;justify-content:space-between;padding:6px 0;border-top:1px dashed var(--border);"><span style="color:var(--text-muted);">Delta (Δ)</span><span id="calcDelta">—</span></div>
+        <div style="display:flex;justify-content:space-between;padding:6px 0;"><span style="color:var(--text-muted);">Gamma (Γ)</span><span id="calcGamma">—</span></div>
+        <div style="display:flex;justify-content:space-between;padding:6px 0;"><span style="color:var(--text-muted);">Theta (Θ) / day</span><span id="calcTheta" style="color:var(--red);">—</span></div>
+        <div style="display:flex;justify-content:space-between;padding:6px 0;"><span style="color:var(--text-muted);">Vega (ν) / 1pt</span><span id="calcVega">—</span></div>
+        <div style="display:flex;justify-content:space-between;padding:6px 0;"><span style="color:var(--text-muted);">Rho (ρ) / 1pt</span><span id="calcRho">—</span></div>
+      </div>
+      <div style="font-size:11px;color:var(--text-muted);margin-top:10px;line-height:1.5;">European-style pricing. American premium typically a few cents higher near expiry for puts on dividend-paying stocks.</div>
+    </div>
+  </div>
+
+  <!-- Quick reference -->
+  <div class="card">
+    <div class="card-header"><div class="card-title">🎓 Reading the Chain</div></div>
+    <div class="grid grid-3">
+      <div>
+        <div class="section-label">Greeks Refresher</div>
+        <div style="font-size:13px;line-height:1.7;color:var(--text-secondary);">
+          <strong style="color:var(--text-primary);">Delta (Δ)</strong> — $ move per $1 in stock. Also ≈ probability ITM.<br>
+          <strong style="color:var(--text-primary);">Gamma (Γ)</strong> — rate-of-change of delta. Highest ATM and short-dated.<br>
+          <strong style="color:var(--text-primary);">Theta (Θ)</strong> — daily $ time decay. Sellers love it, buyers fight it.<br>
+          <strong style="color:var(--text-primary);">Vega (ν)</strong> — $ change per 1pt IV. Long premium = long vega.<br>
+        </div>
+      </div>
+      <div>
+        <div class="section-label">Volume vs OI</div>
+        <div style="font-size:13px;line-height:1.7;color:var(--text-secondary);">
+          <strong style="color:var(--text-primary);">Volume</strong> resets daily and shows today's activity. High volume + low OI = new positioning.<br>
+          <strong style="color:var(--text-primary);">Open Interest</strong> is total outstanding contracts. Persistent OI builds = institutional commitment.<br>
+          <strong style="color:var(--text-primary);">Vol &gt; OI</strong> on a strike is a clear flag for unusual activity.
+        </div>
+      </div>
+      <div>
+        <div class="section-label">IV Skew & Smile</div>
+        <div style="font-size:13px;line-height:1.7;color:var(--text-secondary);">
+          <strong style="color:var(--text-primary);">Smile</strong> — IV plotted by strike. Curves up at wings = crash risk priced in.<br>
+          <strong style="color:var(--text-primary);">Skew</strong> — typically downside puts have richer IV than calls in equities (hedging demand).<br>
+          <strong style="color:var(--text-primary);">Term Structure</strong> — IV across expiries. Backwardation (front &gt; back) = stress.
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/charts.js"></script>
+<script src="js/live.js"></script>
+<script>
+buildNav('chain');
+
+// ---------- Chain page logic ----------
+let CHAIN = [];
+let CURR_SYM = 'NVDA';
+let CURR_DTE_IDX = 2; // start at ~38 DTE
+let CHARTS = {};
+
+function getSpot() { return QUOTES[CURR_SYM].last; }
+
+function renderChain() {
+  const expiries = CHAIN.map(c => c.dte);
+  const expirySel = document.getElementById('chainExpiry');
+  expirySel.innerHTML = CHAIN.map((c,i) => `<option value="${i}" ${i===CURR_DTE_IDX?'selected':''}>${c.expiry} · ${c.dte} DTE</option>`).join('');
+  const layer = CHAIN[CURR_DTE_IDX];
+  document.getElementById('chainExpiryLabel').textContent = layer.expiry;
+  const S = getSpot();
+  const tbody = document.getElementById('chainBody');
+  tbody.innerHTML = layer.strikes.map(r => {
+    const callITM = r.strike < S;
+    const putITM = r.strike > S;
+    return `<tr class="${callITM?'chain-itm':'chain-call'}">
+      <td>${r.callVol.toLocaleString()}</td>
+      <td>${r.callOI.toLocaleString()}</td>
+      <td>${r.callIV.toFixed(1)}%</td>
+      <td>${r.callDelta.toFixed(2)}</td>
+      <td>${r.callGamma.toFixed(3)}</td>
+      <td style="color:var(--red);">${r.callTheta.toFixed(2)}</td>
+      <td class="chain-bid">${r.callBid.toFixed(2)}</td>
+      <td class="chain-ask">${r.callAsk.toFixed(2)}</td>
+      <td class="chain-strike">${r.strike.toFixed(2)}</td>
+      <td class="chain-bid">${r.putBid.toFixed(2)}</td>
+      <td class="chain-ask">${r.putAsk.toFixed(2)}</td>
+      <td style="color:var(--red);">${r.putTheta.toFixed(2)}</td>
+      <td>${r.putGamma.toFixed(3)}</td>
+      <td>${r.putDelta.toFixed(2)}</td>
+      <td>${r.putIV.toFixed(1)}%</td>
+      <td>${r.putOI.toLocaleString()}</td>
+      <td>${r.putVol.toLocaleString()}</td>
+    </tr>`;
+  }).join('');
+  drawSmile();
+  drawTerm();
+  drawOIHeat();
+}
+
+function loadSymbol(sym) {
+  CURR_SYM = sym;
+  CHAIN = buildChain(sym);
+  document.getElementById('ulSymbol').textContent = sym;
+  // re-bind live for new symbol
+  document.querySelectorAll('[data-live]').forEach(el => {
+    const [_, field] = el.dataset.live.split(':');
+    el.dataset.live = `${sym}:${field}`;
+    el.dataset.prev = '';
+  });
+  bindLive();
+  renderChain();
+}
+
+// ---------- Charts ----------
+function drawSmile() {
+  const layer = CHAIN[CURR_DTE_IDX];
+  if (CHARTS.smile) CHARTS.smile.destroy();
+  CHARTS.smile = new Chart(document.getElementById('smileChart'), {
+    type: 'line',
+    data: {
+      labels: layer.strikes.map(s => s.strike),
+      datasets: [
+        { label: 'Call IV', data: layer.strikes.map(s => s.callIV), borderColor: '#10b981', backgroundColor: 'rgba(16,185,129,0.15)', borderWidth: 2, tension: 0.35, pointRadius: 0, fill: true },
+        { label: 'Put IV',  data: layer.strikes.map(s => s.putIV),  borderColor: '#ef4444', backgroundColor: 'rgba(239,68,68,0.05)', borderWidth: 2, tension: 0.35, pointRadius: 0, fill: false, borderDash: [4,3] }
+      ]
+    },
+    options: baseOptions(true)
+  });
+}
+
+function drawTerm() {
+  const atmIV = CHAIN.map(c => {
+    const S = getSpot();
+    const atm = c.strikes.reduce((a,b) => Math.abs(b.strike - S) < Math.abs(a.strike - S) ? b : a);
+    return (atm.callIV + atm.putIV) / 2;
+  });
+  if (CHARTS.term) CHARTS.term.destroy();
+  CHARTS.term = new Chart(document.getElementById('termChart'), {
+    type: 'line',
+    data: {
+      labels: CHAIN.map(c => c.dte + 'd'),
+      datasets: [{ label: 'ATM IV %', data: atmIV, borderColor: '#00d4ff', backgroundColor: 'rgba(0,212,255,0.15)', borderWidth: 2.5, tension: 0.3, pointRadius: 4, fill: true }]
+    },
+    options: baseOptions()
+  });
+}
+
+function drawOIHeat() {
+  const layer = CHAIN[CURR_DTE_IDX];
+  if (CHARTS.oi) CHARTS.oi.destroy();
+  CHARTS.oi = new Chart(document.getElementById('oiHeat'), {
+    type: 'bar',
+    data: {
+      labels: layer.strikes.map(s => s.strike),
+      datasets: [
+        { label: 'Calls OI', data: layer.strikes.map(s => s.callOI), backgroundColor: '#10b981', borderRadius: 2 },
+        { label: 'Puts OI',  data: layer.strikes.map(s => -s.putOI), backgroundColor: '#ef4444', borderRadius: 2 }
+      ]
+    },
+    options: { ...baseOptions(true), scales: { ...baseOptions().scales, y: { ...baseOptions().scales.y, ticks: { ...baseOptions().scales.y.ticks, callback: v => Math.abs(v) >= 1000 ? (Math.abs(v)/1000).toFixed(0)+'k' : Math.abs(v) }}}}
+  });
+}
+
+// ---------- Strategy builder ----------
+const STRATS = {
+  'long-call': S => [{ type:'call', side:'long', strike:Math.round(S*1.03/5)*5, premium:S*0.025, qty:1 }],
+  'long-put':  S => [{ type:'put',  side:'long', strike:Math.round(S*0.97/5)*5, premium:S*0.025, qty:1 }],
+  'bull-call': S => [
+    { type:'call', side:'long',  strike:Math.round(S*1.02/5)*5, premium:S*0.03,  qty:1 },
+    { type:'call', side:'short', strike:Math.round(S*1.06/5)*5, premium:S*0.014, qty:1 }],
+  'bear-put': S => [
+    { type:'put', side:'long',  strike:Math.round(S*0.98/5)*5, premium:S*0.03,  qty:1 },
+    { type:'put', side:'short', strike:Math.round(S*0.94/5)*5, premium:S*0.014, qty:1 }],
+  'iron-condor': S => [
+    { type:'put',  side:'short', strike:Math.round(S*0.95/5)*5, premium:S*0.012, qty:1 },
+    { type:'put',  side:'long',  strike:Math.round(S*0.92/5)*5, premium:S*0.006, qty:1 },
+    { type:'call', side:'short', strike:Math.round(S*1.05/5)*5, premium:S*0.012, qty:1 },
+    { type:'call', side:'long',  strike:Math.round(S*1.08/5)*5, premium:S*0.006, qty:1 }],
+  'straddle': S => [
+    { type:'call', side:'long', strike:Math.round(S/5)*5, premium:S*0.035, qty:1 },
+    { type:'put',  side:'long', strike:Math.round(S/5)*5, premium:S*0.035, qty:1 }],
+  'strangle': S => [
+    { type:'call', side:'long', strike:Math.round(S*1.05/5)*5, premium:S*0.018, qty:1 },
+    { type:'put',  side:'long', strike:Math.round(S*0.95/5)*5, premium:S*0.018, qty:1 }],
+  'covered-call': S => [
+    { type:'stock', side:'long', entry:S, qty:100 },
+    { type:'call', side:'short', strike:Math.round(S*1.04/5)*5, premium:S*0.018, qty:1 }],
+  'csp': S => [{ type:'put', side:'short', strike:Math.round(S*0.97/5)*5, premium:S*0.022, qty:1 }]
+};
+
+let CURRENT_LEGS = [];
+function renderLegs() {
+  document.getElementById('legList').innerHTML = CURRENT_LEGS.map((l,i) => {
+    const sideClr = l.side==='long' ? 'var(--green)' : 'var(--red)';
+    const typeLbl = l.type.toUpperCase();
+    return `<div class="leg-row">
+      <span style="color:${sideClr};font-weight:700;text-transform:uppercase;">${l.side}</span>
+      <span style="color:var(--text-muted);">${typeLbl}${l.qty>1?` × ${l.qty}`:''}</span>
+      <span>${l.type!=='stock' ? `Strike <strong>${l.strike}</strong>` : `Entry <strong>${l.entry?.toFixed(2)}</strong>`}</span>
+      <span>${l.type!=='stock' ? `Prem <strong>${l.premium.toFixed(2)}</strong>` : `Shares <strong>${l.qty}</strong>`}</span>
+      <span></span>
+      <span></span>
+      <button class="btn btn-ghost" data-leg-remove="${i}" style="padding:2px 8px;font-size:11px;">✕</button>
+    </div>`;
+  }).join('');
+  document.querySelectorAll('[data-leg-remove]').forEach(b => b.onclick = () => { CURRENT_LEGS.splice(+b.dataset.legRemove,1); renderLegs(); drawPayoff(); });
+  drawPayoff();
+}
+
+function drawPayoff() {
+  const S = getSpot();
+  const range = [];
+  const lo = S * 0.70, hi = S * 1.30;
+  for (let p = lo; p <= hi; p += (hi - lo) / 100) range.push(p);
+  const series = strategyPayoff(CURRENT_LEGS, range);
+  if (CHARTS.payoff) CHARTS.payoff.destroy();
+  const ctx = document.getElementById('payoffChart').getContext('2d');
+  const grad = ctx.createLinearGradient(0,0,0,260);
+  grad.addColorStop(0, 'rgba(16,185,129,0.25)'); grad.addColorStop(1, 'rgba(16,185,129,0)');
+  CHARTS.payoff = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels: series.map(p => p.S.toFixed(2)),
+      datasets: [{
+        label: 'P/L at Expiration ($)',
+        data: series.map(p => p.pnl * 100), // 100 mult
+        borderColor: '#00d4ff',
+        backgroundColor: grad,
+        borderWidth: 2.5,
+        tension: 0.05,
+        pointRadius: 0,
+        fill: true,
+        segment: {
+          borderColor: ctx => ctx.p1.parsed.y >= 0 ? '#10b981' : '#ef4444'
+        }
+      }]
+    },
+    options: { ...baseOptions(), scales: { ...baseOptions().scales, y: { ...baseOptions().scales.y, ticks: { ...baseOptions().scales.y.ticks, callback: v => '$' + v.toLocaleString() }}}}
+  });
+  // stats
+  const pnls = series.map(p => p.pnl * 100);
+  const maxP = Math.max(...pnls), maxL = Math.min(...pnls);
+  document.getElementById('maxProfit').textContent = (maxP === Infinity ? '∞' : '$' + maxP.toFixed(0));
+  document.getElementById('maxLoss').textContent = (maxL === -Infinity ? '-∞' : '$' + maxL.toFixed(0));
+  // break-even: where pnl crosses 0
+  const bes = [];
+  for (let i = 1; i < series.length; i++) {
+    if ((series[i-1].pnl <= 0 && series[i].pnl > 0) || (series[i-1].pnl >= 0 && series[i].pnl < 0)) {
+      bes.push(((series[i-1].S + series[i].S)/2).toFixed(2));
+    }
+  }
+  document.getElementById('breakEven').textContent = bes.length ? '$' + bes.join(' / $') : '—';
+  // net cost
+  const net = CURRENT_LEGS.reduce((sum, l) => {
+    if (l.type === 'stock') return sum;
+    return sum + (l.side === 'long' ? -l.premium : l.premium) * (l.qty || 1) * 100;
+  }, 0);
+  document.getElementById('netCost').textContent = (net >= 0 ? '+$' : '-$') + Math.abs(net).toFixed(0) + (net >= 0 ? ' credit' : ' debit');
+}
+
+// ---------- Calculator ----------
+function recalcGreeks() {
+  const t = document.getElementById('calcType').value;
+  const S = +document.getElementById('calcS').value;
+  const K = +document.getElementById('calcK').value;
+  const dte = +document.getElementById('calcDTE').value;
+  const iv = +document.getElementById('calcIV').value / 100;
+  const r = +document.getElementById('calcR').value / 100;
+  const T = dte / 365;
+  const price = BS.price(t, S, K, T, r, iv);
+  const g = BS.greeks(t, S, K, T, r, iv);
+  document.getElementById('calcPrice').textContent = '$' + price.toFixed(3);
+  document.getElementById('calcDelta').textContent = g.delta.toFixed(4);
+  document.getElementById('calcGamma').textContent = g.gamma.toFixed(5);
+  document.getElementById('calcTheta').textContent = g.theta.toFixed(3);
+  document.getElementById('calcVega').textContent  = g.vega.toFixed(4);
+  document.getElementById('calcRho').textContent   = g.rho.toFixed(4);
+}
+
+// ---------- Wire ----------
+document.addEventListener('DOMContentLoaded', () => {
+  loadSymbol('NVDA');
+  CURRENT_LEGS = STRATS['long-call'](getSpot());
+  renderLegs();
+
+  document.getElementById('chainSymbol').addEventListener('change', e => loadSymbol(e.target.value));
+  document.getElementById('chainExpiry').addEventListener('change', e => { CURR_DTE_IDX = +e.target.value; renderChain(); });
+
+  document.querySelectorAll('[data-strat]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('[data-strat]').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      CURRENT_LEGS = STRATS[btn.dataset.strat](getSpot());
+      renderLegs();
+    });
+  });
+
+  ['calcType','calcS','calcK','calcDTE','calcIV','calcR'].forEach(id => {
+    document.getElementById(id).addEventListener('input', recalcGreeks);
+  });
+  recalcGreeks();
+
+  // Re-draw on live quote changes (debounced by interval)
+  let redrawTimer = null;
+  Feed.subscribe('*', () => {
+    if (redrawTimer) return;
+    redrawTimer = setTimeout(() => { redrawTimer = null; renderChain(); }, 2500);
+  });
+});
+</script>
+</body>
+</html>

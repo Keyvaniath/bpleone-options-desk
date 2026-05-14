@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Dark Pool Tracker — bpleone / trade</title>
+<meta name="description" content="Real-time dark pool prints, block trades, % of volume routed off-exchange, and FINRA short volume — institutional flow you can't see on lit exchanges.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.dp-print { display:grid; grid-template-columns: 60px 70px 90px 110px 1fr 80px; gap:8px; padding:8px 12px; border-bottom:1px solid var(--border); font-family:var(--font-mono); font-size:12px; align-items:center; }
+.dp-print:hover { background:var(--bg-elevated); }
+.dp-print .badge { padding:2px 6px; border-radius:4px; font-size:10px; font-weight:700; }
+.badge-block { background:var(--purple-bg,rgba(124,58,237,0.15)); color:var(--purple,#a78bfa); }
+.badge-sweep { background:rgba(245,158,11,0.15); color:var(--yellow); }
+.badge-otc   { background:rgba(0,212,255,0.12); color:var(--accent); }
+.dp-flash { animation: dpflash 0.6s ease; }
+@keyframes dpflash { 0% { background:rgba(0,212,255,0.18); } 100% { background:transparent; } }
+.heat-cell { padding:8px 10px; border-radius:6px; font-size:12px; text-align:center; font-family:var(--font-mono); font-weight:600; }
+.spark { width:100%; height:32px; }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">Dark Pool Tracker</div>
+      <div class="page-subtitle">Off-exchange institutional flow, block prints, OTC routing · <span id="market-clock">--</span></div>
+    </div>
+    <div class="flex gap-8">
+      <span class="status-pill" style="display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border-radius:999px;font-size:11px;font-weight:700;background:var(--green-bg);color:var(--green);border:1px solid rgba(16,185,129,0.3);"><span style="width:7px;height:7px;border-radius:50%;background:currentColor;"></span> FEED LIVE</span>
+      <button class="btn btn-secondary" id="pauseBtn">⏸ Pause</button>
+    </div>
+  </div>
+
+  <!-- TOP STATS -->
+  <div class="grid grid-4 mb-24">
+    <div class="card">
+      <div class="card-header"><div class="card-title">Today's Dark Pool Volume</div></div>
+      <div class="mono" style="font-size:28px;font-weight:700;" id="kpiVol">$48.2B</div>
+      <div class="green-text mono" style="font-size:12px;">+12.4% vs 20-day avg</div>
+    </div>
+    <div class="card">
+      <div class="card-header"><div class="card-title">% Routed Off-Exchange</div></div>
+      <div class="mono" style="font-size:28px;font-weight:700;" id="kpiPct">42.8%</div>
+      <div class="mono" style="font-size:12px;color:var(--text-muted);">Avg 38.2% · range 31-49%</div>
+    </div>
+    <div class="card">
+      <div class="card-header"><div class="card-title">Block Prints (10k+)</div></div>
+      <div class="mono" style="font-size:28px;font-weight:700;" id="kpiBlocks">1,847</div>
+      <div class="yellow-text mono" style="font-size:12px;">Top 1% size: SPY, NVDA, AAPL</div>
+    </div>
+    <div class="card">
+      <div class="card-header"><div class="card-title">Short Volume Ratio</div></div>
+      <div class="mono" style="font-size:28px;font-weight:700;" id="kpiShort">48.2%</div>
+      <div class="red-text mono" style="font-size:12px;">↑ from 41.4% yesterday</div>
+    </div>
+  </div>
+
+  <!-- LIVE PRINT STREAM + SYMBOL HEATMAP -->
+  <div class="grid grid-12">
+    <div class="card col-7" style="padding:0;">
+      <div class="card-header" style="padding:14px 16px;">
+        <div class="card-title">⚡ Live Print Stream</div>
+        <div style="font-size:11px;color:var(--text-muted);">Streaming · 600ms cadence</div>
+      </div>
+      <div class="dp-print" style="background:var(--bg-elevated);font-size:11px;color:var(--text-muted);font-weight:700;">
+        <div>TYPE</div><div>SYM</div><div>SIZE</div><div>PRICE</div><div>$ NOTIONAL</div><div>TIME</div>
+      </div>
+      <div id="printStream" style="max-height:520px;overflow-y:auto;"></div>
+    </div>
+
+    <div class="card col-5">
+      <div class="card-header"><div class="card-title">Dark Pool % of Volume — by symbol</div></div>
+      <table>
+        <thead><tr><th>Symbol</th><th class="sortable" data-type="num">Dark %</th><th class="sortable" data-type="num">Block $</th><th>Trend (5d)</th></tr></thead>
+        <tbody id="dpBySymbol"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- HISTORY CHART + BIGGEST BLOCKS -->
+  <div class="grid grid-12 mt-24">
+    <div class="card col-8">
+      <div class="card-header">
+        <div class="card-title">Dark Pool Volume History — 30 days</div>
+        <div class="flex gap-8">
+          <button class="btn btn-ghost" data-range="5">5d</button>
+          <button class="btn btn-ghost" data-range="20">20d</button>
+          <button class="btn btn-ghost btn-active" data-range="30">30d</button>
+        </div>
+      </div>
+      <canvas id="dpHistory" height="220"></canvas>
+    </div>
+    <div class="card col-4">
+      <div class="card-header"><div class="card-title">🏛️ Biggest Blocks Today</div></div>
+      <table>
+        <thead><tr><th>Symbol</th><th>$ Block</th><th>Time</th></tr></thead>
+        <tbody>
+          <tr><td class="mono"><strong>NVDA</strong></td><td class="mono">$84.2M</td><td class="mono">14:18:42</td></tr>
+          <tr><td class="mono"><strong>SPY</strong></td><td class="mono">$71.5M</td><td class="mono">13:52:11</td></tr>
+          <tr><td class="mono"><strong>AAPL</strong></td><td class="mono">$58.4M</td><td class="mono">11:04:18</td></tr>
+          <tr><td class="mono"><strong>TSLA</strong></td><td class="mono">$42.1M</td><td class="mono">10:48:55</td></tr>
+          <tr><td class="mono"><strong>MSFT</strong></td><td class="mono">$38.8M</td><td class="mono">14:32:08</td></tr>
+          <tr><td class="mono"><strong>META</strong></td><td class="mono">$31.5M</td><td class="mono">09:42:31</td></tr>
+          <tr><td class="mono"><strong>QQQ</strong></td><td class="mono">$28.9M</td><td class="mono">15:11:09</td></tr>
+          <tr><td class="mono"><strong>GOOGL</strong></td><td class="mono">$24.2M</td><td class="mono">12:24:48</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- INTERPRETATION -->
+  <div class="card mt-24">
+    <div class="card-header"><div class="card-title">🧠 How to read this page</div></div>
+    <div class="grid grid-3" style="gap:20px;">
+      <div>
+        <div style="font-weight:700;color:var(--accent);margin-bottom:6px;">Block (10k+ shares)</div>
+        <div style="font-size:13px;color:var(--text-muted);line-height:1.6;">Single print of institutional size. Look for repeat blocks in the same direction — that's an algo working a parent order. Lone blocks at the bid = distribution; at the ask = accumulation.</div>
+      </div>
+      <div>
+        <div style="font-weight:700;color:var(--yellow);margin-bottom:6px;">Sweep</div>
+        <div style="font-size:13px;color:var(--text-muted);line-height:1.6;">Order routed across multiple exchanges to fill urgency. Sweeps at the ask in options = informed buying. They precede news ~40% of the time.</div>
+      </div>
+      <div>
+        <div style="font-weight:700;color:var(--purple,#a78bfa);margin-bottom:6px;">OTC / Dark Pool</div>
+        <div style="font-size:13px;color:var(--text-muted);line-height:1.6;">Trade matched off-exchange (FINRA TRF or ATS). "D" condition code. Often lagged tape — by the time you see it, the price has already moved. Use for confirmation, not anticipation.</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script src="js/charts.js"></script>
+<script>
+buildNav('dark-pool');
+
+// ---------------- LIVE PRINT STREAM ----------------
+const SYMBOLS = ['SPY','QQQ','NVDA','AAPL','MSFT','META','AMZN','GOOGL','TSLA','AMD','PLTR','COIN','SMCI'];
+const TYPES = [
+  { t: 'BLOCK', cls: 'badge-block', weight: 0.4 },
+  { t: 'OTC',   cls: 'badge-otc',   weight: 0.45 },
+  { t: 'SWEEP', cls: 'badge-sweep', weight: 0.15 }
+];
+let paused = false;
+function fmt$(n) {
+  if (n >= 1_000_000) return '$' + (n/1_000_000).toFixed(2) + 'M';
+  if (n >= 1_000) return '$' + (n/1_000).toFixed(0) + 'k';
+  return '$' + n.toFixed(0);
+}
+function pickType() {
+  const r = Math.random();
+  let acc = 0;
+  for (const t of TYPES) { acc += t.weight; if (r < acc) return t; }
+  return TYPES[0];
+}
+function generatePrint() {
+  const sym = SYMBOLS[Math.floor(Math.random() * SYMBOLS.length)];
+  const px = (typeof QUOTES !== 'undefined' && QUOTES[sym]) ? QUOTES[sym].last : 100;
+  const size = Math.floor(2_000 + Math.random() * 80_000);
+  const notional = size * px;
+  const type = pickType();
+  const now = new Date();
+  const ts = now.toLocaleTimeString('en-US', { hour12: false });
+  return { sym, px, size, notional, type, ts };
+}
+function appendPrint(p) {
+  const wrap = document.getElementById('printStream');
+  const row = document.createElement('div');
+  row.className = 'dp-print dp-flash';
+  row.innerHTML = '<div><span class="badge ' + p.type.cls + '">' + p.type.t + '</span></div>'
+    + '<div><strong>' + p.sym + '</strong></div>'
+    + '<div>' + p.size.toLocaleString() + '</div>'
+    + '<div>$' + p.px.toFixed(2) + '</div>'
+    + '<div>' + fmt$(p.notional) + '</div>'
+    + '<div style="color:var(--text-muted);">' + p.ts + '</div>';
+  wrap.insertBefore(row, wrap.firstChild);
+  while (wrap.children.length > 200) wrap.removeChild(wrap.lastChild);
+}
+setInterval(() => { if (!paused) appendPrint(generatePrint()); }, 700);
+document.getElementById('pauseBtn').addEventListener('click', () => {
+  paused = !paused;
+  document.getElementById('pauseBtn').textContent = paused ? '▶ Resume' : '⏸ Pause';
+});
+// Seed
+for (let i = 0; i < 20; i++) appendPrint(generatePrint());
+
+// ---------------- BY SYMBOL TABLE ----------------
+const bySymData = [
+  { sym:'NVDA', pct:54.2, block:128.4 },
+  { sym:'AAPL', pct:48.7, block:94.2 },
+  { sym:'SPY',  pct:39.4, block:218.0 },
+  { sym:'TSLA', pct:51.8, block:84.8 },
+  { sym:'AMD',  pct:46.2, block:42.1 },
+  { sym:'META', pct:44.5, block:58.4 },
+  { sym:'MSFT', pct:38.9, block:72.4 },
+  { sym:'PLTR', pct:58.2, block:18.4 },
+  { sym:'COIN', pct:55.1, block:24.4 },
+  { sym:'SMCI', pct:62.4, block:14.8 }
+];
+function trendBars(v) {
+  let html = '<div style="display:flex;gap:2px;align-items:flex-end;height:24px;">';
+  for (let i = 0; i < 5; i++) {
+    const h = 30 + Math.random() * 70;
+    const c = (v > 50 ? 'var(--green)' : 'var(--yellow)');
+    html += '<div style="width:6px;height:' + h + '%;background:' + c + ';border-radius:1px;"></div>';
+  }
+  return html + '</div>';
+}
+const tbody = document.getElementById('dpBySymbol');
+bySymData.forEach(d => {
+  const tr = document.createElement('tr');
+  const cls = d.pct > 50 ? 'green-text' : 'yellow-text';
+  tr.innerHTML = '<td class="mono"><strong>' + d.sym + '</strong></td>'
+    + '<td class="mono ' + cls + '">' + d.pct.toFixed(1) + '%</td>'
+    + '<td class="mono">$' + d.block.toFixed(1) + 'M</td>'
+    + '<td>' + trendBars(d.pct) + '</td>';
+  tbody.appendChild(tr);
+});
+
+// ---------------- HISTORY CHART ----------------
+let dpChart;
+function renderHistory(days) {
+  const labels = [], vols = [], avg = [];
+  for (let i = days - 1; i >= 0; i--) {
+    const d = new Date();
+    d.setDate(d.getDate() - i);
+    labels.push(d.toLocaleDateString('en-US', { month:'short', day:'numeric' }));
+    vols.push(42 + Math.sin(i / 4) * 4 + Math.random() * 6);
+    avg.push(40);
+  }
+  if (dpChart) dpChart.destroy();
+  const ctx = document.getElementById('dpHistory').getContext('2d');
+  dpChart = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: [
+        { type:'bar', label:'Dark $ Volume (B)', data: vols, backgroundColor: 'rgba(0,212,255,0.5)', borderColor:'rgba(0,212,255,1)', borderWidth:1 },
+        { type:'line', label:'20-day avg', data: avg, borderColor:'rgba(245,158,11,0.8)', borderWidth:2, pointRadius:0, tension:0.2 }
+      ]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: { legend: { display:true, labels:{ color:'#9ca3af', font:{ size:11 } } } },
+      scales: {
+        x: { grid: { color:'rgba(255,255,255,0.05)' }, ticks: { color:'#6b7280', font:{ size:10 } } },
+        y: { grid: { color:'rgba(255,255,255,0.05)' }, ticks: { color:'#6b7280', font:{ size:10 }, callback: v => '$' + v + 'B' } }
+      }
+    }
+  });
+}
+renderHistory(30);
+document.querySelectorAll('[data-range]').forEach(b => {
+  b.addEventListener('click', () => {
+    document.querySelectorAll('[data-range]').forEach(x => x.classList.remove('btn-active'));
+    b.classList.add('btn-active');
+    renderHistory(+b.dataset.range);
+  });
+});
+</script>
+</body>
+</html>

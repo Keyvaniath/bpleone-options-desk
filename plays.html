@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Plays of the Day — bpleone / trade</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<style>
+.play-card { background: linear-gradient(135deg, var(--bg-secondary), var(--bg-tertiary)); border: 1px solid var(--border); border-radius: 14px; padding: 22px; transition: all 0.2s ease; position: relative; overflow: hidden; }
+.play-card:hover { border-color: var(--accent); transform: translateY(-2px); }
+.play-card.tier-a { border-color: rgba(0,212,255,0.5); box-shadow: 0 0 25px rgba(0,212,255,0.12); }
+.play-rank { position: absolute; top: 14px; right: 14px; background: var(--bg-elevated); padding: 4px 10px; border-radius: 999px; font-family: var(--font-mono); font-size: 11px; font-weight: 700; color: var(--accent); }
+.play-score-ring { width: 60px; height: 60px; }
+.play-leg { background: var(--bg-elevated); padding: 10px 12px; border-radius: 8px; margin-top: 8px; display: flex; justify-content: space-between; align-items: center; font-family: var(--font-mono); font-size: 12px; }
+</style>
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">Plays of the Day</div>
+      <div class="page-subtitle">High-conviction setups ranked by learn-adjusted score · <span id="market-clock">--</span></div>
+    </div>
+    <div class="flex gap-8">
+      <div class="filter-group">
+        <button class="filter-btn active" data-pfilter="all">All</button>
+        <button class="filter-btn" data-pfilter="bull">Bull</button>
+        <button class="filter-btn" data-pfilter="bear">Bear</button>
+        <button class="filter-btn" data-pfilter="neutral">Neutral</button>
+      </div>
+      <select id="sortBy" style="background:var(--bg-tertiary);border:1px solid var(--border);color:var(--text-primary);padding:8px 12px;border-radius:8px;font-size:13px;">
+        <option value="score">Sort: Score</option>
+        <option value="rr">Sort: R:R</option>
+        <option value="iv">Sort: IV Rank</option>
+        <option value="dte">Sort: DTE</option>
+      </select>
+    </div>
+  </div>
+
+  <!-- Score strip -->
+  <div class="grid grid-4" style="margin-bottom:24px;">
+    <div class="card"><div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;">Plays Active</div><div class="mono" style="font-size:24px;font-weight:800;margin-top:4px;" id="kpiActive">8</div></div>
+    <div class="card"><div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;">Avg Score</div><div class="mono yellow-text" style="font-size:24px;font-weight:800;margin-top:4px;" id="kpiAvgScore">82</div></div>
+    <div class="card"><div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;">Avg R:R</div><div class="mono" style="font-size:24px;font-weight:800;margin-top:4px;" id="kpiAvgRR">2.4 : 1</div></div>
+    <div class="card"><div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;">Learn Edge (90d)</div><div class="mono green-text" style="font-size:24px;font-weight:800;margin-top:4px;" id="kpiEdge">+0.78R</div></div>
+  </div>
+
+  <!-- Plays grid -->
+  <div class="grid grid-2" id="playsGrid">
+    <!-- populated by JS -->
+  </div>
+
+  <!-- Legend -->
+  <div class="card" style="margin-top:24px;">
+    <div class="card-header"><div class="card-title">🧠 How Plays Are Scored</div></div>
+    <div style="font-size:13px;color:var(--text-secondary);line-height:1.8;">
+      Raw score combines (a) <strong style="color:var(--text-primary);">TA confluence</strong> — MA alignment, RSI position, MACD state, volume, pattern grade; (b) <strong style="color:var(--text-primary);">flow context</strong> — sweeps, blocks, dark-pool prints, call-put premium ratio; (c) <strong style="color:var(--text-primary);">momentum</strong> — multi-lookback RS vs SPY; and (d) <strong style="color:var(--text-primary);">vol regime</strong> — IV rank, term structure, gamma exposure.
+      <br><br>
+      <strong style="color:var(--accent);">Self-learning adjustment:</strong> each setup type carries a weight that's continuously updated from realized expectancy. After ~3 closed trades per setup, weights begin amplifying or dampening raw scores so the system rotates capital toward what's actually working in the current regime. Open the <a href="edge-analytics.html" style="color:var(--accent);">Edge Analytics</a> page to inspect the current weight matrix.
+    </div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/charts.js"></script>
+<script src="js/live.js"></script>
+<script src="js/learn.js"></script>
+<script>
+buildNav('plays');
+
+const PLAYS = [
+  { sym:'NVDA', name:'NVIDIA',         sector:'Tech',          bias:'bull', setup:'50ma-reclaim',  raw:94, entry:138.27, stop:133.80, t1:143.50, t2:148.20, rr:2.7, dte:38, iv:38.4, ivRank:42, contract:'NVDA 6/20 145C @ $3.85', size:'1.0%', thesis:'50DMA reclaim on 1.84x avg volume. MACD bullish cross. Sweep premium $48M ahead of Computex 5/19.' },
+  { sym:'META', name:'Meta Platforms', sector:'Comm Svc',      bias:'bull', setup:'bull-flag',     raw:91, entry:587.42, stop:572.40, t1:601.80, t2:618.40, rr:2.4, dte:38, iv:32.8, ivRank:38, contract:'META 6/20 580/600 CS @ $8.20 dr', size:'0.8%', thesis:'Bull flag broke $585 on volume. Measured move $612. RSI 58 — room to run.' },
+  { sym:'AMD',  name:'Advanced Micro', sector:'Tech',          bias:'bull', setup:'macd-cross',    raw:88, entry:162.18, stop:156.40, t1:170.00, t2:178.40, rr:2.5, dte:38, iv:42.1, ivRank:48, contract:'AMD 6/20 170C @ $4.20', size:'0.8%', thesis:'Bull flag breakout day. Unusual call sweep $1.8M @ $170C. Riding the chip cycle.' },
+  { sym:'SMCI', name:'Super Micro',    sector:'Tech',          bias:'bull', setup:'volume-breakout', raw:87, entry:48.21, stop:43.20, t1:54.00, t2:62.00, rr:2.7, dte:30, iv:78.4, ivRank:84, contract:'SMCI 5/30 50C @ $2.45', size:'0.5%', thesis:'Cleared $46 resistance on 3.4x volume. RS rank #1 in scanner. High beta to NVDA.' },
+  { sym:'PLTR', name:'Palantir',       sector:'Tech',          bias:'bull', setup:'cup-handle',    raw:85, entry:31.84, stop:28.92, t1:34.50, t2:38.00, rr:2.1, dte:38, iv:62.4, ivRank:58, contract:'PLTR 6/20 35C @ $0.75', size:'0.5%', thesis:'Cup-and-handle on weekly. New 6-month high. Govt contracts pipeline.' },
+  { sym:'COIN', name:'Coinbase',       sector:'Financials',    bias:'bull', setup:'52w-break',     raw:83, entry:248.92, stop:232.40, t1:265.00, t2:278.00, rr:1.9, dte:38, iv:68.4, ivRank:62, contract:'COIN 6/20 260C @ $6.10', size:'0.5%', thesis:'Higher-high structure, BTC tailwind, narrative driver into halving aftermath.' },
+  { sym:'TSLA', name:'Tesla',          sector:'Cons Disc',     bias:'bear', setup:'200dma-break',  raw:81, entry:248.61, stop:255.40, t1:238.00, t2:228.00, rr:2.7, dte:24, iv:52.4, ivRank:46, contract:'TSLA 5/23 240P @ $3.85', size:'0.5%', thesis:'Closed below 200DMA on 1.8x volume. Bear-flag measured move to $228. Demand concerns.' },
+  { sym:'RIVN', name:'Rivian',         sector:'Cons Disc',     bias:'bear', setup:'52w-break',     raw:78, entry:12.18, stop:13.20, t1:10.80, t2:9.50, rr:2.5, dte:30, iv:78.2, ivRank:72, contract:'RIVN 5/30 11P @ $0.44', size:'0.3%', thesis:'52w low confirmed. Lower lows on weekly. Q1 production guide cut.' }
+];
+
+function adjustForLearn(plays) {
+  if (typeof Learn === 'undefined') return plays;
+  const weights = Learn.getWeights();
+  return plays.map(p => ({
+    ...p,
+    score: Learn.adjustedScore(p.raw, p.setup),
+    weight: weights[p.setup] || 1.0
+  }));
+}
+
+function scoreRing(score) {
+  const r = 22, c = 2 * Math.PI * r;
+  const pct = score / 100;
+  const offset = c * (1 - pct);
+  const color = score >= 90 ? '#10b981' : score >= 75 ? '#00d4ff' : score >= 60 ? '#f59e0b' : '#ef4444';
+  return `<svg class="play-score-ring" viewBox="0 0 50 50">
+    <circle cx="25" cy="25" r="${r}" fill="none" stroke="var(--bg-elevated)" stroke-width="4"/>
+    <circle cx="25" cy="25" r="${r}" fill="none" stroke="${color}" stroke-width="4" stroke-linecap="round"
+      stroke-dasharray="${c}" stroke-dashoffset="${offset}" transform="rotate(-90 25 25)"/>
+    <text x="25" y="29" text-anchor="middle" fill="${color}" font-family="JetBrains Mono" font-size="14" font-weight="700">${score}</text>
+  </svg>`;
+}
+
+function renderPlays(list, sortKey) {
+  const sorted = [...list].sort((a, b) => {
+    if (sortKey === 'score') return b.score - a.score;
+    if (sortKey === 'rr') return b.rr - a.rr;
+    if (sortKey === 'iv') return b.ivRank - a.ivRank;
+    if (sortKey === 'dte') return a.dte - b.dte;
+    return 0;
+  });
+  document.getElementById('playsGrid').innerHTML = sorted.map((p, i) => {
+    const tier = p.score >= 90 ? 'tier-a' : '';
+    const biasClr = p.bias === 'bull' ? 'var(--green)' : p.bias === 'bear' ? 'var(--red)' : 'var(--yellow)';
+    const biasIcon = p.bias === 'bull' ? '▲ BULL' : p.bias === 'bear' ? '▼ BEAR' : '◆ NEUTRAL';
+    const wTag = p.weight && p.weight !== 1 ? `<span style="font-size:10px;color:${p.weight>1?'var(--green)':'var(--red)'};margin-left:6px;">×${p.weight.toFixed(2)}</span>` : '';
+    return `<div class="play-card ${tier}" data-bias="${p.bias}">
+      <div class="play-rank">#${i+1}</div>
+      <div style="display:grid;grid-template-columns:1fr auto;gap:16px;align-items:center;margin-bottom:14px;">
+        <div>
+          <div style="display:flex;align-items:center;gap:10px;">
+            <div class="mono" style="font-size:24px;font-weight:800;">${p.sym}</div>
+            <span style="font-size:11px;color:${biasClr};font-weight:700;letter-spacing:0.05em;">${biasIcon}</span>
+          </div>
+          <div style="font-size:12px;color:var(--text-muted);margin-top:2px;">${p.name} · ${p.sector} · ${p.setup}${wTag}</div>
+        </div>
+        ${scoreRing(p.score)}
+      </div>
+
+      <div style="background:rgba(0,0,0,0.18);border-left:3px solid var(--accent);padding:10px 12px;border-radius:0 6px 6px 0;font-size:12px;line-height:1.6;color:var(--text-secondary);margin-bottom:14px;">
+        ${p.thesis}
+      </div>
+
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px;font-family:var(--font-mono);font-size:11px;">
+        <div style="background:var(--bg-elevated);padding:6px;border-radius:4px;text-align:center;"><div style="color:var(--text-muted);font-size:9px;">ENTRY</div><div>${p.entry}</div></div>
+        <div style="background:var(--bg-elevated);padding:6px;border-radius:4px;text-align:center;"><div style="color:var(--text-muted);font-size:9px;">STOP</div><div style="color:var(--red);">${p.stop}</div></div>
+        <div style="background:var(--bg-elevated);padding:6px;border-radius:4px;text-align:center;"><div style="color:var(--text-muted);font-size:9px;">T1</div><div style="color:var(--green);">${p.t1}</div></div>
+        <div style="background:var(--bg-elevated);padding:6px;border-radius:4px;text-align:center;"><div style="color:var(--text-muted);font-size:9px;">T2</div><div style="color:var(--green);">${p.t2}</div></div>
+      </div>
+
+      <div class="play-leg">
+        <span style="color:var(--text-muted);">CONTRACT</span>
+        <span style="color:var(--accent);font-weight:700;">${p.contract}</span>
+      </div>
+
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:14px;font-size:11px;color:var(--text-muted);">
+        <div><span style="color:var(--text-muted);">R:R</span> <strong style="color:var(--text-primary);">${p.rr}:1</strong></div>
+        <div><span style="color:var(--text-muted);">DTE</span> <strong style="color:var(--text-primary);">${p.dte}</strong></div>
+        <div><span style="color:var(--text-muted);">IV Rank</span> <strong style="color:var(--text-primary);">${p.ivRank}</strong></div>
+        <div><span style="color:var(--text-muted);">Size</span> <strong style="color:var(--text-primary);">${p.size}</strong></div>
+      </div>
+
+      <div style="display:flex;gap:8px;margin-top:14px;">
+        <button class="btn btn-primary" style="flex:1;font-size:12px;padding:8px;" onclick="trackPlay('${p.sym}','${p.setup}','${p.sector}','${p.bias}',${p.score},${p.entry},${p.stop},${p.t1})">📥 Track</button>
+        <a href="trade-of-the-day.html" class="btn btn-secondary" style="flex:1;font-size:12px;padding:8px;text-align:center;">📊 Full Analysis</a>
+      </div>
+    </div>`;
+  }).join('');
+  // KPIs
+  document.getElementById('kpiActive').textContent = sorted.length;
+  document.getElementById('kpiAvgScore').textContent = Math.round(sorted.reduce((a,p) => a + p.score, 0) / sorted.length);
+  document.getElementById('kpiAvgRR').textContent = (sorted.reduce((a,p) => a + p.rr, 0) / sorted.length).toFixed(1) + ' : 1';
+  if (typeof Learn !== 'undefined') {
+    const s = Learn.stats();
+    document.getElementById('kpiEdge').textContent = (s.avgR >= 0 ? '+' : '') + s.avgR.toFixed(2) + 'R';
+  }
+}
+
+function trackPlay(sym, setup, sector, bias, score, entry, stop, target) {
+  if (typeof Learn === 'undefined') return;
+  Learn.recordTrade({ symbol: sym, setup, sector, bias, score, entry, stop, target });
+  alert('✓ Tracking ' + sym + '. View open trades in Edge Analytics → My Tracking.');
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  let current = adjustForLearn(PLAYS);
+  let sortKey = 'score';
+  let biasFilter = 'all';
+
+  function refresh() {
+    const list = biasFilter === 'all' ? current : current.filter(p => p.bias === biasFilter);
+    renderPlays(list, sortKey);
+  }
+  refresh();
+
+  document.getElementById('sortBy').addEventListener('change', e => { sortKey = e.target.value; refresh(); });
+  document.querySelectorAll('[data-pfilter]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('[data-pfilter]').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      biasFilter = btn.dataset.pfilter;
+      refresh();
+    });
+  });
+});
+</script>
+</body>
+</html>

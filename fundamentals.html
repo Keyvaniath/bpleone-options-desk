@@ -1,0 +1,404 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Fundamentals — bpleone / trade</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<style>
+.metric-row { display:flex; justify-content:space-between; padding:8px 0; border-bottom:1px dashed var(--border); font-family:var(--font-mono); font-size:13px; }
+.metric-row:last-child { border-bottom:none; }
+.metric-row .label { color:var(--text-muted); font-family:var(--font-sans); }
+.beat { color:var(--green); }
+.miss { color:var(--red); }
+.flat { color:var(--yellow); }
+.rating-pill { display:inline-block; padding:3px 10px; border-radius:4px; font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:0.05em; }
+.r-buy { background:var(--green-bg); color:var(--green); }
+.r-hold { background:var(--yellow-bg); color:var(--yellow); }
+.r-sell { background:var(--red-bg); color:var(--red); }
+.r-strong-buy { background:rgba(16,185,129,0.3); color:#fff; }
+</style>
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">Fundamentals · NVDA</div>
+      <div class="page-subtitle">Equity research view — earnings, financials, ratings, valuation · <span id="market-clock">--</span></div>
+    </div>
+    <div class="flex gap-8">
+      <select id="fundSymbol" style="background:var(--bg-tertiary);border:1px solid var(--border);color:var(--text-primary);padding:8px 14px;border-radius:8px;font-family:var(--font-mono);font-size:14px;font-weight:600;">
+        <option>NVDA</option><option>AAPL</option><option>MSFT</option><option>META</option><option>AMZN</option><option>GOOGL</option><option>TSLA</option><option>AMD</option>
+      </select>
+      <button class="btn btn-secondary">📥 Export Model</button>
+    </div>
+  </div>
+
+  <!-- Hero strip -->
+  <div class="card mb-16" style="margin-bottom:24px;background:linear-gradient(135deg, var(--bg-secondary), var(--bg-tertiary));padding:24px;">
+    <div style="display:grid;grid-template-columns:1.5fr 1fr 1fr 1fr 1fr 1fr;gap:20px;align-items:center;">
+      <div>
+        <div class="mono" style="font-size:32px;font-weight:800;">NVDA <span style="color:var(--text-muted);font-size:14px;font-weight:400;">NASDAQ</span></div>
+        <div style="font-size:13px;color:var(--text-muted);margin-top:4px;">NVIDIA Corporation · Semiconductors · Large Cap</div>
+        <div style="margin-top:10px;display:flex;gap:8px;">
+          <span class="rating-pill r-strong-buy">Strong Buy</span>
+          <span style="font-size:12px;color:var(--text-muted);">42 Analysts</span>
+        </div>
+      </div>
+      <div><div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.05em;">Market Cap</div><div class="mono" style="font-size:18px;font-weight:700;">$3.41T</div></div>
+      <div><div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.05em;">P/E (TTM)</div><div class="mono" style="font-size:18px;font-weight:700;">68.4x</div></div>
+      <div><div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.05em;">Fwd P/E</div><div class="mono" style="font-size:18px;font-weight:700;color:var(--accent);">38.2x</div></div>
+      <div><div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.05em;">PEG</div><div class="mono" style="font-size:18px;font-weight:700;color:var(--green);">0.84</div></div>
+      <div><div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.05em;">Price Target</div><div class="mono" style="font-size:18px;font-weight:700;color:var(--green);">$162.40 <span style="font-size:11px;">(+17%)</span></div></div>
+    </div>
+  </div>
+
+  <!-- Tabs -->
+  <div class="tabs" data-group="fund-tabs">
+    <button class="tab-btn active" data-tab="overview">Overview</button>
+    <button class="tab-btn" data-tab="earnings">Earnings</button>
+    <button class="tab-btn" data-tab="financials">Financials</button>
+    <button class="tab-btn" data-tab="valuation">Valuation</button>
+    <button class="tab-btn" data-tab="ratings">Analyst Ratings</button>
+    <button class="tab-btn" data-tab="ownership">Ownership</button>
+  </div>
+
+  <!-- OVERVIEW -->
+  <div class="tab-content active" data-tab-content="overview" data-tab-group="fund-tabs">
+    <div class="grid grid-12">
+      <div class="card col-8">
+        <div class="card-header"><div class="card-title">📊 Revenue & EPS — Last 8 Quarters</div></div>
+        <div class="chart-container"><canvas id="qtrChart"></canvas></div>
+      </div>
+      <div class="card col-4">
+        <div class="card-header"><div class="card-title">💎 Key Metrics</div></div>
+        <div class="metric-row"><span class="label">Revenue TTM</span><span>$96.31B</span></div>
+        <div class="metric-row"><span class="label">Net Income TTM</span><span>$53.01B</span></div>
+        <div class="metric-row"><span class="label">EPS (Dil. TTM)</span><span>$2.02</span></div>
+        <div class="metric-row"><span class="label">Gross Margin</span><span class="beat">76.1%</span></div>
+        <div class="metric-row"><span class="label">Op. Margin</span><span class="beat">61.9%</span></div>
+        <div class="metric-row"><span class="label">Net Margin</span><span class="beat">55.1%</span></div>
+        <div class="metric-row"><span class="label">FCF Margin</span><span class="beat">47.4%</span></div>
+        <div class="metric-row"><span class="label">ROE</span><span class="beat">119.4%</span></div>
+        <div class="metric-row"><span class="label">ROIC</span><span class="beat">98.2%</span></div>
+        <div class="metric-row"><span class="label">Debt / Equity</span><span class="beat">0.18</span></div>
+        <div class="metric-row"><span class="label">Cash</span><span>$26.0B</span></div>
+        <div class="metric-row"><span class="label">Insider %</span><span>4.2%</span></div>
+        <div class="metric-row"><span class="label">Inst. %</span><span>67.8%</span></div>
+        <div class="metric-row"><span class="label">Short Interest</span><span>1.84%</span></div>
+        <div class="metric-row"><span class="label">Dividend Yield</span><span>0.03%</span></div>
+        <div class="metric-row"><span class="label">Beta (1Y)</span><span>1.62</span></div>
+      </div>
+    </div>
+
+    <div class="grid grid-12" style="margin-top:24px;">
+      <div class="card col-6">
+        <div class="card-header"><div class="card-title">📈 Growth Profile</div></div>
+        <table>
+          <thead><tr><th></th><th>YoY</th><th>3Y CAGR</th><th>5Y CAGR</th><th>Fwd Est.</th></tr></thead>
+          <tbody>
+            <tr><td>Revenue</td><td class="green-text">+148.2%</td><td class="green-text">+62.4%</td><td class="green-text">+38.4%</td><td class="green-text">+38.2%</td></tr>
+            <tr><td>EPS</td><td class="green-text">+392.0%</td><td class="green-text">+118.4%</td><td class="green-text">+52.4%</td><td class="green-text">+48.6%</td></tr>
+            <tr><td>FCF</td><td class="green-text">+412.0%</td><td class="green-text">+128.4%</td><td class="green-text">+48.4%</td><td class="green-text">+42.4%</td></tr>
+            <tr><td>Gross Margin</td><td class="green-text">+1,840 bps</td><td class="green-text">+1,420 bps</td><td class="green-text">+1,140 bps</td><td class="flat">flat</td></tr>
+            <tr><td>Op Margin</td><td class="green-text">+2,120 bps</td><td class="green-text">+1,820 bps</td><td class="green-text">+1,420 bps</td><td class="flat">flat</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="card col-6">
+        <div class="card-header"><div class="card-title">⚖️ Peer Comparison</div></div>
+        <table>
+          <thead><tr><th>Symbol</th><th>Mkt Cap</th><th>Fwd P/E</th><th>PEG</th><th>FCF Yield</th><th>Rev Gr.</th></tr></thead>
+          <tbody>
+            <tr><td class="symbol">NVDA</td><td>$3.41T</td><td><strong>38.2x</strong></td><td><strong class="green-text">0.84</strong></td><td>2.18%</td><td class="green-text">+38.2%</td></tr>
+            <tr><td class="symbol">AMD</td><td>$262B</td><td>32.4x</td><td>1.42</td><td>2.42%</td><td class="green-text">+18.4%</td></tr>
+            <tr><td class="symbol">AVGO</td><td>$782B</td><td>34.8x</td><td>1.84</td><td>2.84%</td><td class="green-text">+22.4%</td></tr>
+            <tr><td class="symbol">INTC</td><td>$192B</td><td>28.4x</td><td>3.42</td><td>1.42%</td><td class="red-text">-2.4%</td></tr>
+            <tr><td class="symbol">QCOM</td><td>$214B</td><td>22.4x</td><td>1.18</td><td>3.42%</td><td class="green-text">+8.4%</td></tr>
+            <tr><td class="symbol">MU</td><td>$148B</td><td>14.2x</td><td>0.42</td><td>2.18%</td><td class="green-text">+82.4%</td></tr>
+            <tr><td style="color:var(--text-muted);">Sector Median</td><td>—</td><td>28.4x</td><td>1.42</td><td>2.42%</td><td>+22.4%</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- EARNINGS -->
+  <div class="tab-content" data-tab-content="earnings" data-tab-group="fund-tabs">
+    <div class="grid grid-12">
+      <div class="card col-12">
+        <div class="card-header">
+          <div class="card-title">📅 Next Earnings · May 28, 2026 AMC</div>
+          <span class="card-badge purple">15 days · Implied Move ±9.4%</span>
+        </div>
+        <div class="grid grid-4">
+          <div style="padding:12px;background:var(--bg-elevated);border-radius:8px;">
+            <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;">EPS Est.</div>
+            <div class="mono" style="font-size:22px;font-weight:700;color:var(--accent);">$0.84</div>
+            <div style="font-size:11px;color:var(--text-muted);">range $0.78 – $0.92</div>
+          </div>
+          <div style="padding:12px;background:var(--bg-elevated);border-radius:8px;">
+            <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;">Revenue Est.</div>
+            <div class="mono" style="font-size:22px;font-weight:700;color:var(--accent);">$28.4B</div>
+            <div style="font-size:11px;color:var(--text-muted);">range $26.8 – $30.2</div>
+          </div>
+          <div style="padding:12px;background:var(--bg-elevated);border-radius:8px;">
+            <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;">EPS Whisper</div>
+            <div class="mono" style="font-size:22px;font-weight:700;color:var(--yellow);">$0.91</div>
+            <div style="font-size:11px;color:var(--text-muted);">+$0.07 vs cons.</div>
+          </div>
+          <div style="padding:12px;background:var(--bg-elevated);border-radius:8px;">
+            <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;">Hist. Beat Rate</div>
+            <div class="mono" style="font-size:22px;font-weight:700;color:var(--green);">8/8 (100%)</div>
+            <div style="font-size:11px;color:var(--text-muted);">avg +21.4% surprise</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card mb-16" style="margin-top:24px;">
+      <div class="card-header"><div class="card-title">📊 Earnings History (Last 8 Quarters)</div></div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Quarter</th><th>Date</th><th>EPS Est.</th><th>EPS Act.</th><th>Surprise</th><th>Rev Est.</th><th>Rev Act.</th><th>Surprise</th><th>Reaction (1D)</th></tr></thead>
+          <tbody>
+            <tr><td>Q4'25</td><td>2/26/26</td><td>$0.84</td><td class="beat">$0.89</td><td class="beat">+6.0%</td><td>$33.4B</td><td class="beat">$35.6B</td><td class="beat">+6.6%</td><td class="green-text">+8.4%</td></tr>
+            <tr><td>Q3'25</td><td>11/20/25</td><td>$0.75</td><td class="beat">$0.81</td><td class="beat">+8.0%</td><td>$32.4B</td><td class="beat">$35.1B</td><td class="beat">+8.3%</td><td class="green-text">+12.2%</td></tr>
+            <tr><td>Q2'25</td><td>8/28/25</td><td>$0.65</td><td class="beat">$0.68</td><td class="beat">+4.6%</td><td>$28.5B</td><td class="beat">$30.0B</td><td class="beat">+5.3%</td><td class="red-text">-6.4%</td></tr>
+            <tr><td>Q1'25</td><td>5/22/25</td><td>$0.58</td><td class="beat">$0.61</td><td class="beat">+5.2%</td><td>$24.6B</td><td class="beat">$26.0B</td><td class="beat">+5.7%</td><td class="green-text">+9.3%</td></tr>
+            <tr><td>Q4'24</td><td>2/21/25</td><td>$0.42</td><td class="beat">$0.51</td><td class="beat">+21.4%</td><td>$20.4B</td><td class="beat">$22.1B</td><td class="beat">+8.3%</td><td class="green-text">+16.4%</td></tr>
+            <tr><td>Q3'24</td><td>11/21/24</td><td>$0.34</td><td class="beat">$0.40</td><td class="beat">+17.6%</td><td>$16.1B</td><td class="beat">$18.1B</td><td class="beat">+12.4%</td><td class="green-text">+9.8%</td></tr>
+            <tr><td>Q2'24</td><td>8/23/24</td><td>$0.28</td><td class="beat">$0.34</td><td class="beat">+21.4%</td><td>$11.0B</td><td class="beat">$13.5B</td><td class="beat">+22.7%</td><td class="green-text">+24.4%</td></tr>
+            <tr><td>Q1'24</td><td>5/24/24</td><td>$0.22</td><td class="beat">$0.27</td><td class="beat">+22.7%</td><td>$6.5B</td><td class="beat">$7.2B</td><td class="beat">+10.8%</td><td class="green-text">+8.4%</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div style="font-size:12px;color:var(--text-muted);margin-top:14px;line-height:1.7;">
+        <strong style="color:var(--accent);">Read:</strong> 8/8 beat streak, surprises trending lower (Q1'24 +22.7% → Q4'25 +6.0%) — high bar may make magnitude of surprise smaller, but base case is still a beat-and-raise. Implied move ±9.4% is consistent with realized vol on recent prints.
+      </div>
+    </div>
+  </div>
+
+  <!-- FINANCIALS -->
+  <div class="tab-content" data-tab-content="financials" data-tab-group="fund-tabs">
+    <div class="card mb-16" style="margin-bottom:24px;">
+      <div class="card-header">
+        <div class="card-title">💰 Income Statement — Annual</div>
+        <div class="filter-group">
+          <button class="filter-btn active">Annual</button>
+          <button class="filter-btn">Quarterly</button>
+          <button class="filter-btn">TTM</button>
+        </div>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>($B)</th><th>FY21</th><th>FY22</th><th>FY23</th><th>FY24</th><th>FY25</th><th>FY26E</th><th>FY27E</th></tr></thead>
+          <tbody>
+            <tr><td>Revenue</td><td>16.7</td><td>26.9</td><td>27.0</td><td>60.9</td><td>130.5</td><td>180.4</td><td>238.2</td></tr>
+            <tr><td style="color:var(--text-muted);">% YoY</td><td class="green-text">+53%</td><td class="green-text">+61%</td><td class="flat">+0.4%</td><td class="green-text">+126%</td><td class="green-text">+114%</td><td class="green-text">+38%</td><td class="green-text">+32%</td></tr>
+            <tr><td>Gross Profit</td><td>10.4</td><td>17.5</td><td>15.4</td><td>44.3</td><td>97.9</td><td>137.4</td><td>183.4</td></tr>
+            <tr><td style="color:var(--text-muted);">GM %</td><td>62%</td><td>65%</td><td>57%</td><td>73%</td><td>75%</td><td>76%</td><td>77%</td></tr>
+            <tr><td>Op Income</td><td>4.5</td><td>10.0</td><td>4.2</td><td>33.0</td><td>80.7</td><td>116.8</td><td>156.4</td></tr>
+            <tr><td style="color:var(--text-muted);">OM %</td><td>27%</td><td>37%</td><td>15%</td><td>54%</td><td>62%</td><td>65%</td><td>66%</td></tr>
+            <tr><td>Net Income</td><td>4.3</td><td>9.8</td><td>4.4</td><td>29.8</td><td>72.9</td><td>104.2</td><td>140.4</td></tr>
+            <tr><td>EPS (Dil.)</td><td>$0.17</td><td>$0.39</td><td>$0.17</td><td>$1.19</td><td>$2.94</td><td>$4.21</td><td>$5.68</td></tr>
+            <tr><td>FCF</td><td>4.7</td><td>8.1</td><td>3.8</td><td>27.0</td><td>62.1</td><td>89.2</td><td>120.4</td></tr>
+            <tr><td>Capex</td><td>1.0</td><td>1.8</td><td>1.5</td><td>2.4</td><td>4.2</td><td>6.8</td><td>9.4</td></tr>
+            <tr><td>Cash & Inv.</td><td>11.5</td><td>17.4</td><td>13.3</td><td>26.0</td><td>34.8</td><td>48.4</td><td>72.2</td></tr>
+            <tr><td>Total Debt</td><td>11.8</td><td>11.0</td><td>11.0</td><td>9.7</td><td>8.4</td><td>8.4</td><td>8.4</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="grid grid-12">
+      <div class="card col-6"><div class="card-header"><div class="card-title">📈 Revenue Trend</div></div><div class="chart-container"><canvas id="revChart"></canvas></div></div>
+      <div class="card col-6"><div class="card-header"><div class="card-title">💵 FCF & Margin Trend</div></div><div class="chart-container"><canvas id="fcfChart"></canvas></div></div>
+    </div>
+  </div>
+
+  <!-- VALUATION -->
+  <div class="tab-content" data-tab-content="valuation" data-tab-group="fund-tabs">
+    <div class="grid grid-12">
+      <div class="card col-7">
+        <div class="card-header"><div class="card-title">🎯 Multi-Method Price Target</div></div>
+        <div style="font-size:13px;color:var(--text-secondary);line-height:1.8;margin-bottom:16px;">A blended target weights four standard methods. Bear/base/bull cases below.</div>
+        <table>
+          <thead><tr><th>Method</th><th>Assumption</th><th>Bear</th><th>Base</th><th>Bull</th><th>Weight</th></tr></thead>
+          <tbody>
+            <tr><td>DCF (5Y FCF, 11% WACC)</td><td>2% terminal g</td><td>$118</td><td>$152</td><td>$198</td><td>30%</td></tr>
+            <tr><td>Fwd P/E Multiple</td><td>32x – 42x</td><td>$135</td><td>$162</td><td>$210</td><td>30%</td></tr>
+            <tr><td>EV/EBITDA</td><td>22x – 28x</td><td>$128</td><td>$158</td><td>$195</td><td>20%</td></tr>
+            <tr><td>PEG (target 1.0)</td><td>48% g forward</td><td>$142</td><td>$172</td><td>$215</td><td>20%</td></tr>
+            <tr style="background:var(--bg-elevated);"><td><strong>Blended</strong></td><td>—</td><td><strong>$130</strong></td><td><strong style="color:var(--accent);">$162</strong></td><td><strong>$204</strong></td><td>100%</td></tr>
+          </tbody>
+        </table>
+        <div style="background:var(--bg-elevated);padding:14px;border-radius:8px;margin-top:14px;font-family:var(--font-mono);font-size:13px;">
+          <div style="display:flex;justify-content:space-between;"><span style="color:var(--text-muted);">Current Price</span><span>$138.27</span></div>
+          <div style="display:flex;justify-content:space-between;"><span style="color:var(--text-muted);">Base PT</span><span class="green-text">$162.40 (+17.5%)</span></div>
+          <div style="display:flex;justify-content:space-between;"><span style="color:var(--text-muted);">Risk/Reward</span><span class="green-text">2.6 : 1 (vs $130 bear)</span></div>
+        </div>
+      </div>
+      <div class="card col-5">
+        <div class="card-header"><div class="card-title">📊 Valuation Multiples vs History</div></div>
+        <div class="chart-container small"><canvas id="multChart"></canvas></div>
+        <div style="font-size:12px;color:var(--text-muted);margin-top:12px;line-height:1.7;">
+          Fwd P/E currently in the 60th percentile of 5-year range — not stretched given growth profile (PEG = 0.84, well below sector median of 1.42). Multiple compression risk: if AI capex narrative cools, multiple could rerate to 28x ($118).
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ANALYST RATINGS -->
+  <div class="tab-content" data-tab-content="ratings" data-tab-group="fund-tabs">
+    <div class="grid grid-12">
+      <div class="card col-4">
+        <div class="card-header"><div class="card-title">⭐ Consensus</div></div>
+        <div style="text-align:center;padding:20px;">
+          <div class="mono" style="font-size:42px;font-weight:800;color:var(--green);">4.7 / 5</div>
+          <div style="font-size:13px;color:var(--text-muted);">Strong Buy</div>
+          <div style="margin-top:20px;text-align:left;">
+            <div style="display:flex;justify-content:space-between;padding:6px 0;"><span>Strong Buy</span><span class="mono">28</span></div>
+            <div style="background:var(--bg-elevated);height:6px;border-radius:3px;"><div style="background:var(--green);height:100%;width:67%;border-radius:3px;"></div></div>
+            <div style="display:flex;justify-content:space-between;padding:6px 0;margin-top:8px;"><span>Buy</span><span class="mono">11</span></div>
+            <div style="background:var(--bg-elevated);height:6px;border-radius:3px;"><div style="background:var(--green);opacity:0.6;height:100%;width:26%;border-radius:3px;"></div></div>
+            <div style="display:flex;justify-content:space-between;padding:6px 0;margin-top:8px;"><span>Hold</span><span class="mono">3</span></div>
+            <div style="background:var(--bg-elevated);height:6px;border-radius:3px;"><div style="background:var(--yellow);height:100%;width:7%;border-radius:3px;"></div></div>
+            <div style="display:flex;justify-content:space-between;padding:6px 0;margin-top:8px;"><span>Sell</span><span class="mono">0</span></div>
+            <div style="background:var(--bg-elevated);height:6px;border-radius:3px;"></div>
+          </div>
+        </div>
+      </div>
+      <div class="card col-8">
+        <div class="card-header"><div class="card-title">📋 Recent Actions (Last 30 Days)</div></div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Date</th><th>Firm</th><th>Action</th><th>Rating</th><th>Old PT</th><th>New PT</th><th>Implied</th></tr></thead>
+            <tbody>
+              <tr><td>5/11</td><td>Goldman Sachs</td><td class="green-text">↑ Raised</td><td><span class="rating-pill r-buy">Buy</span></td><td>$148</td><td>$165</td><td class="green-text">+19.3%</td></tr>
+              <tr><td>5/09</td><td>Morgan Stanley</td><td class="green-text">↑ Raised</td><td><span class="rating-pill r-strong-buy">Overweight</span></td><td>$152</td><td>$172</td><td class="green-text">+24.4%</td></tr>
+              <tr><td>5/06</td><td>JPMorgan</td><td class="green-text">↑ Raised</td><td><span class="rating-pill r-buy">Overweight</span></td><td>$155</td><td>$170</td><td class="green-text">+22.9%</td></tr>
+              <tr><td>5/02</td><td>Bank of America</td><td class="green-text">↑ Initiated</td><td><span class="rating-pill r-buy">Buy</span></td><td>—</td><td>$168</td><td class="green-text">+21.5%</td></tr>
+              <tr><td>4/29</td><td>Wells Fargo</td><td class="flat">→ Maintained</td><td><span class="rating-pill r-buy">Overweight</span></td><td>$162</td><td>$162</td><td class="green-text">+17.2%</td></tr>
+              <tr><td>4/24</td><td>UBS</td><td class="green-text">↑ Raised</td><td><span class="rating-pill r-buy">Buy</span></td><td>$140</td><td>$158</td><td class="green-text">+14.3%</td></tr>
+              <tr><td>4/22</td><td>Citi</td><td class="green-text">↑ Raised</td><td><span class="rating-pill r-buy">Buy</span></td><td>$145</td><td>$160</td><td class="green-text">+15.7%</td></tr>
+              <tr><td>4/18</td><td>Barclays</td><td class="flat">→ Maintained</td><td><span class="rating-pill r-hold">Equal-Weight</span></td><td>$132</td><td>$132</td><td class="red-text">-4.5%</td></tr>
+              <tr><td>4/15</td><td>Stifel</td><td class="green-text">↑ Raised</td><td><span class="rating-pill r-strong-buy">Buy</span></td><td>$150</td><td>$165</td><td class="green-text">+19.3%</td></tr>
+              <tr><td>4/12</td><td>Mizuho</td><td class="green-text">↑ Raised</td><td><span class="rating-pill r-buy">Outperform</span></td><td>$142</td><td>$160</td><td class="green-text">+15.7%</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- OWNERSHIP -->
+  <div class="tab-content" data-tab-content="ownership" data-tab-group="fund-tabs">
+    <div class="grid grid-12">
+      <div class="card col-6">
+        <div class="card-header"><div class="card-title">🏛️ Top Institutional Holders</div></div>
+        <table>
+          <thead><tr><th>Holder</th><th>Shares (M)</th><th>% Out</th><th>Chg (Q/Q)</th><th>Value</th></tr></thead>
+          <tbody>
+            <tr><td>Vanguard Group</td><td>222.4</td><td>9.1%</td><td class="green-text">+1.8M</td><td>$30.8B</td></tr>
+            <tr><td>BlackRock</td><td>184.2</td><td>7.5%</td><td class="green-text">+2.4M</td><td>$25.5B</td></tr>
+            <tr><td>FMR / Fidelity</td><td>132.8</td><td>5.4%</td><td class="red-text">-4.2M</td><td>$18.4B</td></tr>
+            <tr><td>State Street</td><td>98.4</td><td>4.0%</td><td class="green-text">+0.8M</td><td>$13.6B</td></tr>
+            <tr><td>Geode Capital</td><td>62.4</td><td>2.6%</td><td class="green-text">+1.2M</td><td>$8.6B</td></tr>
+            <tr><td>JPMorgan AM</td><td>52.8</td><td>2.2%</td><td class="red-text">-2.8M</td><td>$7.3B</td></tr>
+            <tr><td>T. Rowe Price</td><td>48.2</td><td>2.0%</td><td class="green-text">+0.6M</td><td>$6.7B</td></tr>
+            <tr><td>Capital World</td><td>42.4</td><td>1.7%</td><td class="green-text">+3.2M</td><td>$5.9B</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="card col-6">
+        <div class="card-header"><div class="card-title">📜 Insider Activity (Last 90d)</div></div>
+        <table>
+          <thead><tr><th>Date</th><th>Insider</th><th>Role</th><th>Action</th><th>Shares</th><th>Value</th></tr></thead>
+          <tbody>
+            <tr><td>5/03</td><td>Huang, J.</td><td>CEO</td><td class="red-text">SELL</td><td>120,000</td><td>$16.6M</td></tr>
+            <tr><td>4/28</td><td>Kress, C.</td><td>CFO</td><td class="red-text">SELL</td><td>45,000</td><td>$6.2M</td></tr>
+            <tr><td>4/22</td><td>Huang, J.</td><td>CEO</td><td class="red-text">SELL</td><td>120,000</td><td>$16.4M</td></tr>
+            <tr><td>4/15</td><td>Burns, M.</td><td>Director</td><td class="red-text">SELL</td><td>8,400</td><td>$1.1M</td></tr>
+            <tr><td>4/08</td><td>Stevens, M.</td><td>Director</td><td class="red-text">SELL</td><td>12,000</td><td>$1.6M</td></tr>
+            <tr><td>3/28</td><td>Huang, J.</td><td>CEO</td><td class="red-text">SELL</td><td>120,000</td><td>$15.8M</td></tr>
+            <tr><td>3/14</td><td>Shoquist, D.</td><td>EVP</td><td class="red-text">SELL</td><td>24,000</td><td>$3.0M</td></tr>
+            <tr><td>2/28</td><td>Hamilton, A.</td><td>Director</td><td class="green-text">BUY</td><td>2,400</td><td>$0.3M</td></tr>
+          </tbody>
+        </table>
+        <div style="font-size:12px;color:var(--text-muted);margin-top:14px;">10b5-1 plans likely driving CEO/CFO sales — not necessarily a bearish signal. Net selling ratio elevated but not unusual for a stock up 60% YTD.</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/charts.js"></script>
+<script src="js/live.js"></script>
+<script>
+buildNav('fundamentals');
+document.addEventListener('DOMContentLoaded', () => {
+  // Quarterly revenue + EPS combo chart
+  new Chart(document.getElementById('qtrChart'), {
+    data: {
+      labels: ['Q1\'24','Q2\'24','Q3\'24','Q4\'24','Q1\'25','Q2\'25','Q3\'25','Q4\'25'],
+      datasets: [
+        { type:'bar', label:'Revenue ($B)', data:[7.2,13.5,18.1,22.1,26.0,30.0,35.1,35.6], backgroundColor:'rgba(0,212,255,0.65)', yAxisID:'y', borderRadius:4 },
+        { type:'line', label:'EPS (Dil.)', data:[0.27,0.34,0.40,0.51,0.61,0.68,0.81,0.89], borderColor:'#10b981', backgroundColor:'rgba(16,185,129,0.15)', yAxisID:'y1', borderWidth:3, tension:0.3, pointRadius:5, pointBackgroundColor:'#10b981' }
+      ]
+    },
+    options: { ...baseOptions(true), scales: {
+      x: baseOptions().scales.x,
+      y:  { position:'left', ticks:{ color:'#64748b', font:{family:'JetBrains Mono',size:10}, callback:v=>'$'+v+'B' }, grid:{color:'rgba(45,55,72,0.5)'} },
+      y1: { position:'right', ticks:{ color:'#64748b', font:{family:'JetBrains Mono',size:10}, callback:v=>'$'+v.toFixed(2) }, grid:{ display:false } }
+    }}
+  });
+
+  // Revenue trend
+  new Chart(document.getElementById('revChart'), {
+    type: 'bar',
+    data: { labels:['FY21','FY22','FY23','FY24','FY25','FY26E','FY27E'], datasets:[{ data:[16.7,26.9,27.0,60.9,130.5,180.4,238.2], backgroundColor:['#64748b','#64748b','#64748b','#0891b2','#00d4ff','rgba(0,212,255,0.5)','rgba(0,212,255,0.3)'], borderRadius:6 }]},
+    options: { ...baseOptions(), plugins:{ ...baseOptions().plugins, legend:{display:false}}}
+  });
+
+  // FCF + margin
+  new Chart(document.getElementById('fcfChart'), {
+    data:{ labels:['FY21','FY22','FY23','FY24','FY25','FY26E','FY27E'], datasets:[
+      { type:'bar', label:'FCF ($B)', data:[4.7,8.1,3.8,27.0,62.1,89.2,120.4], backgroundColor:'rgba(139,92,246,0.5)', yAxisID:'y', borderRadius:4 },
+      { type:'line', label:'FCF Margin %', data:[28,30,14,44,48,49,51], borderColor:'#10b981', yAxisID:'y1', borderWidth:3, tension:0.3, pointRadius:5 }
+    ]},
+    options: { ...baseOptions(true), scales: {
+      x: baseOptions().scales.x,
+      y:  { position:'left', ticks:{ color:'#64748b', callback:v=>'$'+v+'B', font:{family:'JetBrains Mono',size:10} }, grid:{color:'rgba(45,55,72,0.5)'} },
+      y1: { position:'right', ticks:{ color:'#64748b', callback:v=>v+'%', font:{family:'JetBrains Mono',size:10} }, grid:{ display:false } }
+    }}
+  });
+
+  // Multiples band chart
+  new Chart(document.getElementById('multChart'), {
+    type: 'line',
+    data: {
+      labels: ['5Y Ago','4Y','3Y','2Y','1Y','Now'],
+      datasets: [
+        { label:'5Y Max',   data:[78,82,88,76,72,68], borderColor:'rgba(239,68,68,0.5)', borderDash:[4,3], pointRadius:0, fill:false, borderWidth:1 },
+        { label:'5Y Avg',   data:[42,48,52,42,38,32], borderColor:'rgba(245,158,11,0.6)', borderDash:[4,3], pointRadius:0, fill:false, borderWidth:1 },
+        { label:'5Y Min',   data:[22,18,24,22,21,18], borderColor:'rgba(16,185,129,0.5)', borderDash:[4,3], pointRadius:0, fill:false, borderWidth:1 },
+        { label:'Fwd P/E',  data:[28,38,42,52,42,38.2], borderColor:'#00d4ff', borderWidth:3, pointRadius:5, pointBackgroundColor:'#00d4ff' }
+      ]
+    },
+    options: baseOptions(true)
+  });
+});
+</script>
+</body>
+</html>

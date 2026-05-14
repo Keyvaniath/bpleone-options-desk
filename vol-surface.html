@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Volatility Surface — bpleone / trade</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.vs-cell { padding:8px 4px; text-align:center; font-family:var(--font-mono); font-size:11px; color:#fff; text-shadow:0 1px 1px rgba(0,0,0,0.4); transition:transform 0.15s; }
+.vs-cell:hover { transform:scale(1.06); position:relative; z-index:2; }
+.vs-grid { display:grid; gap:2px; background:var(--border); padding:2px; border-radius:6px; }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">Volatility Surface</div>
+      <div class="page-subtitle">IV across strikes and expiries · the topology of options pricing · <span id="market-clock">--</span></div>
+    </div>
+    <div class="flex gap-8">
+      <select id="vsSymbol" style="background:var(--bg-tertiary);border:1px solid var(--border);color:var(--text-primary);padding:8px 14px;border-radius:8px;font-family:var(--font-mono);font-size:14px;font-weight:600;">
+        <option selected>NVDA</option><option>SPY</option><option>QQQ</option><option>AAPL</option><option>TSLA</option><option>META</option><option>AMD</option>
+      </select>
+    </div>
+  </div>
+
+  <!-- Stats strip -->
+  <div class="grid grid-12" style="margin-bottom:24px;">
+    <div class="card col-2"><div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;">ATM IV30</div><div class="mono" style="font-size:22px;font-weight:800;margin-top:4px;">38.4%</div></div>
+    <div class="card col-2"><div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;">IV Rank</div><div class="mono yellow-text" style="font-size:22px;font-weight:800;margin-top:4px;">42</div></div>
+    <div class="card col-2"><div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;">25Δ Risk Reversal</div><div class="mono green-text" style="font-size:22px;font-weight:800;margin-top:4px;">+1.42</div></div>
+    <div class="card col-2"><div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;">Skew (10Δ)</div><div class="mono red-text" style="font-size:22px;font-weight:800;margin-top:4px;">+8.4 pts</div></div>
+    <div class="card col-2"><div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;">Term Structure</div><div class="mono green-text" style="font-size:22px;font-weight:800;margin-top:4px;">Contango</div></div>
+    <div class="card col-2"><div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;">HV / IV Ratio</div><div class="mono yellow-text" style="font-size:22px;font-weight:800;margin-top:4px;">0.81</div></div>
+  </div>
+
+  <!-- Surface grid (the 3D-ish visualization) -->
+  <div class="card mb-16" style="margin-bottom:24px;">
+    <div class="card-header">
+      <div class="card-title">🌐 IV Surface — Strikes × Expiries</div>
+      <div style="font-size:11px;color:var(--text-muted);">color = IV%</div>
+    </div>
+    <div style="overflow-x:auto;">
+      <div id="vsGrid"></div>
+    </div>
+    <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-top:14px;font-size:11px;color:var(--text-secondary);">
+      <span style="display:inline-block;width:16px;height:16px;background:rgba(16,185,129,0.7);border-radius:3px;"></span> &lt; 25%
+      <span style="display:inline-block;width:16px;height:16px;background:rgba(245,158,11,0.7);border-radius:3px;"></span> 25-40%
+      <span style="display:inline-block;width:16px;height:16px;background:rgba(245,158,11,0.9);border-radius:3px;"></span> 40-60%
+      <span style="display:inline-block;width:16px;height:16px;background:rgba(239,68,68,0.7);border-radius:3px;"></span> 60-80%
+      <span style="display:inline-block;width:16px;height:16px;background:rgba(239,68,68,1.0);border-radius:3px;"></span> &gt; 80%
+    </div>
+  </div>
+
+  <!-- Slices -->
+  <div class="grid grid-12">
+    <div class="card col-6">
+      <div class="card-header"><div class="card-title">📈 Smile — Selected Expiry (38 DTE)</div></div>
+      <div class="chart-container"><canvas id="smileChart"></canvas></div>
+    </div>
+    <div class="card col-6">
+      <div class="card-header"><div class="card-title">📊 Term Structure — ATM IV</div></div>
+      <div class="chart-container"><canvas id="termChart"></canvas></div>
+    </div>
+  </div>
+
+  <div class="card" style="margin-top:24px;">
+    <div class="card-header"><div class="card-title">🎓 What this tells you</div></div>
+    <div class="grid grid-3" style="gap:14px;">
+      <div>
+        <div class="section-label">🟢 Contango term structure</div>
+        <div style="font-size:13px;color:var(--text-secondary);line-height:1.7;">Back-month IV &gt; front-month. Normal regime. Volatility sellers favored: sell front, buy back (calendar spreads).</div>
+      </div>
+      <div>
+        <div class="section-label">🔴 Backwardation</div>
+        <div style="font-size:13px;color:var(--text-secondary);line-height:1.7;">Front-month IV &gt; back-month. Stress signal (event risk, earnings, sell-off). Favor buying front-month protection.</div>
+      </div>
+      <div>
+        <div class="section-label">⚖️ Smile vs Smirk</div>
+        <div style="font-size:13px;color:var(--text-secondary);line-height:1.7;">Equity puts typically priced richer (crash hedge demand). When call wing matches/exceeds, market thinks upside surprise is possible — bullish skew shift.</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/charts.js"></script>
+<script src="js/live.js"></script>
+<script>
+buildNav('vol-surface');
+
+function ivColor(iv) {
+  if (iv < 25) return 'rgba(16,185,129,0.7)';
+  if (iv < 40) return 'rgba(245,158,11,0.7)';
+  if (iv < 60) return 'rgba(245,158,11,0.9)';
+  if (iv < 80) return 'rgba(239,68,68,0.7)';
+  return 'rgba(239,68,68,1.0)';
+}
+
+function renderSurface(symbol) {
+  // Synthetic surface
+  const expiries = [7, 14, 30, 45, 60, 90, 120, 180, 270, 365];
+  const moneyness = [-25, -20, -15, -10, -5, 0, 5, 10, 15, 20, 25]; // % from ATM
+  const baseIV = ({ SPY:14, QQQ:18, NVDA:38, AAPL:28, TSLA:55, META:32, AMD:42 })[symbol] || 30;
+  // Build grid
+  const grid = document.getElementById('vsGrid');
+  grid.style.gridTemplateColumns = '60px repeat(' + moneyness.length + ', 1fr)';
+  grid.className = 'vs-grid';
+  let html = '<div class="vs-cell" style="background:var(--bg-elevated);color:var(--text-muted);font-weight:700;">DTE\\K</div>';
+  moneyness.forEach(m => {
+    html += `<div class="vs-cell" style="background:var(--bg-elevated);color:var(--text-secondary);font-weight:700;">${m>=0?'+':''}${m}%</div>`;
+  });
+  expiries.forEach(dte => {
+    const T = dte / 365;
+    html += `<div class="vs-cell" style="background:var(--bg-elevated);color:var(--text-secondary);font-weight:700;">${dte}d</div>`;
+    moneyness.forEach(m => {
+      const mn = m / 100;
+      // smile effect (more curve front-end), term effect
+      const smileCurvature = Math.max(0.4, 1.6 - dte/60);
+      const iv = baseIV * (1 + 0.4 * Math.abs(mn) * smileCurvature + 0.18 * mn * mn * smileCurvature) + (dte > 60 ? 4 : 0) - (dte < 14 ? 2 : 0);
+      const ivR = +iv.toFixed(1);
+      html += `<div class="vs-cell" style="background:${ivColor(ivR)};" title="${dte}d ${m>=0?'+':''}${m}%: ${ivR}% IV">${ivR}</div>`;
+    });
+  });
+  grid.innerHTML = html;
+
+  // Smile (38 DTE)
+  const smileLabels = moneyness.map(m => (m>=0?'+':'') + m + '%');
+  const smileData = moneyness.map(m => {
+    const mn = m / 100;
+    return +(baseIV * (1 + 0.4 * Math.abs(mn) * 1.0 + 0.18 * mn * mn)).toFixed(1);
+  });
+  if (window._smileChart) window._smileChart.destroy();
+  window._smileChart = new Chart(document.getElementById('smileChart'), {
+    type:'line',
+    data: { labels: smileLabels, datasets: [{ label:'IV %', data: smileData, borderColor:'#00d4ff', backgroundColor:'rgba(0,212,255,0.15)', borderWidth:2.5, tension:0.4, pointRadius:5, pointBackgroundColor:'#00d4ff', fill:true }]},
+    options: { ...baseOptions(), scales: { ...baseOptions().scales, y: { ...baseOptions().scales.y, ticks: { ...baseOptions().scales.y.ticks, callback: v => v + '%' }}}}
+  });
+
+  // Term
+  const termLabels = expiries.map(d => d + 'd');
+  const termData = expiries.map(d => +(baseIV + (d > 60 ? 4 : 0) - (d < 14 ? 2 : 0) + Math.sin(d/60)*1.5).toFixed(1));
+  if (window._termChart) window._termChart.destroy();
+  window._termChart = new Chart(document.getElementById('termChart'), {
+    type:'line',
+    data: { labels: termLabels, datasets: [{ label:'ATM IV %', data: termData, borderColor:'#8b5cf6', backgroundColor:'rgba(139,92,246,0.15)', borderWidth:2.5, tension:0.3, pointRadius:5, pointBackgroundColor:'#8b5cf6', fill:true }]},
+    options: { ...baseOptions(), scales: { ...baseOptions().scales, y: { ...baseOptions().scales.y, ticks: { ...baseOptions().scales.y.ticks, callback: v => v + '%' }}}}
+  });
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  renderSurface('NVDA');
+  document.getElementById('vsSymbol').addEventListener('change', e => renderSurface(e.target.value));
+});
+</script>
+</body>
+</html>

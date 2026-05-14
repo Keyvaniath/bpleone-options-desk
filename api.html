@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>API & Webhooks — bpleone / trade</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.code-block { background:#0a0e17; border:1px solid var(--border); border-radius:8px; padding:14px 18px; font-family:var(--font-mono); font-size:12px; overflow-x:auto; color:#cbd5e1; line-height:1.7; margin:10px 0; }
+.code-block .key { color:#00d4ff; }
+.code-block .str { color:#10b981; }
+.code-block .com { color:#64748b; font-style:italic; }
+.code-block .fn  { color:#f59e0b; }
+.endpoint { display:flex; gap:10px; align-items:center; padding:10px 14px; background:var(--bg-elevated); border-radius:6px; margin:8px 0; font-family:var(--font-mono); font-size:13px; }
+.method { padding:3px 8px; border-radius:4px; font-size:11px; font-weight:700; }
+.method.GET  { background:rgba(16,185,129,0.18); color:var(--green); }
+.method.POST { background:rgba(0,212,255,0.18); color:var(--accent); }
+.method.WS   { background:rgba(139,92,246,0.18); color:var(--purple); }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">API & Webhooks</div>
+      <div class="page-subtitle">Developer reference · Feed API · Black-Scholes · webhooks · <span id="market-clock">--</span></div>
+    </div>
+    <div class="flex gap-8">
+      <a href="https://github.com" class="btn btn-secondary">📦 GitHub</a>
+      <a href="#" class="btn btn-primary">🔑 Get API Key</a>
+    </div>
+  </div>
+
+  <!-- TOC + content -->
+  <div class="grid grid-12">
+    <div class="card col-3" style="height:fit-content;position:sticky;top:120px;">
+      <div class="section-label">Reference</div>
+      <ul style="list-style:none;padding:0;margin-top:10px;font-size:13px;line-height:2.2;">
+        <li><a href="#auth" style="color:var(--text-secondary);text-decoration:none;">Authentication</a></li>
+        <li><a href="#quotes" style="color:var(--text-secondary);text-decoration:none;">Quotes API</a></li>
+        <li><a href="#ws" style="color:var(--text-secondary);text-decoration:none;">WebSocket Feed</a></li>
+        <li><a href="#chain" style="color:var(--text-secondary);text-decoration:none;">Options Chain</a></li>
+        <li><a href="#bs" style="color:var(--text-secondary);text-decoration:none;">Black-Scholes</a></li>
+        <li><a href="#signals" style="color:var(--text-secondary);text-decoration:none;">Signals API</a></li>
+        <li><a href="#webhooks" style="color:var(--text-secondary);text-decoration:none;">Webhooks</a></li>
+        <li><a href="#rate" style="color:var(--text-secondary);text-decoration:none;">Rate Limits</a></li>
+      </ul>
+    </div>
+
+    <div class="col-9" style="display:flex;flex-direction:column;gap:18px;">
+
+      <div class="card" id="auth">
+        <div class="card-header"><div class="card-title">🔑 Authentication</div></div>
+        <p style="color:var(--text-secondary);line-height:1.7;">All REST and WebSocket endpoints require an API key passed as <code style="background:var(--bg-elevated);padding:2px 6px;border-radius:3px;">Authorization: Bearer YOUR_KEY</code>.</p>
+        <div class="code-block">
+<span class="com"># Example request</span>
+curl -H <span class="str">"Authorization: Bearer sk_live_..."</span> \
+     https://api.options.bpleone.com/v1/quotes/NVDA
+        </div>
+      </div>
+
+      <div class="card" id="quotes">
+        <div class="card-header"><div class="card-title">📊 Quotes API</div></div>
+        <div class="endpoint"><span class="method GET">GET</span> /v1/quotes/:symbol</div>
+        <div class="endpoint"><span class="method GET">GET</span> /v1/quotes/batch?symbols=NVDA,AAPL,SPY</div>
+        <div class="code-block">
+<span class="key">Response:</span>
+{
+  <span class="key">"symbol"</span>: <span class="str">"NVDA"</span>,
+  <span class="key">"last"</span>: 138.27,
+  <span class="key">"bid"</span>: 138.26,
+  <span class="key">"ask"</span>: 138.28,
+  <span class="key">"change"</span>: 4.31,
+  <span class="key">"changePct"</span>: 3.21,
+  <span class="key">"volume"</span>: 248400000,
+  <span class="key">"prevClose"</span>: 133.96,
+  <span class="key">"ts"</span>: <span class="str">"2026-05-13T14:32:18.000Z"</span>
+}
+        </div>
+      </div>
+
+      <div class="card" id="ws">
+        <div class="card-header"><div class="card-title">🌐 WebSocket Feed</div></div>
+        <p style="color:var(--text-secondary);line-height:1.7;">Real-time tick stream. Subscribe to symbols you care about; server only sends matching updates.</p>
+        <div class="endpoint"><span class="method WS">WSS</span> wss://api.options.bpleone.com/v1/stream</div>
+        <div class="code-block">
+<span class="com">// Browser example — mirrors the in-site Feed module</span>
+<span class="key">const</span> ws = <span class="key">new</span> <span class="fn">WebSocket</span>(<span class="str">'wss://api.options.bpleone.com/v1/stream'</span>);
+
+ws.onopen = () =&gt; {
+  ws.<span class="fn">send</span>(<span class="fn">JSON</span>.<span class="fn">stringify</span>({
+    action: <span class="str">'subscribe'</span>,
+    symbols: [<span class="str">'NVDA'</span>, <span class="str">'SPY'</span>, <span class="str">'QQQ'</span>]
+  }));
+};
+
+ws.onmessage = (e) =&gt; {
+  <span class="key">const</span> tick = <span class="fn">JSON</span>.<span class="fn">parse</span>(e.data);
+  console.<span class="fn">log</span>(tick.symbol, tick.last, tick.changePct);
+};
+        </div>
+      </div>
+
+      <div class="card" id="chain">
+        <div class="card-header"><div class="card-title">⛓️ Options Chain</div></div>
+        <div class="endpoint"><span class="method GET">GET</span> /v1/options/chain/:symbol?expiry=2026-06-20</div>
+        <div class="code-block">
+<span class="key">Response:</span>
+{
+  <span class="key">"symbol"</span>: <span class="str">"NVDA"</span>,
+  <span class="key">"expiry"</span>: <span class="str">"2026-06-20"</span>,
+  <span class="key">"underlying"</span>: 138.27,
+  <span class="key">"strikes"</span>: [
+    {
+      <span class="key">"strike"</span>: 140,
+      <span class="key">"call"</span>: {
+        <span class="key">"bid"</span>: 4.20, <span class="key">"ask"</span>: 4.30, <span class="key">"mid"</span>: 4.25,
+        <span class="key">"vol"</span>: 4200, <span class="key">"oi"</span>: 22400,
+        <span class="key">"iv"</span>: 38.4, <span class="key">"delta"</span>: 0.52,
+        <span class="key">"gamma"</span>: 0.028, <span class="key">"theta"</span>: -0.087,
+        <span class="key">"vega"</span>: 0.142
+      },
+      <span class="key">"put"</span>: { <span class="com">/* mirror */</span> }
+    }
+  ]
+}
+        </div>
+      </div>
+
+      <div class="card" id="bs">
+        <div class="card-header"><div class="card-title">🧮 Black-Scholes Calculator</div></div>
+        <div class="endpoint"><span class="method POST">POST</span> /v1/calc/bs</div>
+        <div class="code-block">
+<span class="key">Body:</span>
+{
+  <span class="key">"type"</span>: <span class="str">"call"</span>,
+  <span class="key">"S"</span>: 138.27,  <span class="com">// spot</span>
+  <span class="key">"K"</span>: 145,     <span class="com">// strike</span>
+  <span class="key">"T"</span>: 0.104,   <span class="com">// years to expiry</span>
+  <span class="key">"r"</span>: 0.045,   <span class="com">// risk-free rate</span>
+  <span class="key">"sigma"</span>: 0.384  <span class="com">// implied vol</span>
+}
+
+<span class="key">Response:</span>
+{
+  <span class="key">"price"</span>: 3.85,
+  <span class="key">"delta"</span>: 0.38, <span class="key">"gamma"</span>: 0.024,
+  <span class="key">"theta"</span>: -0.082, <span class="key">"vega"</span>: 0.142,
+  <span class="key">"rho"</span>: 0.084
+}
+        </div>
+      </div>
+
+      <div class="card" id="signals">
+        <div class="card-header"><div class="card-title">⚡ Signals API</div></div>
+        <div class="endpoint"><span class="method GET">GET</span> /v1/signals?type=macd-cross&min_score=80</div>
+        <div class="endpoint"><span class="method GET">GET</span> /v1/signals/today/:symbol</div>
+        <div class="code-block">
+<span class="key">Response:</span>
+{
+  <span class="key">"signals"</span>: [
+    {
+      <span class="key">"id"</span>: <span class="str">"sig_a82f1"</span>,
+      <span class="key">"ts"</span>: <span class="str">"2026-05-13T14:32:18.000Z"</span>,
+      <span class="key">"symbol"</span>: <span class="str">"NVDA"</span>,
+      <span class="key">"type"</span>: <span class="str">"macd-cross"</span>,
+      <span class="key">"bias"</span>: <span class="str">"bull"</span>,
+      <span class="key">"score"</span>: 94,
+      <span class="key">"context"</span>: { <span class="com">/* indicator readings */</span> }
+    }
+  ]
+}
+        </div>
+      </div>
+
+      <div class="card" id="webhooks">
+        <div class="card-header"><div class="card-title">🪝 Webhooks</div></div>
+        <p style="color:var(--text-secondary);line-height:1.7;">Subscribe an HTTPS endpoint and we'll POST events as they fire. Supported events: <code style="background:var(--bg-elevated);padding:2px 6px;border-radius:3px;">signal.created</code>, <code style="background:var(--bg-elevated);padding:2px 6px;border-radius:3px;">trade.published</code>, <code style="background:var(--bg-elevated);padding:2px 6px;border-radius:3px;">flow.unusual</code>.</p>
+        <div class="endpoint"><span class="method POST">POST</span> /v1/webhooks</div>
+        <div class="code-block">
+<span class="key">Body:</span>
+{
+  <span class="key">"url"</span>: <span class="str">"https://your-server.com/hook"</span>,
+  <span class="key">"events"</span>: [<span class="str">"signal.created"</span>, <span class="str">"trade.published"</span>],
+  <span class="key">"filters"</span>: {
+    <span class="key">"symbols"</span>: [<span class="str">"NVDA"</span>, <span class="str">"SPY"</span>],
+    <span class="key">"min_score"</span>: 80
+  }
+}
+        </div>
+        <p style="color:var(--text-secondary);line-height:1.7;font-size:13px;">Each delivery is signed with HMAC SHA-256. Verify the <code style="background:var(--bg-elevated);padding:2px 6px;border-radius:3px;">X-Bpleone-Signature</code> header using your webhook secret.</p>
+      </div>
+
+      <div class="card" id="rate">
+        <div class="card-header"><div class="card-title">⏱ Rate Limits</div></div>
+        <table>
+          <thead><tr><th>Tier</th><th>REST (req/min)</th><th>WS Concurrent</th><th>Webhook Events/day</th></tr></thead>
+          <tbody>
+            <tr><td>Free</td><td class="mono">60</td><td class="mono">1</td><td class="mono">100</td></tr>
+            <tr><td>Pro</td><td class="mono">600</td><td class="mono">5</td><td class="mono">10,000</td></tr>
+            <tr><td>Desk</td><td class="mono">3,000</td><td class="mono">25</td><td class="mono">unlimited</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script>buildNav('api');</script>
+</body>
+</html>

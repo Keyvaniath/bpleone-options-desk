@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Edge Analytics — bpleone / trade</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<style>
+.weight-bar { display:grid; grid-template-columns:120px 1fr 60px; gap:10px; padding:8px 0; align-items:center; border-bottom:1px dashed var(--border); }
+.wbar { height:8px; background:var(--bg-elevated); border-radius:4px; position:relative; overflow:hidden; }
+.wbar > span { position:absolute; top:0; height:100%; }
+</style>
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">Edge Analytics</div>
+      <div class="page-subtitle">The system's self-learning brain — what it has learned from every closed trade · <span id="market-clock">--</span></div>
+    </div>
+    <div class="flex gap-8">
+      <button class="btn btn-secondary" id="rebalanceBtn">🧠 Rebalance Weights</button>
+      <button class="btn btn-ghost" id="resetBtn" style="color:var(--red);">↺ Reset Memory</button>
+    </div>
+  </div>
+
+  <!-- KPI strip -->
+  <div class="grid grid-12" style="margin-bottom:24px;">
+    <div class="card col-2"><div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;">Trades Learned From</div><div class="mono" style="font-size:24px;font-weight:800;margin-top:4px;" id="kTotal">—</div></div>
+    <div class="card col-2"><div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;">Win Rate</div><div class="mono green-text" style="font-size:24px;font-weight:800;margin-top:4px;" id="kWR">—</div></div>
+    <div class="card col-2"><div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;">Avg R</div><div class="mono yellow-text" style="font-size:24px;font-weight:800;margin-top:4px;" id="kAvgR">—</div></div>
+    <div class="card col-2"><div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;">Profit Factor</div><div class="mono" style="font-size:24px;font-weight:800;margin-top:4px;" id="kPF">—</div></div>
+    <div class="card col-2"><div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;">Expectancy</div><div class="mono green-text" style="font-size:24px;font-weight:800;margin-top:4px;" id="kExp">—</div></div>
+    <div class="card col-2"><div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;">Best Setup</div><div class="mono" style="font-size:18px;font-weight:700;margin-top:6px;color:var(--accent);" id="kBest">—</div></div>
+  </div>
+
+  <!-- Weights -->
+  <div class="grid grid-12" style="margin-bottom:24px;">
+    <div class="card col-6">
+      <div class="card-header"><div class="card-title">🧠 Learned Setup Weights</div></div>
+      <div style="font-size:12px;color:var(--text-muted);margin-bottom:14px;line-height:1.6;">
+        Each setup type carries a multiplier in <span class="mono">[0.5, 1.6]</span> that scales its raw signal score by realized expectancy. Above <span class="mono green-text">1.0</span> = amplified, below <span class="mono red-text">1.0</span> = dampened. Rebuilds whenever a trade closes.
+      </div>
+      <div id="weightList"></div>
+    </div>
+    <div class="card col-6">
+      <div class="card-header"><div class="card-title">📊 Win Rate by Setup</div></div>
+      <div class="chart-container"><canvas id="setupWRChart"></canvas></div>
+    </div>
+  </div>
+
+  <!-- Multi-cut analysis -->
+  <div class="grid grid-12" style="margin-bottom:24px;">
+    <div class="card col-4">
+      <div class="card-header"><div class="card-title">🏢 By Sector</div></div>
+      <div id="sectorList"></div>
+    </div>
+    <div class="card col-4">
+      <div class="card-header"><div class="card-title">📅 By Day of Week</div></div>
+      <div class="chart-container"><canvas id="dowChart"></canvas></div>
+    </div>
+    <div class="card col-4">
+      <div class="card-header"><div class="card-title">⏱ By Hold Duration</div></div>
+      <div class="chart-container"><canvas id="holdChart"></canvas></div>
+    </div>
+  </div>
+
+  <!-- R distribution + equity -->
+  <div class="grid grid-12" style="margin-bottom:24px;">
+    <div class="card col-6">
+      <div class="card-header"><div class="card-title">📊 R-Multiple Distribution</div></div>
+      <div class="chart-container"><canvas id="rDist"></canvas></div>
+    </div>
+    <div class="card col-6">
+      <div class="card-header"><div class="card-title">📈 Cumulative R Curve</div></div>
+      <div class="chart-container"><canvas id="rCum"></canvas></div>
+    </div>
+  </div>
+
+  <!-- Discovered edge -->
+  <div class="card mb-16" style="margin-bottom:24px;">
+    <div class="card-header"><div class="card-title">💡 Discovered Edge — What the system noticed this cycle</div></div>
+    <div id="edgeList" style="display:grid;grid-template-columns:repeat(3,1fr);gap:14px;"></div>
+  </div>
+
+  <!-- Recent learnings table -->
+  <div class="card">
+    <div class="card-header"><div class="card-title">📋 Last 20 Closed Trades — Learning Inputs</div></div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>#</th><th>Symbol</th><th>Setup</th><th>Sector</th><th>Bias</th><th>Score</th><th>Hold</th><th>Result</th><th>R</th><th>Reason</th></tr></thead>
+        <tbody id="recentTrades"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/charts.js"></script>
+<script src="js/live.js"></script>
+<script src="js/learn.js"></script>
+<script>
+buildNav('edge');
+let EA_CHARTS = {};
+
+function fmtPct(v) { return (v*100).toFixed(1) + '%'; }
+function fmtR(v) { return (v >= 0 ? '+' : '') + v.toFixed(2) + 'R'; }
+function clrPct(p, t=0.5) { return p >= t ? 'green-text' : p >= 0.4 ? 'yellow-text' : 'red-text'; }
+
+function refreshAll() {
+  const s = Learn.stats();
+  const w = Learn.getWeights();
+  // KPIs
+  document.getElementById('kTotal').textContent = s.total;
+  document.getElementById('kWR').textContent = fmtPct(s.winRate);
+  document.getElementById('kAvgR').textContent = (s.avgR>=0?'+':'') + s.avgR.toFixed(2) + 'R';
+  document.getElementById('kPF').textContent = s.profitFactor ? s.profitFactor.toFixed(2) : '—';
+  document.getElementById('kExp').textContent = (s.expectancy>=0?'+':'') + s.expectancy.toFixed(2) + 'R';
+
+  // Best setup
+  const setups = Object.entries(s.bySetup).filter(([,g]) => g.count >= 3).sort((a,b) => b[1].avgR - a[1].avgR);
+  document.getElementById('kBest').textContent = setups[0] ? setups[0][0] : '—';
+
+  // Weights bars
+  const maxW = 1.6, minW = 0.5;
+  document.getElementById('weightList').innerHTML = Object.entries(w).sort((a,b) => b[1] - a[1]).map(([k,v]) => {
+    const pct = ((v - minW) / (maxW - minW)) * 100;
+    const center = ((1.0 - minW) / (maxW - minW)) * 100;
+    const color = v > 1 ? 'var(--green)' : v < 1 ? 'var(--red)' : 'var(--yellow)';
+    return `<div class="weight-bar">
+      <div style="font-size:12px;font-family:var(--font-mono);">${k}</div>
+      <div class="wbar">
+        <span style="left:${center}%;top:-2px;width:1px;height:12px;background:var(--text-muted);"></span>
+        <span style="left:${Math.min(pct,center)}%;width:${Math.abs(pct-center)}%;background:${color};"></span>
+      </div>
+      <div class="mono" style="text-align:right;font-weight:700;color:${color};font-size:13px;">${v.toFixed(2)}×</div>
+    </div>`;
+  }).join('');
+
+  // Setup WR chart
+  const setupNames = Object.keys(s.bySetup);
+  const setupWRs = setupNames.map(n => s.bySetup[n].winRate * 100);
+  if (EA_CHARTS.setupWR) EA_CHARTS.setupWR.destroy();
+  EA_CHARTS.setupWR = new Chart(document.getElementById('setupWRChart'), {
+    type: 'bar',
+    data: { labels: setupNames, datasets: [{ data: setupWRs, backgroundColor: setupWRs.map(v => v >= 60 ? '#10b981' : v >= 50 ? '#f59e0b' : '#ef4444'), borderRadius:4 }]},
+    options: { ...baseOptions(), indexAxis:'y', plugins: { ...baseOptions().plugins, legend:{display:false}}, scales: { x: { ...baseOptions().scales.x, ticks: { ...baseOptions().scales.x.ticks, callback: v => v + '%' }}, y: { grid:{display:false}, ticks:{color:'#cbd5e1', font:{family:'JetBrains Mono', size:10}}}}}
+  });
+
+  // Sector list
+  document.getElementById('sectorList').innerHTML = Object.entries(s.bySector).sort((a,b) => b[1].avgR - a[1].avgR).map(([k,g]) => `
+    <div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px dashed var(--border);">
+      <span style="font-size:13px;">${k}</span>
+      <span style="font-family:var(--font-mono);font-size:12px;">
+        <span style="color:var(--text-muted);">${g.count}</span> ·
+        <span class="${clrPct(g.winRate)}">${fmtPct(g.winRate)}</span> ·
+        <span class="${g.avgR>=0?'green-text':'red-text'}" style="font-weight:700;">${fmtR(g.avgR)}</span>
+      </span>
+    </div>`).join('');
+
+  // DoW chart
+  const dowOrder = ['Mon','Tue','Wed','Thu','Fri'];
+  const dowR = dowOrder.map(d => (s.byDayOfWeek[d] || {}).avgR || 0);
+  if (EA_CHARTS.dow) EA_CHARTS.dow.destroy();
+  EA_CHARTS.dow = new Chart(document.getElementById('dowChart'), {
+    type:'bar',
+    data:{ labels: dowOrder, datasets:[{ data:dowR, backgroundColor: dowR.map(v => v >= 0 ? '#10b981' : '#ef4444'), borderRadius:4 }]},
+    options: { ...baseOptions(), plugins: { ...baseOptions().plugins, legend:{display:false}}, scales: { ...baseOptions().scales, y: { ...baseOptions().scales.y, ticks: { ...baseOptions().scales.y.ticks, callback: v => v.toFixed(2) + 'R' }}}}
+  });
+
+  // Hold chart
+  const holdOrder = ['Intraday','1–3 days','4–9 days','10–29 days','30+ days'];
+  const holdR = holdOrder.map(d => (s.byHoldBucket[d] || {}).avgR || 0);
+  if (EA_CHARTS.hold) EA_CHARTS.hold.destroy();
+  EA_CHARTS.hold = new Chart(document.getElementById('holdChart'), {
+    type:'bar',
+    data:{ labels: holdOrder, datasets:[{ data:holdR, backgroundColor: holdR.map(v => v >= 0 ? '#10b981' : '#ef4444'), borderRadius:4 }]},
+    options: { ...baseOptions(), plugins: { ...baseOptions().plugins, legend:{display:false}}, scales: { ...baseOptions().scales, y: { ...baseOptions().scales.y, ticks: { ...baseOptions().scales.y.ticks, callback: v => v.toFixed(2) + 'R' }}}}
+  });
+
+  // R distribution
+  const closed = Learn.load().trades.filter(t => t.result);
+  const buckets = new Array(11).fill(0); // -3 to +5R
+  closed.forEach(t => {
+    const idx = Math.max(0, Math.min(10, Math.floor((t.R + 3))));
+    buckets[idx]++;
+  });
+  const distLabels = buckets.map((_,i) => ((i - 3) + 'R'));
+  const distColors = distLabels.map(l => parseFloat(l) >= 0 ? '#10b981' : '#ef4444');
+  if (EA_CHARTS.rDist) EA_CHARTS.rDist.destroy();
+  EA_CHARTS.rDist = new Chart(document.getElementById('rDist'), {
+    type: 'bar',
+    data: { labels: distLabels, datasets: [{ data: buckets, backgroundColor: distColors, borderRadius:3 }]},
+    options: { ...baseOptions(), plugins: { ...baseOptions().plugins, legend:{display:false}}}
+  });
+
+  // Cumulative R
+  const sortedTrades = [...closed].sort((a,b) => a.ts - b.ts);
+  let cum = 0;
+  const cumData = sortedTrades.map(t => { cum += t.R; return +cum.toFixed(2); });
+  if (EA_CHARTS.rCum) EA_CHARTS.rCum.destroy();
+  EA_CHARTS.rCum = new Chart(document.getElementById('rCum'), {
+    type:'line',
+    data: { labels: sortedTrades.map((_,i) => i+1), datasets: [{ data: cumData, borderColor: '#00d4ff', backgroundColor: 'rgba(0,212,255,0.18)', borderWidth: 2.5, tension: 0.2, pointRadius: 0, fill: true }]},
+    options: { ...baseOptions(), plugins: { ...baseOptions().plugins, legend:{display:false}}, scales: { ...baseOptions().scales, y: { ...baseOptions().scales.y, ticks: { ...baseOptions().scales.y.ticks, callback: v => v + 'R' }}}}
+  });
+
+  // Discovered edge insights
+  const edges = [];
+  const bestSetup = setups[0];
+  if (bestSetup) edges.push({ title: `📈 ${bestSetup[0]} is the strongest pattern`, body: `${bestSetup[1].count} trades · WR ${fmtPct(bestSetup[1].winRate)} · avg ${fmtR(bestSetup[1].avgR)}. Weight amplified to ${w[bestSetup[0]] ? w[bestSetup[0]].toFixed(2) : '1.00'}×.`, color: 'var(--green)' });
+  const worstSetup = setups[setups.length-1];
+  if (worstSetup && worstSetup[1].avgR < 0) edges.push({ title: `⚠ ${worstSetup[0]} not working in this regime`, body: `${worstSetup[1].count} trades · WR ${fmtPct(worstSetup[1].winRate)} · avg ${fmtR(worstSetup[1].avgR)}. Weight dampened — consider skipping.`, color: 'var(--red)' });
+  const bestSector = Object.entries(s.bySector).filter(([,g]) => g.count >= 5).sort((a,b) => b[1].avgR - a[1].avgR)[0];
+  if (bestSector) edges.push({ title: `🏢 ${bestSector[0]} sector leading`, body: `${bestSector[1].count} trades · avg ${fmtR(bestSector[1].avgR)}. Bias positions into this rotation.`, color: 'var(--accent)' });
+  const bestDow = Object.entries(s.byDayOfWeek).filter(([,g]) => g.count >= 5).sort((a,b) => b[1].avgR - a[1].avgR)[0];
+  if (bestDow) edges.push({ title: `📅 ${bestDow[0]}s pay best`, body: `${bestDow[1].count} trades · avg ${fmtR(bestDow[1].avgR)}. Consider sizing larger on this day.`, color: 'var(--purple)' });
+  const bestHold = Object.entries(s.byHoldBucket).filter(([,g]) => g.count >= 5).sort((a,b) => b[1].avgR - a[1].avgR)[0];
+  if (bestHold) edges.push({ title: `⏱ Sweet-spot hold: ${bestHold[0]}`, body: `${bestHold[1].count} trades · avg ${fmtR(bestHold[1].avgR)}. Plan exits around this window.`, color: 'var(--yellow)' });
+  edges.push({ title: '🧠 System is self-tuning', body: `Weights rebalance after every closed trade. Open trades influence projected score; closed trades become permanent learning.`, color: 'var(--accent)' });
+
+  document.getElementById('edgeList').innerHTML = edges.map(e => `<div style="background:var(--bg-elevated);border-left:3px solid ${e.color};padding:14px;border-radius:0 8px 8px 0;"><div style="font-weight:600;margin-bottom:6px;font-size:14px;">${e.title}</div><div style="font-size:12px;color:var(--text-secondary);line-height:1.6;">${e.body}</div></div>`).join('');
+
+  // Recent trades
+  const last20 = sortedTrades.slice(-20).reverse();
+  document.getElementById('recentTrades').innerHTML = last20.map((t,i) => `
+    <tr>
+      <td>${last20.length - i}</td>
+      <td class="symbol">${t.symbol}</td>
+      <td>${t.setup}</td>
+      <td>${t.sector}</td>
+      <td><span class="pill ${t.bias==='bull'?'call':'put'}">${t.bias.toUpperCase()}</span></td>
+      <td>${t.score}</td>
+      <td>${(t.holdDays||0).toFixed(0)}d</td>
+      <td><span class="pill ${t.result==='win'?'call':'put'}">${t.result.toUpperCase()}</span></td>
+      <td class="${t.R>=0?'green-text':'red-text'}" style="font-weight:700;">${fmtR(t.R||0)}</td>
+      <td>${t.closeReason||'—'}</td>
+    </tr>`).join('');
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  refreshAll();
+  document.getElementById('rebalanceBtn').addEventListener('click', () => { Learn.rebalanceWeights(); refreshAll(); });
+  document.getElementById('resetBtn').addEventListener('click', () => {
+    if (confirm('Wipe all learning memory? This cannot be undone.')) { Learn.reset(); Learn.load(); location.reload(); }
+  });
+});
+</script>
+</body>
+</html>

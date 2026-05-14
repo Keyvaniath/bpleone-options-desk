@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Pair Trading — bpleone / trade</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">Pair Trading / Stat Arb</div>
+      <div class="page-subtitle">Cointegrated pairs · z-score divergence · mean-reversion trades · <span id="market-clock">--</span></div>
+    </div>
+    <div class="filter-group">
+      <button class="filter-btn active">All</button>
+      <button class="filter-btn">Within Sector</button>
+      <button class="filter-btn">|Z| > 2</button>
+      <button class="filter-btn">|Z| > 2.5</button>
+    </div>
+  </div>
+
+  <!-- KPI strip -->
+  <div class="grid grid-12" style="margin-bottom:24px;">
+    <div class="card col-3"><div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;">Pairs Tracked</div><div class="mono" style="font-size:24px;font-weight:800;margin-top:4px;">128</div></div>
+    <div class="card col-3"><div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;">Above |Z| 2.0</div><div class="mono yellow-text" style="font-size:24px;font-weight:800;margin-top:4px;">14</div><div class="mono" style="font-size:12px;color:var(--text-muted);">actionable</div></div>
+    <div class="card col-3"><div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;">Strategy YTD</div><div class="mono green-text" style="font-size:24px;font-weight:800;margin-top:4px;">+22.4%</div><div class="mono" style="font-size:12px;color:var(--text-muted);">Sharpe 2.42</div></div>
+    <div class="card col-3"><div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;">Hit Rate</div><div class="mono green-text" style="font-size:24px;font-weight:800;margin-top:4px;">68.4%</div><div class="mono" style="font-size:12px;color:var(--text-muted);">avg hold 8.4d</div></div>
+  </div>
+
+  <!-- Top pairs -->
+  <div class="card mb-16" style="margin-bottom:24px;">
+    <div class="card-header"><div class="card-title">🎯 Top Diverged Pairs (Z-Score Sorted)</div></div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>#</th><th>Long</th><th>Short</th><th>Sector</th>
+            <th class="sortable" data-type="num">Correl (60d)</th>
+            <th class="sortable" data-type="num">Coint p-val</th>
+            <th class="sortable" data-type="num">Z-Score</th>
+            <th class="sortable" data-type="num">Half-Life</th>
+            <th>Spread vs Mean</th>
+            <th>Action</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td>1</td><td class="symbol">META</td><td class="symbol">GOOGL</td><td>Comm Svc</td><td>0.84</td><td>0.012</td><td class="green-text"><strong>-2.84</strong></td><td>6.2d</td><td><div class="mom-bar" style="height:6px;background:var(--bg-elevated);border-radius:3px;position:relative;"><div style="position:absolute;left:50%;top:-3px;width:1px;height:12px;background:#fff;"></div><span style="display:block;height:100%;width:14%;background:linear-gradient(90deg,#ef4444,#10b981);margin-left:50%;"></span></div></td><td><span class="pill call">LONG META / SHORT GOOGL</span></td></tr>
+          <tr><td>2</td><td class="symbol">AMD</td><td class="symbol">INTC</td><td>Tech</td><td>0.78</td><td>0.018</td><td class="green-text"><strong>-2.62</strong></td><td>8.4d</td><td><div class="mom-bar" style="height:6px;background:var(--bg-elevated);border-radius:3px;position:relative;"><div style="position:absolute;left:50%;top:-3px;width:1px;height:12px;background:#fff;"></div><span style="display:block;height:100%;width:18%;background:linear-gradient(90deg,#ef4444,#10b981);margin-left:50%;"></span></div></td><td><span class="pill call">LONG AMD / SHORT INTC</span></td></tr>
+          <tr><td>3</td><td class="symbol">XOM</td><td class="symbol">CVX</td><td>Energy</td><td>0.92</td><td>0.004</td><td class="red-text"><strong>+2.42</strong></td><td>5.8d</td><td><div class="mom-bar" style="height:6px;background:var(--bg-elevated);border-radius:3px;position:relative;"><div style="position:absolute;left:50%;top:-3px;width:1px;height:12px;background:#fff;"></div><span style="display:block;height:100%;width:22%;background:linear-gradient(90deg,#10b981,#ef4444);margin-left:50%;"></span></div></td><td><span class="pill put">SHORT XOM / LONG CVX</span></td></tr>
+          <tr><td>4</td><td class="symbol">JPM</td><td class="symbol">BAC</td><td>Financials</td><td>0.88</td><td>0.008</td><td class="green-text"><strong>-2.38</strong></td><td>7.2d</td><td><div class="mom-bar" style="height:6px;background:var(--bg-elevated);border-radius:3px;position:relative;"><div style="position:absolute;left:50%;top:-3px;width:1px;height:12px;background:#fff;"></div><span style="display:block;height:100%;width:22%;background:linear-gradient(90deg,#ef4444,#10b981);margin-left:50%;"></span></div></td><td><span class="pill call">LONG JPM / SHORT BAC</span></td></tr>
+          <tr><td>5</td><td class="symbol">UBER</td><td class="symbol">LYFT</td><td>Comm Svc</td><td>0.82</td><td>0.024</td><td class="red-text"><strong>+2.28</strong></td><td>9.4d</td><td><div class="mom-bar" style="height:6px;background:var(--bg-elevated);border-radius:3px;position:relative;"><div style="position:absolute;left:50%;top:-3px;width:1px;height:12px;background:#fff;"></div><span style="display:block;height:100%;width:24%;background:linear-gradient(90deg,#10b981,#ef4444);margin-left:50%;"></span></div></td><td><span class="pill put">SHORT UBER / LONG LYFT</span></td></tr>
+          <tr><td>6</td><td class="symbol">KO</td><td class="symbol">PEP</td><td>Cons Stpl</td><td>0.78</td><td>0.032</td><td class="green-text"><strong>-2.12</strong></td><td>11.2d</td><td><div class="mom-bar" style="height:6px;background:var(--bg-elevated);border-radius:3px;position:relative;"><div style="position:absolute;left:50%;top:-3px;width:1px;height:12px;background:#fff;"></div><span style="display:block;height:100%;width:30%;background:linear-gradient(90deg,#ef4444,#10b981);margin-left:50%;"></span></div></td><td><span class="pill call">LONG KO / SHORT PEP</span></td></tr>
+          <tr><td>7</td><td class="symbol">V</td><td class="symbol">MA</td><td>Financials</td><td>0.94</td><td>0.002</td><td class="red-text"><strong>+2.08</strong></td><td>4.2d</td><td><div class="mom-bar" style="height:6px;background:var(--bg-elevated);border-radius:3px;position:relative;"><div style="position:absolute;left:50%;top:-3px;width:1px;height:12px;background:#fff;"></div><span style="display:block;height:100%;width:30%;background:linear-gradient(90deg,#10b981,#ef4444);margin-left:50%;"></span></div></td><td><span class="pill put">SHORT V / LONG MA</span></td></tr>
+          <tr><td>8</td><td class="symbol">HD</td><td class="symbol">LOW</td><td>Cons Disc</td><td>0.86</td><td>0.014</td><td class="green-text"><strong>-1.92</strong></td><td>8.8d</td><td><div class="mom-bar" style="height:6px;background:var(--bg-elevated);border-radius:3px;position:relative;"><div style="position:absolute;left:50%;top:-3px;width:1px;height:12px;background:#fff;"></div><span style="display:block;height:100%;width:34%;background:linear-gradient(90deg,#ef4444,#10b981);margin-left:50%;"></span></div></td><td><span class="pill call">LONG HD / SHORT LOW</span></td></tr>
+          <tr><td>9</td><td class="symbol">CRM</td><td class="symbol">NOW</td><td>Tech</td><td>0.81</td><td>0.028</td><td class="red-text"><strong>+1.84</strong></td><td>9.8d</td><td><div class="mom-bar" style="height:6px;background:var(--bg-elevated);border-radius:3px;position:relative;"><div style="position:absolute;left:50%;top:-3px;width:1px;height:12px;background:#fff;"></div><span style="display:block;height:100%;width:36%;background:linear-gradient(90deg,#10b981,#ef4444);margin-left:50%;"></span></div></td><td><span class="pill put">SHORT CRM / LONG NOW</span></td></tr>
+          <tr><td>10</td><td class="symbol">DKNG</td><td class="symbol">PENN</td><td>Cons Disc</td><td>0.74</td><td>0.042</td><td class="green-text"><strong>-1.72</strong></td><td>12.4d</td><td><div class="mom-bar" style="height:6px;background:var(--bg-elevated);border-radius:3px;position:relative;"><div style="position:absolute;left:50%;top:-3px;width:1px;height:12px;background:#fff;"></div><span style="display:block;height:100%;width:38%;background:linear-gradient(90deg,#ef4444,#10b981);margin-left:50%;"></span></div></td><td><span class="pill call">LONG DKNG / SHORT PENN</span></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Featured pair detail -->
+  <div class="grid grid-12" style="margin-bottom:24px;">
+    <div class="card col-8">
+      <div class="card-header">
+        <div class="card-title">📊 Featured: META / GOOGL · Z-Score Time Series</div>
+        <div style="font-size:12px;color:var(--text-muted);">Spread = log(META) - β·log(GOOGL), β=1.18</div>
+      </div>
+      <div class="chart-container"><canvas id="zChart"></canvas></div>
+      <div style="font-size:13px;color:var(--text-secondary);margin-top:14px;line-height:1.7;">
+        Spread is <strong style="color:var(--green);">2.84 standard deviations below mean</strong>. Cointegration p-value <strong>0.012</strong> (statistically significant). Half-life of mean reversion: <strong>6.2 days</strong>. Setup: long META vs short GOOGL, equal dollar-neutral notional. Exit when |Z| &lt; 0.5 or after 14 days, stop on |Z| &gt; 3.5.
+      </div>
+    </div>
+
+    <div class="card col-4">
+      <div class="card-header"><div class="card-title">📋 Trade Card</div></div>
+      <table style="font-size:13px;">
+        <tbody>
+          <tr><td style="color:var(--text-muted);">Long Leg</td><td><strong class="green-text">META</strong> @ $587.42</td></tr>
+          <tr><td style="color:var(--text-muted);">Short Leg</td><td><strong class="red-text">GOOGL</strong> @ $178.32</td></tr>
+          <tr><td style="color:var(--text-muted);">Hedge Ratio (β)</td><td class="mono">1.18 GOOGL / META</td></tr>
+          <tr><td style="color:var(--text-muted);">Notional / leg</td><td class="mono">$50,000</td></tr>
+          <tr><td style="color:var(--text-muted);">Shares (Long)</td><td class="mono">85 META</td></tr>
+          <tr><td style="color:var(--text-muted);">Shares (Short)</td><td class="mono">331 GOOGL</td></tr>
+          <tr><td style="color:var(--text-muted);">Expected Move</td><td class="mono green-text">+$4,200</td></tr>
+          <tr><td style="color:var(--text-muted);">Max Risk (3σ)</td><td class="mono red-text">-$1,800</td></tr>
+          <tr><td style="color:var(--text-muted);">R:R</td><td class="mono"><strong>2.33 : 1</strong></td></tr>
+          <tr><td style="color:var(--text-muted);">Beta-Neutral</td><td><span class="pill call">✓</span></td></tr>
+          <tr><td style="color:var(--text-muted);">Dollar-Neutral</td><td><span class="pill call">✓</span></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Method primer -->
+  <div class="card">
+    <div class="card-header"><div class="card-title">🎓 Method · How Pair Trading Works</div></div>
+    <div class="grid grid-3">
+      <div>
+        <div class="section-label">1. Find Cointegration</div>
+        <div style="font-size:13px;color:var(--text-secondary);line-height:1.7;">Two stocks "move together" structurally — common business model, sector, customer base. Engle-Granger test gives a p-value; below 0.05 = statistically cointegrated.</div>
+      </div>
+      <div>
+        <div class="section-label">2. Compute Spread Z-Score</div>
+        <div style="font-size:13px;color:var(--text-secondary);line-height:1.7;">Z = (current spread − mean spread) / stdev. |Z| &gt; 2 means the pair has diverged into actionable territory. Mean reversion is the bet.</div>
+      </div>
+      <div>
+        <div class="section-label">3. Trade Dollar-Neutral</div>
+        <div style="font-size:13px;color:var(--text-secondary);line-height:1.7;">Long the underperforming leg, short the outperformer, equal dollar amounts. Profit when the spread reverts. Half-life tells you the expected holding period.</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/charts.js"></script>
+<script src="js/live.js"></script>
+<script>
+buildNav('pairs');
+document.addEventListener('DOMContentLoaded', () => {
+  const n = 90;
+  const z = []; let v = 0.4;
+  for (let i = 0; i < n; i++) {
+    v += (Math.random() - 0.5) * 0.3 + (-v) * 0.04;
+    z.push(+v.toFixed(2));
+  }
+  z[n-1] = -2.84;
+  new Chart(document.getElementById('zChart'), {
+    type:'line',
+    data:{ labels: Array.from({length:n}, (_,i)=>'D'+(i+1)), datasets: [
+      { label:'Z-Score', data: z, borderColor:'#00d4ff', backgroundColor:'rgba(0,212,255,0.15)', borderWidth: 2, tension: 0.3, pointRadius: 0, fill: true },
+      { label:'+2σ', data: Array(n).fill(2), borderColor:'rgba(239,68,68,0.6)', borderWidth: 1, borderDash:[5,3], pointRadius: 0, fill: false },
+      { label:'-2σ', data: Array(n).fill(-2), borderColor:'rgba(16,185,129,0.6)', borderWidth: 1, borderDash:[5,3], pointRadius: 0, fill: false },
+      { label:'mean', data: Array(n).fill(0), borderColor:'rgba(100,116,139,0.5)', borderWidth: 1, borderDash:[2,2], pointRadius: 0, fill: false }
+    ]},
+    options:{ ...baseOptions(true), scales:{ ...baseOptions().scales, y:{ ...baseOptions().scales.y, ticks:{ ...baseOptions().scales.y.ticks, callback: v => v.toFixed(1) + 'σ' }}}}
+  });
+});
+</script>
+</body>
+</html>

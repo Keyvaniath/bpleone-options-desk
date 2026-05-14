@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Calendar Analyzer — bpleone / trade</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">Calendar / Diagonal Analyzer</div>
+      <div class="page-subtitle">Term-structure trades · theta vs vega ratio · expected vol pricing · <span id="market-clock">--</span></div>
+    </div>
+    <div class="flex gap-8">
+      <select id="caSymbol" style="background:var(--bg-tertiary);border:1px solid var(--border);color:var(--text-primary);padding:8px 14px;border-radius:8px;font-family:var(--font-mono);font-size:14px;font-weight:600;">
+        <option selected>NVDA</option><option>SPY</option><option>QQQ</option><option>AAPL</option><option>TSLA</option><option>META</option><option>AMD</option>
+      </select>
+    </div>
+  </div>
+
+  <!-- Quick stats -->
+  <div class="grid grid-12" style="margin-bottom:24px;">
+    <div class="card col-3"><div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;">Spot</div><div class="mono" style="font-size:24px;font-weight:800;margin-top:4px;"><span data-live="NVDA:last">$138.27</span></div></div>
+    <div class="card col-3"><div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;">Front IV (7d)</div><div class="mono yellow-text" style="font-size:24px;font-weight:800;margin-top:4px;">42.4%</div></div>
+    <div class="card col-3"><div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;">Back IV (60d)</div><div class="mono green-text" style="font-size:24px;font-weight:800;margin-top:4px;">38.2%</div></div>
+    <div class="card col-3"><div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;">Term Structure</div><div class="mono yellow-text" style="font-size:24px;font-weight:800;margin-top:4px;">Backward</div><div style="font-size:11px;color:var(--text-muted);">front > back · sell front</div></div>
+  </div>
+
+  <!-- Trade card + payoff -->
+  <div class="grid grid-12" style="margin-bottom:24px;">
+    <div class="card col-5">
+      <div class="card-header"><div class="card-title">🎯 Calendar Spread Builder</div></div>
+      <div style="margin-bottom:14px;">
+        <div class="section-label">Long Strike (back month)</div>
+        <select id="caLongK" style="width:100%;padding:8px;background:var(--bg-elevated);border:1px solid var(--border);color:var(--text-primary);border-radius:6px;font-family:var(--font-mono);margin-top:6px;">
+          <option>$130 · 60 DTE · $5.20</option>
+          <option>$135 · 60 DTE · $7.40</option>
+          <option selected>$140 · 60 DTE · $9.40</option>
+          <option>$145 · 60 DTE · $7.20</option>
+          <option>$150 · 60 DTE · $5.40</option>
+        </select>
+      </div>
+      <div style="margin-bottom:14px;">
+        <div class="section-label">Short Strike (front month, same strike)</div>
+        <select id="caShortK" style="width:100%;padding:8px;background:var(--bg-elevated);border:1px solid var(--border);color:var(--text-primary);border-radius:6px;font-family:var(--font-mono);margin-top:6px;">
+          <option selected>$140 · 7 DTE · $1.40</option>
+          <option>$140 · 14 DTE · $2.20</option>
+          <option>$140 · 21 DTE · $3.20</option>
+          <option>$140 · 30 DTE · $4.40</option>
+        </select>
+      </div>
+
+      <div style="background:var(--bg-elevated);padding:14px;border-radius:8px;font-family:var(--font-mono);margin-top:14px;">
+        <div style="display:flex;justify-content:space-between;padding:5px 0;"><span style="color:var(--text-muted);">Long $140 60d (debit)</span><span class="red-text">-$9.40</span></div>
+        <div style="display:flex;justify-content:space-between;padding:5px 0;"><span style="color:var(--text-muted);">Short $140 7d (credit)</span><span class="green-text">+$1.40</span></div>
+        <div style="display:flex;justify-content:space-between;padding:6px 0;border-top:1px solid var(--border);font-weight:700;"><span>Net Debit</span><span style="color:var(--accent);">$8.00</span></div>
+        <div style="display:flex;justify-content:space-between;padding:5px 0;color:var(--text-muted);font-size:12px;"><span>Max profit (theory)</span><span class="green-text">≈ $4.20</span></div>
+        <div style="display:flex;justify-content:space-between;padding:5px 0;color:var(--text-muted);font-size:12px;"><span>Max loss</span><span class="red-text">$800 (debit paid)</span></div>
+        <div style="display:flex;justify-content:space-between;padding:5px 0;color:var(--text-muted);font-size:12px;"><span>Theta net (per day)</span><span class="green-text">+$18</span></div>
+        <div style="display:flex;justify-content:space-between;padding:5px 0;color:var(--text-muted);font-size:12px;"><span>Vega net</span><span class="green-text">+$32</span></div>
+        <div style="display:flex;justify-content:space-between;padding:5px 0;color:var(--text-muted);font-size:12px;"><span>Theta:Vega ratio</span><span class="yellow-text">0.56</span></div>
+      </div>
+    </div>
+
+    <div class="card col-7">
+      <div class="card-header"><div class="card-title">📊 Payoff Diagram (at front-month expiry)</div></div>
+      <div class="chart-container"><canvas id="payoffChart"></canvas></div>
+      <div style="font-size:13px;color:var(--text-secondary);margin-top:14px;line-height:1.7;">
+        Maximum profit occurs at <strong style="color:var(--green);">$140</strong> on front-month expiry — the short leg expires worthless while the long retains time value. Calendar profits from <strong>(a) front-month IV crush</strong> (short benefits) and <strong>(b) back-month IV holding firm</strong>. Loses if a large directional move pushes price away from the strike before short expiry.
+      </div>
+    </div>
+  </div>
+
+  <!-- Ladder of opportunities -->
+  <div class="card">
+    <div class="card-header"><div class="card-title">📋 Top Calendar Opportunities (Universe Scan)</div></div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr>
+          <th>#</th><th>Symbol</th><th>Strike</th><th>Front IV</th><th>Back IV</th>
+          <th>Diff</th><th>Debit</th><th>θ:ν</th><th>Catalyst</th><th>Action</th>
+        </tr></thead>
+        <tbody>
+          <tr><td>1</td><td class="symbol">NVDA</td><td>$140</td><td class="mono yellow-text">42.4%</td><td class="mono green-text">38.2%</td><td class="mono">+4.2 pts</td><td>$8.00</td><td>0.56</td><td>Computex 5/19</td><td><span class="pill purple" style="background:var(--purple-bg);color:var(--purple);">CALENDAR</span></td></tr>
+          <tr><td>2</td><td class="symbol">META</td><td>$590</td><td class="mono yellow-text">36.4%</td><td class="mono green-text">32.4%</td><td class="mono">+4.0 pts</td><td>$11.20</td><td>0.62</td><td>None near-term</td><td><span class="pill purple" style="background:var(--purple-bg);color:var(--purple);">CALENDAR</span></td></tr>
+          <tr><td>3</td><td class="symbol">TSLA</td><td>$250</td><td class="mono yellow-text">58.2%</td><td class="mono green-text">52.4%</td><td class="mono">+5.8 pts</td><td>$12.40</td><td>0.48</td><td>Robotaxi (delayed)</td><td><span class="pill purple" style="background:var(--purple-bg);color:var(--purple);">DIAGONAL</span></td></tr>
+          <tr><td>4</td><td class="symbol">AMD</td><td>$165</td><td class="mono yellow-text">46.4%</td><td class="mono green-text">42.1%</td><td class="mono">+4.3 pts</td><td>$8.20</td><td>0.54</td><td>None</td><td><span class="pill purple" style="background:var(--purple-bg);color:var(--purple);">CALENDAR</span></td></tr>
+          <tr><td>5</td><td class="symbol">AAPL</td><td>$220</td><td class="mono yellow-text">30.4%</td><td class="mono green-text">28.4%</td><td class="mono">+2.0 pts</td><td>$6.80</td><td>0.78</td><td>WWDC 6/9</td><td><span class="pill purple" style="background:var(--purple-bg);color:var(--purple);">CALENDAR</span></td></tr>
+          <tr><td>6</td><td class="symbol">QQQ</td><td>$487</td><td class="mono yellow-text">19.4%</td><td class="mono green-text">18.2%</td><td class="mono">+1.2 pts</td><td>$5.20</td><td>0.92</td><td>None</td><td><span class="pill purple" style="background:var(--purple-bg);color:var(--purple);">CALENDAR</span></td></tr>
+          <tr><td>7</td><td class="symbol">SPY</td><td>$562</td><td class="mono yellow-text">15.4%</td><td class="mono green-text">14.8%</td><td class="mono">+0.6 pts</td><td>$3.40</td><td>1.18</td><td>None</td><td><span class="pill" style="background:var(--bg-elevated);color:var(--text-muted);">SKIP</span></td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div style="font-size:12px;color:var(--text-muted);margin-top:14px;line-height:1.7;">
+      <strong style="color:var(--accent);">How to read:</strong> Wider front-back IV diff (backwardation) = better calendar setup. θ:ν below 0.7 = vega-dominated (directional/event risk); above = theta-dominated (pure time decay). Best calendars have <strong>+3+ pt diff</strong> and <strong>θ:ν between 0.5 and 0.9</strong>.
+    </div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/charts.js"></script>
+<script src="js/live.js"></script>
+<script>
+buildNav('calendar-analyzer');
+document.addEventListener('DOMContentLoaded', () => {
+  const spot = 138.27, K = 140;
+  const n = 80;
+  const lo = K * 0.80, hi = K * 1.20;
+  const labels = []; const data = [];
+  for (let i = 0; i < n; i++) {
+    const S = lo + (hi - lo) * i / (n - 1);
+    labels.push(S.toFixed(2));
+    // Calendar payoff at front-month expiry, simplified
+    const shortValue = -Math.max(0, S - K);
+    // Back-month long is still alive with ~53 days left — approximate intrinsic + time value
+    const moneyness = (S - K) / K;
+    const intrinsic = Math.max(0, S - K);
+    const longTimeValue = 9.40 * Math.exp(-Math.pow(moneyness, 2) * 8);
+    const longValue = intrinsic + longTimeValue * 0.85;
+    const debit = 8.00;
+    data.push(+((shortValue + longValue - debit) * 100).toFixed(0));
+  }
+  new Chart(document.getElementById('payoffChart'), {
+    type: 'line',
+    data: { labels, datasets: [{
+      label: 'P/L at front expiry',
+      data,
+      borderColor: '#00d4ff',
+      backgroundColor: 'rgba(0,212,255,0.18)',
+      borderWidth: 2.5,
+      tension: 0.3,
+      pointRadius: 0,
+      fill: true,
+      segment: { borderColor: ctx => ctx.p1.parsed.y >= 0 ? '#10b981' : '#ef4444' }
+    }]},
+    options: { ...baseOptions(), plugins:{ ...baseOptions().plugins, legend:{display:false}}, scales: { ...baseOptions().scales, y: { ...baseOptions().scales.y, ticks: { ...baseOptions().scales.y.ticks, callback: v => '$' + v }}}}
+  });
+});
+</script>
+</body>
+</html>

@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Strategy Library — bpleone / trade</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.strat-card { background:var(--bg-secondary); border:1px solid var(--border); border-radius:12px; padding:18px; transition:all 0.2s; }
+.strat-card:hover { border-color:var(--accent); transform:translateY(-2px); }
+.strat-tag { display:inline-block; padding:3px 8px; border-radius:4px; font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:0.05em; margin-right:4px; margin-bottom:4px; }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">Strategy Library</div>
+      <div class="page-subtitle">Every options & equity strategy with payoff math · when to use · <span id="market-clock">--</span></div>
+    </div>
+    <input type="text" class="search-input" placeholder="Search strategies..." id="stratSearch">
+  </div>
+
+  <!-- Filter tabs -->
+  <div class="card mb-16" style="margin-bottom:18px;">
+    <div class="toolbar">
+      <div class="filter-group">
+        <button class="filter-btn active" data-cat="all">All (24)</button>
+        <button class="filter-btn" data-cat="bullish">Bullish</button>
+        <button class="filter-btn" data-cat="bearish">Bearish</button>
+        <button class="filter-btn" data-cat="neutral">Neutral</button>
+        <button class="filter-btn" data-cat="volatility">Vol Plays</button>
+        <button class="filter-btn" data-cat="income">Income</button>
+      </div>
+      <div class="filter-group">
+        <button class="filter-btn active">All Skill</button>
+        <button class="filter-btn">Beginner</button>
+        <button class="filter-btn">Intermediate</button>
+        <button class="filter-btn">Advanced</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Strategy grid -->
+  <div class="grid grid-3" id="stratGrid"></div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script>
+buildNav('strategies');
+
+const STRATEGIES = [
+  { name:'Long Call', cat:['bullish'], skill:'Beginner', risk:'Defined', icon:'📞',
+    desc:'Buy a call. Profit if stock rises above strike + premium paid. Loses 100% if stock stays flat or drops.',
+    maxProfit:'Unlimited', maxLoss:'Premium paid', be:'Strike + Premium', pop:'Low (35-45%)',
+    when:'Strong directional conviction, IV rank low (<25), > 30 DTE.' },
+  { name:'Long Put', cat:['bearish'], skill:'Beginner', risk:'Defined', icon:'📵',
+    desc:'Buy a put. Profit if stock drops below strike - premium. Defined risk, hedge or speculation.',
+    maxProfit:'Strike - Premium', maxLoss:'Premium paid', be:'Strike - Premium', pop:'Low (35-45%)',
+    when:'Bearish thesis, portfolio hedge, IV rank low.' },
+  { name:'Bull Call Spread', cat:['bullish'], skill:'Beginner', risk:'Defined', icon:'⤴️',
+    desc:'Buy ATM call, sell OTM call. Defined risk, lower cost than long call. Best risk-adjusted bullish play.',
+    maxProfit:'Width - Debit', maxLoss:'Debit paid', be:'Lower strike + Debit', pop:'40-55%',
+    when:'Bullish but IV high (>30 rank). Reduces theta and IV crush exposure.' },
+  { name:'Bear Put Spread', cat:['bearish'], skill:'Beginner', risk:'Defined', icon:'⤵️',
+    desc:'Buy ATM put, sell OTM put. Defined-risk bearish play. Same logic as bull call, inverted.',
+    maxProfit:'Width - Debit', maxLoss:'Debit paid', be:'Upper strike - Debit', pop:'40-55%',
+    when:'Bearish view, IV elevated. Capped reward but better R:R than naked put.' },
+  { name:'Bull Put Spread', cat:['bullish','income'], skill:'Intermediate', risk:'Defined', icon:'💰',
+    desc:'Sell OTM put, buy further OTM put. Credit spread. Profit if stock stays above short put.',
+    maxProfit:'Credit received', maxLoss:'Width - Credit', be:'Short strike - Credit', pop:'60-75%',
+    when:'Bullish or neutral, IV rank > 50. Sell premium with defined risk.' },
+  { name:'Bear Call Spread', cat:['bearish','income'], skill:'Intermediate', risk:'Defined', icon:'💵',
+    desc:'Sell OTM call, buy further OTM call. Credit spread. Profit if stock stays below short call.',
+    maxProfit:'Credit received', maxLoss:'Width - Credit', be:'Short strike + Credit', pop:'60-75%',
+    when:'Bearish/neutral. IV rank > 50. Premium-selling with defined risk.' },
+  { name:'Iron Condor', cat:['neutral','income'], skill:'Intermediate', risk:'Defined', icon:'🦋',
+    desc:'Sell OTM put + buy further OTM put + sell OTM call + buy further OTM call. Profit on sideways action.',
+    maxProfit:'Credit received', maxLoss:'Width - Credit', be:'Two breakevens (each wing)', pop:'65-80%',
+    when:'Range-bound thesis. IV rank > 40. Long-gamma regime. Avoid earnings.' },
+  { name:'Iron Butterfly', cat:['neutral','income'], skill:'Intermediate', risk:'Defined', icon:'🎯',
+    desc:'Sell ATM straddle (both put + call) + buy OTM wings. Tight range, larger credit than condor.',
+    maxProfit:'Credit received', maxLoss:'Width - Credit', be:'ATM ± Credit', pop:'50-65%',
+    when:'Strong belief price will pin near current level. Earnings strategy after IV expansion.' },
+  { name:'Long Straddle', cat:['volatility'], skill:'Intermediate', risk:'Defined', icon:'↕️',
+    desc:'Buy ATM call + put same strike/expiry. Profit on big move either direction. IV crush hurts.',
+    maxProfit:'Unlimited', maxLoss:'Both premiums', be:'Strike ± total premium', pop:'30-45%',
+    when:'Expect big move (earnings, FDA, M&A) but unsure direction. IV rank low.' },
+  { name:'Long Strangle', cat:['volatility'], skill:'Intermediate', risk:'Defined', icon:'↔️',
+    desc:'Buy OTM call + OTM put. Cheaper than straddle, needs larger move to profit.',
+    maxProfit:'Unlimited', maxLoss:'Both premiums', be:'Outside each strike', pop:'25-40%',
+    when:'Expect huge move. Even cheaper than straddle. Higher break-evens.' },
+  { name:'Short Straddle', cat:['neutral','income','volatility'], skill:'Advanced', risk:'Unlimited', icon:'🎰',
+    desc:'Sell ATM call + put. Collect double premium. Profit on flat. Catastrophic loss on outlier moves.',
+    maxProfit:'Total credit', maxLoss:'Unlimited', be:'Strike ± credit', pop:'50-65%',
+    when:'NEVER without hedge. Use iron butterfly instead. For advanced sellers only.' },
+  { name:'Calendar Spread', cat:['neutral','volatility'], skill:'Advanced', risk:'Defined', icon:'📆',
+    desc:'Sell short-dated option, buy longer-dated same strike. Profit from front-month IV crush.',
+    maxProfit:'Variable (~30-40% of debit)', maxLoss:'Debit paid', be:'Around strike at front expiry', pop:'55-70%',
+    when:'Term structure backwardation (front IV > back). Earnings calendars classic play.' },
+  { name:'Diagonal Spread', cat:['bullish','income'], skill:'Advanced', risk:'Defined', icon:'⇗',
+    desc:'Buy ITM longer-dated, sell OTM shorter-dated (different strikes). Hybrid of vertical + calendar.',
+    maxProfit:'Capped (varies)', maxLoss:'Net debit', be:'Complex', pop:'50-65%',
+    when:'Bullish but want to harvest near-term theta. Poor man\'s covered call.' },
+  { name:'Cash-Secured Put', cat:['income','bullish'], skill:'Beginner', risk:'Substantial', icon:'💵',
+    desc:'Sell put with cash to cover assignment. Income + potential to buy stock at lower price.',
+    maxProfit:'Premium received', maxLoss:'Strike - Premium (assignment)', be:'Strike - Premium', pop:'70-85%',
+    when:'Willing to own stock at strike. IV rank > 40. The "Wheel" entry.' },
+  { name:'Covered Call', cat:['income','bullish'], skill:'Beginner', risk:'Substantial', icon:'📞',
+    desc:'Own 100 shares, sell OTM call. Income on holdings. Caps upside above strike.',
+    maxProfit:'Strike + Premium - Cost', maxLoss:'Substantial (stock loss)', be:'Stock cost - Premium', pop:'High',
+    when:'Bullish but expect flat near-term. Generate yield on stock you own.' },
+  { name:'The Wheel', cat:['income','bullish'], skill:'Intermediate', risk:'Substantial', icon:'🎡',
+    desc:'CSP → if assigned, own shares → sell covered calls → repeat. Systematic income engine.',
+    maxProfit:'Continuous premium', maxLoss:'Stock decline', be:'Various', pop:'High (rolling)',
+    when:'Bullish on quality names. Patient income approach. Requires capital.' },
+  { name:'Collar', cat:['bullish','neutral'], skill:'Intermediate', risk:'Defined', icon:'🦺',
+    desc:'Own stock + buy OTM put + sell OTM call. Defined-risk protective structure for existing position.',
+    maxProfit:'Call strike - Cost', maxLoss:'Cost - Put strike', be:'Cost - net credit/debit', pop:'High',
+    when:'Have a big winner, want to lock in gains without selling.' },
+  { name:'Ratio Spread', cat:['bullish','volatility'], skill:'Advanced', risk:'Unlimited', icon:'⚖️',
+    desc:'Buy 1 ATM call, sell 2 OTM calls. Net credit or zero-cost. Profit on modest rise, blows up on huge rise.',
+    maxProfit:'Width + Credit', maxLoss:'Unlimited above short strike', be:'Two breakevens', pop:'50-60%',
+    when:'Bullish but believe move is capped. Earnings overshoots risk you.' },
+  { name:'Butterfly Spread', cat:['neutral'], skill:'Advanced', risk:'Defined', icon:'🦋',
+    desc:'Buy 1 ATM + sell 2 ATM + buy 1 OTM. Maximum profit if stock pins center strike.',
+    maxProfit:'Width - Debit', maxLoss:'Debit', be:'Center ± half width', pop:'Low (15-25%)',
+    when:'Pinning thesis. Cheap structure. Often into monthly OPEX.' },
+  { name:'Jade Lizard', cat:['neutral','income','bullish'], skill:'Advanced', risk:'Unlimited (downside)', icon:'🦎',
+    desc:'Sell OTM put + sell OTM call spread. Credit > width of call spread = no upside risk.',
+    maxProfit:'Credit received', maxLoss:'Strike of short put - Credit', be:'Various', pop:'70-80%',
+    when:'IV rank high, neutral-to-bullish, want premium with no upside risk.' },
+  { name:'Synthetic Long', cat:['bullish'], skill:'Advanced', risk:'Substantial', icon:'⚗️',
+    desc:'Buy ATM call + sell ATM put. Same payoff as long stock with less capital. Margin required.',
+    maxProfit:'Unlimited', maxLoss:'Substantial', be:'Strike + net debit', pop:'Same as stock',
+    when:'Want stock exposure with less capital. Tax efficiency play.' },
+  { name:'Long Stock', cat:['bullish'], skill:'Beginner', risk:'Substantial', icon:'📈',
+    desc:'Buy shares. Simplest bullish bet. No theta, no IV crush. Slower but cleaner.',
+    maxProfit:'Unlimited', maxLoss:'100% of cost', be:'Purchase price', pop:'Mkt-cap dependent',
+    when:'Long-term conviction. Quality names. Don\'t want to deal with expiry mechanics.' },
+  { name:'Short Stock', cat:['bearish'], skill:'Advanced', risk:'Unlimited', icon:'📉',
+    desc:'Borrow shares, sell, hope to buy back lower. Theoretically unlimited risk. Margin call exposure.',
+    maxProfit:'Sale price (100%)', maxLoss:'Unlimited', be:'Sale price', pop:'Low for cult names',
+    when:'High-conviction short with stop. Avoid heavily shorted names (squeeze risk).' },
+  { name:'Pairs Trade', cat:['neutral'], skill:'Advanced', risk:'Defined', icon:'⚖️',
+    desc:'Long one stock, short a correlated peer. Bet on spread mean reversion. Market-neutral.',
+    maxProfit:'Variable', maxLoss:'Wide spread divergence', be:'When spread normalizes', pop:'High when cointegrated',
+    when:'Pair has 60+ day cointegration p < 0.05, current Z-score > 2σ. See Pairs page.' }
+];
+
+function renderGrid(filter) {
+  const grid = document.getElementById('stratGrid');
+  const list = filter === 'all' ? STRATEGIES : STRATEGIES.filter(s => s.cat.includes(filter));
+  grid.innerHTML = list.map(s => {
+    const riskColor = s.risk.toLowerCase().includes('defined') ? 'var(--green)' : s.risk.toLowerCase().includes('unlimited') ? 'var(--red)' : 'var(--yellow)';
+    return `<div class="strat-card">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px;">
+        <div>
+          <div style="font-size:24px;">${s.icon}</div>
+          <div style="font-size:16px;font-weight:700;margin-top:4px;">${s.name}</div>
+        </div>
+        <div style="text-align:right;">
+          ${s.cat.map(c => `<span class="strat-tag" style="background:rgba(0,212,255,0.12);color:var(--accent);">${c}</span>`).join('')}
+          <br><span class="strat-tag" style="background:var(--bg-elevated);color:${riskColor};">${s.risk}</span>
+        </div>
+      </div>
+      <div style="font-size:13px;color:var(--text-secondary);line-height:1.6;margin-bottom:12px;">${s.desc}</div>
+      <div style="font-family:var(--font-mono);font-size:11px;background:var(--bg-elevated);padding:10px;border-radius:6px;line-height:1.8;">
+        <div style="display:flex;justify-content:space-between;"><span style="color:var(--text-muted);">Max profit</span><span class="green-text">${s.maxProfit}</span></div>
+        <div style="display:flex;justify-content:space-between;"><span style="color:var(--text-muted);">Max loss</span><span class="red-text">${s.maxLoss}</span></div>
+        <div style="display:flex;justify-content:space-between;"><span style="color:var(--text-muted);">Break-even</span><span>${s.be}</span></div>
+        <div style="display:flex;justify-content:space-between;"><span style="color:var(--text-muted);">POP</span><span class="yellow-text">${s.pop}</span></div>
+      </div>
+      <div style="font-size:12px;color:var(--text-secondary);margin-top:10px;line-height:1.6;">
+        <strong style="color:var(--accent);">When:</strong> ${s.when}
+      </div>
+    </div>`;
+  }).join('');
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  renderGrid('all');
+  document.querySelectorAll('[data-cat]').forEach(b => b.addEventListener('click', () => {
+    document.querySelectorAll('[data-cat]').forEach(x => x.classList.remove('active'));
+    b.classList.add('active');
+    renderGrid(b.dataset.cat);
+  }));
+  document.getElementById('stratSearch').addEventListener('input', e => {
+    const q = e.target.value.toLowerCase();
+    document.querySelectorAll('.strat-card').forEach(c => {
+      c.style.display = c.textContent.toLowerCase().includes(q) ? '' : 'none';
+    });
+  });
+});
+</script>
+</body>
+</html>

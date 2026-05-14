@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Trade Journal — bpleone / trade</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.jform input, .jform select, .jform textarea { width:100%; padding:8px 10px; background:var(--bg-elevated); border:1px solid var(--border); color:var(--text-primary); border-radius:6px; font-family:var(--font-mono); font-size:13px; }
+.jform label { font-size:11px; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.05em; margin-bottom:4px; display:block; }
+.jform .field { margin-bottom:12px; }
+.jform .row { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">Trade Journal</div>
+      <div class="page-subtitle">Log every trade · feeds the self-learning engine · <span id="market-clock">--</span></div>
+    </div>
+    <div class="flex gap-8">
+      <button class="btn btn-secondary" id="exportBtn">📥 Export CSV</button>
+      <button class="btn btn-primary" id="logBtn">+ Log Trade</button>
+    </div>
+  </div>
+
+  <!-- KPI strip (pulled from Learn) -->
+  <div class="grid grid-12" style="margin-bottom:24px;">
+    <div class="card col-3"><div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;">Total Trades</div><div class="mono" style="font-size:24px;font-weight:800;margin-top:4px;" id="jTotal">—</div></div>
+    <div class="card col-3"><div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;">Win Rate</div><div class="mono green-text" style="font-size:24px;font-weight:800;margin-top:4px;" id="jWR">—</div></div>
+    <div class="card col-3"><div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;">Avg R</div><div class="mono yellow-text" style="font-size:24px;font-weight:800;margin-top:4px;" id="jAvgR">—</div></div>
+    <div class="card col-3"><div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;">Expectancy</div><div class="mono green-text" style="font-size:24px;font-weight:800;margin-top:4px;" id="jExp">—</div></div>
+  </div>
+
+  <div class="grid grid-12" style="margin-bottom:24px;">
+    <!-- LEFT: Log form -->
+    <div class="card col-4" id="logCard" style="display:none;">
+      <div class="card-header"><div class="card-title">📝 New Trade Entry</div></div>
+      <form class="jform" id="jForm">
+        <div class="row">
+          <div class="field"><label>Symbol</label><input name="symbol" required placeholder="NVDA"></div>
+          <div class="field"><label>Direction</label><select name="bias"><option value="bull">Bull</option><option value="bear">Bear</option></select></div>
+        </div>
+        <div class="row">
+          <div class="field"><label>Setup</label><select name="setup">
+            <option>50ma-reclaim</option><option>bull-flag</option><option>cup-handle</option><option>macd-cross</option>
+            <option>unusual-call</option><option>unusual-put</option><option>52w-break</option>
+            <option>rsi-divergence</option><option>volume-breakout</option><option>gamma-squeeze</option>
+            <option>200dma-break</option>
+          </select></div>
+          <div class="field"><label>Sector</label><select name="sector">
+            <option>Tech</option><option>Comm Svc</option><option>Cons Disc</option><option>Financials</option>
+            <option>Healthcare</option><option>Industrials</option><option>Energy</option><option>Materials</option>
+            <option>Utilities</option><option>REITs</option><option>Cons Stpl</option>
+          </select></div>
+        </div>
+        <div class="row">
+          <div class="field"><label>Score (0-100)</label><input name="score" type="number" min="0" max="100" value="75"></div>
+          <div class="field"><label>Entry</label><input name="entry" type="number" step="0.01" required></div>
+        </div>
+        <div class="row">
+          <div class="field"><label>Stop</label><input name="stop" type="number" step="0.01" required></div>
+          <div class="field"><label>Target</label><input name="target" type="number" step="0.01"></div>
+        </div>
+        <div class="field"><label>Notes</label><textarea name="notes" rows="3" placeholder="Thesis, conditions, what you saw..."></textarea></div>
+        <button type="submit" class="btn btn-primary" style="width:100%;">Save & Track</button>
+      </form>
+      <div style="font-size:11px;color:var(--text-muted);margin-top:12px;line-height:1.6;">
+        Logged trades feed the self-learning engine. When you close them via the table, weights rebalance and signal scores re-rank.
+      </div>
+    </div>
+
+    <!-- Equity curve -->
+    <div class="card" id="curveCard">
+      <div class="card-header"><div class="card-title">📈 Cumulative R Curve</div></div>
+      <div class="chart-container"><canvas id="rCum"></canvas></div>
+    </div>
+  </div>
+
+  <!-- Open trades -->
+  <div class="card mb-16" style="margin-bottom:24px;">
+    <div class="card-header"><div class="card-title">🟢 Open Trades</div><span class="card-badge" id="openCount">0</span></div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Date</th><th>Symbol</th><th>Bias</th><th>Setup</th><th>Entry</th><th>Stop</th><th>Target</th><th>Risk</th><th>Action</th></tr></thead>
+        <tbody id="openTrades"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Closed trades -->
+  <div class="card">
+    <div class="card-header"><div class="card-title">📋 Closed Trades</div><span class="card-badge" id="closedCount">0</span></div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Date</th><th>Symbol</th><th>Bias</th><th>Setup</th><th>Entry</th><th>Exit</th><th>R</th><th>Result</th><th>Reason</th><th>Notes</th></tr></thead>
+        <tbody id="closedTrades"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/charts.js"></script>
+<script src="js/live.js"></script>
+<script src="js/learn.js"></script>
+<script>
+buildNav('journal');
+let RC = null;
+
+function refresh() {
+  const all = Learn.load().trades;
+  const open = all.filter(t => !t.result);
+  const closed = all.filter(t => t.result).sort((a,b) => (b.closedTs||b.ts) - (a.closedTs||a.ts));
+
+  const s = Learn.stats();
+  document.getElementById('jTotal').textContent = s.total + ' closed · ' + open.length + ' open';
+  document.getElementById('jWR').textContent = (s.winRate * 100).toFixed(1) + '%';
+  document.getElementById('jAvgR').textContent = (s.avgR>=0?'+':'') + s.avgR.toFixed(2) + 'R';
+  document.getElementById('jExp').textContent = (s.expectancy>=0?'+':'') + s.expectancy.toFixed(2) + 'R';
+
+  document.getElementById('openCount').textContent = open.length + ' open';
+  document.getElementById('closedCount').textContent = closed.length + ' total';
+
+  // Open
+  document.getElementById('openTrades').innerHTML = open.length === 0
+    ? '<tr><td colspan="9" style="text-align:center;color:var(--text-muted);padding:24px;">No open trades. Click "Log Trade" to add one.</td></tr>'
+    : open.map(t => {
+      const risk = Math.abs((t.entry || 0) - (t.stop || 0));
+      return `<tr>
+        <td>${new Date(t.ts).toLocaleDateString()}</td>
+        <td class="symbol">${t.symbol}</td>
+        <td><span class="pill ${t.bias==='bull'?'call':'put'}">${t.bias.toUpperCase()}</span></td>
+        <td>${t.setup}</td>
+        <td>$${(t.entry||0).toFixed(2)}</td>
+        <td class="red-text">$${(t.stop||0).toFixed(2)}</td>
+        <td class="green-text">${t.target ? '$'+t.target.toFixed(2) : '—'}</td>
+        <td>$${risk.toFixed(2)}</td>
+        <td>
+          <button class="btn btn-ghost" style="padding:2px 6px;font-size:11px;" data-close="${t.id}" data-default-exit="${t.target||t.entry}">Close</button>
+        </td>
+      </tr>`;
+    }).join('');
+
+  document.querySelectorAll('[data-close]').forEach(b => {
+    b.addEventListener('click', () => {
+      const exit = parseFloat(prompt('Exit price?', b.dataset.defaultExit) || '');
+      if (isNaN(exit)) return;
+      const reason = prompt('Reason? (target / stop / trail / time-stop / manual)', 'target') || 'manual';
+      Learn.closeTrade(b.dataset.close, exit, reason);
+      refresh();
+    });
+  });
+
+  // Closed
+  document.getElementById('closedTrades').innerHTML = closed.slice(0, 50).map(t => `
+    <tr>
+      <td>${new Date(t.ts).toLocaleDateString()}</td>
+      <td class="symbol">${t.symbol}</td>
+      <td><span class="pill ${t.bias==='bull'?'call':'put'}">${t.bias.toUpperCase()}</span></td>
+      <td>${t.setup}</td>
+      <td>$${(t.entry||0).toFixed(2)}</td>
+      <td>$${(t.exit||0).toFixed(2)}</td>
+      <td class="${t.R>=0?'green-text':'red-text'}" style="font-weight:700;">${(t.R||0).toFixed(2)}R</td>
+      <td><span class="pill ${t.result==='win'?'call':'put'}">${t.result.toUpperCase()}</span></td>
+      <td>${t.closeReason||'—'}</td>
+      <td style="max-width:200px;white-space:normal;font-size:11px;color:var(--text-muted);">${t.notes||''}</td>
+    </tr>
+  `).join('');
+
+  // Cumulative R chart
+  const sorted = [...closed].sort((a,b) => a.ts - b.ts);
+  let cum = 0;
+  const cumData = sorted.map(t => { cum += t.R || 0; return +cum.toFixed(2); });
+  if (RC) RC.destroy();
+  RC = new Chart(document.getElementById('rCum'), {
+    type:'line',
+    data: { labels: sorted.map((_,i) => i+1), datasets: [{ data: cumData, borderColor:'#00d4ff', backgroundColor: 'rgba(0,212,255,0.15)', borderWidth:2.5, tension:0.2, pointRadius:0, fill:true }]},
+    options: { ...baseOptions(), plugins:{ ...baseOptions().plugins, legend:{display:false}}, scales: { ...baseOptions().scales, y: { ...baseOptions().scales.y, ticks: { ...baseOptions().scales.y.ticks, callback: v => v.toFixed(1) + 'R' }}}}
+  });
+}
+
+function csvDownload() {
+  const trades = Learn.load().trades;
+  const headers = ['date','symbol','bias','setup','sector','score','entry','stop','target','exit','R','result','closeReason','holdDays','notes'];
+  const rows = trades.map(t => headers.map(h => {
+    let v = t[h] != null ? t[h] : '';
+    if (h === 'date') v = new Date(t.ts).toISOString().split('T')[0];
+    if (typeof v === 'string' && v.includes(',')) v = '"' + v.replace(/"/g, '""') + '"';
+    return v;
+  }).join(','));
+  const csv = [headers.join(','), ...rows].join('\n');
+  const blob = new Blob([csv], { type: 'text/csv' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = 'bpleone-journal.csv'; a.click();
+  URL.revokeObjectURL(url);
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  refresh();
+
+  document.getElementById('logBtn').addEventListener('click', () => {
+    const c = document.getElementById('logCard');
+    c.style.display = c.style.display === 'none' ? '' : 'none';
+  });
+
+  document.getElementById('jForm').addEventListener('submit', e => {
+    e.preventDefault();
+    const fd = new FormData(e.target);
+    const data = {};
+    fd.forEach((v, k) => { data[k] = isNaN(+v) || v === '' ? v : +v; });
+    Learn.recordTrade(data);
+    e.target.reset();
+    document.getElementById('logCard').style.display = 'none';
+    refresh();
+  });
+
+  document.getElementById('exportBtn').addEventListener('click', csvDownload);
+});
+</script>
+</body>
+</html>

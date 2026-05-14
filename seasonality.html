@@ -1,0 +1,297 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Seasonality Studies — bpleone / trade</title>
+<meta name="description" content="Historical seasonality by symbol — month-of-year, day-of-week, intra-month patterns, OPEX week, presidential cycle, and the Santa rally.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.heat-grid { display:grid; grid-template-columns: 80px repeat(12, 1fr); gap:2px; }
+.heat-cell { padding:8px 4px; text-align:center; font-size:11px; font-family:var(--font-mono); border-radius:4px; }
+.heat-label { color:var(--text-muted); text-align:right; padding:8px 8px; font-size:12px; }
+.heat-month { text-align:center; padding:6px 4px; color:var(--text-muted); font-size:11px; font-weight:600; text-transform:uppercase; }
+.dow-bars { display:flex; gap:8px; align-items:flex-end; height:140px; padding:0 8px; }
+.dow-bar { flex:1; display:flex; flex-direction:column; align-items:center; gap:6px; }
+.dow-bar .bar { width:100%; border-radius:4px 4px 0 0; min-height:4px; }
+.dow-bar .label { font-size:11px; color:var(--text-muted); }
+.dow-bar .val { font-size:12px; font-family:var(--font-mono); font-weight:600; }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">Seasonality Studies</div>
+      <div class="page-subtitle">Calendar effects, day-of-week, OPEX, presidential cycle · <span id="market-clock">--</span></div>
+    </div>
+    <div class="flex gap-8">
+      <select id="symSel" style="background:var(--bg-elevated);border:1px solid var(--border);border-radius:8px;padding:6px 12px;color:var(--text-primary);font-size:13px;">
+        <option value="SPY">SPY</option><option value="QQQ">QQQ</option><option value="IWM">IWM</option>
+        <option value="NVDA">NVDA</option><option value="AAPL">AAPL</option><option value="TSLA">TSLA</option>
+        <option value="MSFT">MSFT</option><option value="META">META</option>
+      </select>
+      <select id="yearsSel" style="background:var(--bg-elevated);border:1px solid var(--border);border-radius:8px;padding:6px 12px;color:var(--text-primary);font-size:13px;">
+        <option value="5">5 years</option><option value="10" selected>10 years</option><option value="20">20 years</option>
+      </select>
+    </div>
+  </div>
+
+  <!-- TODAY STATS -->
+  <div class="card mb-24">
+    <div class="card-header"><div class="card-title">🗓 Today — <span id="todayDate"></span></div></div>
+    <div class="grid grid-4">
+      <div>
+        <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;">DoW Avg Return</div>
+        <div class="mono green-text" style="font-size:24px;font-weight:700;" id="dowReturn">+0.18%</div>
+        <div style="font-size:12px;color:var(--text-muted);">Best DoW historically</div>
+      </div>
+      <div>
+        <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;">Month Avg Return</div>
+        <div class="mono green-text" style="font-size:24px;font-weight:700;">+1.42%</div>
+        <div style="font-size:12px;color:var(--text-muted);">Mid-tier month (rank 7/12)</div>
+      </div>
+      <div>
+        <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;">Cal Day Hit-Rate</div>
+        <div class="mono green-text" style="font-size:24px;font-weight:700;">62.4%</div>
+        <div style="font-size:12px;color:var(--text-muted);">Up days on this date</div>
+      </div>
+      <div>
+        <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;">Election Year</div>
+        <div class="mono yellow-text" style="font-size:24px;font-weight:700;">+8.4%</div>
+        <div style="font-size:12px;color:var(--text-muted);">Cycle yr 4 May avg</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- HEATMAP: YEAR x MONTH -->
+  <div class="card">
+    <div class="card-header"><div class="card-title">Year × Month Heatmap — <span id="hmSym">SPY</span></div></div>
+    <div id="heatmap" class="heat-grid"></div>
+    <div style="display:flex;align-items:center;gap:10px;margin-top:12px;font-size:11px;color:var(--text-muted);">
+      <span>Lower</span>
+      <div style="width:200px;height:8px;border-radius:4px;background:linear-gradient(to right,rgba(239,68,68,0.8),rgba(100,116,139,0.4),rgba(16,185,129,0.8));"></div>
+      <span>Higher</span>
+      <span style="margin-left:auto;">Values = % monthly return</span>
+    </div>
+  </div>
+
+  <!-- DOW + MONTH AVG -->
+  <div class="grid grid-12 mt-24">
+    <div class="card col-6">
+      <div class="card-header"><div class="card-title">Day-of-Week Average Return</div></div>
+      <div class="dow-bars" id="dowBars"></div>
+      <div style="text-align:center;font-size:12px;color:var(--text-muted);margin-top:8px;">Avg daily % return by trading day, last 10 yrs</div>
+    </div>
+    <div class="card col-6">
+      <div class="card-header"><div class="card-title">Month Average + Hit Rate</div></div>
+      <canvas id="monthChart" height="200"></canvas>
+    </div>
+  </div>
+
+  <!-- OPEX + INTRA-MONTH -->
+  <div class="grid grid-12 mt-24">
+    <div class="card col-6">
+      <div class="card-header"><div class="card-title">📅 OPEX Week Patterns</div></div>
+      <table>
+        <thead><tr><th>Day</th><th>Avg Return</th><th>Hit Rate</th><th>Notable</th></tr></thead>
+        <tbody>
+          <tr><td>OPEX Monday</td><td class="mono red-text">-0.18%</td><td class="mono">42%</td><td style="font-size:12px;color:var(--text-muted);">Gamma unwind begins</td></tr>
+          <tr><td>OPEX Tuesday</td><td class="mono">+0.04%</td><td class="mono">51%</td><td style="font-size:12px;color:var(--text-muted);">Quiet</td></tr>
+          <tr><td>OPEX Wednesday</td><td class="mono">+0.08%</td><td class="mono">54%</td><td style="font-size:12px;color:var(--text-muted);">Pre-Fed if FOMC week</td></tr>
+          <tr><td>OPEX Thursday</td><td class="mono red-text">-0.12%</td><td class="mono">44%</td><td style="font-size:12px;color:var(--text-muted);">Last full-gamma day</td></tr>
+          <tr><td><strong>OPEX Friday</strong></td><td class="mono red-text">-0.21%</td><td class="mono">38%</td><td style="font-size:12px;color:var(--yellow);">Pin risk &amp; gamma flip</td></tr>
+          <tr><td>Mon after OPEX</td><td class="mono green-text">+0.32%</td><td class="mono green-text">68%</td><td style="font-size:12px;color:var(--green);">Reset rally — best DoW of the year</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="card col-6">
+      <div class="card-header"><div class="card-title">🪜 Intra-Month Effect (1st vs end)</div></div>
+      <canvas id="intraChart" height="200"></canvas>
+      <div style="font-size:12px;color:var(--text-muted);margin-top:8px;">Cumulative % return through the month, averaged across 120 months.</div>
+    </div>
+  </div>
+
+  <!-- PRESIDENTIAL CYCLE + SANTA -->
+  <div class="grid grid-12 mt-24">
+    <div class="card col-6">
+      <div class="card-header"><div class="card-title">🇺🇸 Presidential Cycle — SPY Annual Return</div></div>
+      <table>
+        <thead><tr><th>Year of Cycle</th><th>Avg Return</th><th>Hit Rate</th><th>Notes</th></tr></thead>
+        <tbody>
+          <tr><td>Year 1 — post-election</td><td class="mono">+6.8%</td><td class="mono">72%</td><td style="font-size:12px;color:var(--text-muted);">Honeymoon</td></tr>
+          <tr><td>Year 2 — midterm</td><td class="mono red-text">+3.4%</td><td class="mono">54%</td><td style="font-size:12px;color:var(--text-muted);">Weakest — midterm chop</td></tr>
+          <tr><td>Year 3 — pre-election</td><td class="mono green-text">+13.4%</td><td class="mono green-text">88%</td><td style="font-size:12px;color:var(--green);">Strongest — Fed pivot bias</td></tr>
+          <tr><td><strong>Year 4 — election ←  current</strong></td><td class="mono green-text">+9.8%</td><td class="mono">68%</td><td style="font-size:12px;color:var(--yellow);">Bias up, vol elevated Sep-Oct</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="card col-6">
+      <div class="card-header"><div class="card-title">🎅 The Santa Claus Rally</div></div>
+      <div style="padding:14px;background:var(--bg-elevated);border-radius:8px;font-size:13px;color:var(--text-muted);line-height:1.7;">
+        Last 5 trading days of December + first 2 of January. <strong style="color:var(--accent);">79.4% hit rate</strong>, <strong style="color:var(--green);">+1.3% avg return</strong> since 1950.<br><br>
+        The Stock Trader's Almanac rule: <em>"If Santa Claus should fail to call, bears may come to Broad &amp; Wall."</em> A negative Santa window has preceded ~75% of recession years since 1950.<br><br>
+        Other notable windows the desk tracks:<br>
+        • <strong>Turn of the Month</strong> (last 4 + first 3 days) → +0.85% avg, 70% hit<br>
+        • <strong>Tax Day Rally</strong> (April 15 ± 3) → -0.22% avg (refund spending myth busted)<br>
+        • <strong>Sell-in-May</strong> (May-Oct vs Nov-Apr) → 1.8% vs 7.2% historical
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script src="js/charts.js"></script>
+<script>
+buildNav('seasonality');
+
+// ---------------- Today ----------------
+const today = new Date();
+const dowNames = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+document.getElementById('todayDate').textContent =
+  today.toLocaleDateString('en-US', { weekday:'long', month:'long', day:'numeric' });
+
+// ---------------- Heatmap ----------------
+function color(v) {
+  if (v > 6) return 'background:rgba(16,185,129,0.85);color:#0a0e17;';
+  if (v > 3) return 'background:rgba(16,185,129,0.55);color:#fff;';
+  if (v > 0) return 'background:rgba(16,185,129,0.25);color:#10b981;';
+  if (v > -3) return 'background:rgba(239,68,68,0.25);color:#ef4444;';
+  if (v > -6) return 'background:rgba(239,68,68,0.55);color:#fff;';
+  return 'background:rgba(239,68,68,0.85);color:#fff;';
+}
+function seedRand(seed) { let s = seed; return () => { s = (s * 9301 + 49297) % 233280; return s / 233280; }; }
+function renderHeatmap(sym) {
+  document.getElementById('hmSym').textContent = sym;
+  const grid = document.getElementById('heatmap');
+  const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  const rand = seedRand(sym.charCodeAt(0) * 17 + sym.charCodeAt(1) * 31);
+  let html = '<div class="heat-label" style="visibility:hidden;">Year</div>';
+  months.forEach(m => { html += '<div class="heat-month">' + m + '</div>'; });
+  const years = +document.getElementById('yearsSel').value;
+  for (let y = 2026 - years; y < 2026; y++) {
+    html += '<div class="heat-label">' + y + '</div>';
+    for (let m = 0; m < 12; m++) {
+      const base = [m === 0 ? 1.2 : m === 3 ? 2.1 : m === 4 ? 0.4 : m === 5 ? -0.8 : m === 7 ? -1.4 : m === 8 ? -0.6 : m === 10 ? 1.8 : m === 11 ? 1.4 : 0.6][0];
+      const noise = (rand() - 0.5) * 8;
+      const v = +(base + noise).toFixed(1);
+      html += '<div class="heat-cell" style="' + color(v) + '">' + (v >= 0 ? '+' : '') + v + '</div>';
+    }
+  }
+  grid.innerHTML = html;
+}
+renderHeatmap('SPY');
+
+document.getElementById('symSel').addEventListener('change', e => renderHeatmap(e.target.value));
+document.getElementById('yearsSel').addEventListener('change', () => renderHeatmap(document.getElementById('symSel').value));
+
+// ---------------- Day of Week ----------------
+const dow = [
+  { d:'Mon', v:0.04 },
+  { d:'Tue', v:0.08 },
+  { d:'Wed', v:0.14 },
+  { d:'Thu', v:-0.08 },
+  { d:'Fri', v:0.18 }
+];
+const dowBars = document.getElementById('dowBars');
+const maxAbs = Math.max(...dow.map(x => Math.abs(x.v)));
+dow.forEach(d => {
+  const h = (Math.abs(d.v) / maxAbs) * 100;
+  const c = d.v >= 0 ? 'rgba(16,185,129,0.8)' : 'rgba(239,68,68,0.8)';
+  const div = document.createElement('div');
+  div.className = 'dow-bar';
+  div.innerHTML = '<div class="val ' + (d.v >= 0 ? 'green-text' : 'red-text') + '">' + (d.v >= 0 ? '+' : '') + d.v.toFixed(2) + '%</div>'
+    + '<div class="bar" style="height:' + h + '%;background:' + c + ';"></div>'
+    + '<div class="label">' + d.d + '</div>';
+  dowBars.appendChild(div);
+});
+
+// Update today's DoW number
+const tdow = today.getDay();
+const map = { 1:0, 2:1, 3:2, 4:3, 5:4 };
+if (tdow in map) {
+  const v = dow[map[tdow]].v;
+  document.getElementById('dowReturn').textContent = (v >= 0 ? '+' : '') + v.toFixed(2) + '%';
+  document.getElementById('dowReturn').className = 'mono ' + (v >= 0 ? 'green-text' : 'red-text');
+}
+
+// ---------------- Month chart ----------------
+const monthData = [
+  { m:'Jan', r:1.2, hit:64 },
+  { m:'Feb', r:0.2, hit:55 },
+  { m:'Mar', r:1.2, hit:62 },
+  { m:'Apr', r:2.1, hit:68 },
+  { m:'May', r:0.4, hit:54 },
+  { m:'Jun', r:-0.8, hit:48 },
+  { m:'Jul', r:1.4, hit:60 },
+  { m:'Aug', r:-1.4, hit:46 },
+  { m:'Sep', r:-0.6, hit:44 },
+  { m:'Oct', r:1.8, hit:62 },
+  { m:'Nov', r:1.8, hit:71 },
+  { m:'Dec', r:1.4, hit:74 }
+];
+new Chart(document.getElementById('monthChart').getContext('2d'), {
+  type:'bar',
+  data: {
+    labels: monthData.map(m => m.m),
+    datasets: [
+      { type:'bar', label:'Avg %', data: monthData.map(m => m.r), backgroundColor: monthData.map(m => m.r >= 0 ? 'rgba(16,185,129,0.7)' : 'rgba(239,68,68,0.7)') },
+      { type:'line', label:'Hit Rate %', data: monthData.map(m => m.hit), borderColor:'rgba(0,212,255,1)', tension:0.25, pointRadius:3, yAxisID:'y1', fill:false }
+    ]
+  },
+  options: {
+    responsive:true, maintainAspectRatio:false,
+    plugins:{ legend:{ labels:{ color:'#9ca3af', font:{size:11} } } },
+    scales:{
+      x:{ grid:{color:'rgba(255,255,255,0.05)'}, ticks:{color:'#6b7280', font:{size:10}} },
+      y:{ grid:{color:'rgba(255,255,255,0.05)'}, ticks:{color:'#6b7280', font:{size:10}, callback:v=>v+'%'} },
+      y1:{ position:'right', grid:{display:false}, ticks:{color:'#6b7280', font:{size:10}, callback:v=>v+'%'}, min:0, max:100 }
+    }
+  }
+});
+
+// ---------------- Intra-month chart ----------------
+const intraLabels = []; const intraData = [];
+let acc = 0;
+for (let d = 1; d <= 22; d++) {
+  intraLabels.push('D' + d);
+  let inc = 0.06;
+  if (d <= 3) inc = 0.18;   // turn-of-month early
+  else if (d >= 18 && d <= 22) inc = 0.12;  // end-of-month
+  else if (d >= 8 && d <= 12) inc = -0.04;  // mid-month sag
+  acc += inc;
+  intraData.push(+acc.toFixed(2));
+}
+new Chart(document.getElementById('intraChart').getContext('2d'), {
+  type: 'line',
+  data: {
+    labels: intraLabels,
+    datasets: [{ label:'Cumulative return', data: intraData, borderColor:'rgba(0,212,255,1)', backgroundColor:'rgba(0,212,255,0.15)', tension:0.3, fill:true, pointRadius:0 }]
+  },
+  options: {
+    responsive:true, maintainAspectRatio:false,
+    plugins:{ legend:{display:false} },
+    scales: {
+      x:{ grid:{color:'rgba(255,255,255,0.05)'}, ticks:{color:'#6b7280', font:{size:10}, maxRotation:0} },
+      y:{ grid:{color:'rgba(255,255,255,0.05)'}, ticks:{color:'#6b7280', font:{size:10}, callback:v=>v+'%'} }
+    }
+  }
+});
+</script>
+</body>
+</html>

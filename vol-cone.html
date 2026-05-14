@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Volatility Cone — bpleone / trade</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">Volatility Cone</div>
+      <div class="page-subtitle">Realized vol distribution by lookback · is IV rich or cheap? · <span id="market-clock">--</span></div>
+    </div>
+    <div class="flex gap-8">
+      <select id="vcSym" style="background:var(--bg-tertiary);border:1px solid var(--border);color:var(--text-primary);padding:8px 14px;border-radius:8px;font-family:var(--font-mono);font-size:14px;font-weight:600;">
+        <option>SPY</option><option>QQQ</option><option selected>NVDA</option><option>AAPL</option><option>TSLA</option><option>META</option><option>AMD</option>
+      </select>
+    </div>
+  </div>
+
+  <!-- Stats strip -->
+  <div class="grid grid-12" style="margin-bottom:24px;">
+    <div class="card col-3"><div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;">Current IV30</div><div class="mono yellow-text" style="font-size:24px;font-weight:800;margin-top:4px;">38.4%</div><div class="mono" style="font-size:12px;color:var(--text-muted);">implied</div></div>
+    <div class="card col-3"><div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;">RV30 (1 year)</div><div class="mono" style="font-size:24px;font-weight:800;margin-top:4px;">31.2%</div><div class="mono" style="font-size:12px;color:var(--text-muted);">realized</div></div>
+    <div class="card col-3"><div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;">IV - RV Spread</div><div class="mono green-text" style="font-size:24px;font-weight:800;margin-top:4px;">+7.2 pts</div><div class="mono" style="font-size:12px;color:var(--text-muted);">premium-seller edge</div></div>
+    <div class="card col-3"><div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;">IV Percentile</div><div class="mono yellow-text" style="font-size:24px;font-weight:800;margin-top:4px;">42</div><div class="mono" style="font-size:12px;color:var(--text-muted);">vs 1Y range</div></div>
+  </div>
+
+  <!-- Vol cone chart -->
+  <div class="card mb-16" style="margin-bottom:24px;">
+    <div class="card-header"><div class="card-title">📊 Volatility Cone — Realized Vol by Lookback</div></div>
+    <div class="chart-container large"><canvas id="coneChart"></canvas></div>
+    <div style="font-size:13px;color:var(--text-secondary);margin-top:14px;line-height:1.7;">
+      Each lookback period shows the historical distribution of realized vol (5th, 25th, 50th, 75th, 95th percentiles) over the past year. <strong style="color:var(--accent);">Current IV (cyan dot)</strong> at the relevant maturity tells you if implied is rich vs realized history.
+      <br><br>
+      <strong style="color:var(--green);">Trade implication:</strong> When IV plots above the 75th percentile band, premium-selling structures (iron condors, strangle shorts, calendars) have positive edge. When below the 25th, long-vol convexity is cheap — buy straddles or VIX calls.
+    </div>
+  </div>
+
+  <!-- IV percentile leaderboard -->
+  <div class="grid grid-12">
+    <div class="card col-6">
+      <div class="card-header"><div class="card-title">🌡️ IV Rank Leaderboard — Universe</div></div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Symbol</th><th>Current IV</th><th>IV Rank</th><th>IV %ile</th><th>52w Range</th><th>Action</th></tr></thead>
+          <tbody>
+            <tr><td class="symbol">SMCI</td><td class="mono">78.4%</td><td class="mono red-text"><strong>92</strong></td><td>96th</td><td>34 — 92%</td><td><span class="pill purple">SELL VOL</span></td></tr>
+            <tr><td class="symbol">RIVN</td><td class="mono">78.2%</td><td class="mono red-text"><strong>88</strong></td><td>94th</td><td>42 — 98%</td><td><span class="pill purple">SELL VOL</span></td></tr>
+            <tr><td class="symbol">TSLA</td><td class="mono">52.4%</td><td class="mono yellow-text"><strong>62</strong></td><td>72nd</td><td>32 — 78%</td><td><span class="pill purple">SELL VOL</span></td></tr>
+            <tr><td class="symbol">COIN</td><td class="mono">68.4%</td><td class="mono yellow-text"><strong>58</strong></td><td>64th</td><td>42 — 102%</td><td><span class="pill purple">CONDOR</span></td></tr>
+            <tr><td class="symbol">PLTR</td><td class="mono">62.4%</td><td class="mono yellow-text"><strong>52</strong></td><td>58th</td><td>38 — 84%</td><td><span class="pill purple">CONDOR</span></td></tr>
+            <tr><td class="symbol">NVDA</td><td class="mono">38.4%</td><td class="mono yellow-text"><strong>42</strong></td><td>48th</td><td>24 — 68%</td><td><span class="pill purple">CONDOR</span></td></tr>
+            <tr><td class="symbol">AMD</td><td class="mono">42.1%</td><td class="mono"><strong>38</strong></td><td>42nd</td><td>28 — 72%</td><td>—</td></tr>
+            <tr><td class="symbol">META</td><td class="mono">32.8%</td><td class="mono"><strong>32</strong></td><td>38th</td><td>22 — 58%</td><td>—</td></tr>
+            <tr><td class="symbol">AAPL</td><td class="mono">28.4%</td><td class="mono"><strong>22</strong></td><td>28th</td><td>18 — 48%</td><td>—</td></tr>
+            <tr><td class="symbol">QQQ</td><td class="mono">18.4%</td><td class="mono green-text"><strong>14</strong></td><td>18th</td><td>11 — 38%</td><td><span class="pill block">BUY VOL</span></td></tr>
+            <tr><td class="symbol">SPY</td><td class="mono">14.8%</td><td class="mono green-text"><strong>8</strong></td><td>12th</td><td>9 — 32%</td><td><span class="pill block">BUY VOL</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="card col-6">
+      <div class="card-header"><div class="card-title">📚 The IV/RV Edge Read</div></div>
+      <div style="font-size:14px;line-height:1.8;color:var(--text-secondary);">
+        <strong style="color:var(--text-primary);">Premium sellers have a structural edge.</strong> Over long horizons, IV trades 1-3 vol points above realized — a "volatility risk premium" investors pay for option insurance. That's why systematic short-vol strategies (iron condors, premium selling) can produce positive expectancy.
+        <br><br>
+        <strong style="color:var(--accent);">Current desk read:</strong>
+        <ul style="margin-top:8px;padding-left:20px;">
+          <li>Names with IV rank > 60 = sell premium (iron condors, short straddles 30-45 DTE)</li>
+          <li>Names with IV rank < 20 = long premium / convexity (long calls, straddles)</li>
+          <li>NVDA at IV rank 42 = neutral zone. Use directional spreads, not pure vol bets.</li>
+        </ul>
+        <br>
+        <strong style="color:var(--yellow);">⚠ Caveat:</strong> Sellers blow up in tail events. Always size for the unhedged worst case (3σ move), not the median outcome.
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script>
+buildNav('vol-cone');
+document.addEventListener('DOMContentLoaded', () => {
+  const periods = [5, 10, 20, 30, 60, 90, 180, 252];
+  // Cone bands (each lookback): [min, p5, p25, median, p75, p95, max]
+  const data = periods.map((p, i) => {
+    const base = 30 + Math.cos(i) * 4;
+    return {
+      p5:  base - 14 + i * 0.5,
+      p25: base - 7  + i * 0.4,
+      p50: base      + i * 0.3,
+      p75: base + 8  + i * 0.2,
+      p95: base + 18 + i * 0.1
+    };
+  });
+  // Current IV (NVDA) by maturity
+  const ivCurrent = [42, 41, 39.5, 38.4, 38.8, 39.2, 40.4, 41.8];
+
+  new Chart(document.getElementById('coneChart'), {
+    data: {
+      labels: periods.map(p => p + 'd'),
+      datasets: [
+        { label:'95th %ile', type:'line', data: data.map(d => d.p95), borderColor:'rgba(239,68,68,0.5)', borderWidth:1.5, borderDash:[4,3], fill:false, pointRadius:0, tension:0.4 },
+        { label:'75th %ile', type:'line', data: data.map(d => d.p75), borderColor:'rgba(245,158,11,0.6)', borderWidth:1.5, borderDash:[4,3], fill:'+1', backgroundColor:'rgba(245,158,11,0.06)', pointRadius:0, tension:0.4 },
+        { label:'50th (median)', type:'line', data: data.map(d => d.p50), borderColor:'#00d4ff', borderWidth:2.5, fill:false, pointRadius:0, tension:0.4 },
+        { label:'25th %ile', type:'line', data: data.map(d => d.p25), borderColor:'rgba(16,185,129,0.6)', borderWidth:1.5, borderDash:[4,3], fill:'+1', backgroundColor:'rgba(16,185,129,0.06)', pointRadius:0, tension:0.4 },
+        { label:'5th %ile', type:'line', data: data.map(d => d.p5), borderColor:'rgba(16,185,129,0.5)', borderWidth:1.5, borderDash:[4,3], fill:false, pointRadius:0, tension:0.4 },
+        { label:'Current IV', type:'scatter', data: ivCurrent.map((v, i) => ({ x: i, y: v })), backgroundColor:'#00d4ff', borderColor:'#fff', borderWidth:2, pointRadius:7, pointStyle:'circle', showLine:true }
+      ]
+    },
+    options: { ...baseOptions(true), scales: { ...baseOptions().scales, y: { ...baseOptions().scales.y, title:{ display:true, text:'Vol %', color:'#64748b' }, ticks: { ...baseOptions().scales.y.ticks, callback: v => v + '%' }}}}
+  });
+});
+</script>
+</body>
+</html>

@@ -1,0 +1,432 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AI Assistant — bpleone / trade</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.chat-shell { display:grid; grid-template-rows:1fr auto; height:calc(100vh - 240px); min-height:520px; }
+.chat-log { overflow-y:auto; padding:20px; display:flex; flex-direction:column; gap:14px; }
+.msg { max-width:78%; padding:12px 16px; border-radius:14px; font-size:14px; line-height:1.6; }
+.msg.user { background:var(--accent); color:#0a0e17; align-self:flex-end; border-bottom-right-radius:4px; }
+.msg.bot { background:var(--bg-elevated); color:var(--text-primary); align-self:flex-start; border-bottom-left-radius:4px; border:1px solid var(--border); }
+.msg.bot pre { background:rgba(0,0,0,0.3); padding:8px 12px; border-radius:6px; margin:8px 0; font-family:var(--font-mono); font-size:12px; overflow-x:auto; }
+.chat-input-bar { padding:16px; border-top:1px solid var(--border); display:flex; gap:8px; align-items:flex-end; background:var(--bg-secondary); }
+.chat-input-bar textarea { flex:1; background:var(--bg-elevated); border:1px solid var(--border); color:var(--text-primary); padding:12px 14px; border-radius:10px; font-family:inherit; font-size:14px; resize:none; min-height:44px; max-height:120px; }
+.chat-input-bar textarea:focus { outline:none; border-color:var(--accent); }
+.suggestion { padding:6px 12px; background:var(--bg-tertiary); border:1px solid var(--border); border-radius:999px; font-size:12px; cursor:pointer; transition:all 0.15s; }
+.suggestion:hover { border-color:var(--accent); color:var(--accent); }
+.typing-dots span { display:inline-block; width:6px; height:6px; background:var(--text-muted); border-radius:50%; margin:0 2px; animation:typing 1.4s infinite ease-in-out both; }
+.typing-dots span:nth-child(1) { animation-delay:-0.32s; }
+.typing-dots span:nth-child(2) { animation-delay:-0.16s; }
+@keyframes typing { 0%, 80%, 100% { opacity:0.3; } 40% { opacity:1; } }
+.status-pill { display:inline-flex; align-items:center; gap:6px; padding:4px 10px; border-radius:999px; font-size:11px; font-weight:700; letter-spacing:0.5px; }
+.status-pill.connected { background:var(--green-bg); color:var(--green); border:1px solid rgba(16,185,129,0.3); }
+.status-pill.disconnected { background:rgba(100,116,139,0.15); color:var(--text-muted); border:1px solid var(--border); }
+.status-pill .dot { width:7px; height:7px; border-radius:50%; background:currentColor; }
+.error-banner { background:var(--red-bg); color:var(--red); border:1px solid rgba(239,68,68,0.3); padding:10px 14px; border-radius:8px; font-size:13px; margin:0 16px 8px; }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">AI Trade Assistant</div>
+      <div class="page-subtitle">Ask anything — trade ideas, options structures, sizing, TA · <span id="market-clock">--</span></div>
+    </div>
+    <div class="flex gap-8">
+      <span id="aiBrainBadge" class="status-pill disconnected"><span class="dot"></span> HEURISTIC MODE</span>
+      <a href="settings.html#ai" class="btn btn-ghost">⚙ Configure</a>
+      <button class="btn btn-secondary" id="clearBtn">↺ New Chat</button>
+    </div>
+  </div>
+
+  <div class="grid grid-12">
+    <!-- Main chat -->
+    <div class="card col-9" style="padding:0;overflow:hidden;">
+      <div class="chat-shell">
+        <div class="chat-log" id="chatLog">
+          <div class="msg bot">
+            👋 I'm your trading desk assistant. I can help with:
+            <br>• Trade ideas based on current setups
+            <br>• Options structures — calls, spreads, condors, calendars
+            <br>• Position sizing math
+            <br>• Reading the tape and flow
+            <br>• Risk management questions
+            <br><br>Ask me anything, or click a suggestion below.
+          </div>
+        </div>
+        <div class="chat-input-bar">
+          <textarea id="chatInput" placeholder="Ask me about NVDA, position sizing, iron condors, options chains..." rows="1"></textarea>
+          <button class="btn btn-primary" id="sendBtn" style="height:44px;">Send</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Sidebar -->
+    <div class="col-3" style="display:flex;flex-direction:column;gap:14px;">
+      <div class="card">
+        <div class="card-header"><div class="card-title">💡 Try Asking</div></div>
+        <div style="display:flex;flex-direction:column;gap:6px;">
+          <div class="suggestion" data-q="What's the best trade setup right now?">📈 Best trade right now?</div>
+          <div class="suggestion" data-q="How do I size an NVDA call position with $50k account and 1% risk?">📐 Size NVDA position</div>
+          <div class="suggestion" data-q="Explain iron condors and when to use them">🦋 Iron condors explained</div>
+          <div class="suggestion" data-q="What's the implied move on NVDA earnings?">⚡ NVDA earnings move</div>
+          <div class="suggestion" data-q="What does negative gamma mean for SPX?">🌀 Gamma explained</div>
+          <div class="suggestion" data-q="Should I buy calls or use a spread?">⚖️ Calls vs spreads</div>
+          <div class="suggestion" data-q="How do I read the tape?">📜 Reading the tape</div>
+          <div class="suggestion" data-q="What's the Kelly criterion?">🎯 Kelly sizing</div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header"><div class="card-title">⚠ Disclaimers</div></div>
+        <div style="font-size:12px;color:var(--text-muted);line-height:1.7;">
+          Responses are based on the desk's published methodology and current market regime. <strong style="color:var(--yellow);">Not personalized advice.</strong> Always size for your own risk tolerance and consult a licensed advisor for material allocations.
+          <br><br>
+          The assistant is heuristic-driven (not LLM) — it pattern-matches your question against a library of trading topics and returns the desk's documented stance.
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script>
+buildNav('assistant');
+
+// Conversation history for multi-turn context with Claude
+const conversation = [];
+let aiAvailable = false;
+
+function refreshAiBadge() {
+  const s = AIClient.getStatus();
+  aiAvailable = s.enabled;
+  const badge = document.getElementById('aiBrainBadge');
+  if (!badge) return;
+  if (aiAvailable) {
+    badge.className = 'status-pill connected';
+    badge.innerHTML = '<span class="dot"></span> CLAUDE · ' + (s.model || '').replace('claude-','').toUpperCase();
+  } else {
+    badge.className = 'status-pill disconnected';
+    badge.innerHTML = '<span class="dot"></span> HEURISTIC MODE';
+  }
+}
+AIClient.onStatus(refreshAiBadge);
+
+// Keyword-routed canned responses (smart enough to feel real, honest about being heuristic)
+const RESPONSES = [
+  { match: /nvda|nvidia/i, response:
+    `**NVDA · current desk view (Bullish, 94/100):**
+NVDA reclaimed 50DMA at $134.18 on 1.84x average volume. MACD just printed a bullish cross. Daily RSI at 54.2 (room to run, not stretched). Computex (May 19-23) is the proximate catalyst with $48M call premium accumulating in 5 sessions at the $145 and $150 strikes.
+
+**Setup I'd run:**
+\`\`\`
+Bull Call Spread — NVDA 6/20 145/150
+Debit: $1.85 / contract
+Max profit: $315 / contract (170%)
+Max loss: $185 / contract
+R:R: 1.70 : 1 · POP: ~48%
+\`\`\`
+**Entry:** $138.00 — $139.20 if SPY holds $560+
+**Stop:** Daily close below $133.80
+**Targets:** Scale 50% at $143.50, balance at $148.20
+
+Open the Trade of the Day page for the full thesis and chart.`
+  },
+  { match: /size|sizing|how many|how much/i, response:
+    `**Position sizing — quick formula:**
+\`\`\`
+Position size = (Account × Risk %) / Stop distance
+\`\`\`
+For a $50k account at 1% risk per trade ($500), trading NVDA with $4.47 stop distance:
+**Shares:** 112
+**Long-call contracts (one delta-equivalent):** ~1
+**Spread contracts (1.85 debit, defined):** 2-3 max
+
+Rules of thumb the desk uses:
+• Never risk more than 1% of account on a single idea
+• Never risk more than 3% across correlated positions
+• Reduce size by 25% if VIX > 25 or sector concentration > 30%
+
+Visit the Position Sizing Calculator (under Tools) for Kelly, ATR-based, and vol-targeted math.`
+  },
+  { match: /iron condor|condor/i, response:
+    `**Iron condor — when and how:**
+Sell an OTM put + buy a further OTM put, sell an OTM call + buy a further OTM call. Net credit. Profit when price stays inside the body, lose if it breaks either wing.
+
+**Best regimes:**
+• Long-gamma dealer environment (price compression)
+• IV rank elevated (rich premium to sell)
+• No imminent catalysts (avoid earnings week)
+• Sideways or mildly directional outlook
+
+**Sizing target:** Wings at 1.5x implied move on each side
+**Manage:** Close at 50% of max profit, or 21 DTE remaining
+
+Example today on SPY 0DTE: 555/560 — 565/570 for $0.42 net credit, POP 76%. See 0DTE page for live options chain.`
+  },
+  { match: /earning|implied move/i, response:
+    `**Implied move into earnings:**
+Calculated from the closest expiry straddle price ÷ stock price ≈ expected move.
+
+**NVDA next earnings (5/28 AMC):**
+• EPS consensus: $0.84 · whisper: $0.91 (+$0.07)
+• Implied move: ±9.4%
+• 8-quarter beat rate: 8/8 (100%)
+• Hist. realized: avg ±8.2% (so implied ≈ realized)
+
+**Strategy implications:**
+• Long call/put before — risky (IV crush kills you even if direction right)
+• **Better:** Long calendar spread (sell front, buy back) — profits from IV crush
+• Or **iron condor** at 1.5x implied move — premium-seller play
+
+See Earnings Calendar for the full lineup this week.`
+  },
+  { match: /gamma|delta|theta|vega|greek/i, response:
+    `**Greeks — quick reference:**
+\`\`\`
+Δ Delta  — $ option moves per $1 stock move (also ≈ POP ITM)
+Γ Gamma  — rate of change of delta. Highest near ATM and short DTE
+Θ Theta  — daily $ time decay. Negative for long premium
+ν Vega   — $ change per +1pt IV. Long premium = long vega
+\`\`\`
+**Long gamma regime** (dealers net long calls/puts) = price compression. Dealers hedge by selling rallies, buying dips. Volatility dampens.
+
+**Short gamma regime** (dealers net short) = amplification. Dealers chase trend. Volatility expands.
+
+Current SPX regime: **LONG GAMMA**, gamma flip at $5,572. Spot $5,621 — comfortably long. See GEX page.`
+  },
+  { match: /best trade|trade idea|setup right now/i, response:
+    `**Top 3 conviction trades from today's desk:**
+
+**1. NVDA Bull Call Spread (Score 94)**
+6/20 145/150 @ $1.85 debit · R:R 1.70:1 · POP 48% · Computex catalyst 5/19
+
+**2. META Bull Flag Continuation (Score 88)**
+6/20 580/600 call spread @ $8.20 · Measured move $612 · Stop $580
+
+**3. TSLA Put (Score 87) — counter-trend**
+5/23 240P @ $3.85 · 200DMA broken · Robotaxi delayed · Bear flag target $228
+
+Check Plays of the Day for the full ranked list (8 active setups), each with score, R:R, IV rank, and Greeks. All scores are learn-adjusted from realized expectancy.`
+  },
+  { match: /vix|volatility|iv crush/i, response:
+    `**Volatility regime read:**
+VIX 14.82 (-3.12% today) — front-month at 14.4, back-month at 17.2.
+**Term structure: contango** (M2-M1 spread = +1.0). Normal regime.
+
+**Implications:**
+• Vol sellers favored — sell premium, buy back if/when M2-M1 inverts
+• Long-vol convexity is cheap here (low VIX = cheap protection)
+• Pair: long SPX puts + short VIX futures = "vol of vol" carry
+
+Watch for: spike above 16 with backwardation flip = regime shift, get defensive.
+
+See Vol Surface page for full IV smile and term structure visualization.`
+  },
+  { match: /call vs spread|spread better|long call/i, response:
+    `**Long call vs spread — the math:**
+Long call = pure leverage. Wins big if directional, loses 100% of premium if wrong direction OR if stock doesn't move enough.
+
+**Vertical spread = capped upside but:**
+• Lower debit
+• Lower break-even (closer to spot)
+• Reduced theta + IV crush exposure
+• Higher POP
+
+**The rule:** If IV rank > 40, prefer spreads (vol is rich). If IV rank < 20, long calls are cheap convexity.
+
+NVDA today (IV rank 42): spread is the right answer. 145/150 @ $1.85 vs naked 145C at $3.85. You give up ~$30 of theoretical upside per contract but cut your max loss in half and increase POP by ~6 pts.`
+  },
+  { match: /tape|time and sales|order flow/i, response:
+    `**Reading the tape — what to watch:**
+1. **Side dominance** — % of prints at ask vs bid over rolling 5-minute windows. >60% ask = aggressive buying.
+2. **Print size distribution** — sudden cluster of 1k+ lot blocks at ask = institutional accumulation.
+3. **Exchange routing** — sweeps across NYSE/NASDAQ/ARCA = urgent fill, informed.
+4. **Dark pool prints** — "D" condition code = institutional OTC flow. Lag your decisions on these (they're often late tape).
+
+**Red flag:** Price moves but tape shows it's hitting bids — that's distribution, not accumulation. Reverse if calls are buying ask.
+
+Go to Tape page for live ticking feed. Set alerts on 5k+ block prints in your watchlist names.`
+  },
+  { match: /kelly|fractional/i, response:
+    `**Kelly criterion — and why I cap it:**
+\`\`\`
+Kelly % = (W × R - L) / R
+W = win probability, R = avg win / avg loss, L = loss probability
+\`\`\`
+For my system: W = 0.684, avg R = 1.87, L = 0.316
+**Full Kelly = 51%** of bankroll on each trade. WAY too aggressive.
+
+**What I actually use:** **Fractional Kelly (¼ Kelly) = ~12%** at the most extreme conviction setups. For normal trades, 1% fixed-fractional is safer.
+
+Why fractional? Real-world parameter uncertainty + drawdown drag. Even if Kelly is theoretically optimal, the volatility of full-Kelly drawdowns will blow most traders out emotionally.
+
+Use Position Sizing Calculator under Tools to see all four methods side-by-side.`
+  },
+  { match: /macd|rsi|moving average|50dma|200dma/i, response:
+    `**MACD bullish cross + 50DMA reclaim = my favorite combo.**
+
+Why it works:
+• MACD cross = momentum shift confirmed
+• 50DMA = institutional accumulation reference
+• Volume confirmation > 1.5x avg = real participation, not retail
+• MACD histogram expanding = trend has fuel left
+
+NVDA today hit all three. RSI at 54.2 (room above midline) — not yet overbought. Daily MACD just crossed positive. 50DMA reclaim on 1.84x avg volume.
+
+**Avoid these signals when:**
+• RSI > 75 (mean reversion likely)
+• Above 50DMA but no MACD support (whippy)
+• Volume < 1x avg (no conviction)`
+  },
+  { match: /goldman|morgan|sell.?side|analyst/i, response:
+    `**Sell-side notes I'm watching today:**
+
+**Goldman (5/11):** NVDA Buy, PT raised $148 → $165 (implied +19.3%). "AI capex visibility through 2H26, hyperscaler commits up 38% YoY."
+
+**Morgan Stanley (5/9):** NVDA Overweight, PT $152 → $172. "Computex catalyst, Blackwell ramp ahead of expectations."
+
+**JPM (5/6):** NVDA Overweight, PT $155 → $170.
+
+**Barclays (4/18):** Equal-Weight (lone holdout), PT $132. "Valuation already prices perfection."
+
+I weight Buy/Overweight upgrades at 1.2x and reiterations at 0.4x in the composite signal score. Consensus is firmly bullish — the risk is **all-Buy crowdedness** itself.
+
+See Fundamentals page > Analyst Ratings for the full 30-day action log.`
+  }
+];
+
+// Default fallback
+const FALLBACK = `I work off a library of trading topics — try asking about: a specific ticker, position sizing, options strategies (calls/spreads/condors/calendars), Greeks (delta/gamma/theta/vega), volatility/VIX, earnings plays, MACD/RSI/MA, sell-side notes, Kelly criterion, or tape reading.
+
+Or click one of the suggestions on the right.`;
+
+function appendMsg(text, role) {
+  const log = document.getElementById('chatLog');
+  const m = document.createElement('div');
+  m.className = 'msg ' + role;
+  // Render basic markdown: **bold**, code blocks
+  const html = text
+    .replace(/```([\s\S]*?)```/g, (_, code) => '<pre>' + code.trim() + '</pre>')
+    .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+    .replace(/\n/g, '<br>');
+  m.innerHTML = html;
+  log.appendChild(m);
+  log.scrollTop = log.scrollHeight;
+}
+
+function appendTyping() {
+  const log = document.getElementById('chatLog');
+  const m = document.createElement('div');
+  m.className = 'msg bot';
+  m.id = 'typingIndicator';
+  m.innerHTML = '<span class="typing-dots"><span></span><span></span><span></span></span>';
+  log.appendChild(m);
+  log.scrollTop = log.scrollHeight;
+}
+
+function removeTyping() {
+  const t = document.getElementById('typingIndicator');
+  if (t) t.remove();
+}
+
+function answer(q) {
+  for (const r of RESPONSES) {
+    if (r.match.test(q)) return r.response;
+  }
+  return FALLBACK;
+}
+
+function showError(text) {
+  const log = document.getElementById('chatLog');
+  const el = document.createElement('div');
+  el.className = 'error-banner';
+  el.textContent = text;
+  log.appendChild(el);
+  log.scrollTop = log.scrollHeight;
+}
+
+async function sendToClaude(text) {
+  conversation.push({ role: 'user', content: text });
+  appendTyping();
+  const log = document.getElementById('chatLog');
+  let botDiv = null;
+  try {
+    await AIClient.chatStream(conversation, {}, (chunk, full) => {
+      if (!botDiv) {
+        removeTyping();
+        botDiv = document.createElement('div');
+        botDiv.className = 'msg bot';
+        log.appendChild(botDiv);
+      }
+      const html = full
+        .replace(/```([\s\S]*?)```/g, (_, code) => '<pre>' + code.trim() + '</pre>')
+        .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+        .replace(/`([^`]+)`/g, '<code style="background:rgba(0,0,0,0.3);padding:2px 6px;border-radius:4px;">$1</code>')
+        .replace(/\n/g, '<br>');
+      botDiv.innerHTML = html;
+      log.scrollTop = log.scrollHeight;
+    });
+    // Persist final assistant message
+    if (botDiv) conversation.push({ role: 'assistant', content: botDiv.textContent });
+  } catch (e) {
+    removeTyping();
+    showError('Claude API error: ' + (e.message || e) + ' · Falling back to heuristic response.');
+    appendMsg(answer(text), 'bot');
+    // Roll back the failed user turn so retry works cleanly
+    conversation.pop();
+  }
+}
+
+function send(text) {
+  if (!text.trim()) return;
+  appendMsg(text, 'user');
+  document.getElementById('chatInput').value = '';
+  document.getElementById('chatInput').style.height = '44px';
+
+  if (aiAvailable && typeof AIClient !== 'undefined' && AIClient.isReady()) {
+    sendToClaude(text);
+    return;
+  }
+
+  appendTyping();
+  setTimeout(() => {
+    removeTyping();
+    appendMsg(answer(text), 'bot');
+  }, 600 + Math.random() * 500);
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  const input = document.getElementById('chatInput');
+  input.addEventListener('input', () => {
+    input.style.height = '44px';
+    input.style.height = Math.min(120, input.scrollHeight) + 'px';
+  });
+  input.addEventListener('keydown', e => {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(input.value); }
+  });
+  document.getElementById('sendBtn').addEventListener('click', () => send(input.value));
+  document.getElementById('clearBtn').addEventListener('click', () => {
+    document.getElementById('chatLog').innerHTML = '<div class="msg bot">👋 New chat started. What would you like to talk about?</div>';
+    conversation.length = 0;
+  });
+  document.querySelectorAll('.suggestion').forEach(s => s.addEventListener('click', () => send(s.dataset.q)));
+});
+</script>
+</body>
+</html>
