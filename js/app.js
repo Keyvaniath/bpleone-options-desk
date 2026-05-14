@@ -2,6 +2,23 @@
    BPLEONE TRADING - CORE APP JS
    =========================================== */
 
+// Theme: read saved preference and apply BEFORE first paint to avoid flash.
+(function applySavedTheme() {
+  try {
+    const t = localStorage.getItem('bpleone_theme_v1') || 'dark';
+    if (t === 'light') document.documentElement.setAttribute('data-theme', 'light');
+  } catch (e) {}
+})();
+
+// Register the service worker (PWA install + offline cache). Skip on file://.
+(function registerSW() {
+  if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('/service-worker.js').catch(() => {});
+    });
+  }
+})();
+
 // Auto-load companion modules on any page that includes this script.
 // Pages that already imported these get a no-op (idempotent).
 (function loadCompanions() {
@@ -68,7 +85,7 @@ function buildTicker() {
 function buildNav(activePage) {
   activePage = activePage || '';
   const playsGrp = ['totd','plays','signals','earnings','earnings-preview','pre-market','zero-dte','setup-wizard','paper-trade','game-plan','hot-movers','squeeze-radar'];
-  const tradeGrp = ['flow','chain','ta','momentum','market-internals','smart-money','heatmap','watchlists','vol-surface','gex','tape','sectors','pairs','calendar-analyzer','vol-cone','dark-pool','short-interest','etf-flows','volume-profile','order-flow','ticker','multi-leg-builder','bracket-builder'];
+  const tradeGrp = ['flow','chain','ta','momentum','market-internals','smart-money','heatmap','watchlists','vol-surface','gex','tape','sectors','pairs','calendar-analyzer','vol-cone','dark-pool','short-interest','etf-flows','volume-profile','order-flow','ticker','multi-leg-builder','bracket-builder','spread-scanner','wheel'];
   const toolsGrp = ['risk','fundamentals','backtester','edge','learn','crypto','journal','alerts','macro','news','screener','anomalies','assistant','ai-scout','portfolio-builder','position-sizing','execution','strategies','api','seasonality','economic-events','settings'];
   const isTrade = tradeGrp.indexOf(activePage) !== -1;
   const isPlays = playsGrp.indexOf(activePage) !== -1;
@@ -120,6 +137,8 @@ function buildNav(activePage) {
     + '<a href="ticker.html">🔍 Ticker Focus <span class="feat-badge feat-new" style="font-size:8px;padding:0 5px;">NEW</span></a>'
     + '<a href="multi-leg-builder.html">🔧 Multi-Leg Builder <span class="feat-badge feat-pro" style="font-size:8px;padding:0 5px;">PRO</span></a>'
     + '<a href="bracket-builder.html">🎯 Bracket Order Builder <span class="feat-badge feat-new" style="font-size:8px;padding:0 5px;">NEW</span></a>'
+    + '<a href="spread-scanner.html">📊 Spread Scanner <span class="feat-badge feat-pro" style="font-size:8px;padding:0 5px;">PRO</span></a>'
+    + '<a href="wheel.html">🎡 Wheel Tracker <span class="feat-badge feat-new" style="font-size:8px;padding:0 5px;">NEW</span></a>'
     + '</div></li>'
     + '<li class="nav-dd"><a href="#" class="' + (isTools?'active':'') + '">Tools ▾</a>'
     + '<div class="nav-dropdown">'
@@ -151,6 +170,7 @@ function buildNav(activePage) {
     + '<div class="nav-actions">'
     + '<a id="dataStatusPill" href="settings.html" title="Data feed status — click to configure" class="data-pill data-pill-mock"><span class="data-pill-dot"></span><span class="data-pill-label">MOCK</span></a>'
     + '<button id="cmdkBtn" title="Search & navigate (⌘K)" class="btn btn-ghost" style="padding:6px 10px;font-size:11px;font-family:var(--font-mono);">⌘K</button>'
+    + '<button id="themeBtn" title="Toggle theme" class="btn btn-ghost" style="padding:6px 10px;">🌓</button>'
     + '<button id="notifyBtn" title="Enable signal alerts" class="btn btn-ghost" style="padding:6px 10px;">🔔</button>'
     + '<a href="about.html#subscribe" class="btn btn-ghost">Sign In</a>'
     + '<a href="about.html#subscribe" class="btn btn-primary">Get Pro</a>'
@@ -161,6 +181,24 @@ function buildNav(activePage) {
   wireDataPill();
   const cmdkBtn = document.getElementById('cmdkBtn');
   if (cmdkBtn && window.CmdPalette) cmdkBtn.addEventListener('click', () => CmdPalette.open());
+  const themeBtn = document.getElementById('themeBtn');
+  if (themeBtn) {
+    const sync = () => {
+      const isLight = document.documentElement.getAttribute('data-theme') === 'light';
+      themeBtn.textContent = isLight ? '🌙' : '🌓';
+      themeBtn.title = isLight ? 'Switch to dark theme' : 'Switch to light theme';
+    };
+    sync();
+    themeBtn.addEventListener('click', () => {
+      const isLight = document.documentElement.getAttribute('data-theme') === 'light';
+      const next = isLight ? 'dark' : 'light';
+      if (next === 'light') document.documentElement.setAttribute('data-theme', 'light');
+      else document.documentElement.removeAttribute('data-theme');
+      try { localStorage.setItem('bpleone_theme_v1', next); } catch (e) {}
+      sync();
+      if (window.Toast) Toast.show('Theme: ' + next, { kind: 'info' });
+    });
+  }
   const nb = document.getElementById('notifyBtn');
   if (nb && typeof Notify !== 'undefined') {
     function refreshLabel() {
@@ -259,6 +297,8 @@ function buildFooter() {
     + '<li><a href="ticker.html">Ticker Focus</a></li>'
     + '<li><a href="multi-leg-builder.html">Multi-Leg Builder</a></li>'
     + '<li><a href="bracket-builder.html">Bracket Builder</a></li>'
+    + '<li><a href="spread-scanner.html">Spread Scanner</a></li>'
+    + '<li><a href="wheel.html">Wheel Tracker</a></li>'
     + '</ul></div>'
     + '<div class="footer-col"><h4>Tools</h4><ul>'
     + '<li><a href="fundamentals.html">Fundamentals</a></li>'

@@ -1,0 +1,358 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Wheel Strategy Tracker — bpleone / trade</title>
+<meta name="description" content="Track the wheel: cash-secured puts → assignment → covered calls → exit. Per-position annualized return, premium collected, cost basis, full cycle history.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.wheel-stage { display: flex; align-items: center; justify-content: center; gap: 32px; padding: 22px 16px; background: var(--bg-elevated); border-radius: 12px; margin-bottom: 24px; }
+.stage { text-align: center; padding: 10px 16px; border-radius: 8px; background: var(--bg-secondary); border: 1px solid var(--border); min-width: 110px; cursor: help; position: relative; }
+.stage.active { background: rgba(0,212,255,0.10); border-color: var(--accent); box-shadow: 0 0 12px rgba(0,212,255,0.3); }
+.stage .icon { font-size: 28px; line-height: 1; }
+.stage .name { font-size: 12px; font-weight: 700; margin-top: 6px; }
+.stage .sub { font-size: 10px; color: var(--text-muted); margin-top: 2px; }
+.arrow { font-size: 24px; color: var(--text-muted); }
+.pos-row td { padding: 10px 12px; }
+.cycle-row { padding: 12px 14px; background: var(--bg-elevated); border-radius: 8px; margin-bottom: 8px; border-left: 4px solid var(--green); }
+.kbig { padding: 14px 16px; background: var(--bg-elevated); border-radius: 10px; }
+.kbig .lab { font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.6px; }
+.kbig .val { font-family: var(--font-mono); font-size: 24px; font-weight: 700; margin-top: 4px; }
+.form-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; padding: 10px 0; }
+.form-grid input, .form-grid select { background: var(--bg-secondary); border: 1px solid var(--border); color: var(--text-primary); padding: 7px 10px; border-radius: 6px; font-family: var(--font-mono); font-size: 12px; width: 100%; box-sizing: border-box; }
+.form-grid label { font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; display: block; margin-bottom: 4px; }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">Wheel Strategy Tracker <span class="feat-badge feat-new">NEW</span></div>
+      <div class="page-subtitle">CSP → assignment → CC → exit · annualized yield per position · <span id="market-clock">--</span></div>
+    </div>
+    <div class="flex gap-8">
+      <button class="btn btn-secondary" id="exportBtn">↓ Export CSV</button>
+      <button class="btn btn-ghost" id="resetBtn">↻ Reset</button>
+    </div>
+  </div>
+
+  <!-- Wheel visualization -->
+  <div class="wheel-stage">
+    <div class="stage" id="stage1"><div class="icon">💰</div><div class="name">Cash</div><div class="sub">Sell CSP</div></div>
+    <span class="arrow">→</span>
+    <div class="stage" id="stage2"><div class="icon">📝</div><div class="name">Short Put</div><div class="sub">Wait for fill</div></div>
+    <span class="arrow">→</span>
+    <div class="stage" id="stage3"><div class="icon">📦</div><div class="name">Assigned</div><div class="sub">100 shares</div></div>
+    <span class="arrow">→</span>
+    <div class="stage" id="stage4"><div class="icon">📈</div><div class="name">Covered Call</div><div class="sub">Sell weekly</div></div>
+    <span class="arrow">→</span>
+    <div class="stage" id="stage5"><div class="icon">💵</div><div class="name">Called Away</div><div class="sub">Cycle complete</div></div>
+  </div>
+
+  <!-- KPIs -->
+  <div class="grid grid-4 mb-24">
+    <div class="kbig"><div class="lab">Active Wheels</div><div class="val mono" id="kActive">0</div><div style="font-size:12px;color:var(--text-muted);" id="kActiveSub">0 in CSP · 0 in CC</div></div>
+    <div class="kbig"><div class="lab">Premium Collected (lifetime)</div><div class="val mono green-text" id="kPrem">$0.00</div><div style="font-size:12px;color:var(--text-muted);" id="kPremSub">Net of buy-backs</div></div>
+    <div class="kbig"><div class="lab">Avg Annualized Yield</div><div class="val mono yellow-text" id="kAnnYld">—%</div><div style="font-size:12px;color:var(--text-muted);">All cycles, weighted by capital</div></div>
+    <div class="kbig"><div class="lab">Completed Cycles</div><div class="val mono" id="kDone">0</div><div style="font-size:12px;color:var(--text-muted);" id="kDoneSub">Avg duration —</div></div>
+  </div>
+
+  <!-- Open positions -->
+  <div class="card mb-24">
+    <div class="card-header">
+      <div class="card-title">🎡 Open Positions</div>
+      <button class="btn btn-primary" id="newBtn">+ New Wheel</button>
+    </div>
+    <div id="newForm" style="display:none;">
+      <div class="form-grid">
+        <div><label>Symbol</label><input id="nfSym" placeholder="e.g. AAPL" autocomplete="off"></div>
+        <div><label>Stage</label>
+          <select id="nfStage">
+            <option value="csp">Short Put (CSP open)</option>
+            <option value="held">Shares Held (post-assignment)</option>
+            <option value="cc">Covered Call open</option>
+          </select>
+        </div>
+        <div><label>Strike</label><input id="nfStrike" type="number" step="0.01"></div>
+        <div><label>Expiry (yyyy-mm-dd)</label><input id="nfExp" type="date"></div>
+        <div><label>Premium received ($)</label><input id="nfPrem" type="number" step="0.01"></div>
+        <div><label>Cost basis (if held)</label><input id="nfCb" type="number" step="0.01"></div>
+        <div><label>Shares (if held/CC)</label><input id="nfShares" type="number" value="100"></div>
+        <div><label>Open date</label><input id="nfDate" type="date"></div>
+        <div style="display:flex;align-items:flex-end;gap:6px;">
+          <button class="btn btn-primary" id="nfAdd" style="flex:1;">Add</button>
+          <button class="btn btn-ghost" id="nfCancel">Cancel</button>
+        </div>
+      </div>
+    </div>
+    <div class="table-wrap" style="margin-top:14px;">
+      <table>
+        <thead><tr><th>Symbol</th><th>Stage</th><th>Strike</th><th>Expiry</th><th>DTE</th><th>Premium</th><th>Live P/L</th><th>Ann. Yield</th><th>Cost Basis</th><th>Actions</th></tr></thead>
+        <tbody id="posBody"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Completed cycles -->
+  <div class="card">
+    <div class="card-header"><div class="card-title">✅ Completed Cycles</div></div>
+    <div id="cycleList"></div>
+  </div>
+
+  <!-- Education -->
+  <div class="card mt-24">
+    <div class="card-header"><div class="card-title">🧠 The Wheel — quick rules</div></div>
+    <div class="grid grid-3" style="gap:20px;">
+      <div>
+        <div style="font-weight:700;color:var(--accent);margin-bottom:6px;">CSP — short put</div>
+        <div style="font-size:13px;color:var(--text-muted);line-height:1.6;">Sell an out-of-the-money put on a stock you'd genuinely own. Target 20-30 delta, 30-45 DTE. Roll out & down at 21 DTE if untested. Goal: collect premium without assignment.</div>
+      </div>
+      <div>
+        <div style="font-weight:700;color:var(--yellow);margin-bottom:6px;">Assignment</div>
+        <div style="font-size:13px;color:var(--text-muted);line-height:1.6;">If put expires ITM, you own 100 shares at the strike. Cost basis = strike − premium collected. Don't panic — you wanted to own this stock anyway.</div>
+      </div>
+      <div>
+        <div style="font-weight:700;color:var(--green);margin-bottom:6px;">CC — covered call</div>
+        <div style="font-size:13px;color:var(--text-muted);line-height:1.6;">Sell calls against the 100 shares. Target 20-30 delta, 30-45 DTE. Cap upside in exchange for premium. If called away, the cycle completes and you start over from cash.</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="related-bar mt-24">
+    <span class="lbl">Related →</span>
+    <a href="position-sizing.html">📐 Position Sizing</a>
+    <a href="spread-scanner.html">📊 Spread Scanner</a>
+    <a href="options-chain.html">⛓ Chain</a>
+    <a href="strategies.html">📚 Strategy Library</a>
+    <a href="journal.html">📓 Journal</a>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script>
+buildNav('wheel');
+
+const $ = id => document.getElementById(id);
+const KEY = 'bpleone_wheel_v1';
+function load() { try { return JSON.parse(localStorage.getItem(KEY) || '{}'); } catch (e) { return {}; } }
+function save(s) { try { localStorage.setItem(KEY, JSON.stringify(s)); } catch (e) {} }
+let state = Object.assign({ positions: [], cycles: [], cumPremium: 0 }, load());
+
+function daysBetween(a, b) {
+  return Math.round((new Date(b) - new Date(a)) / 86400000);
+}
+
+function annYield(premium, strike, shares, days) {
+  if (!days || !strike || !shares) return 0;
+  const capital = strike * shares;
+  return (premium / capital) * (365 / Math.max(1, days)) * 100;
+}
+
+function highlightStage() {
+  ['stage1','stage2','stage3','stage4','stage5'].forEach(id => $(id).classList.remove('active'));
+  if (!state.positions.length) { $('stage1').classList.add('active'); return; }
+  const has = (st) => state.positions.some(p => p.stage === st);
+  if (has('csp')) $('stage2').classList.add('active');
+  if (has('held')) $('stage3').classList.add('active');
+  if (has('cc')) $('stage4').classList.add('active');
+}
+
+function renderKpis() {
+  const active = state.positions.length;
+  const cspN = state.positions.filter(p => p.stage === 'csp').length;
+  const ccN = state.positions.filter(p => p.stage === 'cc').length;
+  $('kActive').textContent = active;
+  $('kActiveSub').textContent = cspN + ' in CSP · ' + ccN + ' in CC';
+  $('kPrem').textContent = '$' + state.cumPremium.toFixed(2);
+  $('kDone').textContent = state.cycles.length;
+  const avgDur = state.cycles.length ? Math.round(state.cycles.reduce((a, c) => a + (c.durationDays || 0), 0) / state.cycles.length) : 0;
+  $('kDoneSub').textContent = state.cycles.length ? 'Avg duration ' + avgDur + 'd' : 'Avg duration —';
+  // Avg annualized: weight by capital × days
+  let totalWeight = 0, totalReturn = 0;
+  state.cycles.forEach(c => {
+    const cap = (c.strike || 0) * (c.shares || 100);
+    const yld = (c.totalPremium || 0) / cap * (365 / Math.max(1, c.durationDays || 30)) * 100;
+    totalWeight += cap;
+    totalReturn += yld * cap;
+  });
+  $('kAnnYld').textContent = totalWeight ? (totalReturn / totalWeight).toFixed(1) + '%' : '—%';
+}
+
+function livePnl(p) {
+  const q = (typeof QUOTES !== 'undefined' && QUOTES[p.sym]) ? QUOTES[p.sym] : null;
+  if (!q) return null;
+  if (p.stage === 'csp') {
+    // CSP: profit if spot > strike at expiry. Time decay simulation: premium × (1 - dte/originalDte)
+    const dte = Math.max(0, daysBetween(new Date(), p.expiry));
+    const orig = Math.max(1, daysBetween(p.openDate || p.expiry, p.expiry));
+    const decayed = p.premium * (1 - dte / orig);
+    return decayed - (q.last < p.strike ? (p.strike - q.last) * 100 : 0);
+  } else if (p.stage === 'held') {
+    return (q.last - p.costBasis) * (p.shares || 100);
+  } else if (p.stage === 'cc') {
+    const dte = Math.max(0, daysBetween(new Date(), p.expiry));
+    const orig = Math.max(1, daysBetween(p.openDate || p.expiry, p.expiry));
+    const decayed = p.premium * (1 - dte / orig);
+    const stockPnl = (q.last - p.costBasis) * (p.shares || 100);
+    const callLoss = q.last > p.strike ? (q.last - p.strike) * 100 : 0;
+    return decayed + stockPnl - callLoss;
+  }
+  return 0;
+}
+
+function renderPositions() {
+  const body = $('posBody');
+  if (!state.positions.length) { body.innerHTML = '<tr><td colspan="10" style="text-align:center;color:var(--text-muted);padding:30px;">No open wheels — click "+ New Wheel" to start.</td></tr>'; return; }
+  body.innerHTML = state.positions.map((p, i) => {
+    const dte = daysBetween(new Date(), p.expiry);
+    const pnl = livePnl(p);
+    const pnlStr = pnl == null ? '—' : (pnl >= 0 ? '+' : '-') + '$' + Math.abs(pnl).toFixed(2);
+    const pnlCls = pnl == null ? '' : pnl >= 0 ? 'green-text' : 'red-text';
+    const totalDays = Math.max(1, daysBetween(p.openDate || new Date(), p.expiry));
+    const ay = annYield(p.premium, p.strike, p.shares || 100, totalDays);
+    const stageName = { csp: 'Short Put', held: 'Shares Held', cc: 'Covered Call' }[p.stage] || p.stage;
+    return `<tr>
+      <td class="mono"><strong>${p.sym}</strong></td>
+      <td>${stageName}</td>
+      <td class="mono">$${(p.strike || 0).toFixed(2)}</td>
+      <td class="mono" style="font-size:11px;">${p.expiry || '—'}</td>
+      <td class="mono ${dte <= 7 ? 'yellow-text' : ''}">${dte}d</td>
+      <td class="mono green-text">+$${(p.premium || 0).toFixed(2)}</td>
+      <td class="mono ${pnlCls}">${pnlStr}</td>
+      <td class="mono">${ay.toFixed(1)}%</td>
+      <td class="mono">$${(p.costBasis || p.strike || 0).toFixed(2)}</td>
+      <td>
+        <button class="btn btn-ghost" style="padding:4px 10px;font-size:11px;" onclick="advance(${i})">Advance</button>
+        <button class="btn btn-ghost" style="padding:4px 10px;font-size:11px;" onclick="closeP(${i})">Close</button>
+      </td>
+    </tr>`;
+  }).join('');
+}
+
+window.advance = function(i) {
+  const p = state.positions[i]; if (!p) return;
+  if (p.stage === 'csp') {
+    // Assigned: become held
+    p.stage = 'held';
+    p.costBasis = (p.strike || 0) - (p.premium || 0) / (p.shares || 100);
+    if (window.Toast) Toast.show(p.sym + ' assigned · cost basis $' + p.costBasis.toFixed(2), { kind: 'warn' });
+  } else if (p.stage === 'held') {
+    p.stage = 'cc';
+    const strikeBump = prompt('Strike for the covered call (default = cost basis + 3%):', ((p.costBasis || 0) * 1.03).toFixed(2));
+    const prem = prompt('Premium received from selling the CC:', '1.50');
+    const exp = prompt('Expiry (yyyy-mm-dd):', new Date(Date.now() + 30 * 86400000).toISOString().slice(0,10));
+    p.strike = +strikeBump || p.strike;
+    const newPrem = +prem || 0;
+    p.premium = (p.premium || 0) + newPrem;
+    state.cumPremium += newPrem;
+    p.expiry = exp;
+    p.openDate = new Date().toISOString().slice(0,10);
+    if (window.Toast) Toast.show('Covered call sold on ' + p.sym, { kind: 'success' });
+  } else if (p.stage === 'cc') {
+    // Called away — complete the cycle
+    const totalPrem = p.premium || 0;
+    const callPnl = (p.strike - p.costBasis) * (p.shares || 100);
+    const cycle = {
+      sym: p.sym, strike: p.strike, shares: p.shares || 100,
+      totalPremium: totalPrem, callAwayPnl: callPnl,
+      totalReturn: totalPrem + callPnl,
+      durationDays: daysBetween(p.startDate || p.openDate, new Date()),
+      endDate: new Date().toISOString().slice(0,10)
+    };
+    state.cycles.unshift(cycle);
+    state.positions.splice(i, 1);
+    if (window.Toast) Toast.show(p.sym + ' called away · cycle complete · +$' + cycle.totalReturn.toFixed(2), { kind: 'success' });
+  }
+  save(state); renderAll();
+};
+window.closeP = function(i) {
+  if (!confirm('Close this position?')) return;
+  state.positions.splice(i, 1);
+  save(state); renderAll();
+};
+
+function renderCycles() {
+  const wrap = $('cycleList');
+  if (!state.cycles.length) { wrap.innerHTML = '<div style="padding:30px;text-align:center;color:var(--text-muted);">No completed cycles yet.</div>'; return; }
+  wrap.innerHTML = state.cycles.map(c => {
+    const cap = c.strike * c.shares;
+    const ann = (c.totalReturn / cap) * (365 / Math.max(1, c.durationDays)) * 100;
+    return `<div class="cycle-row">
+      <div style="display:flex;justify-content:space-between;align-items:center;">
+        <div><strong class="mono" style="font-size:15px;">${c.sym}</strong> <span style="color:var(--text-muted);font-size:12px;">at $${c.strike.toFixed(2)} · ${c.shares} shares · ${c.durationDays}d</span></div>
+        <div>
+          <span class="mono green-text" style="font-size:16px;font-weight:700;">+$${c.totalReturn.toFixed(2)}</span>
+          <span class="mono yellow-text" style="font-size:13px;margin-left:8px;">${ann.toFixed(1)}% ann.</span>
+        </div>
+      </div>
+      <div style="font-size:11px;color:var(--text-muted);margin-top:4px;">Premium $${c.totalPremium.toFixed(2)} + call-away P/L $${c.callAwayPnl.toFixed(2)} · ended ${c.endDate}</div>
+    </div>`;
+  }).join('');
+}
+
+function renderAll() { highlightStage(); renderKpis(); renderPositions(); renderCycles(); }
+
+$('newBtn').addEventListener('click', () => {
+  $('newForm').style.display = 'block';
+  $('nfDate').valueAsDate = new Date();
+  $('nfExp').valueAsDate = new Date(Date.now() + 30 * 86400000);
+});
+$('nfCancel').addEventListener('click', () => { $('newForm').style.display = 'none'; });
+$('nfAdd').addEventListener('click', () => {
+  const sym = ($('nfSym').value || '').trim().toUpperCase();
+  if (!sym) { if (window.Toast) Toast.show('Symbol required', { kind: 'warn' }); return; }
+  const p = {
+    sym,
+    stage: $('nfStage').value,
+    strike: +$('nfStrike').value || 0,
+    expiry: $('nfExp').value,
+    premium: +$('nfPrem').value || 0,
+    costBasis: +$('nfCb').value || (+$('nfStrike').value - (+$('nfPrem').value || 0) / (+$('nfShares').value || 100)),
+    shares: +$('nfShares').value || 100,
+    openDate: $('nfDate').value || new Date().toISOString().slice(0,10),
+    startDate: $('nfDate').value || new Date().toISOString().slice(0,10)
+  };
+  state.positions.push(p);
+  state.cumPremium += p.premium;
+  save(state); renderAll();
+  ['nfSym','nfStrike','nfPrem','nfCb'].forEach(id => $(id).value = '');
+  $('newForm').style.display = 'none';
+  if (window.Toast) Toast.show('Position added', { kind: 'success' });
+});
+
+$('resetBtn').addEventListener('click', () => {
+  if (!confirm('Reset all wheel data? Cannot be undone.')) return;
+  state = { positions: [], cycles: [], cumPremium: 0 };
+  save(state); renderAll();
+});
+
+$('exportBtn').addEventListener('click', () => {
+  const lines = ['Stage,Symbol,Strike,Expiry,Premium,CostBasis,Shares,Open,Notes'];
+  state.positions.forEach(p => lines.push([p.stage, p.sym, p.strike, p.expiry, p.premium, p.costBasis, p.shares, p.openDate, ''].join(',')));
+  state.cycles.forEach(c => lines.push(['completed', c.sym, c.strike, c.endDate, c.totalPremium, '', c.shares, '', 'cycle ' + c.durationDays + 'd ann ' + (((c.totalReturn / (c.strike * c.shares)) * (365 / Math.max(1, c.durationDays))) * 100).toFixed(1) + '%'].join(',')));
+  const blob = new Blob([lines.join('\n')], { type: 'text/csv' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'bpleone-wheel-' + new Date().toISOString().slice(0,10) + '.csv';
+  a.click();
+});
+
+renderAll();
+if (typeof Feed !== 'undefined') Feed.subscribe('*', () => renderPositions());
+</script>
+</body>
+</html>

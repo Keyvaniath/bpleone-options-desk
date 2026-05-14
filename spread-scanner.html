@@ -1,0 +1,372 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Spread Scanner — bpleone / trade</title>
+<meta name="description" content="Scan every vertical spread on any symbol. Filter by R:R, POP, debit, Greeks. Find the best edge across strikes and expiries in seconds.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.filter-row { display: grid; grid-template-columns: repeat(6, 1fr); gap: 10px; padding: 12px 0; }
+.filter-row label { font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.6px; display: block; margin-bottom: 4px; }
+.filter-row input, .filter-row select { background: var(--bg-elevated); border: 1px solid var(--border); color: var(--text-primary); padding: 7px 10px; border-radius: 6px; font-family: var(--font-mono); font-size: 12px; width: 100%; box-sizing: border-box; }
+.scan-row { cursor: pointer; }
+.scan-row:hover { background: var(--bg-elevated); }
+.score-bar { display: inline-block; height: 4px; background: var(--bg-tertiary); border-radius: 2px; vertical-align: middle; }
+.score-bar > div { height: 100%; border-radius: 2px; }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">Spread Scanner <span class="feat-badge feat-pro">PRO</span></div>
+      <div class="page-subtitle">Find optimal vertical spreads · ranked by edge · live Greeks · <span id="market-clock">--</span></div>
+    </div>
+    <div class="flex gap-8">
+      <select id="symSel" style="background:var(--bg-elevated);border:1px solid var(--border);border-radius:8px;padding:6px 12px;color:var(--text-primary);font-size:13px;font-family:var(--font-mono);">
+        <option value="SPY">SPY</option><option value="QQQ">QQQ</option><option value="IWM">IWM</option>
+        <option value="NVDA">NVDA</option><option value="AAPL">AAPL</option><option value="TSLA">TSLA</option>
+        <option value="META">META</option><option value="MSFT">MSFT</option><option value="AMD">AMD</option>
+        <option value="AMZN">AMZN</option><option value="GOOGL">GOOGL</option><option value="PLTR">PLTR</option>
+        <option value="COIN">COIN</option><option value="SMCI">SMCI</option>
+      </select>
+      <button class="btn btn-primary" id="rescanBtn">🔍 Rescan</button>
+    </div>
+  </div>
+
+  <!-- Filters -->
+  <div class="card mb-24">
+    <div class="card-header"><div class="card-title">Filters</div></div>
+    <div class="filter-row">
+      <div><label>Direction</label>
+        <select id="fDir">
+          <option value="bull-call">Bull Call (debit)</option>
+          <option value="bull-put">Bull Put (credit)</option>
+          <option value="bear-put">Bear Put (debit)</option>
+          <option value="bear-call">Bear Call (credit)</option>
+          <option value="all">All directions</option>
+        </select>
+      </div>
+      <div><label>Min DTE</label><input type="number" id="fMinDte" value="7"></div>
+      <div><label>Max DTE</label><input type="number" id="fMaxDte" value="45"></div>
+      <div><label>Min R:R</label><input type="number" step="0.1" id="fMinRr" value="1.0"></div>
+      <div><label>Min POP %</label><input type="number" id="fMinPop" value="35"></div>
+      <div><label>Max Debit/Width</label><input type="number" step="0.05" id="fMaxDw" value="0.6"></div>
+    </div>
+    <div class="filter-row">
+      <div><label>Strikes around ATM</label><input type="number" id="fStrikes" value="10"></div>
+      <div><label>Sort by</label>
+        <select id="fSort">
+          <option value="edge">Edge score</option>
+          <option value="rr">R:R</option>
+          <option value="pop">POP</option>
+          <option value="dte">Days to expiry</option>
+          <option value="debit">Lowest debit</option>
+          <option value="credit">Highest credit</option>
+        </select>
+      </div>
+      <div><label>Top N results</label><input type="number" id="fTopN" value="40"></div>
+      <div><label>Min IV (%)</label><input type="number" id="fMinIv" value="10"></div>
+      <div><label>Max IV (%)</label><input type="number" id="fMaxIv" value="200"></div>
+      <div><label>&nbsp;</label><button class="btn btn-ghost" style="width:100%;" id="resetFilters">Reset</button></div>
+    </div>
+  </div>
+
+  <!-- Universe stats -->
+  <div class="grid grid-4 mb-24">
+    <div class="card"><div class="card-header"><div class="card-title">Spreads Scanned</div></div><div class="mono" style="font-size:26px;font-weight:700;" id="kTotal">—</div><div style="font-size:12px;color:var(--text-muted);" id="kBreakdown">—</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">Passed Filter</div></div><div class="mono yellow-text" style="font-size:26px;font-weight:700;" id="kPassed">—</div><div style="font-size:12px;color:var(--text-muted);">After R:R, POP, debit, IV gates</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">Best Edge</div></div><div class="mono green-text" style="font-size:26px;font-weight:700;" id="kBestEdge">—</div><div style="font-size:12px;color:var(--text-muted);" id="kBestDesc">—</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">Current Spot</div></div><div class="mono" style="font-size:26px;font-weight:700;" id="kSpot">—</div><div style="font-size:12px;color:var(--text-muted);" id="kSpotChg">—</div></div>
+  </div>
+
+  <!-- Results table -->
+  <div class="card">
+    <div class="card-header">
+      <div class="card-title">📊 Top Spreads</div>
+      <div style="font-size:11px;color:var(--text-muted);">Click row → multi-leg builder for full analysis</div>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr>
+          <th>#</th><th>Type</th><th>DTE</th><th>Long K / Short K</th><th>Net</th><th>Width</th>
+          <th>Max P</th><th>Max L</th><th>R:R</th><th>POP</th><th>Δ Delta</th><th>Θ /day</th><th>Edge</th>
+        </tr></thead>
+        <tbody id="resBody"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="related-bar mt-24">
+    <span class="lbl">Related →</span>
+    <a href="multi-leg-builder.html">🔧 Multi-Leg Builder</a>
+    <a href="options-chain.html">⛓ Chain</a>
+    <a href="vol-surface.html">🌐 Vol Surface</a>
+    <a href="strategies.html">📚 Strategy Library</a>
+    <a href="paper-trade.html">🎮 Paper Trade</a>
+    <a href="ticker.html">🔍 Ticker Focus</a>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script>
+buildNav('spread-scanner');
+
+const $ = id => document.getElementById(id);
+
+// Generate spreads from synthetic chain and rank them
+function scan() {
+  const sym = $('symSel').value;
+  const dir = $('fDir').value;
+  const minDte = +$('fMinDte').value;
+  const maxDte = +$('fMaxDte').value;
+  const minRr = +$('fMinRr').value;
+  const minPop = +$('fMinPop').value;
+  const maxDw = +$('fMaxDw').value;
+  const strikes = +$('fStrikes').value;
+  const sortBy = $('fSort').value;
+  const topN = +$('fTopN').value;
+  const minIv = +$('fMinIv').value;
+  const maxIv = +$('fMaxIv').value;
+
+  const q = (typeof QUOTES !== 'undefined' && QUOTES[sym]) ? QUOTES[sym] : null;
+  if (!q || typeof buildChain !== 'function') {
+    $('resBody').innerHTML = '<tr><td colspan="13" style="text-align:center;color:var(--text-muted);padding:40px;">No quote/chain available for ' + sym + '</td></tr>';
+    return;
+  }
+  $('kSpot').textContent = '$' + q.last.toFixed(2);
+  const spotCls = q.changePct >= 0 ? 'green-text' : 'red-text';
+  $('kSpotChg').className = 'mono ' + spotCls;
+  $('kSpotChg').textContent = (q.changePct >= 0 ? '+' : '') + q.changePct.toFixed(2) + '%';
+
+  // expiries
+  const expiries = [7, 14, 21, 30, 45, 60, 90, 120].filter(d => d >= minDte && d <= maxDte);
+  if (!expiries.length) expiries.push(Math.max(minDte, 7));
+  const chains = buildChain(sym, expiries, strikes);
+
+  // For each chain, enumerate pair combinations of strikes
+  const candidates = [];
+  let totalSpreads = 0;
+  let counts = { 'bull-call': 0, 'bull-put': 0, 'bear-put': 0, 'bear-call': 0 };
+
+  chains.forEach(ch => {
+    const ss = ch.strikes;
+    for (let i = 0; i < ss.length; i++) {
+      for (let j = i + 1; j < ss.length; j++) {
+        // bull call: long lower call, short higher call (debit)
+        if (dir === 'bull-call' || dir === 'all') {
+          const L = ss[i], H = ss[j];
+          const debit = +(L.callMid - H.callMid).toFixed(2);
+          const width = +(H.strike - L.strike).toFixed(2);
+          if (debit > 0 && width > 0) {
+            const maxP = +(width - debit).toFixed(2);
+            const rr = +(maxP / debit).toFixed(2);
+            const pop = popMC(q.last, L.strike, debit, ch.dte, L.callIV / 100, 'bull-call');
+            const iv = (L.callIV + H.callIV) / 2;
+            const dwR = debit / width;
+            totalSpreads++; counts['bull-call']++;
+            if (rr >= minRr && pop >= minPop && dwR <= maxDw && iv >= minIv && iv <= maxIv) {
+              candidates.push({
+                type: 'Bull Call', sym, dte: ch.dte, expiry: ch.expiry,
+                longK: L.strike, shortK: H.strike, longSym: 'C', shortSym: 'C',
+                net: debit, isDebit: true, width, maxP, maxL: debit,
+                rr, pop, delta: L.callDelta - H.callDelta, theta: L.callTheta - H.callTheta,
+                iv: +iv.toFixed(1)
+              });
+            }
+          }
+        }
+        // bear put: long higher put, short lower put (debit)
+        if (dir === 'bear-put' || dir === 'all') {
+          const L = ss[j], H = ss[i]; // long higher (closer to ATM)
+          // Actually long higher put = ss[higher strike]; short lower put = ss[lower strike]
+          const HP = ss[j], LP = ss[i];
+          const debit = +(HP.putMid - LP.putMid).toFixed(2);
+          const width = +(HP.strike - LP.strike).toFixed(2);
+          if (debit > 0 && width > 0) {
+            const maxP = +(width - debit).toFixed(2);
+            const rr = +(maxP / debit).toFixed(2);
+            const pop = popMC(q.last, HP.strike, debit, ch.dte, HP.putIV / 100, 'bear-put');
+            const iv = (HP.putIV + LP.putIV) / 2;
+            const dwR = debit / width;
+            totalSpreads++; counts['bear-put']++;
+            if (rr >= minRr && pop >= minPop && dwR <= maxDw && iv >= minIv && iv <= maxIv) {
+              candidates.push({
+                type: 'Bear Put', sym, dte: ch.dte, expiry: ch.expiry,
+                longK: HP.strike, shortK: LP.strike, longSym: 'P', shortSym: 'P',
+                net: debit, isDebit: true, width, maxP, maxL: debit,
+                rr, pop, delta: -(HP.putDelta - LP.putDelta), theta: -(HP.putTheta - LP.putTheta),
+                iv: +iv.toFixed(1)
+              });
+            }
+          }
+        }
+        // bull put credit: short higher put, long lower put
+        if (dir === 'bull-put' || dir === 'all') {
+          const HP = ss[j], LP = ss[i];
+          const credit = +(HP.putMid - LP.putMid).toFixed(2);
+          const width = +(HP.strike - LP.strike).toFixed(2);
+          if (credit > 0 && width > 0) {
+            const maxP = credit;
+            const maxL = +(width - credit).toFixed(2);
+            const rr = +(maxP / maxL).toFixed(2);
+            const pop = popMC(q.last, HP.strike, -credit, ch.dte, HP.putIV / 100, 'bull-put');
+            const iv = (HP.putIV + LP.putIV) / 2;
+            const dwR = (width - credit) / width;
+            totalSpreads++; counts['bull-put']++;
+            if (rr >= minRr && pop >= minPop && dwR <= maxDw && iv >= minIv && iv <= maxIv) {
+              candidates.push({
+                type: 'Bull Put', sym, dte: ch.dte, expiry: ch.expiry,
+                longK: LP.strike, shortK: HP.strike, longSym: 'P', shortSym: 'P',
+                net: credit, isDebit: false, width, maxP, maxL,
+                rr, pop, delta: -(HP.putDelta - LP.putDelta), theta: -(HP.putTheta - LP.putTheta),
+                iv: +iv.toFixed(1)
+              });
+            }
+          }
+        }
+        // bear call credit: short lower call, long higher call
+        if (dir === 'bear-call' || dir === 'all') {
+          const LC = ss[i], HC = ss[j];
+          const credit = +(LC.callMid - HC.callMid).toFixed(2);
+          const width = +(HC.strike - LC.strike).toFixed(2);
+          if (credit > 0 && width > 0) {
+            const maxP = credit;
+            const maxL = +(width - credit).toFixed(2);
+            const rr = +(maxP / maxL).toFixed(2);
+            const pop = popMC(q.last, LC.strike, -credit, ch.dte, LC.callIV / 100, 'bear-call');
+            const iv = (LC.callIV + HC.callIV) / 2;
+            const dwR = (width - credit) / width;
+            totalSpreads++; counts['bear-call']++;
+            if (rr >= minRr && pop >= minPop && dwR <= maxDw && iv >= minIv && iv <= maxIv) {
+              candidates.push({
+                type: 'Bear Call', sym, dte: ch.dte, expiry: ch.expiry,
+                longK: HC.strike, shortK: LC.strike, longSym: 'C', shortSym: 'C',
+                net: credit, isDebit: false, width, maxP, maxL,
+                rr, pop, delta: -(LC.callDelta - HC.callDelta), theta: -(LC.callTheta - HC.callTheta),
+                iv: +iv.toFixed(1)
+              });
+            }
+          }
+        }
+      }
+    }
+  });
+
+  // Edge score = (R:R × POP × 0.01) - DTE penalty
+  candidates.forEach(c => {
+    c.edge = +(c.rr * (c.pop / 100) * 100 - (c.dte / 30) * 2).toFixed(1);
+  });
+
+  // Sort
+  const sorters = {
+    edge: (a, b) => b.edge - a.edge,
+    rr: (a, b) => b.rr - a.rr,
+    pop: (a, b) => b.pop - a.pop,
+    dte: (a, b) => a.dte - b.dte,
+    debit: (a, b) => (a.isDebit ? a.net : 999) - (b.isDebit ? b.net : 999),
+    credit: (a, b) => (b.isDebit ? -1 : b.net) - (a.isDebit ? -1 : a.net)
+  };
+  candidates.sort(sorters[sortBy] || sorters.edge);
+  const top = candidates.slice(0, topN);
+
+  // Render
+  $('kTotal').textContent = totalSpreads.toLocaleString();
+  $('kBreakdown').textContent = Object.entries(counts).map(([k,v]) => k.split('-')[0]+': '+v).join(' · ');
+  $('kPassed').textContent = candidates.length.toLocaleString();
+  if (top.length) {
+    const best = top[0];
+    $('kBestEdge').textContent = best.edge.toFixed(1);
+    $('kBestDesc').textContent = best.type + ' ' + best.longK + '/' + best.shortK + ' ' + best.dte + 'd';
+  } else {
+    $('kBestEdge').textContent = '—';
+    $('kBestDesc').textContent = 'No spreads passed filter';
+  }
+
+  const body = $('resBody');
+  if (!top.length) { body.innerHTML = '<tr><td colspan="13" style="text-align:center;color:var(--text-muted);padding:40px;">No spreads passed filters — try loosening R:R or POP.</td></tr>'; return; }
+  body.innerHTML = top.map((c, i) => {
+    const popCls = c.pop >= 60 ? 'green-text' : c.pop >= 45 ? 'yellow-text' : 'red-text';
+    const rrCls = c.rr >= 2 ? 'green-text' : c.rr >= 1 ? 'yellow-text' : 'red-text';
+    const dirIcon = c.type.startsWith('Bull') ? '🟢' : '🔴';
+    return `<tr class="scan-row" onclick="goBuilder(${JSON.stringify(c).replace(/"/g,'&quot;')})">
+      <td style="color:var(--text-muted);">${i+1}</td>
+      <td>${dirIcon} ${c.type}</td>
+      <td class="mono">${c.dte}d</td>
+      <td class="mono">$${c.longK} ${c.longSym} / $${c.shortK} ${c.shortSym}</td>
+      <td class="mono ${c.isDebit ? 'red-text' : 'green-text'}">${c.isDebit ? '-' : '+'}$${c.net.toFixed(2)}</td>
+      <td class="mono">$${c.width.toFixed(2)}</td>
+      <td class="mono green-text">$${c.maxP.toFixed(2)}</td>
+      <td class="mono red-text">-$${c.maxL.toFixed(2)}</td>
+      <td class="mono ${rrCls}">${c.rr.toFixed(2)} : 1</td>
+      <td class="mono ${popCls}">${c.pop.toFixed(0)}%</td>
+      <td class="mono">${(c.delta).toFixed(2)}</td>
+      <td class="mono">${c.theta.toFixed(3)}</td>
+      <td class="mono"><span class="score-bar" style="width:60px;"><div style="width:${Math.min(100, c.edge)}%;background:var(--accent);"></div></span> <span style="margin-left:6px;color:var(--accent);font-weight:700;">${c.edge.toFixed(1)}</span></td>
+    </tr>`;
+  }).join('');
+}
+
+window.goBuilder = function(c) {
+  // For now just navigate; richer pre-fill could pass query params
+  location.href = 'multi-leg-builder.html';
+};
+
+// Quick lognormal-based POP estimator. For debit spreads: prob price > BE.
+// For credit spreads: prob price stays beyond short strike (so credit is kept).
+function popMC(spot, key, costOrCredit, dte, iv, type) {
+  const T = Math.max(0.01, dte / 365);
+  const sigT = iv * Math.sqrt(T);
+  let be;
+  if (type === 'bull-call') be = key + costOrCredit;            // breakeven at long-strike + debit
+  else if (type === 'bear-put') be = key - costOrCredit;
+  else if (type === 'bull-put') be = key + costOrCredit;        // credit makes BE = short strike - credit; costOrCredit is negative
+  else be = key - costOrCredit;                                 // bear-call
+
+  const z = Math.log(be / spot) / sigT;
+  // N(d) using approximation
+  const N = x => 0.5 * (1 + erf(x / Math.SQRT2));
+  function erf(x) {
+    const sign = Math.sign(x); x = Math.abs(x);
+    const a1=0.254829592,a2=-0.284496736,a3=1.421413741,a4=-1.453152027,a5=1.061405429,p=0.3275911;
+    const t = 1 / (1 + p * x);
+    const y = 1 - (((((a5*t + a4)*t) + a3)*t + a2)*t + a1)*t * Math.exp(-x*x);
+    return sign * y;
+  }
+  let pop;
+  if (type === 'bull-call' || type === 'bear-call') pop = 1 - N(z); // need price > BE for bull-call profit; for bear-call we want price < BE (so swap)
+  else if (type === 'bear-put') pop = N(z);                          // need price < BE
+  else pop = 1 - N(z);                                               // bull-put: need price > BE
+  if (type === 'bear-call') pop = N(z);
+  return Math.max(0, Math.min(100, pop * 100));
+}
+
+$('rescanBtn').addEventListener('click', scan);
+$('symSel').addEventListener('change', scan);
+['fDir','fMinDte','fMaxDte','fMinRr','fMinPop','fMaxDw','fStrikes','fSort','fTopN','fMinIv','fMaxIv'].forEach(id => $(id).addEventListener('change', scan));
+$('resetFilters').addEventListener('click', () => {
+  $('fDir').value = 'bull-call'; $('fMinDte').value = 7; $('fMaxDte').value = 45;
+  $('fMinRr').value = 1.0; $('fMinPop').value = 35; $('fMaxDw').value = 0.6;
+  $('fStrikes').value = 10; $('fSort').value = 'edge'; $('fTopN').value = 40;
+  $('fMinIv').value = 10; $('fMaxIv').value = 200;
+  scan();
+});
+
+scan();
+</script>
+</body>
+</html>
