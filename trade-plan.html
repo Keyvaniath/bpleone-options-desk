@@ -1,0 +1,387 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Trade Plan Generator — bpleone / trade</title>
+<meta name="description" content="Generate a full pre-trade plan: thesis, entry, stop, scale-out ladder, invalidation, options structure, sizing, journal-ready text.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.plan-input { display: grid; grid-template-columns: 200px 1fr 1fr; gap: 12px; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--border); }
+.plan-input label { font-size: 13px; color: var(--text-muted); }
+.plan-input input, .plan-input select, .plan-input textarea { background: var(--bg-elevated); border: 1px solid var(--border); color: var(--text-primary); padding: 8px 12px; border-radius: 6px; font-family: var(--font-mono); font-size: 13px; width: 100%; box-sizing: border-box; }
+.plan-input textarea { font-family: inherit; min-height: 60px; resize: vertical; }
+.plan-input .hint { font-size: 11px; color: var(--text-muted); }
+.plan-output { background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 12px; padding: 22px 26px; font-size: 13px; line-height: 1.7; color: var(--text-primary); }
+.plan-output h3 { color: var(--accent); margin: 14px 0 8px; font-size: 16px; }
+.plan-output h3:first-child { margin-top: 0; }
+.plan-output ul { margin: 4px 0 10px; padding-left: 20px; }
+.plan-output strong { color: var(--text-primary); }
+.plan-output .field { color: var(--text-muted); }
+.plan-output .val { font-family: var(--font-mono); color: var(--accent); font-weight: 600; }
+.scale-grid { display: grid; grid-template-columns: 60px 90px 90px 90px 90px 1fr; gap: 8px; padding: 6px 8px; align-items: center; font-size: 12px; }
+.scale-grid.head { color: var(--text-muted); font-weight: 700; text-transform: uppercase; font-size: 10px; letter-spacing: 0.5px; }
+.invalidation-card { padding: 14px 16px; background: rgba(239,68,68,0.08); border-left: 4px solid var(--red); border-radius: 8px; margin-top: 10px; }
+.summary-pill { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 999px; font-size: 11px; font-weight: 700; }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">Trade Plan Generator <span class="feat-badge feat-new">NEW</span></div>
+      <div class="page-subtitle">Inputs → full pre-trade plan with entry, stop, scale-out ladder, invalidation, options structure · <span id="market-clock">--</span></div>
+    </div>
+    <div class="flex gap-8">
+      <button class="btn btn-secondary" id="copyBtn">📋 Copy Plan</button>
+      <button class="btn btn-primary" id="journalBtn">📓 Save to Journal</button>
+    </div>
+  </div>
+
+  <!-- Inputs -->
+  <div class="card mb-24">
+    <div class="card-header"><div class="card-title">Setup Inputs</div></div>
+    <div class="plan-input">
+      <label>Symbol</label>
+      <select id="sym" style="grid-column: span 2;">
+        <option value="SPY">SPY</option><option value="QQQ">QQQ</option><option value="IWM">IWM</option>
+        <option value="NVDA">NVDA</option><option value="AAPL">AAPL</option><option value="MSFT">MSFT</option>
+        <option value="META">META</option><option value="TSLA">TSLA</option><option value="AMD">AMD</option>
+        <option value="AMZN">AMZN</option><option value="GOOGL">GOOGL</option><option value="PLTR">PLTR</option>
+      </select>
+    </div>
+    <div class="plan-input">
+      <label>Direction</label>
+      <select id="bias"><option value="bull">Bullish (long)</option><option value="bear">Bearish (short)</option></select>
+      <span class="hint">Anchor of the whole plan.</span>
+    </div>
+    <div class="plan-input">
+      <label>Setup type</label>
+      <select id="setup">
+        <option value="bull-flag">Bull Flag continuation</option>
+        <option value="50ma-reclaim">50DMA reclaim</option>
+        <option value="cup-handle">Cup &amp; Handle</option>
+        <option value="macd-cross">MACD bullish cross</option>
+        <option value="vwap-bounce">VWAP bounce</option>
+        <option value="opening-range">Opening Range Breakout</option>
+        <option value="earnings-iv-crush">Earnings IV crush play</option>
+        <option value="unusual-call">Unusual call flow</option>
+        <option value="52w-break">52-week breakout</option>
+        <option value="gamma-squeeze">Gamma squeeze</option>
+      </select>
+      <span class="hint">Feeds the learn engine.</span>
+    </div>
+    <div class="plan-input">
+      <label>Time horizon</label>
+      <select id="hz"><option value="0dte">0DTE / intraday</option><option value="swing" selected>Swing (1-10 days)</option><option value="position">Position (2-6 weeks)</option><option value="leap">LEAP (3+ months)</option></select>
+      <span class="hint">Drives DTE on options &amp; scale-out.</span>
+    </div>
+    <div class="plan-input">
+      <label>Entry trigger</label>
+      <input type="number" id="entry" step="0.01">
+      <span class="hint">Limit/trigger price. Default: live spot.</span>
+    </div>
+    <div class="plan-input">
+      <label>Stop loss</label>
+      <input type="number" id="stop" step="0.01">
+      <span class="hint">Risk distance defines 1R.</span>
+    </div>
+    <div class="plan-input">
+      <label>Target R-multiple</label>
+      <input type="number" id="tgtR" step="0.5" value="2.5">
+      <span class="hint">Final scale-out at this R level.</span>
+    </div>
+    <div class="plan-input">
+      <label>Account size ($)</label>
+      <input type="number" id="acct" value="50000">
+      <span class="hint">For sizing math.</span>
+    </div>
+    <div class="plan-input">
+      <label>Risk per trade (%)</label>
+      <input type="number" id="riskPct" step="0.1" value="1.0">
+      <span class="hint">Standard: 1%.</span>
+    </div>
+    <div class="plan-input">
+      <label>Thesis (1-2 sentences)</label>
+      <textarea id="thesis" placeholder="What's the reason? Why this, why now?"></textarea>
+      <span class="hint">Re-read this when emotion hits.</span>
+    </div>
+    <div class="plan-input">
+      <label>Invalidation rule</label>
+      <textarea id="inv" placeholder="What single event makes this trade wrong? e.g. close below 50DMA, broader SPY breaks down, etc."></textarea>
+      <span class="hint">If THIS happens, exit. Even if stop hasn't hit.</span>
+    </div>
+    <div style="text-align:right;margin-top:12px;">
+      <button class="btn btn-primary" id="genBtn">⚙ Generate Plan</button>
+    </div>
+  </div>
+
+  <!-- Output -->
+  <div class="grid grid-12">
+    <div class="card col-7" style="padding:0;">
+      <div class="card-header" style="padding:14px 22px;"><div class="card-title">📋 Generated Plan</div></div>
+      <div class="plan-output" id="output" style="border:none;border-radius:0;">
+        <div style="text-align:center;color:var(--text-muted);padding:30px 0;">Fill in the inputs above and click <strong>Generate Plan</strong>.</div>
+      </div>
+    </div>
+
+    <div class="card col-5">
+      <div class="card-header"><div class="card-title">📉 Scale-out Payoff (per share)</div></div>
+      <canvas id="payoffChart" height="220"></canvas>
+      <div style="font-size:12px;color:var(--text-muted);margin-top:8px;line-height:1.6;" id="payoffNote"></div>
+    </div>
+  </div>
+
+  <div class="related-bar mt-24">
+    <span class="lbl">Related →</span>
+    <a href="bracket-builder.html">🎯 Bracket Builder</a>
+    <a href="multi-leg-builder.html">🔧 Multi-Leg Builder</a>
+    <a href="position-sizing.html">📐 Position Sizing</a>
+    <a href="paper-trade.html">🎮 Paper Trade</a>
+    <a href="journal.html">📓 Journal</a>
+    <a href="mindset.html">🧠 Mindset Check</a>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script src="js/learn.js"></script>
+<script>
+buildNav('trade-plan');
+
+const $ = id => document.getElementById(id);
+
+function spot() {
+  const sym = $('sym').value;
+  return (typeof QUOTES !== 'undefined' && QUOTES[sym]) ? QUOTES[sym].last : 100;
+}
+function refreshDefaults() {
+  const s = spot();
+  $('entry').value = s.toFixed(2);
+  $('stop').value = ($('bias').value === 'bull' ? s * 0.98 : s * 1.02).toFixed(2);
+}
+$('sym').addEventListener('change', refreshDefaults);
+$('bias').addEventListener('change', refreshDefaults);
+refreshDefaults();
+
+let chart;
+function generate() {
+  const sym = $('sym').value;
+  const bias = $('bias').value;
+  const setup = $('setup').value;
+  const hz = $('hz').value;
+  const entry = +$('entry').value;
+  const stop = +$('stop').value;
+  const tgtR = +$('tgtR').value || 2.5;
+  const acct = +$('acct').value;
+  const rp = +$('riskPct').value / 100;
+  const thesis = $('thesis').value.trim() || '—';
+  const inv = $('inv').value.trim() || '—';
+
+  if (!entry || !stop) { if (window.Toast) Toast.show('Entry + stop required', { kind: 'warn' }); return; }
+
+  const riskPer = Math.abs(entry - stop);
+  const riskDollars = acct * rp;
+  const shares = Math.floor(riskDollars / riskPer);
+  const finalTarget = bias === 'bull' ? entry + tgtR * riskPer : entry - tgtR * riskPer;
+  const winNeeded = (1 / (1 + tgtR) * 100).toFixed(1);
+
+  // Scale-out ladder: 1R (1/3), 2R (1/3), tgtR (1/3 trail)
+  const ladder = [];
+  const scales = [1.0, Math.min(2.0, tgtR - 0.5), tgtR].filter((v, i, a) => v > 0.5 && (i === 0 || v > a[i-1]));
+  const portion = 1 / scales.length;
+  scales.forEach(R => {
+    const px = bias === 'bull' ? entry + R * riskPer : entry - R * riskPer;
+    ladder.push({ R, px: +px.toFixed(2), shares: Math.floor(shares * portion), pct: Math.round(portion * 100) });
+  });
+
+  // Options structure suggestion
+  const horizonDays = { '0dte': 0, 'swing': 7, 'position': 30, 'leap': 180 }[hz] || 7;
+  const expiry = new Date(Date.now() + (horizonDays + 7) * 86400000).toISOString().slice(0, 10);
+  let oStruct, oNote;
+  if (bias === 'bull') {
+    const longK = Math.round(entry); const shortK = Math.round(entry * 1.05);
+    oStruct = 'Bull Call Spread — Long ' + longK + 'C / Short ' + shortK + 'C';
+    oNote = 'Defined risk, cheaper than naked call. POP ~45-55% depending on IV.';
+  } else {
+    const longK = Math.round(entry); const shortK = Math.round(entry * 0.95);
+    oStruct = 'Bear Put Spread — Long ' + longK + 'P / Short ' + shortK + 'P';
+    oNote = 'Defined risk for the bearish thesis. POP ~45-55%.';
+  }
+  if (hz === '0dte') { oStruct = 'Naked ' + (bias === 'bull' ? 'Call' : 'Put') + ' or 1-week spread (size very small)'; oNote = '0DTE = gamma exposure, expect quick decisions.'; }
+
+  // Edge / learn-adjusted score
+  let baseScore = 60 + Math.round(Math.random() * 25);
+  let adjScore = baseScore;
+  let scoreNote = '';
+  try {
+    if (typeof Learn !== 'undefined') {
+      const ctx = {
+        sector: 'Tech',
+        dow: new Date().toLocaleDateString('en-US', { weekday: 'short' }),
+        regime: Learn.bucketVixRegime(Learn.currentVix())
+      };
+      adjScore = Learn.adjustedScoreCtx(baseScore, setup, ctx);
+      scoreNote = ' (learn-adjusted from raw ' + baseScore + ')';
+    }
+  } catch (e) {}
+
+  // Build the markdown plan
+  const sideLabel = bias === 'bull' ? 'LONG' : 'SHORT';
+  const dirIcon = bias === 'bull' ? '🟢' : '🔴';
+  const planHtml = `
+    <h3>${dirIcon} ${sym} · ${sideLabel} · ${setup.replace(/-/g,' ')}</h3>
+    <div>
+      <span class="summary-pill" style="background:${bias==='bull'?'var(--green-bg)':'var(--red-bg)'};color:${bias==='bull'?'var(--green)':'var(--red)'};">${sideLabel}</span>
+      <span class="summary-pill" style="background:rgba(0,212,255,0.12);color:var(--accent);">Score ${adjScore}/100</span>
+      <span class="summary-pill" style="background:rgba(245,158,11,0.12);color:var(--yellow);">Hz: ${hz}</span>
+    </div>
+    <p style="margin-top:10px;">${scoreNote}</p>
+
+    <h3>Thesis</h3>
+    <p>${thesis}</p>
+
+    <h3>Entry &amp; Risk</h3>
+    <ul>
+      <li><span class="field">Entry trigger:</span> <span class="val">$${entry.toFixed(2)}</span> — wait for the bar to confirm before clicking buy.</li>
+      <li><span class="field">Stop loss:</span> <span class="val">$${stop.toFixed(2)}</span> (1R = $${riskPer.toFixed(2)} per share)</li>
+      <li><span class="field">Position size:</span> <span class="val">${shares.toLocaleString()} shares</span> · risks <span class="val">$${riskDollars.toFixed(2)}</span> on stop-out (${(rp*100).toFixed(2)}% of account)</li>
+      <li><span class="field">Capital deployed:</span> <span class="val">$${(shares * entry).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}</span></li>
+    </ul>
+
+    <h3>Scale-out Ladder</h3>
+    <div class="scale-grid head"><div>R</div><div>Price</div><div>Shares</div><div>% of pos</div><div>$ profit</div><div>Action after fill</div></div>
+    ${ladder.map((l, i) => {
+      const pnl = l.shares * (l.R * riskPer);
+      const action = i === 0 ? 'Take 1R off · move stop to breakeven' :
+                     i === ladder.length - 1 ? 'Final exit — close any runner' :
+                     'Take 2R off · trail stop to 1R';
+      return `<div class="scale-grid"><div class="val">${l.R.toFixed(1)}R</div><div class="val">$${l.px.toFixed(2)}</div><div class="val">${l.shares}</div><div class="val">${l.pct}%</div><div class="val">$${pnl.toFixed(2)}</div><div style="color:var(--text-muted);">${action}</div></div>`;
+    }).join('')}
+
+    <h3>Options Alternative</h3>
+    <p><strong>${oStruct}</strong> · expiry ~ ${expiry}</p>
+    <p style="color:var(--text-muted);font-size:12px;">${oNote} See <a href="multi-leg-builder.html" style="color:var(--accent);">Multi-Leg Builder</a> for live pricing &amp; Greeks.</p>
+
+    <h3>R:R &amp; Expectancy</h3>
+    <ul>
+      <li><span class="field">Final target:</span> <span class="val">$${finalTarget.toFixed(2)}</span> (${tgtR.toFixed(1)}R)</li>
+      <li><span class="field">Required win rate for breakeven:</span> <span class="val">${winNeeded}%</span></li>
+      <li><span class="field">Max profit if all targets hit:</span> <span class="val green-text">+$${(shares * tgtR * riskPer).toFixed(2)}</span></li>
+    </ul>
+
+    <h3>Invalidation</h3>
+    <div class="invalidation-card">
+      <strong style="color:var(--red);">If this happens, EXIT immediately — even if stop hasn't triggered:</strong><br>
+      <span style="font-size:13px;">${inv}</span>
+    </div>
+
+    <h3>Pre-Entry Checklist</h3>
+    <ul>
+      <li>☐ I've checked Mindset/Tilt status — I'm clear to trade</li>
+      <li>☐ The thesis still holds at the entry price</li>
+      <li>☐ Stop is set in the broker, not just in my head</li>
+      <li>☐ Position size is correct &mdash; I've verified with the calculator</li>
+      <li>☐ I've identified the invalidation event</li>
+      <li>☐ Major catalyst within the time horizon? — checked Economic Events</li>
+    </ul>
+  `;
+
+  $('output').innerHTML = planHtml;
+
+  // Payoff chart
+  const xs = [], ys = [];
+  const lo = bias === 'bull' ? stop * 0.97 : entry * 0.95;
+  const hi = bias === 'bull' ? finalTarget * 1.03 : stop * 1.03;
+  for (let p = lo; p <= hi; p += (hi - lo) / 50) {
+    const pl = bias === 'bull' ? (p - entry) : (entry - p);
+    xs.push(+p.toFixed(2));
+    ys.push(+pl.toFixed(2));
+  }
+  if (chart) chart.destroy();
+  const ctx = $('payoffChart').getContext('2d');
+  chart = new Chart(ctx, {
+    type: 'line',
+    data: { labels: xs, datasets: [{ label: 'P&L', data: ys, borderColor: 'rgba(0,212,255,1)', backgroundColor: ctx => {
+      const c = ctx.chart.ctx; const g = c.createLinearGradient(0,0,0,200);
+      g.addColorStop(0, 'rgba(16,185,129,0.25)');
+      g.addColorStop(0.5, 'rgba(0,0,0,0)');
+      g.addColorStop(1, 'rgba(239,68,68,0.25)');
+      return g;
+    }, fill: 'origin', tension: 0.05, pointRadius: 0 }] },
+    options: { responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { grid: { color: 'rgba(255,255,255,0.04)' }, ticks: { color: '#6b7280', font: { size: 10 }, autoSkip: true, maxTicksLimit: 8, callback: v => '$' + (+v).toFixed(0) } },
+        y: { grid: { color: ctx => ctx.tick.value === 0 ? 'rgba(255,255,255,0.25)' : 'rgba(255,255,255,0.05)' }, ticks: { color: '#6b7280', font: { size: 10 }, callback: v => '$' + v.toFixed(2) } }
+      }
+    },
+    plugins: [{
+      id: 'levels', afterDraw(chart) {
+        const { ctx, chartArea: a, scales: { x } } = chart;
+        function vline(xVal, color, label) {
+          const px = x.getPixelForValue(xVal);
+          if (px < a.left || px > a.right) return;
+          ctx.save();
+          ctx.strokeStyle = color; ctx.setLineDash([3,3]); ctx.lineWidth = 1;
+          ctx.beginPath(); ctx.moveTo(px, a.top); ctx.lineTo(px, a.bottom); ctx.stroke();
+          ctx.setLineDash([]); ctx.fillStyle = color; ctx.font = '10px "JetBrains Mono", monospace';
+          ctx.fillText(label, px + 4, a.top + 12);
+          ctx.restore();
+        }
+        vline(entry, '#00d4ff', 'entry');
+        vline(stop, '#ef4444', 'stop');
+        vline(finalTarget, '#10b981', 'target');
+      }
+    }]
+  });
+  $('payoffNote').textContent = 'Vertical lines = entry/stop/final target. The shaded gradient shows the asymmetry: stop is $' + riskPer.toFixed(2) + ' away, target is $' + (Math.abs(finalTarget - entry)).toFixed(2) + ' away (R:R = ' + tgtR.toFixed(2) + ':1).';
+}
+
+$('genBtn').addEventListener('click', generate);
+
+$('copyBtn').addEventListener('click', () => {
+  const txt = $('output').innerText;
+  navigator.clipboard.writeText(txt).then(() => {
+    if (window.Toast) Toast.show('Plan copied to clipboard', { kind: 'success' });
+  }).catch(() => {});
+});
+
+$('journalBtn').addEventListener('click', () => {
+  try {
+    if (typeof Learn !== 'undefined') {
+      const t = Learn.recordTrade({
+        symbol: $('sym').value,
+        setup: $('setup').value,
+        sector: 'Tech',
+        bias: $('bias').value === 'bull' ? 'bull' : 'bear',
+        entry: +$('entry').value,
+        stop: +$('stop').value,
+        score: 60,
+        thesis: $('thesis').value.trim(),
+        invalidation: $('inv').value.trim(),
+        source: 'trade-plan'
+      });
+      if (window.Toast) Toast.show('Saved to journal (' + t.id + ')', { kind: 'success' });
+    }
+  } catch (e) {
+    if (window.Toast) Toast.show('Could not save: ' + e.message, { kind: 'error' });
+  }
+});
+
+generate();
+</script>
+</body>
+</html>

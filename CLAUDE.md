@@ -33,7 +33,7 @@ The site is **static HTML/CSS/JS** (no build step, no framework). Drop the folde
 | | |
 |---|---|
 | **Domain** | `options.bpleone.com` (CNAME file at repo root) |
-| **Pages** | 64 HTML files at the root (no `pages/` subdir) |
+| **Pages** | 67 HTML files at the root (no `pages/` subdir) |
 | **JS modules** | 11 files in `js/` — `app.js`, `charts.js`, `live.js`, `learn.js`, `notify.js`, `data-provider.js`, `ai-client.js`, `command-palette.js`, `hotkeys.js`, `onboarding.js`, `toast.js` |
 | **CSS** | Single file: `css/style.css` (~1,460 lines, dark institutional theme) |
 | **Assets** | `assets/icon.svg` + root `favicon.svg` |

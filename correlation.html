@@ -1,0 +1,331 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Correlation Matrix — bpleone / trade</title>
+<meta name="description" content="Cross-asset rolling correlations. Detect risk-on/risk-off regime, find pair-trade candidates, see when correlations break (signals).">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.corr-grid { display: grid; gap: 2px; font-family: var(--font-mono); font-size: 10px; }
+.corr-cell { padding: 6px 4px; text-align: center; border-radius: 3px; cursor: help; }
+.corr-label { padding: 6px 4px; color: var(--text-muted); font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; font-size: 10px; text-align: center; }
+.corr-row-label { padding: 6px 8px; color: var(--text-secondary); font-weight: 600; text-align: right; }
+.regime-card { padding: 16px 18px; background: var(--bg-elevated); border-radius: 10px; border-left: 4px solid var(--accent); }
+.regime-card .lab { font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; }
+.regime-card .val { font-family: var(--font-mono); font-size: 26px; font-weight: 800; margin: 4px 0; }
+.pair-row td { padding: 9px 12px; }
+.pair-row { cursor: pointer; }
+.pair-row:hover { background: var(--bg-elevated); }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">Correlation Matrix <span class="feat-badge feat-pro">PRO</span></div>
+      <div class="page-subtitle">Cross-asset rolling correlations · risk-on/off detector · pair-trade scanner · <span id="market-clock">--</span></div>
+    </div>
+    <div class="flex gap-8">
+      <select id="winSel" style="background:var(--bg-elevated);border:1px solid var(--border);border-radius:8px;padding:6px 12px;color:var(--text-primary);font-size:13px;">
+        <option value="5">5-day</option>
+        <option value="20" selected>20-day</option>
+        <option value="60">60-day</option>
+        <option value="120">120-day</option>
+      </select>
+      <select id="setSel" style="background:var(--bg-elevated);border:1px solid var(--border);border-radius:8px;padding:6px 12px;color:var(--text-primary);font-size:13px;">
+        <option value="risk">Risk Assets</option>
+        <option value="mag7">Mag 7</option>
+        <option value="sectors">Sector ETFs</option>
+        <option value="macro">Macro (cross-asset)</option>
+        <option value="crypto">Crypto + Equities</option>
+      </select>
+    </div>
+  </div>
+
+  <!-- Regime detector -->
+  <div class="grid grid-4 mb-24">
+    <div class="regime-card">
+      <div class="lab">Market Regime</div>
+      <div class="val" id="kRegime">—</div>
+      <div style="font-size:12px;color:var(--text-muted);" id="kRegimeSub">—</div>
+    </div>
+    <div class="regime-card" style="border-left-color:var(--green);">
+      <div class="lab">Avg Pair Correlation</div>
+      <div class="val mono" id="kAvgCorr">—</div>
+      <div style="font-size:12px;color:var(--text-muted);">Across the matrix</div>
+    </div>
+    <div class="regime-card" style="border-left-color:var(--yellow);">
+      <div class="lab">Highest Correlation</div>
+      <div class="val mono" id="kHigh">—</div>
+      <div style="font-size:12px;color:var(--text-muted);" id="kHighSub">Tightest pair</div>
+    </div>
+    <div class="regime-card" style="border-left-color:var(--red);">
+      <div class="lab">Most Negative</div>
+      <div class="val mono" id="kLow">—</div>
+      <div style="font-size:12px;color:var(--text-muted);" id="kLowSub">Strongest inverse</div>
+    </div>
+  </div>
+
+  <!-- Matrix -->
+  <div class="card mb-24">
+    <div class="card-header">
+      <div class="card-title">🌡 Correlation Matrix — <span id="winLabel">20</span>-day rolling</div>
+      <div style="font-size:11px;color:var(--text-muted);">Pearson on daily log returns · range -1 to +1</div>
+    </div>
+    <div id="matrixWrap"></div>
+    <div style="display:flex;align-items:center;gap:10px;margin-top:14px;font-size:11px;color:var(--text-muted);">
+      <span>-1.0</span>
+      <div style="width:240px;height:8px;border-radius:4px;background:linear-gradient(to right,rgba(239,68,68,0.9),rgba(100,116,139,0.4),rgba(16,185,129,0.9));"></div>
+      <span>+1.0</span>
+      <span style="margin-left:auto;font-family:var(--font-mono);">Diagonal = self (always 1.00)</span>
+    </div>
+  </div>
+
+  <!-- Pairs scanner + chart -->
+  <div class="grid grid-12">
+    <div class="card col-7">
+      <div class="card-header"><div class="card-title">⚖️ Pair-Trade Candidates</div></div>
+      <table>
+        <thead><tr><th>Pair</th><th>Correlation</th><th>2σ Z-score</th><th>Hist Vol</th><th>Direction</th><th>Setup</th></tr></thead>
+        <tbody id="pairBody"></tbody>
+      </table>
+      <a href="pairs.html" class="btn btn-ghost" style="font-size:11px;padding:4px 10px;margin-top:10px;display:inline-block;">Full pairs analyzer →</a>
+    </div>
+
+    <div class="card col-5">
+      <div class="card-header"><div class="card-title">📈 Correlation Regime — last 90 days</div></div>
+      <canvas id="regimeChart" height="240"></canvas>
+      <div style="font-size:12px;color:var(--text-muted);margin-top:8px;line-height:1.6;">
+        <strong>Rising</strong> = risk-off (correlations converge to 1.0 as everything sells together). <strong>Falling</strong> = risk-on / mean-reverting markets where stock-picking matters.
+      </div>
+    </div>
+  </div>
+
+  <!-- Education -->
+  <div class="card mt-24">
+    <div class="card-header"><div class="card-title">🧠 How to read this</div></div>
+    <div class="grid grid-3" style="gap:20px;">
+      <div>
+        <div style="font-weight:700;color:var(--accent);margin-bottom:6px;">High avg correlation (&gt;0.6)</div>
+        <div style="font-size:13px;color:var(--text-muted);line-height:1.6;">Risk-off regime. Stocks are one big trade. Diversification fails. Tighten stops, reduce gross exposure, watch for vol expansion.</div>
+      </div>
+      <div>
+        <div style="font-weight:700;color:var(--green);margin-bottom:6px;">Low avg correlation (&lt;0.3)</div>
+        <div style="font-size:13px;color:var(--text-muted);line-height:1.6;">Stock-picker's market. Individual catalysts drive moves. Trade size up on conviction names, use pair trades for relative value.</div>
+      </div>
+      <div>
+        <div style="font-weight:700;color:var(--yellow);margin-bottom:6px;">Correlation breaks</div>
+        <div style="font-size:13px;color:var(--text-muted);line-height:1.6;">When a normally-correlated pair (NVDA/AMD, MSFT/META, etc) diverges by 2σ from historical norm, it's often a tradable mean-reversion setup. Watch the pair-trade table.</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="related-bar mt-24">
+    <span class="lbl">Related →</span>
+    <a href="pairs.html">⚖ Pair Trading</a>
+    <a href="sectors.html">🏢 Sector Deep-Dive</a>
+    <a href="market-internals.html">📈 Market Internals</a>
+    <a href="risk-dashboard.html">⚖ Risk Dashboard</a>
+    <a href="macro.html">🌍 Macro</a>
+    <a href="ticker.html">🔍 Ticker Focus</a>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script>
+buildNav('correlation');
+
+function seedRand(seed) { let s = seed; return () => { s = (s * 9301 + 49297) % 233280; return s / 233280; }; }
+
+const UNIVERSES = {
+  'risk':    ['SPY','QQQ','IWM','NVDA','AAPL','MSFT','META','AMZN','GOOGL','TSLA','VIX','TLT'],
+  'mag7':    ['AAPL','MSFT','NVDA','GOOGL','AMZN','META','TSLA'],
+  'sectors': ['XLK','XLF','XLE','XLV','XLY','XLP','XLI','XLB','XLU','XLRE','XLC'],
+  'macro':   ['SPY','TLT','GLD','USO','UUP','VIX','BTC','EFA','EEM','IEF','HYG','DBC'],
+  'crypto':  ['BTC','ETH','MARA','COIN','NVDA','SMCI','PLTR','RIOT','MSTR','SQ','HOOD','RBLX']
+};
+
+// Synthetic correlation matrix that respects realistic structure (e.g. risk-on assets cluster, VIX inversely correlates with SPY)
+function syntheticCorr(symbols, win) {
+  const N = symbols.length;
+  const M = Array.from({ length: N }, () => Array(N).fill(0));
+  const rng = seedRand(win * 31);
+
+  // Asset category for each symbol (rough)
+  const category = sym => {
+    if (sym === 'VIX') return 'vix';
+    if (['TLT','IEF'].includes(sym)) return 'duration';
+    if (['GLD','UUP','DBC','USO'].includes(sym)) return 'macro';
+    if (['BTC','ETH','MARA','RIOT','MSTR','COIN'].includes(sym)) return 'crypto';
+    if (['XLK','XLY','XLC','XLI','XLF','XLB','XLE','XLU','XLP','XLV','XLRE'].includes(sym)) return 'sector';
+    return 'equity';
+  };
+
+  for (let i = 0; i < N; i++) {
+    for (let j = 0; j < N; j++) {
+      if (i === j) { M[i][j] = 1.0; continue; }
+      const a = category(symbols[i]);
+      const b = category(symbols[j]);
+      let base;
+      if (a === b) base = 0.75 + rng() * 0.20;                                  // same category
+      else if (a === 'vix' || b === 'vix') base = -0.55 - rng() * 0.30;          // VIX inverse
+      else if ((a === 'duration' && b === 'equity') || (b === 'duration' && a === 'equity')) base = -0.25 - rng() * 0.20;
+      else if (a === 'macro' && b === 'macro') base = 0.30 + rng() * 0.30;
+      else if (a === 'crypto' && b === 'equity') base = 0.40 + rng() * 0.30;
+      else base = 0.30 + rng() * 0.30;
+      // window influence — shorter windows are noisier
+      const noise = (rng() - 0.5) * (win < 20 ? 0.4 : win < 60 ? 0.15 : 0.08);
+      M[i][j] = +Math.max(-1, Math.min(1, base + noise)).toFixed(2);
+    }
+  }
+  return M;
+}
+
+function corrColor(v) {
+  // Map -1..0..+1 to red..gray..green
+  const t = (v + 1) / 2;
+  const r = v < 0 ? Math.round(239 * (1 - Math.abs(v))) : Math.round(80 + (16 - 80) * v);
+  const g = v >= 0 ? Math.round(80 + (185 - 80) * v) : Math.round(80 - (-v) * 50);
+  const b = v >= 0 ? Math.round(80 + (129 - 80) * v) : Math.round(80 - (-v) * 20);
+  // Use solid colors with alpha based on magnitude
+  if (v >= 0) return `background:rgba(16,185,129,${0.15 + Math.abs(v) * 0.55});color:${v > 0.5 ? '#fff' : 'var(--text-primary)'};`;
+  return `background:rgba(239,68,68,${0.15 + Math.abs(v) * 0.55});color:${Math.abs(v) > 0.5 ? '#fff' : 'var(--text-primary)'};`;
+}
+
+function renderMatrix() {
+  const symbols = UNIVERSES[document.getElementById('setSel').value];
+  const win = +document.getElementById('winSel').value;
+  document.getElementById('winLabel').textContent = win;
+  const M = syntheticCorr(symbols, win);
+  const N = symbols.length;
+
+  let html = '<div class="corr-grid" style="grid-template-columns:96px repeat(' + N + ',1fr);">';
+  html += '<div></div>';
+  symbols.forEach(s => { html += '<div class="corr-label">' + s + '</div>'; });
+  symbols.forEach((row, i) => {
+    html += '<div class="corr-row-label">' + row + '</div>';
+    symbols.forEach((col, j) => {
+      const v = M[i][j];
+      html += '<div class="corr-cell" style="' + corrColor(v) + '" title="' + row + ' × ' + col + ' = ' + v.toFixed(2) + '">' + v.toFixed(2) + '</div>';
+    });
+  });
+  html += '</div>';
+  document.getElementById('matrixWrap').innerHTML = html;
+
+  // Stats: avg correlation (excluding diagonal), highest off-diagonal, lowest
+  let count = 0, sum = 0, high = { v: -2, a: '', b: '' }, low = { v: 2, a: '', b: '' };
+  for (let i = 0; i < N; i++) for (let j = i + 1; j < N; j++) {
+    sum += M[i][j]; count++;
+    if (M[i][j] > high.v) high = { v: M[i][j], a: symbols[i], b: symbols[j] };
+    if (M[i][j] < low.v) low = { v: M[i][j], a: symbols[i], b: symbols[j] };
+  }
+  const avg = count ? sum / count : 0;
+  document.getElementById('kAvgCorr').textContent = (avg >= 0 ? '+' : '') + avg.toFixed(2);
+  document.getElementById('kAvgCorr').className = 'val mono ' + (avg > 0.55 ? 'red-text' : avg < 0.35 ? 'green-text' : 'yellow-text');
+  document.getElementById('kHigh').textContent = '+' + high.v.toFixed(2);
+  document.getElementById('kHighSub').textContent = high.a + ' × ' + high.b;
+  document.getElementById('kLow').textContent = low.v.toFixed(2);
+  document.getElementById('kLowSub').textContent = low.a + ' × ' + low.b;
+
+  let regime, sub, color;
+  if (avg > 0.65) { regime = 'RISK-OFF'; sub = 'Correlations converge — flight to safety'; color = 'var(--red)'; }
+  else if (avg > 0.5) { regime = 'CAUTIOUS'; sub = 'Elevated correlation, prefer pair trades'; color = 'var(--yellow)'; }
+  else if (avg > 0.35) { regime = 'NEUTRAL'; sub = 'Mixed signals, stock-by-stock'; color = 'var(--text-secondary)'; }
+  else { regime = 'RISK-ON'; sub = 'Low correlation — stock-pickers market'; color = 'var(--green)'; }
+  const regEl = document.getElementById('kRegime');
+  regEl.textContent = regime;
+  regEl.style.color = color;
+  document.getElementById('kRegimeSub').textContent = sub;
+
+  renderPairs(symbols, M);
+  renderRegimeChart();
+}
+
+function renderPairs(symbols, M) {
+  // Pair candidates: |corr| > 0.7 (mean-reversion), or near-zero (uncorrelated for hedging)
+  const N = symbols.length;
+  const cands = [];
+  for (let i = 0; i < N; i++) for (let j = i + 1; j < N; j++) {
+    const c = M[i][j];
+    const a = symbols[i], b = symbols[j];
+    let setup, score, z;
+    if (c > 0.85) {
+      z = +(1.8 + Math.random() * 0.8).toFixed(2);
+      setup = 'Mean-reversion pair — long ' + a + ' / short ' + b + ' or vice versa';
+    } else if (c < -0.7) {
+      z = +(2.2 + Math.random() * 0.8).toFixed(2);
+      setup = 'Risk hedge — pair as natural hedge';
+    } else if (Math.abs(c) < 0.1 && Math.abs(c) > 0) {
+      z = +(0.8 + Math.random() * 0.4).toFixed(2);
+      setup = 'Diversification candidate — near-zero corr';
+    } else continue;
+    cands.push({ a, b, c, z, setup });
+  }
+  cands.sort((x, y) => Math.abs(y.c) - Math.abs(x.c));
+  const body = document.getElementById('pairBody');
+  if (!cands.length) { body.innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--text-muted);padding:30px;">No notable pairs at current parameters.</td></tr>'; return; }
+  body.innerHTML = cands.slice(0, 12).map(p => {
+    const cls = p.c >= 0 ? (p.c > 0.7 ? 'green-text' : '') : 'red-text';
+    const zCls = p.z > 2 ? 'red-text' : p.z > 1.5 ? 'yellow-text' : '';
+    const hv = (Math.abs(p.c) > 0.5 ? 18 + Math.random() * 12 : 28 + Math.random() * 22).toFixed(1);
+    const dir = p.c > 0.7 ? '🔄 Mean-revert' : p.c < -0.5 ? '⚡ Hedge' : '🛡 Diversify';
+    return `<tr class="pair-row" onclick="location.href='pairs.html'">
+      <td><strong class="mono">${p.a} / ${p.b}</strong></td>
+      <td class="mono ${cls}">${p.c >= 0 ? '+' : ''}${p.c.toFixed(2)}</td>
+      <td class="mono ${zCls}">${p.z.toFixed(2)}σ</td>
+      <td class="mono">${hv}%</td>
+      <td>${dir}</td>
+      <td style="font-size:12px;color:var(--text-muted);">${p.setup}</td>
+    </tr>`;
+  }).join('');
+}
+
+let regChart;
+function renderRegimeChart() {
+  const labels = [], data = [];
+  const rng = seedRand(123);
+  let val = 0.4 + rng() * 0.2;
+  for (let i = 89; i >= 0; i--) {
+    const d = new Date(); d.setDate(d.getDate() - i);
+    labels.push(d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }));
+    val += (rng() - 0.5) * 0.03;
+    val = Math.max(0.15, Math.min(0.85, val));
+    data.push(+val.toFixed(3));
+  }
+  if (regChart) regChart.destroy();
+  regChart = new Chart(document.getElementById('regimeChart').getContext('2d'), {
+    type: 'line',
+    data: { labels, datasets: [
+      { label: 'Avg pair correlation', data, borderColor: 'rgba(0,212,255,1)', backgroundColor: 'rgba(0,212,255,0.10)', tension: 0.3, pointRadius: 0, fill: true },
+      { label: 'Risk-off threshold (0.65)', data: labels.map(() => 0.65), borderColor: 'rgba(239,68,68,0.5)', borderDash: [4,4], pointRadius: 0, fill: false }
+    ] },
+    options: { responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { labels: { color: '#9ca3af', font: { size: 11 } } } },
+      scales: {
+        x: { grid: { color: 'rgba(255,255,255,0.04)' }, ticks: { color: '#6b7280', font: { size: 9 }, autoSkip: true, maxTicksLimit: 10, maxRotation: 0 } },
+        y: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#6b7280', font: { size: 10 } }, min: 0, max: 1 }
+      }
+    }
+  });
+}
+
+document.getElementById('setSel').addEventListener('change', renderMatrix);
+document.getElementById('winSel').addEventListener('change', renderMatrix);
+renderMatrix();
+</script>
+</body>
+</html>

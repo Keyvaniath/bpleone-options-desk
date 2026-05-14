@@ -1,0 +1,403 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Mindset & Tilt Tracker — bpleone / trade</title>
+<meta name="description" content="Track emotion, sleep, screen-time, and tilt state alongside trades. See how mental state affects expectancy.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.mood-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 8px; }
+.mood-pill { padding: 10px 8px; background: var(--bg-elevated); border: 2px solid var(--border); border-radius: 10px; text-align: center; cursor: pointer; transition: all 0.15s; }
+.mood-pill:hover { border-color: var(--accent); }
+.mood-pill.active { background: rgba(0,212,255,0.10); border-color: var(--accent); }
+.mood-pill .emoji { font-size: 22px; }
+.mood-pill .name { font-size: 11px; margin-top: 4px; font-weight: 600; }
+.slider-row { display: grid; grid-template-columns: 140px 1fr 50px; gap: 12px; align-items: center; padding: 8px 0; }
+.slider-row label { font-size: 12px; color: var(--text-muted); }
+.slider-row input[type=range] { width: 100%; accent-color: var(--accent); }
+.slider-row .val { font-family: var(--font-mono); font-weight: 700; color: var(--accent); }
+.tilt-card { padding: 18px 20px; border-radius: 12px; border-left: 4px solid; }
+.tilt-green { border-left-color: var(--green); background: var(--green-bg); }
+.tilt-yellow { border-left-color: var(--yellow); background: rgba(245,158,11,0.10); }
+.tilt-red { border-left-color: var(--red); background: var(--red-bg); }
+.log-row { display: grid; grid-template-columns: 90px 110px 70px 50px 50px 50px 50px 1fr; gap: 8px; padding: 8px 4px; border-bottom: 1px solid var(--border); font-size: 12px; align-items: center; }
+.log-row.head { color: var(--text-muted); font-weight: 700; font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px; border-bottom: 1px solid var(--border); padding-bottom: 8px; }
+.rule-row { padding: 10px 12px; background: var(--bg-elevated); border-radius: 8px; margin-bottom: 6px; display: flex; gap: 10px; align-items: center; }
+.rule-row input[type=checkbox] { width: 18px; height: 18px; accent-color: var(--accent); }
+.rule-row.done { opacity: 0.5; }
+.rule-row.done .text { text-decoration: line-through; }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">Mindset & Tilt Tracker <span class="feat-badge feat-new">NEW</span></div>
+      <div class="page-subtitle">Track emotion, sleep, focus alongside trades · see how mental state predicts expectancy · <span id="market-clock">--</span></div>
+    </div>
+    <div class="flex gap-8">
+      <button class="btn btn-secondary" id="exportBtn">↓ Export</button>
+      <button class="btn btn-ghost" id="resetBtn">↻ Reset</button>
+    </div>
+  </div>
+
+  <!-- Quick check-in -->
+  <div class="card mb-24">
+    <div class="card-header">
+      <div class="card-title">📋 Daily Check-In · <span id="todayDate">—</span></div>
+      <span id="savedFlag" style="font-size:11px;color:var(--text-muted);"></span>
+    </div>
+
+    <div style="margin-bottom:18px;">
+      <div style="font-size:13px;color:var(--text-secondary);margin-bottom:10px;font-weight:600;">How are you feeling right now?</div>
+      <div class="mood-grid" id="moodGrid">
+        <div class="mood-pill" data-mood="calm"><div class="emoji">🧘</div><div class="name">Calm</div></div>
+        <div class="mood-pill" data-mood="focused"><div class="emoji">🎯</div><div class="name">Focused</div></div>
+        <div class="mood-pill" data-mood="confident"><div class="emoji">😎</div><div class="name">Confident</div></div>
+        <div class="mood-pill" data-mood="anxious"><div class="emoji">😰</div><div class="name">Anxious</div></div>
+        <div class="mood-pill" data-mood="fomo"><div class="emoji">🔥</div><div class="name">FOMO</div></div>
+        <div class="mood-pill" data-mood="revenge"><div class="emoji">😡</div><div class="name">Revenge</div></div>
+        <div class="mood-pill" data-mood="tired"><div class="emoji">😴</div><div class="name">Tired</div></div>
+        <div class="mood-pill" data-mood="euphoric"><div class="emoji">🚀</div><div class="name">Euphoric</div></div>
+        <div class="mood-pill" data-mood="defeated"><div class="emoji">😞</div><div class="name">Defeated</div></div>
+        <div class="mood-pill" data-mood="bored"><div class="emoji">🥱</div><div class="name">Bored</div></div>
+        <div class="mood-pill" data-mood="impatient"><div class="emoji">⏱️</div><div class="name">Impatient</div></div>
+        <div class="mood-pill" data-mood="grateful"><div class="emoji">🙏</div><div class="name">Grateful</div></div>
+      </div>
+    </div>
+
+    <div class="grid grid-2" style="gap:24px;">
+      <div>
+        <div class="slider-row">
+          <label>Sleep (hours)</label>
+          <input type="range" id="sleep" min="0" max="12" step="0.5" value="7">
+          <span class="val" id="sleepVal">7</span>
+        </div>
+        <div class="slider-row">
+          <label>Focus / energy</label>
+          <input type="range" id="focus" min="1" max="10" step="1" value="7">
+          <span class="val" id="focusVal">7</span>
+        </div>
+        <div class="slider-row">
+          <label>Risk appetite</label>
+          <input type="range" id="risk" min="1" max="10" step="1" value="5">
+          <span class="val" id="riskVal">5</span>
+        </div>
+        <div class="slider-row">
+          <label>Conviction</label>
+          <input type="range" id="conv" min="1" max="10" step="1" value="6">
+          <span class="val" id="convVal">6</span>
+        </div>
+      </div>
+      <div>
+        <div class="slider-row">
+          <label>Discipline (1-10)</label>
+          <input type="range" id="discipline" min="1" max="10" step="1" value="7">
+          <span class="val" id="disciplineVal">7</span>
+        </div>
+        <div class="slider-row">
+          <label>Patience (1-10)</label>
+          <input type="range" id="patience" min="1" max="10" step="1" value="6">
+          <span class="val" id="patienceVal">6</span>
+        </div>
+        <div class="slider-row">
+          <label>Stress (1-10)</label>
+          <input type="range" id="stress" min="1" max="10" step="1" value="4">
+          <span class="val" id="stressVal">4</span>
+        </div>
+        <div class="slider-row">
+          <label>Caffeine (cups)</label>
+          <input type="range" id="caf" min="0" max="6" step="1" value="2">
+          <span class="val" id="cafVal">2</span>
+        </div>
+      </div>
+    </div>
+
+    <div style="margin-top:14px;">
+      <label style="font-size:12px;color:var(--text-muted);">Notes (optional)</label>
+      <textarea id="notes" rows="2" style="width:100%;background:var(--bg-elevated);border:1px solid var(--border);border-radius:8px;padding:10px 12px;color:var(--text-primary);font-family:inherit;font-size:13px;margin-top:6px;box-sizing:border-box;" placeholder="What's on your mind? Anything affecting today's trading?"></textarea>
+    </div>
+
+    <button class="btn btn-primary" id="saveBtn" style="margin-top:12px;">Save Check-In</button>
+  </div>
+
+  <!-- Tilt Status -->
+  <div class="grid grid-12 mb-24">
+    <div class="card col-7">
+      <div class="card-header"><div class="card-title">🌡️ Tilt Status</div></div>
+      <div id="tiltCard"></div>
+      <div style="margin-top:14px;font-size:12px;color:var(--text-muted);line-height:1.7;" id="tiltAdvice"></div>
+    </div>
+
+    <div class="card col-5">
+      <div class="card-header"><div class="card-title">Last 14 Check-Ins</div></div>
+      <canvas id="moodChart" height="220"></canvas>
+    </div>
+  </div>
+
+  <!-- Pre-trading rules -->
+  <div class="card mb-24">
+    <div class="card-header">
+      <div class="card-title">✅ My Trading Rules</div>
+      <div style="font-size:11px;color:var(--text-muted);">Edit / add / remove. Stored locally.</div>
+    </div>
+    <div id="rulesList"></div>
+    <div style="display:flex;gap:6px;margin-top:10px;">
+      <input id="newRule" placeholder="Add a rule…" style="flex:1;background:var(--bg-elevated);border:1px solid var(--border);border-radius:6px;padding:8px 12px;color:var(--text-primary);font-size:13px;">
+      <button class="btn btn-primary" id="addRuleBtn">Add</button>
+    </div>
+  </div>
+
+  <!-- History -->
+  <div class="card">
+    <div class="card-header"><div class="card-title">Recent Entries</div></div>
+    <div class="log-row head">
+      <div>Date</div><div>Mood</div><div>Sleep</div><div>Focus</div><div>Risk</div><div>Disc.</div><div>Stress</div><div>Notes</div>
+    </div>
+    <div id="historyList"></div>
+  </div>
+
+  <div class="related-bar mt-24">
+    <span class="lbl">Related →</span>
+    <a href="journal.html">📓 Trade Journal</a>
+    <a href="learn-dashboard.html">🧠 Learn Dashboard</a>
+    <a href="edge-analytics.html">📊 Edge Analytics</a>
+    <a href="game-plan.html">📋 Game Plan</a>
+    <a href="position-sizing.html">📐 Position Sizing</a>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script>
+buildNav('mindset');
+
+const KEY = 'bpleone_mindset_v1';
+const RULES_KEY = 'bpleone_mindset_rules_v1';
+const $ = id => document.getElementById(id);
+
+function load() { try { return JSON.parse(localStorage.getItem(KEY) || '[]'); } catch (e) { return []; } }
+function save(arr) { try { localStorage.setItem(KEY, JSON.stringify(arr)); } catch (e) {} }
+function loadRules() {
+  try {
+    const r = JSON.parse(localStorage.getItem(RULES_KEY) || 'null');
+    if (r) return r;
+  } catch (e) {}
+  return [
+    { txt: 'Max 1% account risk per trade, 3% across correlated positions', done: false },
+    { txt: 'No trades in first 15 min after open unless on pre-market plan', done: false },
+    { txt: 'No revenge trades — walk away after 2 losing trades in a row', done: false },
+    { txt: 'No new positions 30 min before close', done: false },
+    { txt: 'Always set stop before entry — never trade without one', done: false },
+    { txt: 'Size down 25% if VIX > 25 or after 2 consecutive losses', done: false },
+    { txt: 'Phone away from desk during active trading', done: false }
+  ];
+}
+function saveRules(r) { try { localStorage.setItem(RULES_KEY, JSON.stringify(r)); } catch (e) {} }
+
+let history = load();
+let rules = loadRules();
+let currentMood = null;
+
+$('todayDate').textContent = new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' });
+
+// Mood selection
+document.querySelectorAll('.mood-pill').forEach(p => p.addEventListener('click', () => {
+  document.querySelectorAll('.mood-pill').forEach(x => x.classList.remove('active'));
+  p.classList.add('active');
+  currentMood = p.dataset.mood;
+  updateTilt();
+}));
+
+// Slider live values
+['sleep','focus','risk','conv','discipline','patience','stress','caf'].forEach(id => {
+  const el = $(id);
+  const v = $(id + 'Val');
+  el.addEventListener('input', () => { v.textContent = el.value; updateTilt(); });
+});
+
+function tiltScore() {
+  // Higher = more tilted
+  const sleep = +$('sleep').value;
+  const focus = +$('focus').value;
+  const risk = +$('risk').value;
+  const conv = +$('conv').value;
+  const disc = +$('discipline').value;
+  const pat = +$('patience').value;
+  const stress = +$('stress').value;
+  const caf = +$('caf').value;
+
+  let score = 0;
+  if (sleep < 6) score += (6 - sleep) * 8;
+  if (focus < 6) score += (6 - focus) * 5;
+  if (risk > 7) score += (risk - 7) * 8;
+  if (disc < 6) score += (6 - disc) * 6;
+  if (pat < 5) score += (5 - pat) * 4;
+  if (stress > 6) score += (stress - 6) * 6;
+  if (caf > 3) score += (caf - 3) * 6;
+  if (currentMood && ['fomo','revenge','euphoric','impatient','tired','defeated','anxious'].includes(currentMood)) score += 20;
+  return Math.min(100, Math.round(score));
+}
+
+function updateTilt() {
+  const s = tiltScore();
+  const card = $('tiltCard');
+  let cls, label, emoji;
+  if (s < 25) { cls = 'tilt-green'; label = 'CLEAR'; emoji = '🧘'; }
+  else if (s < 50) { cls = 'tilt-yellow'; label = 'CAUTION'; emoji = '⚠️'; }
+  else if (s < 75) { cls = 'tilt-red'; label = 'ELEVATED TILT'; emoji = '🚨'; }
+  else { cls = 'tilt-red'; label = 'STOP TRADING'; emoji = '🛑'; }
+  card.className = 'tilt-card ' + cls;
+  card.innerHTML = `
+    <div style="display:flex;justify-content:space-between;align-items:center;">
+      <div>
+        <div style="font-size:11px;text-transform:uppercase;letter-spacing:0.6px;opacity:0.7;">Tilt Score</div>
+        <div style="font-size:38px;font-weight:800;font-family:var(--font-mono);">${emoji} ${label}</div>
+        <div style="font-size:13px;opacity:0.85;margin-top:4px;">Composite score: ${s} / 100</div>
+      </div>
+      <div style="text-align:right;font-size:11px;line-height:1.5;opacity:0.85;">
+        <div>Mood: <strong>${currentMood || '—'}</strong></div>
+        <div>Sleep: <strong>${$('sleep').value}h</strong></div>
+        <div>Focus: <strong>${$('focus').value}/10</strong></div>
+        <div>Stress: <strong>${$('stress').value}/10</strong></div>
+      </div>
+    </div>`;
+
+  let advice = '';
+  if (s < 25) advice = '<strong>You\'re in a good state to trade.</strong> Stick to your plan. Don\'t take random shots just because you feel good — discipline pays compound.';
+  else if (s < 50) advice = '<strong>Trade smaller than usual today.</strong> Reduce position sizes by 25%. Stick rigidly to predefined setups. Avoid 0DTE or anything with high gamma.';
+  else if (s < 75) advice = '<strong>Tilt detected.</strong> Take a 10-minute break. No new trades for 30 min. If you can\'t commit to that, walk away from the screen for the day. The market will be there tomorrow.';
+  else advice = '<strong>STOP. Don\'t trade today.</strong> Sleep, stress, mood, or mindset signals say you\'re likely to break rules and lose money. Close the laptop. Go for a walk. Trade tomorrow.';
+  $('tiltAdvice').innerHTML = advice;
+}
+
+$('saveBtn').addEventListener('click', () => {
+  const entry = {
+    ts: Date.now(),
+    date: new Date().toISOString().slice(0,10),
+    mood: currentMood,
+    sleep: +$('sleep').value,
+    focus: +$('focus').value,
+    risk: +$('risk').value,
+    conv: +$('conv').value,
+    discipline: +$('discipline').value,
+    patience: +$('patience').value,
+    stress: +$('stress').value,
+    caffeine: +$('caf').value,
+    notes: $('notes').value.trim(),
+    tiltScore: tiltScore()
+  };
+  // Replace today's entry if exists
+  history = history.filter(e => e.date !== entry.date);
+  history.unshift(entry);
+  save(history);
+  if (window.Toast) Toast.show('Check-in saved · tilt ' + entry.tiltScore + '/100', { kind: 'success' });
+  $('savedFlag').textContent = '✓ Saved ' + new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+  renderHistory();
+  renderMoodChart();
+});
+
+function renderHistory() {
+  const wrap = $('historyList');
+  if (!history.length) { wrap.innerHTML = '<div style="text-align:center;color:var(--text-muted);padding:30px;">No check-ins yet.</div>'; return; }
+  wrap.innerHTML = history.slice(0, 20).map(e => `<div class="log-row">
+    <div class="mono" style="font-size:11px;">${e.date}</div>
+    <div>${e.mood || '—'}</div>
+    <div class="mono">${e.sleep}h</div>
+    <div class="mono">${e.focus}</div>
+    <div class="mono">${e.risk}</div>
+    <div class="mono">${e.discipline}</div>
+    <div class="mono">${e.stress}</div>
+    <div style="font-size:11px;color:var(--text-muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${e.notes || ''}</div>
+  </div>`).join('');
+}
+renderHistory();
+
+let moodChart;
+function renderMoodChart() {
+  const last = history.slice(0, 14).reverse();
+  const labels = last.map(e => e.date.slice(5));
+  if (moodChart) moodChart.destroy();
+  moodChart = new Chart($('moodChart').getContext('2d'), {
+    type: 'line',
+    data: { labels, datasets: [
+      { label: 'Tilt', data: last.map(e => e.tiltScore || 0), borderColor: 'rgba(239,68,68,1)', backgroundColor: 'rgba(239,68,68,0.10)', tension: 0.3, fill: true, pointRadius: 2 },
+      { label: 'Focus', data: last.map(e => (e.focus || 0) * 10), borderColor: 'rgba(0,212,255,1)', tension: 0.3, pointRadius: 2 },
+      { label: 'Discipline', data: last.map(e => (e.discipline || 0) * 10), borderColor: 'rgba(16,185,129,1)', tension: 0.3, pointRadius: 2 }
+    ] },
+    options: { responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { labels: { color: '#9ca3af', font: { size: 11 } } } },
+      scales: {
+        x: { grid: { color: 'rgba(255,255,255,0.04)' }, ticks: { color: '#6b7280', font: { size: 10 } } },
+        y: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#6b7280', font: { size: 10 } }, min: 0, max: 100 }
+      }
+    }
+  });
+}
+renderMoodChart();
+
+// Rules
+function renderRules() {
+  const wrap = $('rulesList');
+  wrap.innerHTML = rules.map((r, i) => `<div class="rule-row ${r.done ? 'done' : ''}">
+    <input type="checkbox" ${r.done ? 'checked' : ''} onchange="toggleRule(${i})">
+    <span class="text" style="flex:1;font-size:13px;">${r.txt}</span>
+    <button class="btn btn-ghost" style="padding:3px 8px;font-size:11px;" onclick="rmRule(${i})">×</button>
+  </div>`).join('');
+}
+window.toggleRule = function(i) { rules[i].done = !rules[i].done; saveRules(rules); renderRules(); };
+window.rmRule = function(i) { rules.splice(i, 1); saveRules(rules); renderRules(); };
+$('addRuleBtn').addEventListener('click', () => {
+  const t = $('newRule').value.trim();
+  if (!t) return;
+  rules.push({ txt: t, done: false });
+  saveRules(rules);
+  $('newRule').value = '';
+  renderRules();
+});
+renderRules();
+
+$('resetBtn').addEventListener('click', () => {
+  if (!confirm('Reset all check-ins?')) return;
+  history = []; save(history); renderHistory(); renderMoodChart();
+});
+$('exportBtn').addEventListener('click', () => {
+  const lines = ['date,mood,sleep,focus,risk,conv,discipline,patience,stress,caffeine,tilt,notes'];
+  history.forEach(e => lines.push([e.date, e.mood, e.sleep, e.focus, e.risk, e.conv, e.discipline, e.patience, e.stress, e.caffeine, e.tiltScore, '"' + (e.notes || '').replace(/"/g,'""') + '"'].join(',')));
+  const blob = new Blob([lines.join('\n')], { type: 'text/csv' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob); a.download = 'bpleone-mindset-' + new Date().toISOString().slice(0,10) + '.csv'; a.click();
+});
+
+// Load today's entry if exists
+const todayKey = new Date().toISOString().slice(0,10);
+const today = history.find(e => e.date === todayKey);
+if (today) {
+  if (today.mood) {
+    const p = document.querySelector('.mood-pill[data-mood="' + today.mood + '"]');
+    if (p) { p.classList.add('active'); currentMood = today.mood; }
+  }
+  ['sleep','focus','risk','conv','discipline','patience','stress','caf'].forEach(id => {
+    const v = today[id === 'caf' ? 'caffeine' : id];
+    if (typeof v === 'number') { $(id).value = v; $(id + 'Val').textContent = v; }
+  });
+  if (today.notes) $('notes').value = today.notes;
+  $('savedFlag').textContent = '✓ Loaded today\'s check-in';
+}
+updateTilt();
+</script>
+</body>
+</html>
