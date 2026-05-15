@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Daily Report — bpleone / trade</title>
+<meta name="description" content="Copy-pastable daily summary of brain + ML model activity. Email-ready.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.report-wrap { padding:30px; background:var(--bg-elevated); border:1px solid var(--border); border-radius:12px; font-family:var(--font-mono); font-size:13px; line-height:1.8; white-space:pre-wrap; }
+.format-tab { padding:8px 14px; background:var(--bg-elevated); border:1px solid var(--border); border-radius:6px; cursor:pointer; font-size:11px; font-weight:600; }
+.format-tab.active { background:rgba(0,212,255,0.12); border-color:var(--accent); color:var(--accent); }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">📋 Daily Report</div>
+      <div class="page-subtitle">Copy-pastable daily summary · email · Discord · X · journal · <span id="market-clock">--</span></div>
+    </div>
+    <div class="flex gap-8">
+      <button class="btn btn-primary" id="copyBtn">📋 Copy to Clipboard</button>
+      <button class="btn btn-secondary" id="emailBtn">📧 Email Draft</button>
+      <button class="btn btn-secondary" id="downloadBtn">📥 Download</button>
+    </div>
+  </div>
+
+  <!-- DATE + FORMAT -->
+  <div class="card mb-24">
+    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:14px;">
+      <div>
+        <label style="font-size:11px;color:var(--text-muted);font-weight:700;">Date</label>
+        <input type="date" id="dateInput" style="background:var(--bg-elevated);border:1px solid var(--border);border-radius:6px;padding:8px 12px;color:var(--text-primary);font-family:var(--font-mono);margin-left:6px;">
+      </div>
+      <div style="display:flex;gap:6px;">
+        <span style="font-size:11px;color:var(--text-muted);font-weight:700;align-self:center;">FORMAT:</span>
+        <button class="format-tab active" data-fmt="markdown">📝 Markdown</button>
+        <button class="format-tab" data-fmt="plain">📄 Plain Text</button>
+        <button class="format-tab" data-fmt="email">📧 Email HTML</button>
+        <button class="format-tab" data-fmt="discord">💬 Discord</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- REPORT -->
+  <div class="card-header"><div class="card-title">📋 Generated Report</div></div>
+  <div class="report-wrap" id="report">Loading...</div>
+
+  <div class="card mt-24">
+    <div class="card-header"><div class="card-title">🚀 Quick send</div></div>
+    <div style="font-size:13px;color:var(--text-secondary);line-height:1.7;">
+      <ul style="padding-left:18px;">
+        <li><strong>To yourself:</strong> Email Draft opens your mail client with the report pre-filled.</li>
+        <li><strong>To Discord:</strong> Use Discord format, paste into your trading channel.</li>
+        <li><strong>To your trading partner:</strong> Markdown looks good in Slack/Discord/most editors.</li>
+        <li><strong>For your records:</strong> Download as .txt, archive folder by date.</li>
+        <li><strong>Auto-daily:</strong> Set a calendar reminder at 4:30pm ET — visit this page, copy, send.</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script src="js/model.js"></script>
+<script>
+buildNav('daily-report');
+
+document.getElementById('dateInput').valueAsDate = new Date();
+let activeFmt = 'markdown';
+
+function buildReport(dateStr, fmt) {
+  const date = new Date(dateStr);
+  const startOfDay = new Date(date); startOfDay.setHours(0, 0, 0, 0);
+  const endOfDay = new Date(date); endOfDay.setHours(23, 59, 59, 999);
+
+  // Pull data
+  let findings = [], state = {}, model = {};
+  try { findings = JSON.parse(localStorage.getItem('bpleone_brain_findings_v1') || '{"items":[]}').items; } catch (e) {}
+  try { state = JSON.parse(localStorage.getItem('bpleone_brain_loop_state_v1') || '{}'); } catch (e) {}
+  if (window.ModelStore) model = window.ModelStore.load();
+
+  const dayFindings = findings.filter(f => f.ts >= startOfDay.getTime() && f.ts <= endOfDay.getTime());
+  const dayResolved = dayFindings.filter(f => f.outcome === 'hit' || f.outcome === 'miss');
+  const hits = dayResolved.filter(f => f.outcome === 'hit').length;
+  const misses = dayResolved.filter(f => f.outcome === 'miss').length;
+  const hr = dayResolved.length > 0 ? Math.round((hits / dayResolved.length) * 100) : 0;
+  const dayPredicted = dayFindings.filter(f => typeof f.modelProb === 'number');
+  const dayPredRes = dayPredicted.filter(f => f.outcome === 'hit' || f.outcome === 'miss');
+  const modelCorrect = dayPredRes.filter(f => (f.modelProb >= 0.5 ? 'hit' : 'miss') === f.outcome).length;
+  const modelAcc = dayPredRes.length > 0 ? Math.round((modelCorrect / dayPredRes.length) * 100) : 0;
+  const highSev = dayFindings.filter(f => (f.severity === 'high' || f.severity === 3)).length;
+  const topSyms = {};
+  dayFindings.forEach(f => { const s = f.meta && f.meta.sym; if (s) topSyms[s] = (topSyms[s] || 0) + 1; });
+  const sortedSyms = Object.entries(topSyms).sort((a, b) => b[1] - a[1]).slice(0, 5);
+  const topWins = dayPredRes.filter(f => (f.modelProb >= 0.65) && f.outcome === 'hit').sort((a, b) => b.modelProb - a.modelProb).slice(0, 3);
+
+  const dateLabel = date.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
+  const regimeScore = state.regimeScore || 50;
+  const regime = regimeScore >= 65 ? 'RISK-ON' : regimeScore >= 45 ? 'NEUTRAL' : regimeScore >= 30 ? 'CAUTION' : 'RISK-OFF';
+
+  if (fmt === 'markdown' || fmt === 'plain') {
+    const sep = fmt === 'markdown' ? '## ' : '';
+    const bullet = fmt === 'markdown' ? '- ' : '• ';
+    let r = '';
+    r += (fmt === 'markdown' ? '# ' : '') + 'bpleone / trade — Daily Report\n';
+    r += dateLabel + '\n';
+    r += '----\n\n';
+    r += sep + 'Brain Activity\n';
+    r += bullet + dayFindings.length + ' total findings (' + highSev + ' high-severity)\n';
+    r += bullet + dayResolved.length + ' rated outcomes: ' + hits + ' hits / ' + misses + ' misses = ' + hr + '% hit rate\n\n';
+    r += sep + 'ML Model\n';
+    r += bullet + 'Version: v' + (model.version || 1) + ' · ' + (model.n_trained || 0) + ' samples trained lifetime\n';
+    r += bullet + 'Predictions today: ' + dayPredicted.length + ' · accuracy: ' + modelAcc + '% (' + modelCorrect + '/' + dayPredRes.length + ' rated)\n';
+    r += bullet + 'Rolling accuracy (last 100): ' + (model.rollingAccuracy ? (model.rollingAccuracy() * 100).toFixed(0) : '0') + '%\n\n';
+    r += sep + 'Regime\n';
+    r += bullet + 'Cross-asset score: ' + regimeScore.toFixed(0) + '/100 (' + regime + ')\n\n';
+    r += sep + 'Top Symbols Today\n';
+    sortedSyms.forEach(([s, n]) => r += bullet + s + ': ' + n + ' findings\n');
+    r += '\n';
+    if (topWins.length > 0) {
+      r += sep + 'Best Model Calls Today\n';
+      topWins.forEach(f => {
+        r += bullet + (f.meta && f.meta.sym) + ' · ' + (f.modelProb * 100).toFixed(0) + '% → HIT (✓) · ' + ((f.meta && f.meta.setup) || f.type) + '\n';
+      });
+      r += '\n';
+    }
+    r += '----\n';
+    r += 'Generated from options.bpleone.com';
+    return r;
+  } else if (fmt === 'email') {
+    return '<h2>bpleone / trade — Daily Report</h2>'
+      + '<p><strong>' + dateLabel + '</strong></p>'
+      + '<h3>Brain Activity</h3>'
+      + '<ul><li>' + dayFindings.length + ' total findings (' + highSev + ' high-severity)</li>'
+      + '<li>' + dayResolved.length + ' rated outcomes: ' + hits + ' hits / ' + misses + ' misses = <strong>' + hr + '%</strong> hit rate</li></ul>'
+      + '<h3>ML Model</h3>'
+      + '<ul><li>Version v' + (model.version || 1) + ' · ' + (model.n_trained || 0) + ' samples trained</li>'
+      + '<li>Predictions today: ' + dayPredicted.length + ' · accuracy: <strong>' + modelAcc + '%</strong></li>'
+      + '<li>Regime: ' + regime + ' (score ' + regimeScore.toFixed(0) + ')</li></ul>'
+      + (topWins.length > 0 ? '<h3>Best Model Calls Today</h3><ul>' + topWins.map(f => '<li>' + (f.meta && f.meta.sym) + ' — ' + (f.modelProb * 100).toFixed(0) + '% confidence → HIT ✓</li>').join('') + '</ul>' : '')
+      + '<p><em>Generated from <a href="https://options.bpleone.com">options.bpleone.com</a></em></p>';
+  } else if (fmt === 'discord') {
+    return '🤖 **bpleone / trade — Daily Report**\n'
+      + '`' + dateLabel + '`\n\n'
+      + '🧠 **Brain Activity**\n'
+      + '• ' + dayFindings.length + ' findings (' + highSev + ' high-sev)\n'
+      + '• ' + hits + 'W / ' + misses + 'L = **' + hr + '%** hit rate\n\n'
+      + '🧬 **ML Model**\n'
+      + '• v' + (model.version || 1) + ' · ' + (model.n_trained || 0) + ' samples\n'
+      + '• Today: ' + modelAcc + '% acc on ' + dayPredRes.length + ' rated\n\n'
+      + '🌐 **Regime: ' + regime + '** (score ' + regimeScore.toFixed(0) + ')\n\n'
+      + (topWins.length > 0 ? '🏆 **Top Calls**\n' + topWins.map(f => '• `' + (f.meta && f.meta.sym) + '` @ ' + (f.modelProb * 100).toFixed(0) + '% → HIT ✅').join('\n') + '\n\n' : '')
+      + '📊 https://options.bpleone.com/model-results.html';
+  }
+  return '';
+}
+
+function paint() {
+  const dateStr = document.getElementById('dateInput').value;
+  const report = buildReport(dateStr, activeFmt);
+  document.getElementById('report').textContent = report;
+}
+
+document.querySelectorAll('.format-tab').forEach(t => t.addEventListener('click', () => {
+  document.querySelectorAll('.format-tab').forEach(x => x.classList.remove('active'));
+  t.classList.add('active');
+  activeFmt = t.dataset.fmt;
+  paint();
+}));
+
+document.getElementById('dateInput').addEventListener('change', paint);
+document.getElementById('copyBtn').addEventListener('click', () => {
+  navigator.clipboard.writeText(document.getElementById('report').textContent).then(() => {
+    document.getElementById('copyBtn').textContent = '✓ Copied!';
+    setTimeout(() => document.getElementById('copyBtn').textContent = '📋 Copy to Clipboard', 1500);
+  });
+});
+document.getElementById('emailBtn').addEventListener('click', () => {
+  const subject = 'Daily Trading Report — ' + new Date(document.getElementById('dateInput').value).toLocaleDateString();
+  const body = document.getElementById('report').textContent;
+  window.location.href = 'mailto:?subject=' + encodeURIComponent(subject) + '&body=' + encodeURIComponent(body);
+});
+document.getElementById('downloadBtn').addEventListener('click', () => {
+  const dateStr = document.getElementById('dateInput').value;
+  const ext = activeFmt === 'email' ? 'html' : 'txt';
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([document.getElementById('report').textContent], { type: 'text/plain' }));
+  a.download = 'daily-report-' + dateStr + '.' + ext;
+  a.click();
+});
+
+paint();
+setInterval(paint, 30000);
+</script>
+</body>
+</html>

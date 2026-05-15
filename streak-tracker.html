@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Streak Tracker — bpleone / trade</title>
+<meta name="description" content="Model's current hot/cold streaks · longest runs · streak distribution.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.streak-cell { display:inline-block;width:24px;height:24px;border-radius:4px;margin:2px;text-align:center;line-height:24px;font-size:11px;font-family:var(--font-mono);font-weight:700; }
+.streak-cell.W { background:rgba(16,185,129,0.7);color:#fff; }
+.streak-cell.L { background:rgba(239,68,68,0.7);color:#fff; }
+.streak-cell.P { background:rgba(100,116,139,0.2);color:var(--text-muted); }
+.big-streak { font-family:var(--font-mono);font-size:80px;font-weight:800;letter-spacing:-4px;line-height:1; }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">🔥 Streak Tracker</div>
+      <div class="page-subtitle">Hot/cold streaks · longest runs · current state · <span id="market-clock">--</span></div>
+    </div>
+    <div class="flex gap-8">
+      <a href="model-results.html" class="btn btn-secondary">🎯 Results</a>
+    </div>
+  </div>
+
+  <!-- CURRENT STREAK -->
+  <div class="card mb-24" style="padding:30px;text-align:center;">
+    <div style="font-size:13px;color:var(--text-muted);font-weight:700;letter-spacing:1px;">CURRENT STREAK</div>
+    <div class="big-streak" id="bigStreak">—</div>
+    <div style="font-size:14px;color:var(--text-secondary);margin-top:8px;" id="streakLabel">Loading...</div>
+  </div>
+
+  <!-- KPIs -->
+  <div class="grid grid-4 mb-24">
+    <div class="card"><div class="card-header"><div class="card-title">Longest Win Streak</div></div><div class="mono green-text" style="font-size:26px;font-weight:700;" id="kLongWin">--</div><div class="mono" style="font-size:11px;color:var(--text-muted);" id="kLongWinBody">--</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">Longest Loss Streak</div></div><div class="mono red-text" style="font-size:26px;font-weight:700;" id="kLongLoss">--</div><div class="mono" style="font-size:11px;color:var(--text-muted);" id="kLongLossBody">--</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">Avg Win Streak</div></div><div class="mono" style="font-size:26px;font-weight:700;" id="kAvgWin">--</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">Avg Loss Streak</div></div><div class="mono" style="font-size:26px;font-weight:700;" id="kAvgLoss">--</div></div>
+  </div>
+
+  <!-- VISUAL STREAK STRIP (LAST 80) -->
+  <div class="card mb-24">
+    <div class="card-header"><div class="card-title">📊 Last 80 Predictions (W = correct, L = wrong, P = pending)</div></div>
+    <div id="streakStrip" style="margin-top:14px;"></div>
+  </div>
+
+  <!-- STREAK DIST -->
+  <div class="card">
+    <div class="card-header"><div class="card-title">📈 Streak Length Distribution</div></div>
+    <canvas id="distChart" height="220"></canvas>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script src="js/model.js"></script>
+<script src="js/charts.js"></script>
+<script>
+buildNav('streak-tracker');
+
+let distChart;
+
+function paint() {
+  const findings = (function () { try { return JSON.parse(localStorage.getItem('bpleone_brain_findings_v1') || '{"items":[]}').items; } catch (e) { return []; } })();
+  const resolved = findings.filter(f => typeof f.modelProb === 'number' && (f.outcome === 'hit' || f.outcome === 'miss'))
+    .slice().sort((a, b) => a.ts - b.ts);
+
+  // Build outcome sequence
+  const seq = resolved.map(f => {
+    const pred = f.modelProb >= 0.5 ? 'hit' : 'miss';
+    return pred === f.outcome ? 'W' : 'L';
+  });
+
+  if (seq.length === 0) {
+    document.getElementById('bigStreak').textContent = '0';
+    document.getElementById('streakLabel').textContent = 'No data yet — let the brain rate some findings.';
+    return;
+  }
+
+  // Current streak (from the end)
+  let curStreak = 1;
+  for (let i = seq.length - 2; i >= 0; i--) {
+    if (seq[i] === seq[seq.length - 1]) curStreak++;
+    else break;
+  }
+  const curType = seq[seq.length - 1];
+  document.getElementById('bigStreak').textContent = (curType === 'W' ? '+' : '−') + curStreak;
+  document.getElementById('bigStreak').style.color = curType === 'W' ? 'var(--green)' : 'var(--red)';
+  document.getElementById('streakLabel').textContent = curStreak + ' ' + (curType === 'W' ? 'CORRECT' : 'WRONG') + ' predictions in a row';
+  document.getElementById('streakLabel').style.color = curType === 'W' ? 'var(--green)' : 'var(--red)';
+
+  // Compute all streaks
+  const winStreaks = [], lossStreaks = [];
+  let cur = 1;
+  for (let i = 1; i < seq.length; i++) {
+    if (seq[i] === seq[i - 1]) cur++;
+    else {
+      if (seq[i - 1] === 'W') winStreaks.push(cur); else lossStreaks.push(cur);
+      cur = 1;
+    }
+  }
+  if (seq.length > 0) {
+    if (seq[seq.length - 1] === 'W') winStreaks.push(cur); else lossStreaks.push(cur);
+  }
+
+  const longWin = winStreaks.length > 0 ? Math.max(...winStreaks) : 0;
+  const longLoss = lossStreaks.length > 0 ? Math.max(...lossStreaks) : 0;
+  document.getElementById('kLongWin').textContent = longWin;
+  document.getElementById('kLongWinBody').textContent = winStreaks.length + ' total win streaks';
+  document.getElementById('kLongLoss').textContent = longLoss;
+  document.getElementById('kLongLossBody').textContent = lossStreaks.length + ' total loss streaks';
+  document.getElementById('kAvgWin').textContent = winStreaks.length > 0 ? (winStreaks.reduce((s, x) => s + x, 0) / winStreaks.length).toFixed(1) : '—';
+  document.getElementById('kAvgLoss').textContent = lossStreaks.length > 0 ? (lossStreaks.reduce((s, x) => s + x, 0) / lossStreaks.length).toFixed(1) : '—';
+
+  // Streak strip
+  const strip = document.getElementById('streakStrip');
+  strip.innerHTML = '';
+  const recent80 = seq.slice(-80);
+  recent80.forEach(s => {
+    strip.innerHTML += '<span class="streak-cell ' + s + '">' + s + '</span>';
+  });
+
+  // Add pending preds
+  const pendingNow = findings.filter(f => typeof f.modelProb === 'number' && !f.outcome).slice(0, 5);
+  pendingNow.forEach(() => strip.innerHTML += '<span class="streak-cell P">P</span>');
+
+  // Distribution
+  const counts = {};
+  [...winStreaks.map(l => 'W' + l), ...lossStreaks.map(l => 'L' + l)].forEach(k => counts[k] = (counts[k] || 0) + 1);
+  const maxLen = Math.max(longWin, longLoss);
+  const labels = [], wD = [], lD = [];
+  for (let i = 1; i <= maxLen; i++) {
+    labels.push(i + ' in a row');
+    wD.push(counts['W' + i] || 0);
+    lD.push(-(counts['L' + i] || 0));
+  }
+  if (distChart) distChart.destroy();
+  distChart = new Chart(document.getElementById('distChart').getContext('2d'), {
+    type: 'bar',
+    data: { labels, datasets: [
+      { label: 'Win streaks', data: wD, backgroundColor: 'rgba(16,185,129,0.7)' },
+      { label: 'Loss streaks', data: lD, backgroundColor: 'rgba(239,68,68,0.7)' }
+    ] },
+    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: true, position: 'top', labels: { color: '#9ca3af' } } }, scales: { x: { grid: { display: false }, ticks: { color: '#9ca3af' }, stacked: true }, y: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#6b7280', callback: v => Math.abs(v) }, stacked: true } } }
+  });
+}
+
+paint();
+window.addEventListener('bpleone:model-trained', paint);
+window.addEventListener('bpleone:brain-finding', paint);
+setInterval(paint, 30000);
+</script>
+</body>
+</html>

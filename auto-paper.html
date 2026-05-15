@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Autopilot Paper — bpleone / trade</title>
+<meta name="description" content="Autopilot paper trader — model opens, holds, closes hypothetical trades from every high-confidence prediction. No manual entry.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.pos-row { display:grid; grid-template-columns: 80px 70px 70px 80px 80px 90px 90px 1fr; gap:10px; padding:11px 14px; border-bottom:1px solid var(--border); font-family:var(--font-mono); font-size:11px; align-items:center; }
+.pos-row.win { border-left:3px solid var(--green); }
+.pos-row.loss { border-left:3px solid var(--red); }
+.pos-row.open { border-left:3px solid var(--accent); }
+.toggle { width:48px;height:26px;background:var(--bg-elevated);border-radius:13px;position:relative;cursor:pointer;transition:background 0.2s;display:inline-block;vertical-align:middle; }
+.toggle.on { background:var(--green); }
+.toggle::after { content:'';position:absolute;top:3px;left:3px;width:20px;height:20px;background:#fff;border-radius:50%;transition:transform 0.2s; }
+.toggle.on::after { transform:translateX(22px); }
+</style>
+</head>
+<body data-needs="live">
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">🤖 Autopilot Paper</div>
+      <div class="page-subtitle">Model opens + holds + closes paper trades automatically · <span id="market-clock">--</span></div>
+    </div>
+    <div class="flex gap-8">
+      <button class="btn btn-secondary" id="resetBtn">🗑 Reset Account</button>
+    </div>
+  </div>
+
+  <!-- AUTOPILOT TOGGLE -->
+  <div class="card mb-24">
+    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:14px;">
+      <div>
+        <div style="font-size:16px;font-weight:700;">🤖 AUTOPILOT: <span id="statusLabel" style="color:var(--text-muted);">OFF</span></div>
+        <div style="font-size:12px;color:var(--text-muted);margin-top:4px;">Opens 1R paper trade every time model predicts ≥<span id="thrLabel">70</span>% with high severity. Auto-closes after 30 min using brain's outcome rating.</div>
+      </div>
+      <div style="display:flex;gap:14px;align-items:center;">
+        <label style="font-size:11px;color:var(--text-muted);">Min model conf %: <input type="number" id="threshold" value="70" min="50" max="95" style="background:var(--bg-elevated);border:1px solid var(--border);border-radius:6px;padding:6px 10px;color:var(--text-primary);font-family:var(--font-mono);width:70px;margin-left:6px;"></label>
+        <label style="font-size:11px;color:var(--text-muted);">Risk per trade $: <input type="number" id="riskAmt" value="500" style="background:var(--bg-elevated);border:1px solid var(--border);border-radius:6px;padding:6px 10px;color:var(--text-primary);font-family:var(--font-mono);width:90px;margin-left:6px;"></label>
+        <div class="toggle" id="autopilotToggle"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- EQUITY -->
+  <div class="grid grid-5 mb-24">
+    <div class="card"><div class="card-header"><div class="card-title">Starting Capital</div></div><div class="mono" style="font-size:24px;font-weight:700;">$50,000</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">Equity Now</div></div><div class="mono" style="font-size:24px;font-weight:700;" id="kEquity">--</div><div class="mono" style="font-size:11px;color:var(--text-muted);" id="kEquityBody">--</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">Closed Trades</div></div><div class="mono" style="font-size:24px;font-weight:700;color:var(--accent);" id="kClosed">--</div><div class="mono" style="font-size:11px;color:var(--text-muted);" id="kClosedBody">--</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">Win Rate</div></div><div class="mono" style="font-size:24px;font-weight:700;" id="kWR">--</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">Open Positions</div></div><div class="mono" style="font-size:24px;font-weight:700;color:var(--yellow);" id="kOpen">--</div></div>
+  </div>
+
+  <!-- EQUITY CURVE -->
+  <div class="card mb-24">
+    <div class="card-header"><div class="card-title">📈 Equity Curve</div></div>
+    <canvas id="equityChart" height="180"></canvas>
+  </div>
+
+  <!-- OPEN POSITIONS -->
+  <div class="card mb-24" style="padding:0;">
+    <div class="card-header" style="padding:14px 16px;"><div class="card-title">📊 Open Positions (auto-managed)</div></div>
+    <div class="pos-row" style="background:var(--bg-elevated);font-size:9px;color:var(--text-muted);font-weight:800;letter-spacing:0.5px;">
+      <div>OPENED</div><div>SYM</div><div>SIDE</div><div>SIZE</div><div>ENTRY</div><div>ML CONF</div><div>AGE</div><div>STATUS</div>
+    </div>
+    <div id="openBody"></div>
+  </div>
+
+  <!-- CLOSED -->
+  <div class="card" style="padding:0;">
+    <div class="card-header" style="padding:14px 16px;"><div class="card-title">📜 Closed Trades (most recent 50)</div></div>
+    <div class="pos-row" style="background:var(--bg-elevated);font-size:9px;color:var(--text-muted);font-weight:800;letter-spacing:0.5px;">
+      <div>CLOSED</div><div>SYM</div><div>SIDE</div><div>ENTRY</div><div>EXIT</div><div>ML CONF</div><div>P&L</div><div>OUTCOME</div>
+    </div>
+    <div id="closedBody" style="max-height:480px;overflow-y:auto;"></div>
+  </div>
+
+  <div class="card mt-24">
+    <div class="card-header"><div class="card-title">🧠 How autopilot works</div></div>
+    <div style="font-size:13px;color:var(--text-secondary);line-height:1.7;">
+      When ON, this page auto-opens a paper position every time the brain emits a finding meeting:
+      <ul style="margin-top:8px;padding-left:18px;">
+        <li>Severity ≥ medium (2-star or higher)</li>
+        <li>Model probability ≥ your threshold (default 70%)</li>
+        <li>No existing position on that symbol</li>
+      </ul>
+      When the brain rates the outcome (30 min after firing), the position auto-closes. Wins = +risk × win-R, losses = −risk × loss-R. Pure model performance — no human discretion in the loop. This is the cleanest test of model edge.
+    </div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script src="js/model.js"></script>
+<script src="js/charts.js"></script>
+<script>
+buildNav('auto-paper');
+
+const KEY = 'bpleone_autopaper_v1';
+function load() { try { return JSON.parse(localStorage.getItem(KEY) || 'null') || { autopilot: false, equity: 50000, open: [], closed: [], equityHistory: [{ ts: Date.now(), eq: 50000 }] }; } catch (e) { return { autopilot: false, equity: 50000, open: [], closed: [], equityHistory: [] }; } }
+function save(s) { try { localStorage.setItem(KEY, JSON.stringify(s)); } catch (e) {} }
+
+let state = load();
+
+function tick() {
+  if (!window.ModelStore || !state.autopilot) { return; }
+  // Look for findings to open positions on
+  const findings = (function () { try { return JSON.parse(localStorage.getItem('bpleone_brain_findings_v1') || '{"items":[]}').items; } catch (e) { return []; } })();
+  const thr = +document.getElementById('threshold').value / 100;
+  const riskAmt = +document.getElementById('riskAmt').value || 500;
+
+  // Open new positions
+  findings.forEach(f => {
+    if (!f.modelProb) return;
+    if ((f.severity || 1) < 2) return;
+    if (Math.abs(f.modelProb - 0.5) < (thr - 0.5)) return; // model not confident enough
+    const sym = f.meta && f.meta.sym;
+    if (!sym) return;
+    if (state.open.find(p => p.sym === sym)) return; // already in position
+    if (state.open.find(p => p.findingId === f.id)) return;
+    if (state.closed.find(p => p.findingId === f.id)) return; // already traded
+    // Open
+    const side = f.modelProb >= 0.5 ? 'LONG' : 'SHORT';
+    state.open.push({
+      findingId: f.id,
+      ts: Date.now(),
+      sym,
+      side,
+      modelProb: f.modelProb,
+      severity: f.severity,
+      setup: (f.meta && f.meta.setup) || f.type,
+      riskAmt,
+      entry: 100, // synthetic
+      status: 'open'
+    });
+  });
+
+  // Close positions when their finding has an outcome
+  for (let i = state.open.length - 1; i >= 0; i--) {
+    const p = state.open[i];
+    const f = findings.find(x => x.id === p.findingId);
+    if (!f) continue;
+    if (f.outcome === 'hit' || f.outcome === 'miss') {
+      const predHit = p.modelProb >= 0.5;
+      const correct = (predHit && f.outcome === 'hit') || (!predHit && f.outcome === 'miss');
+      const pnl = correct ? p.riskAmt * 1.8 : -p.riskAmt * 1.0; // 1.8R win / 1R loss
+      state.equity += pnl;
+      state.equityHistory.push({ ts: Date.now(), eq: state.equity });
+      if (state.equityHistory.length > 1000) state.equityHistory.shift();
+      state.closed.unshift({ ...p, exit: 100 + (pnl / p.riskAmt), closedTs: Date.now(), pnl, correct, outcome: f.outcome });
+      if (state.closed.length > 500) state.closed.length = 500;
+      state.open.splice(i, 1);
+    }
+  }
+  save(state);
+  paint();
+}
+
+let equityChart;
+function paint() {
+  state = load();
+  document.getElementById('statusLabel').textContent = state.autopilot ? '🟢 ON' : 'OFF';
+  document.getElementById('statusLabel').style.color = state.autopilot ? 'var(--green)' : 'var(--text-muted)';
+  document.getElementById('autopilotToggle').classList.toggle('on', state.autopilot);
+  document.getElementById('thrLabel').textContent = document.getElementById('threshold').value;
+
+  const equityChg = state.equity - 50000;
+  document.getElementById('kEquity').textContent = '$' + state.equity.toLocaleString(undefined, { maximumFractionDigits: 0 });
+  document.getElementById('kEquity').style.color = equityChg > 0 ? 'var(--green)' : equityChg < 0 ? 'var(--red)' : 'var(--text-primary)';
+  document.getElementById('kEquityBody').textContent = (equityChg >= 0 ? '+$' : '−$') + Math.abs(equityChg).toFixed(0) + ' · ' + ((equityChg / 50000) * 100).toFixed(1) + '%';
+  document.getElementById('kClosed').textContent = state.closed.length;
+  const wins = state.closed.filter(c => c.correct).length;
+  document.getElementById('kClosedBody').textContent = wins + 'W / ' + (state.closed.length - wins) + 'L';
+  document.getElementById('kWR').textContent = state.closed.length > 0 ? Math.round((wins / state.closed.length) * 100) + '%' : '—';
+  document.getElementById('kWR').style.color = state.closed.length > 0 && (wins / state.closed.length) >= 0.55 ? 'var(--green)' : 'var(--text-primary)';
+  document.getElementById('kOpen').textContent = state.open.length;
+
+  // Open positions
+  const ob = document.getElementById('openBody');
+  ob.innerHTML = '';
+  if (state.open.length === 0) {
+    ob.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-muted);font-size:12px;">No open positions. ' + (state.autopilot ? 'Waiting for brain signal ≥ threshold.' : 'Toggle autopilot ON to start auto-trading.') + '</div>';
+  } else {
+    state.open.forEach(p => {
+      const ageMin = Math.round((Date.now() - p.ts) / 60000);
+      const row = document.createElement('div');
+      row.className = 'pos-row open';
+      row.innerHTML = '<div style="color:var(--text-muted);font-size:10px;">' + new Date(p.ts).toLocaleTimeString() + '</div>'
+        + '<div><strong>' + p.sym + '</strong></div>'
+        + '<div style="color:' + (p.side === 'LONG' ? 'var(--green)' : 'var(--red)') + ';font-weight:700;">' + p.side + '</div>'
+        + '<div>$' + p.riskAmt + '</div>'
+        + '<div>$' + p.entry.toFixed(2) + '</div>'
+        + '<div style="color:var(--accent);font-weight:700;">' + (p.modelProb * 100).toFixed(0) + '%</div>'
+        + '<div>' + ageMin + 'm</div>'
+        + '<div style="font-family:Inter;font-size:11px;color:var(--text-muted);">' + p.setup + '</div>';
+      ob.appendChild(row);
+    });
+  }
+
+  // Closed
+  const cb = document.getElementById('closedBody');
+  cb.innerHTML = '';
+  if (state.closed.length === 0) {
+    cb.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-muted);font-size:12px;">No closed trades yet.</div>';
+  } else {
+    state.closed.slice(0, 50).forEach(p => {
+      const row = document.createElement('div');
+      row.className = 'pos-row ' + (p.correct ? 'win' : 'loss');
+      const col = p.correct ? 'var(--green)' : 'var(--red)';
+      row.innerHTML = '<div style="color:var(--text-muted);font-size:10px;">' + new Date(p.closedTs).toLocaleString() + '</div>'
+        + '<div><strong>' + p.sym + '</strong></div>'
+        + '<div style="color:' + (p.side === 'LONG' ? 'var(--green)' : 'var(--red)') + ';">' + p.side + '</div>'
+        + '<div>$' + p.entry.toFixed(2) + '</div>'
+        + '<div>$' + p.exit.toFixed(2) + '</div>'
+        + '<div>' + (p.modelProb * 100).toFixed(0) + '%</div>'
+        + '<div style="color:' + col + ';font-weight:700;">' + (p.pnl >= 0 ? '+$' : '−$') + Math.abs(p.pnl).toFixed(0) + '</div>'
+        + '<div style="font-family:Inter;font-size:11px;">' + (p.correct ? '✓ correct' : '✗ wrong') + '</div>';
+      cb.appendChild(row);
+    });
+  }
+
+  // Equity chart
+  if (equityChart) equityChart.destroy();
+  const labels = state.equityHistory.map(p => new Date(p.ts).toLocaleDateString());
+  const data = state.equityHistory.map(p => p.eq);
+  equityChart = new Chart(document.getElementById('equityChart').getContext('2d'), {
+    type: 'line',
+    data: { labels, datasets: [
+      { label: 'Equity', data, borderColor: 'rgba(0,212,255,1)', backgroundColor: 'rgba(0,212,255,0.08)', fill: true, borderWidth: 2, pointRadius: 0, tension: 0.2 },
+      { label: 'Starting', data: labels.map(() => 50000), borderColor: 'rgba(150,150,150,0.5)', borderDash: [4,4], pointRadius: 0, borderWidth: 1 }
+    ] },
+    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: true, position: 'top', labels: { color: '#9ca3af' } } }, scales: { x: { display: false }, y: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#6b7280', callback: v => '$' + (v/1000).toFixed(0) + 'k' } } } }
+  });
+}
+
+document.getElementById('autopilotToggle').addEventListener('click', () => {
+  state.autopilot = !state.autopilot;
+  save(state);
+  paint();
+});
+document.getElementById('resetBtn').addEventListener('click', () => {
+  if (!confirm('Reset paper account to $50k starting equity? All trades cleared.')) return;
+  state = { autopilot: false, equity: 50000, open: [], closed: [], equityHistory: [{ ts: Date.now(), eq: 50000 }] };
+  save(state);
+  paint();
+});
+['threshold','riskAmt'].forEach(id => document.getElementById(id).addEventListener('input', paint));
+paint();
+setInterval(tick, 10000); // check every 10s
+window.addEventListener('bpleone:brain-finding', tick);
+window.addEventListener('bpleone:model-trained', paint);
+</script>
+</body>
+</html>

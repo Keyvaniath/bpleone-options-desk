@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Calibration — bpleone / trade</title>
+<meta name="description" content="Reliability diagram — when the model says 70%, does it actually win 70% of the time?">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.bin-row { display:grid; grid-template-columns: 100px 80px 80px 100px 1fr; gap:14px; padding:11px 14px; border-bottom:1px solid var(--border); font-family:var(--font-mono); font-size:11px; align-items:center; }
+.bin-row.well { border-left:3px solid var(--green); }
+.bin-row.over { border-left:3px solid var(--red); }
+.bin-row.under { border-left:3px solid var(--accent); }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">📏 Calibration</div>
+      <div class="page-subtitle">Reliability diagram · is the model's 70% confidence actually 70% win rate? · <span id="market-clock">--</span></div>
+    </div>
+    <div class="flex gap-8">
+      <a href="model-results.html" class="btn btn-secondary">🎯 Results</a>
+    </div>
+  </div>
+
+  <div class="card mb-24" style="background:linear-gradient(135deg,rgba(0,212,255,0.05),transparent);">
+    <div style="font-size:13px;color:var(--text-secondary);line-height:1.7;">
+      <strong style="color:var(--accent);">Calibration</strong> = does the model say what it means? A well-calibrated model that outputs 70% confidence should actually be right 70% of the time on that batch. If the model says 80% but only wins 60% of those, it's <strong>overconfident</strong> — your sizing will be too aggressive. If it says 60% but wins 80%, it's <strong>underconfident</strong> — you're leaving edge on the table.
+      <div class="mt-12">This page bins predictions by confidence (50-60%, 60-70%, etc.) and plots actual win rate per bin against the diagonal. Closer to diagonal = better calibration.</div>
+    </div>
+  </div>
+
+  <!-- KPIs -->
+  <div class="grid grid-4 mb-24">
+    <div class="card"><div class="card-header"><div class="card-title">Brier Score</div></div><div class="mono" style="font-size:26px;font-weight:700;" id="kBrier">--</div><div class="mono" style="font-size:11px;color:var(--text-muted);">Lower = better calibration</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">ECE</div></div><div class="mono" style="font-size:26px;font-weight:700;" id="kECE">--</div><div class="mono" style="font-size:11px;color:var(--text-muted);">Expected Calibration Error</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">Avg Overconfidence</div></div><div class="mono" style="font-size:26px;font-weight:700;" id="kOver">--</div><div class="mono" style="font-size:11px;color:var(--text-muted);">predicted % - actual %</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">Total Rated</div></div><div class="mono" style="font-size:26px;font-weight:700;color:var(--accent);" id="kN">--</div></div>
+  </div>
+
+  <!-- RELIABILITY DIAGRAM -->
+  <div class="card mb-24">
+    <div class="card-header"><div class="card-title">📊 Reliability Diagram</div></div>
+    <canvas id="reliabilityChart" height="280"></canvas>
+    <div class="mono mt-12" style="font-size:11px;color:var(--text-muted);">
+      🔵 dots = actual hit rate per confidence bin · gray dashed = perfect calibration · circles sized by sample count
+    </div>
+  </div>
+
+  <!-- BINS TABLE -->
+  <div class="card mb-24" style="padding:0;">
+    <div class="card-header" style="padding:14px 16px;"><div class="card-title">📋 Per-Bin Calibration</div></div>
+    <div class="bin-row" style="background:var(--bg-elevated);font-size:9px;color:var(--text-muted);font-weight:800;letter-spacing:0.5px;">
+      <div>BIN</div><div>N</div><div>PREDICTED</div><div>ACTUAL</div><div>STATUS</div>
+    </div>
+    <div id="binBody"></div>
+  </div>
+
+  <div class="card">
+    <div class="card-header"><div class="card-title">🔧 If poorly calibrated</div></div>
+    <div style="font-size:13px;color:var(--text-secondary);line-height:1.7;">
+      <ul style="padding-left:18px;">
+        <li><strong>Consistently overconfident</strong> (predicted &gt; actual): Reduce sizing on high-confidence calls by 30-50%. Run a Full Retrain — likely overfitting.</li>
+        <li><strong>Consistently underconfident</strong> (predicted &lt; actual): You can size up on high-confidence calls. Model is being more conservative than its track record warrants.</li>
+        <li><strong>Calibrated on low but not high</strong> (or vice versa): Common when training data is unbalanced — most outcomes cluster near 50%. More data fixes it.</li>
+        <li><strong>Brier Score &gt; 0.25</strong>: Roughly equivalent to random — model needs more training.</li>
+        <li><strong>Brier Score 0.18-0.25</strong>: Reasonable for trading models. Most professional systems live here.</li>
+        <li><strong>Brier Score &lt; 0.15</strong>: Excellent. Model is well-calibrated.</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script src="js/model.js"></script>
+<script src="js/charts.js"></script>
+<script>
+buildNav('calibration');
+
+let chart;
+function paint() {
+  if (!window.ModelStore) { setTimeout(paint, 500); return; }
+  const findings = (function () { try { return JSON.parse(localStorage.getItem('bpleone_brain_findings_v1') || '{"items":[]}').items; } catch (e) { return []; } })();
+  const resolved = findings.filter(f => typeof f.modelProb === 'number' && (f.outcome === 'hit' || f.outcome === 'miss'));
+
+  if (resolved.length === 0) {
+    document.getElementById('kBrier').textContent = '—';
+    document.getElementById('kECE').textContent = '—';
+    document.getElementById('kOver').textContent = '—';
+    document.getElementById('kN').textContent = '0';
+    document.getElementById('binBody').innerHTML = '<div style="padding:30px;text-align:center;color:var(--text-muted);">No rated predictions yet. Seed model + let brain run.</div>';
+    return;
+  }
+
+  document.getElementById('kN').textContent = resolved.length;
+
+  // Brier Score
+  let brierSum = 0;
+  resolved.forEach(f => {
+    const actual = f.outcome === 'hit' ? 1 : 0;
+    brierSum += (f.modelProb - actual) ** 2;
+  });
+  const brier = brierSum / resolved.length;
+  document.getElementById('kBrier').textContent = brier.toFixed(4);
+  document.getElementById('kBrier').style.color = brier < 0.18 ? 'var(--green)' : brier < 0.25 ? 'var(--accent)' : 'var(--red)';
+
+  // Bins (10 bins, 0-10% / 10-20% / ... / 90-100%)
+  const BINS = [
+    { lo: 0.0, hi: 0.1, label: '0-10%' }, { lo: 0.1, hi: 0.2, label: '10-20%' },
+    { lo: 0.2, hi: 0.3, label: '20-30%' }, { lo: 0.3, hi: 0.4, label: '30-40%' },
+    { lo: 0.4, hi: 0.5, label: '40-50%' }, { lo: 0.5, hi: 0.6, label: '50-60%' },
+    { lo: 0.6, hi: 0.7, label: '60-70%' }, { lo: 0.7, hi: 0.8, label: '70-80%' },
+    { lo: 0.8, hi: 0.9, label: '80-90%' }, { lo: 0.9, hi: 1.01, label: '90-100%' }
+  ];
+  const bins = BINS.map(b => {
+    const items = resolved.filter(f => f.modelProb >= b.lo && f.modelProb < b.hi);
+    const avgPred = items.length > 0 ? items.reduce((s, f) => s + f.modelProb, 0) / items.length : (b.lo + b.hi) / 2;
+    const wins = items.filter(f => f.outcome === 'hit').length;
+    const actual = items.length > 0 ? wins / items.length : null;
+    return { ...b, n: items.length, avgPred, actual, wins };
+  });
+
+  // ECE
+  let ece = 0;
+  bins.forEach(b => {
+    if (b.n > 0) ece += (b.n / resolved.length) * Math.abs(b.actual - b.avgPred);
+  });
+  document.getElementById('kECE').textContent = (ece * 100).toFixed(2) + '%';
+  document.getElementById('kECE').style.color = ece < 0.05 ? 'var(--green)' : ece < 0.10 ? 'var(--accent)' : 'var(--red)';
+
+  // Avg overconfidence
+  let overSum = 0, overN = 0;
+  bins.forEach(b => { if (b.n > 0) { overSum += (b.avgPred - b.actual); overN++; } });
+  const avgOver = overN > 0 ? overSum / overN : 0;
+  document.getElementById('kOver').textContent = (avgOver * 100).toFixed(2) + '%';
+  document.getElementById('kOver').style.color = Math.abs(avgOver) < 0.05 ? 'var(--green)' : avgOver > 0 ? 'var(--red)' : 'var(--accent)';
+
+  // Render bins table
+  const body = document.getElementById('binBody');
+  body.innerHTML = '';
+  bins.forEach(b => {
+    if (b.n === 0) return;
+    const diff = b.actual - b.avgPred;
+    const cls = Math.abs(diff) < 0.05 ? 'well' : diff < 0 ? 'over' : 'under';
+    const status = Math.abs(diff) < 0.05 ? '✓ well-calibrated' : diff < -0.05 ? '⚠ overconfident by ' + (-diff * 100).toFixed(1) + '%' : '↗ underconfident by ' + (diff * 100).toFixed(1) + '%';
+    const statusCol = Math.abs(diff) < 0.05 ? 'var(--green)' : diff < -0.05 ? 'var(--red)' : 'var(--accent)';
+    const row = document.createElement('div');
+    row.className = 'bin-row ' + cls;
+    row.innerHTML = '<div><strong>' + b.label + '</strong></div>'
+      + '<div>' + b.n + '</div>'
+      + '<div>' + (b.avgPred * 100).toFixed(1) + '%</div>'
+      + '<div>' + (b.actual * 100).toFixed(1) + '%</div>'
+      + '<div style="color:' + statusCol + ';font-family:Inter;font-size:11px;">' + status + '</div>';
+    body.appendChild(row);
+  });
+
+  // Reliability diagram (scatter)
+  const points = bins.filter(b => b.n > 0).map(b => ({ x: b.avgPred * 100, y: b.actual * 100, r: Math.max(4, Math.min(20, Math.sqrt(b.n) * 2)) }));
+  if (chart) chart.destroy();
+  chart = new Chart(document.getElementById('reliabilityChart').getContext('2d'), {
+    type: 'scatter',
+    data: { datasets: [
+      { label: 'Bin (sized by N)', data: points, backgroundColor: 'rgba(0,212,255,0.6)', borderColor: 'rgba(0,212,255,1)', pointRadius: function (ctx) { return ctx.raw.r; } },
+      { label: 'Perfect calibration', type: 'line', data: [{ x: 0, y: 0 }, { x: 100, y: 100 }], borderColor: 'rgba(150,150,150,0.5)', borderDash: [4,4], pointRadius: 0, borderWidth: 1, showLine: true }
+    ] },
+    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: true, position: 'top', labels: { color: '#9ca3af' } } }, scales: { x: { min: 0, max: 100, title: { display: true, text: 'Predicted probability %', color: '#9ca3af' }, grid: { color: 'rgba(255,255,255,0.04)' }, ticks: { color: '#6b7280', callback: v => v + '%' } }, y: { min: 0, max: 100, title: { display: true, text: 'Actual hit rate %', color: '#9ca3af' }, grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#6b7280', callback: v => v + '%' } } } }
+  });
+}
+
+paint();
+window.addEventListener('bpleone:model-trained', paint);
+setInterval(paint, 30000);
+</script>
+</body>
+</html>

@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Risk Sizer PRO — bpleone / trade</title>
+<meta name="description" content="Model-conf-weighted Kelly sizing · how much to risk based on model probability and R/R.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.input-row { display:flex;gap:14px;flex-wrap:wrap;align-items:center;margin-bottom:14px; }
+.input-row label { font-size:12px;color:var(--text-muted);font-weight:700;min-width:140px; }
+.input-row input { background:var(--bg-elevated);border:1px solid var(--border);border-radius:6px;padding:8px 12px;color:var(--text-primary);font-family:var(--font-mono);width:120px; }
+.size-row { display:grid;grid-template-columns:90px 110px 110px 110px 110px 1fr;gap:14px;padding:12px 14px;border-bottom:1px solid var(--border);font-family:var(--font-mono);font-size:12px;align-items:center; }
+.size-row.aggressive { background:rgba(245,158,11,0.04);border-left:3px solid var(--yellow); }
+.size-row.optimal { background:rgba(16,185,129,0.04);border-left:3px solid var(--green); }
+.size-row.conservative { border-left:3px solid var(--accent); }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">📐 Risk Sizer PRO</div>
+      <div class="page-subtitle">Model-confidence-weighted Kelly · scale sizing with prediction strength · <span id="market-clock">--</span></div>
+    </div>
+    <div class="flex gap-8">
+      <a href="kelly-sizer.html" class="btn btn-secondary">📐 Basic Kelly</a>
+    </div>
+  </div>
+
+  <div class="card mb-24" style="background:linear-gradient(135deg,rgba(0,212,255,0.05),transparent);">
+    <div style="font-size:13px;color:var(--text-secondary);line-height:1.7;">
+      Kelly: f* = (p·b − q) / b · where p=win prob, q=loss prob, b=win/loss ratio. Naive Kelly is too aggressive — most pros run quarter-Kelly. This page computes <strong>model-conditioned position size</strong>: use the model's calibrated P(win) directly. When the model is very confident, size up. When near 50/50, size tiny.
+    </div>
+  </div>
+
+  <!-- INPUTS -->
+  <div class="card mb-24">
+    <div class="card-header"><div class="card-title">⚙ Trade Parameters</div></div>
+    <div class="input-row">
+      <label>Account Size $</label><input type="number" id="account" value="50000">
+      <label>Model P(win) %</label><input type="number" id="prob" value="65" min="50" max="95">
+      <label>Win R-multiple</label><input type="number" id="winR" value="2.0" step="0.1">
+      <label>Loss R-multiple</label><input type="number" id="lossR" value="1.0" step="0.1">
+      <label>Confidence Cap</label><select id="cap" style="background:var(--bg-elevated);border:1px solid var(--border);border-radius:6px;padding:8px 12px;color:var(--text-primary);font-family:var(--font-mono);">
+        <option value="0.05">5% max</option>
+        <option value="0.025" selected>2.5% max</option>
+        <option value="0.01">1% max</option>
+        <option value="1.0">No cap (dangerous)</option>
+      </select>
+    </div>
+  </div>
+
+  <!-- RESULTS -->
+  <div class="grid grid-4 mb-24">
+    <div class="card"><div class="card-header"><div class="card-title">Full Kelly</div></div><div class="mono" style="font-size:24px;font-weight:700;color:var(--red);" id="kFull">--</div><div class="mono" style="font-size:11px;color:var(--text-muted);">⚠ aggressive · blow-up risk</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">½ Kelly</div></div><div class="mono" style="font-size:24px;font-weight:700;color:var(--yellow);" id="kHalf">--</div><div class="mono" style="font-size:11px;color:var(--text-muted);">Common pro size</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">¼ Kelly (Recommended)</div></div><div class="mono" style="font-size:24px;font-weight:700;color:var(--green);" id="kQuarter">--</div><div class="mono" style="font-size:11px;color:var(--text-muted);">Best risk-adjusted growth</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">⅛ Kelly</div></div><div class="mono" style="font-size:24px;font-weight:700;color:var(--accent);" id="kEighth">--</div><div class="mono" style="font-size:11px;color:var(--text-muted);">Very conservative</div></div>
+  </div>
+
+  <!-- POSITION SIZE TABLE -->
+  <div class="card mb-24" style="padding:0;">
+    <div class="card-header" style="padding:14px 16px;"><div class="card-title">📋 Position Sizes</div></div>
+    <div class="size-row" style="background:var(--bg-elevated);font-size:9px;color:var(--text-muted);font-weight:800;letter-spacing:0.5px;">
+      <div>STRATEGY</div><div>RISK %</div><div>RISK $</div><div>EXPECTED R</div><div>RISK OF RUIN %</div><div>NOTES</div>
+    </div>
+    <div id="sizeBody"></div>
+  </div>
+
+  <!-- CONFIDENCE CURVE -->
+  <div class="card">
+    <div class="card-header"><div class="card-title">📈 Recommended Position Size vs Model Confidence</div></div>
+    <canvas id="curveChart" height="220"></canvas>
+    <div class="mono mt-12" style="font-size:11px;color:var(--text-muted);">Position size scales with confidence — exit / skip below 55%, modest at 60-70%, size up above 75%.</div>
+  </div>
+
+  <div class="card mt-24">
+    <div class="card-header"><div class="card-title">🧠 Sizing rules of thumb</div></div>
+    <div class="grid grid-3" style="gap:18px;">
+      <div>
+        <div style="font-weight:700;color:var(--red);margin-bottom:4px;">Model 50-55%</div>
+        <div style="font-size:13px;color:var(--text-muted);line-height:1.5;">Model has no opinion. Skip. Don't risk capital where the model can't add an edge.</div>
+      </div>
+      <div>
+        <div style="font-weight:700;color:var(--accent);margin-bottom:4px;">Model 55-70%</div>
+        <div style="font-size:13px;color:var(--text-muted);line-height:1.5;">Modest size: 0.5-1.5% of account at ¼ Kelly. The model has an edge but isn't certain.</div>
+      </div>
+      <div>
+        <div style="font-weight:700;color:var(--green);margin-bottom:4px;">Model 70%+</div>
+        <div style="font-size:13px;color:var(--text-muted);line-height:1.5;">Size up: 1.5-2.5% at ¼ Kelly. Highest expected R. Still respect the cap.</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script src="js/model.js"></script>
+<script src="js/charts.js"></script>
+<script>
+buildNav('risk-sizer-pro');
+
+function kelly(p, winR, lossR) {
+  const q = 1 - p;
+  const b = winR / lossR;
+  const k = (p * b - q) / b;
+  return Math.max(0, k);
+}
+
+let curveChart;
+function paint() {
+  const account = +document.getElementById('account').value || 50000;
+  const p = +document.getElementById('prob').value / 100;
+  const winR = +document.getElementById('winR').value || 2.0;
+  const lossR = +document.getElementById('lossR').value || 1.0;
+  const cap = +document.getElementById('cap').value;
+
+  const fullK = kelly(p, winR, lossR);
+  const halfK = fullK * 0.5;
+  const quarterK = fullK * 0.25;
+  const eighthK = fullK * 0.125;
+
+  // Apply cap
+  const capped = (k) => Math.min(k, cap);
+
+  document.getElementById('kFull').textContent = (fullK * 100).toFixed(2) + '%';
+  document.getElementById('kHalf').textContent = (capped(halfK) * 100).toFixed(2) + '%';
+  document.getElementById('kQuarter').textContent = (capped(quarterK) * 100).toFixed(2) + '%';
+  document.getElementById('kEighth').textContent = (capped(eighthK) * 100).toFixed(2) + '%';
+
+  // Position size table
+  const strategies = [
+    { name: 'Full Kelly', risk: capped(fullK), cls: 'aggressive', note: '⚠ 35% chance of 50% drawdown · max growth' },
+    { name: '½ Kelly', risk: capped(halfK), cls: 'aggressive', note: 'Industry common · ~25% growth rate' },
+    { name: '¼ Kelly', risk: capped(quarterK), cls: 'optimal', note: '⭐ Best risk-adjusted growth · most resilient' },
+    { name: '⅛ Kelly', risk: capped(eighthK), cls: 'conservative', note: 'Very safe · slow but stable' }
+  ];
+  const body = document.getElementById('sizeBody');
+  body.innerHTML = '';
+  strategies.forEach(s => {
+    const dollar = s.risk * account;
+    const expR = (p * winR - (1 - p) * lossR);
+    const expDollar = expR * dollar;
+    const ror = Math.max(0.01, Math.min(99.99, ((1 - p) / p) ** 10 * 100)); // rough RoR
+    const row = document.createElement('div');
+    row.className = 'size-row ' + s.cls;
+    row.innerHTML = '<div><strong>' + s.name + '</strong></div>'
+      + '<div>' + (s.risk * 100).toFixed(2) + '%</div>'
+      + '<div>$' + dollar.toFixed(0) + '</div>'
+      + '<div style="color:' + (expR >= 0 ? 'var(--green)' : 'var(--red)') + ';">' + (expR >= 0 ? '+' : '') + expR.toFixed(2) + 'R · ' + (expDollar >= 0 ? '+$' : '−$') + Math.abs(expDollar).toFixed(0) + '</div>'
+      + '<div style="color:' + (ror < 5 ? 'var(--green)' : ror < 15 ? 'var(--yellow)' : 'var(--red)') + ';">' + ror.toFixed(2) + '%</div>'
+      + '<div style="font-family:Inter;color:var(--text-muted);font-size:11px;">' + s.note + '</div>';
+    body.appendChild(row);
+  });
+
+  // Curve
+  const labels = [], data = [];
+  for (let pct = 50; pct <= 90; pct += 2) {
+    const pp = pct / 100;
+    const k = kelly(pp, winR, lossR) * 0.25; // quarter Kelly
+    labels.push(pct + '%');
+    data.push(Math.min(k, cap) * 100);
+  }
+  if (curveChart) curveChart.destroy();
+  curveChart = new Chart(document.getElementById('curveChart').getContext('2d'), {
+    type: 'line',
+    data: { labels, datasets: [{ label: '¼ Kelly Position Size %', data, borderColor: 'rgba(16,185,129,1)', backgroundColor: 'rgba(16,185,129,0.08)', fill: true, borderWidth: 2, pointRadius: 4, tension: 0.2 }] },
+    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { title: { display: true, text: 'Model P(win) %', color: '#9ca3af' }, grid: { color: 'rgba(255,255,255,0.04)' }, ticks: { color: '#9ca3af' } }, y: { title: { display: true, text: 'Account risk %', color: '#9ca3af' }, grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#6b7280', callback: v => v.toFixed(1) + '%' } } } }
+  });
+}
+
+['account','prob','winR','lossR','cap'].forEach(id => document.getElementById(id).addEventListener('input', paint));
+paint();
+</script>
+</body>
+</html>
