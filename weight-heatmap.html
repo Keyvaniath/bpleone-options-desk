@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Weight Heatmap — bpleone / trade</title>
+<meta name="description" content="Visualize where each symbol's edge diverges from the global setup weights. SPY's macd-cross vs. TSLA's macd-cross in one glance.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.heatmap-card { background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 12px; padding: 18px; overflow-x: auto; }
+.heatmap-grid { display: grid; gap: 2px; min-width: 1000px; }
+.heat-cell { padding: 8px 6px; text-align: center; font-family: var(--font-mono); font-size: 11px; border-radius: 4px; transition: transform .12s ease; cursor: pointer; position: relative; }
+.heat-cell:hover { transform: scale(1.05); z-index: 10; box-shadow: 0 4px 14px rgba(0,0,0,0.3); }
+.heat-cell .n { font-size: 9px; opacity: 0.7; margin-top: 1px; }
+.row-label { padding: 8px 10px; font-family: var(--font-mono); font-weight: 700; font-size: 12px; color: var(--text-primary); display: flex; align-items: center; }
+.col-label { padding: 10px 6px; font-family: var(--font-mono); font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.3px; text-align: center; writing-mode: vertical-lr; transform: rotate(180deg); height: 100px; }
+.legend-bar { display: flex; height: 16px; border-radius: 8px; overflow: hidden; max-width: 400px; margin: 10px 0; }
+.legend-bar .stop { flex: 1; }
+.legend-labels { display: flex; justify-content: space-between; font-family: var(--font-mono); font-size: 10px; color: var(--text-muted); max-width: 400px; }
+.kpi-strip { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 18px; }
+.tile { background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 10px; padding: 14px; text-align: center; }
+.tile .lab { font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; }
+.tile .val { font-family: var(--font-mono); font-weight: 700; font-size: 18px; margin-top: 4px; }
+.help { font-size: 12px; color: var(--text-muted); line-height: 1.7; }
+.r-pos { color: var(--green); } .r-neg { color: var(--red); }
+.empty { padding: 60px 20px; text-align: center; color: var(--text-muted); }
+.divergence-list { font-size: 12px; }
+.div-row { display: grid; grid-template-columns: 1fr 70px 70px 70px 100px; gap: 10px; padding: 8px 0; border-top: 1px solid var(--border); align-items: center; }
+.tag { display: inline-block; padding: 2px 8px; border-radius: 4px; background: var(--bg-secondary); font-family: var(--font-mono); font-size: 11px; border: 1px solid var(--border); margin-right: 4px; }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">Weight Heatmap <span class="feat-badge feat-new">NEW</span></div>
+      <div class="page-subtitle">Where each symbol's edge diverges from the global brain. The map of your specialization. · <span id="market-clock">--</span></div>
+    </div>
+    <div class="flex gap-8">
+      <a href="risk-attribution.html" class="btn btn-ghost">🎯 Attribution</a>
+      <a href="setup-combos.html" class="btn btn-ghost">🔗 Combos</a>
+      <a href="kelly-sizer.html" class="btn btn-ghost">📐 Kelly</a>
+    </div>
+  </div>
+
+  <!-- Help -->
+  <div class="heatmap-card mb-24">
+    <div style="font-weight:600;font-size:14px;margin-bottom:6px;">🧠 How to read this</div>
+    <div class="help">
+      Each cell shows the brain's <strong>learned weight</strong> for that <strong>(symbol, setup)</strong> pair.
+      Weight = 1.0 means "no edge — neutral". Weight &gt; 1.0 means the brain has seen positive R for this combination. &lt; 1.0 means negative.
+      <br><strong>Empty cells</strong> = not enough samples yet (need ≥5 closed trades for that pair).
+      <br>The small number in each cell is the sample size <em>n</em>. Bigger n = more trustworthy.
+    </div>
+    <div style="margin-top:14px;">
+      <div class="legend-bar">
+        <div class="stop" style="background:rgba(239,68,68,0.8);"></div>
+        <div class="stop" style="background:rgba(239,68,68,0.4);"></div>
+        <div class="stop" style="background:var(--bg-secondary);"></div>
+        <div class="stop" style="background:rgba(16,185,129,0.4);"></div>
+        <div class="stop" style="background:rgba(16,185,129,0.8);"></div>
+      </div>
+      <div class="legend-labels"><span>0.5 (bad)</span><span>0.85</span><span>1.0 (neutral)</span><span>1.15</span><span>1.6 (great)</span></div>
+    </div>
+  </div>
+
+  <!-- KPI strip -->
+  <div class="kpi-strip">
+    <div class="tile"><div class="lab">Symbols tracked</div><div class="val mono" id="kSyms">0</div></div>
+    <div class="tile"><div class="lab">Specialized weights</div><div class="val mono" id="kCells">0</div></div>
+    <div class="tile"><div class="lab">Avg divergence vs global</div><div class="val mono" id="kDiv">—</div></div>
+    <div class="tile"><div class="lab">Strongest specialization</div><div class="val mono" id="kBest" style="font-size:13px;">—</div></div>
+  </div>
+
+  <!-- Heatmap grid -->
+  <div class="heatmap-card mb-24">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
+      <div style="font-weight:600;font-size:14px;">📊 Per-symbol × per-setup weights</div>
+      <div>
+        <button id="btnRebalance" class="btn btn-ghost" style="font-size:11px;">↻ Rebalance now</button>
+      </div>
+    </div>
+    <div id="heatmapContainer"></div>
+  </div>
+
+  <!-- Biggest divergences -->
+  <div class="heatmap-card">
+    <div style="font-weight:600;font-size:14px;margin-bottom:8px;">🔬 Biggest divergences (where symbol specialization deviates most from global)</div>
+    <div class="help" style="margin-bottom:14px;">A negative divergence means the symbol is WORSE than average on this setup. Positive = better than average. Trade accordingly.</div>
+    <div class="div-row" style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;font-weight:600;">
+      <div>Pair</div>
+      <div style="text-align:right;">N</div>
+      <div style="text-align:right;">Symbol w</div>
+      <div style="text-align:right;">Global w</div>
+      <div style="text-align:right;">Divergence</div>
+    </div>
+    <div id="divList" class="divergence-list"></div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script src="js/ta.js"></script>
+<script src="js/learn.js"></script>
+<script>buildNav('learn');</script>
+
+<script>
+(function () {
+  function loadState() {
+    try { return JSON.parse(localStorage.getItem('bpleone_learn_v1') || '{}'); }
+    catch (e) { return {}; }
+  }
+
+  function colorForWeight(w) {
+    if (w == null) return 'var(--bg-secondary)';
+    // 1.0 = neutral, scale up to 1.6 = strong green, down to 0.5 = strong red
+    if (w >= 1) {
+      const intensity = Math.min(1, (w - 1) / 0.6);
+      return `rgba(16,185,129,${0.15 + intensity * 0.7})`;
+    } else {
+      const intensity = Math.min(1, (1 - w) / 0.5);
+      return `rgba(239,68,68,${0.15 + intensity * 0.7})`;
+    }
+  }
+
+  function textColorForWeight(w) {
+    if (w == null) return 'var(--text-muted)';
+    if (w >= 1.2 || w <= 0.85) return '#fff';
+    return 'var(--text-primary)';
+  }
+
+  function buildHeatmap() {
+    const state = loadState();
+    const symbolWeights = state.symbolWeights || {};
+    const globalWeights = state.weights || {};
+
+    const symbols = Object.keys(symbolWeights).sort();
+    // Use union of all setups that appear anywhere (per-symbol + global)
+    const setupSet = new Set();
+    Object.values(symbolWeights).forEach(m => Object.keys(m || {}).forEach(s => setupSet.add(s)));
+    Object.keys(globalWeights).forEach(s => setupSet.add(s));
+    const setups = Array.from(setupSet).sort();
+
+    if (!symbols.length || !setups.length) {
+      document.getElementById('heatmapContainer').innerHTML = `<div class="empty">
+        <p>No per-symbol weights yet.</p>
+        <p style="font-size:11px;margin-top:6px;">The brain needs at least 5 closed trades for a given (symbol, setup) pair to specialize.
+        <br>Open <a href="paper-trade.html" style="color:var(--accent);">paper-trade</a> or <a href="hypothetical.html" style="color:var(--accent);">hypothetical</a> and rack up trades on symbols you care about.</p>
+      </div>`;
+      return { cells: 0, syms: 0, divergences: [] };
+    }
+
+    // KPI: total cells
+    let totalCells = 0;
+    let divSum = 0;
+    const divergences = [];
+    symbols.forEach(sym => {
+      setups.forEach(setup => {
+        const cell = (symbolWeights[sym] || {})[setup];
+        if (cell) {
+          totalCells++;
+          const g = globalWeights[setup] != null ? globalWeights[setup] : 1.0;
+          const div = cell.w - g;
+          divSum += Math.abs(div);
+          divergences.push({ sym, setup, symW: cell.w, globalW: g, n: cell.n, div });
+        }
+      });
+    });
+
+    // Build grid
+    const colCount = setups.length;
+    const grid = document.createElement('div');
+    grid.className = 'heatmap-grid';
+    grid.style.gridTemplateColumns = `140px repeat(${colCount}, 1fr)`;
+
+    // Header row: column labels
+    const corner = document.createElement('div'); corner.style.borderRight = '1px solid var(--border)';
+    grid.appendChild(corner);
+    setups.forEach(s => {
+      const el = document.createElement('div');
+      el.className = 'col-label'; el.textContent = s;
+      grid.appendChild(el);
+    });
+
+    // Symbol rows
+    symbols.forEach(sym => {
+      const row = document.createElement('div'); row.className = 'row-label'; row.textContent = sym; grid.appendChild(row);
+      setups.forEach(setup => {
+        const cell = (symbolWeights[sym] || {})[setup];
+        const el = document.createElement('div');
+        el.className = 'heat-cell';
+        if (cell) {
+          el.style.background = colorForWeight(cell.w);
+          el.style.color = textColorForWeight(cell.w);
+          el.textContent = cell.w.toFixed(2);
+          const sub = document.createElement('div'); sub.className = 'n'; sub.textContent = 'n=' + cell.n;
+          el.appendChild(sub);
+          const g = globalWeights[setup] != null ? globalWeights[setup] : 1.0;
+          const div = cell.w - g;
+          el.title = `${sym} · ${setup}\nSymbol weight: ${cell.w} (n=${cell.n})\nGlobal weight: ${g}\nDivergence: ${div >= 0 ? '+' : ''}${div.toFixed(3)}`;
+          el.addEventListener('click', () => { location.href = 'risk-attribution.html'; });
+        } else {
+          el.style.background = 'var(--bg-secondary)';
+          el.style.color = 'var(--text-muted)';
+          el.textContent = '—';
+          el.title = `${sym} · ${setup}: no specialization yet (need ≥5 trades)`;
+        }
+        grid.appendChild(el);
+      });
+    });
+
+    const container = document.getElementById('heatmapContainer');
+    container.innerHTML = '';
+    container.appendChild(grid);
+
+    // KPIs
+    document.getElementById('kSyms').textContent = symbols.length;
+    document.getElementById('kCells').textContent = totalCells;
+    document.getElementById('kDiv').textContent = totalCells ? (divSum / totalCells).toFixed(3) : '—';
+
+    // Sort divergences
+    divergences.sort((a, b) => Math.abs(b.div) - Math.abs(a.div));
+    const best = divergences[0];
+    document.getElementById('kBest').textContent = best ? best.sym + ' · ' + best.setup + ' (' + (best.div >= 0 ? '+' : '') + best.div.toFixed(2) + ')' : '—';
+
+    // Render divergence list
+    const max = best ? Math.abs(best.div) : 1;
+    document.getElementById('divList').innerHTML = divergences.slice(0, 30).map(d => {
+      const cls = d.div >= 0 ? 'r-pos' : 'r-neg';
+      return `<div class="div-row">
+        <div><span class="tag">${d.sym}</span><span class="tag">${d.setup}</span></div>
+        <div class="mono" style="text-align:right;">${d.n}</div>
+        <div class="mono" style="text-align:right;">${d.symW.toFixed(2)}</div>
+        <div class="mono" style="text-align:right;color:var(--text-muted);">${d.globalW.toFixed(2)}</div>
+        <div class="mono ${cls}" style="text-align:right;font-weight:700;">${d.div >= 0 ? '+' : ''}${d.div.toFixed(3)}</div>
+      </div>`;
+    }).join('') || '<div class="empty" style="padding:20px;">No specialized weights yet.</div>';
+
+    return { cells: totalCells, syms: symbols.length, divergences };
+  }
+
+  document.getElementById('btnRebalance').addEventListener('click', () => {
+    if (typeof Learn !== 'undefined' && Learn.rebalanceWeights) {
+      Learn.rebalanceWeights();
+      buildHeatmap();
+    }
+  });
+
+  setTimeout(buildHeatmap, 400);
+})();
+</script>
+</body>
+</html>

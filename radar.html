@@ -89,6 +89,7 @@
         <option value="chg">Day % ↓</option>
         <option value="rsi">RSI ↓</option>
         <option value="vwap">VWAP distance ↓</option>
+        <option value="sentiment">Sentiment ↓</option>
         <option value="sym">Symbol A-Z</option>
       </select>
     </div>
@@ -120,6 +121,7 @@
 <script src="js/learn.js"></script>
 <script src="js/discord.js"></script>
 <script src="js/alerts-engine.js"></script>
+<script src="js/sentiment.js"></script>
 <script>buildNav('learn');</script>
 
 <script>
@@ -170,6 +172,13 @@
         <div><div class="lab">ADX</div><div class="val" style="color:${d.adx >= 25 ? 'var(--accent)' : 'var(--text-muted)'};">${d.adx != null ? d.adx.toFixed(0) : '—'}</div></div>
         <div><div class="lab">VWAP</div><div class="val" style="color:${d.vwapDist >= 0 ? 'var(--green)' : 'var(--red)'};">${d.vwapDist != null ? (d.vwapDist >= 0 ? '+' : '') + d.vwapDist.toFixed(1) + '%' : '—'}</div></div>
       </div>
+      ${d.sentiment ? `<div style="margin-top:8px;padding-top:8px;border-top:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;font-size:11px;">
+        <span style="color:var(--text-muted);text-transform:uppercase;letter-spacing:0.3px;font-size:9px;">Sentiment</span>
+        <span class="mono" style="color:${d.sentiment.composite >= 0.15 ? 'var(--green)' : d.sentiment.composite <= -0.15 ? 'var(--red)' : 'var(--text-muted)'};font-weight:700;">
+          ${d.sentiment.composite != null ? (d.sentiment.composite >= 0 ? '+' : '') + d.sentiment.composite.toFixed(2) : '—'}
+          ${d.sentiment.composite != null ? '<span style="font-size:9px;opacity:0.7;margin-left:4px;">' + (d.sentiment.composite >= 0.4 ? '🚀' : d.sentiment.composite >= 0.15 ? '↑' : d.sentiment.composite <= -0.4 ? '☠' : d.sentiment.composite <= -0.15 ? '↓' : '─') + '</span>' : ''}
+        </span>
+      </div>` : ''}
       <div class="actions">
         <a href="ticker.html?sym=${d.sym}">🔍 Focus</a>
         <a href="hypothetical.html?sym=${d.sym}&bias=${bias}&source=signals">📝 Track</a>
@@ -210,10 +219,12 @@
       if (adj >= 0.85 && typeof DiscordAlerts !== 'undefined' && DiscordAlerts.url()) {
         DiscordAlerts.signal({ sym, setup: tag.tag, score: adj, last: q.last, bias, reasons: tag.reasons });
       }
+      const sentiment = typeof Sentiment !== 'undefined' ? Sentiment.get(sym) : null;
       return {
         sym, last: q.last, chg: q.changePct, bias,
         setup: tag.tag, reasons: tag.reasons || [], adj,
-        rsi: features.rsi, hist: features.macdHist, adx: features.adx, vwapDist: features.vwapDist
+        rsi: features.rsi, hist: features.macdHist, adx: features.adx, vwapDist: features.vwapDist,
+        sentiment
       };
     }).filter(Boolean);
     return list;
@@ -230,6 +241,7 @@
       if (sortBy === 'chg') return (b.chg || 0) - (a.chg || 0);
       if (sortBy === 'rsi') return (b.rsi || 0) - (a.rsi || 0);
       if (sortBy === 'vwap') return (b.vwapDist || 0) - (a.vwapDist || 0);
+      if (sortBy === 'sentiment') return ((b.sentiment && b.sentiment.composite) || 0) - ((a.sentiment && a.sentiment.composite) || 0);
       if (sortBy === 'sym') return a.sym.localeCompare(b.sym);
       return b.adj - a.adj;
     });
@@ -255,9 +267,16 @@
 
   // Initial warmup
   setTimeout(() => {
-    getSymbols().forEach(s => { if (typeof TA !== 'undefined') TA.warmup(s); });
+    const syms = getSymbols();
+    syms.forEach(s => { if (typeof TA !== 'undefined') TA.warmup(s); });
+    if (typeof Sentiment !== 'undefined') Sentiment.warmup(syms);
     render();
   }, 500);
+
+  // Refresh sentiment every 15 min (it's cached, so most calls are no-ops)
+  setInterval(() => {
+    if (typeof Sentiment !== 'undefined') Sentiment.warmup(getSymbols());
+  }, 15 * 60 * 1000);
 
   // Live refresh
   setInterval(render, 1500);

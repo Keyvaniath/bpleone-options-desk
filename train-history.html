@@ -1,0 +1,407 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Training History — bpleone / trade</title>
+<meta name="description" content="Scroll back through past Live AI Trainer sessions. Every setup transition logged with the price chart and forward outcome.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.controls { display: flex; gap: 14px; align-items: end; flex-wrap: wrap; margin-bottom: 18px; padding: 14px 18px; background: var(--bg-elevated); border-radius: 10px; border: 1px solid var(--border); }
+.controls label { font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; display: block; margin-bottom: 4px; }
+.controls input, .controls select { background: var(--bg-secondary); border: 1px solid var(--border); color: var(--text-primary); padding: 8px 10px; border-radius: 6px; font-family: inherit; font-size: 13px; }
+.session-strip { display: flex; gap: 8px; overflow-x: auto; padding: 10px 0; margin-bottom: 16px; }
+.session-pill { flex-shrink: 0; padding: 8px 14px; background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 999px; font-family: var(--font-mono); font-size: 12px; cursor: pointer; transition: all .12s ease; white-space: nowrap; }
+.session-pill:hover { border-color: var(--accent); color: var(--accent); }
+.session-pill.active { background: var(--accent); color: #052838; border-color: var(--accent); font-weight: 700; }
+.session-pill .count { font-size: 10px; opacity: 0.7; margin-left: 4px; }
+.kpi-strip { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; margin-bottom: 18px; }
+.tile { background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 10px; padding: 14px; text-align: center; }
+.tile .lab { font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; }
+.tile .val { font-family: var(--font-mono); font-weight: 700; font-size: 20px; margin-top: 4px; }
+.r-pos { color: var(--green); } .r-neg { color: var(--red); } .r-zero { color: var(--text-muted); }
+.event-row { display: grid; grid-template-columns: 80px 1fr 80px 90px 90px 90px 100px; gap: 10px; padding: 10px 0; border-top: 1px solid var(--border); font-size: 12px; align-items: center; }
+.event-row .mono { font-family: var(--font-mono); }
+.tag { display: inline-block; padding: 2px 8px; border-radius: 4px; background: var(--bg-secondary); font-family: var(--font-mono); font-size: 10px; margin-right: 4px; border: 1px solid var(--border); }
+.tag.bull { background: rgba(16,185,129,0.15); color: var(--green); border-color: rgba(16,185,129,0.3); }
+.tag.bear { background: rgba(239,68,68,0.15); color: var(--red); border-color: rgba(239,68,68,0.3); }
+.empty { padding: 40px; text-align: center; color: var(--text-muted); }
+.chart-wrap { background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 10px; padding: 14px; }
+.heatmap-bar { display: grid; grid-template-columns: 1fr; gap: 2px; height: 8px; margin-top: 8px; }
+.heat-cell { background: var(--bg-secondary); border-radius: 2px; }
+.setup-stat-row { display: grid; grid-template-columns: 1fr 60px 60px 80px; gap: 10px; padding: 6px 0; border-top: 1px solid var(--border); font-size: 12px; align-items: center; }
+.bar-track { background: var(--bg-secondary); border-radius: 4px; position: relative; height: 14px; overflow: hidden; }
+.bar-fill { position: absolute; top: 0; bottom: 0; }
+.bar-fill.pos { background: linear-gradient(to right, rgba(16,185,129,0.2), rgba(16,185,129,0.8)); }
+.bar-fill.neg { background: linear-gradient(to left, rgba(239,68,68,0.2), rgba(239,68,68,0.8)); }
+.bar-zero { position: absolute; top: 0; bottom: 0; width: 1px; background: var(--text-muted); }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">Training History <span class="feat-badge feat-new">NEW</span></div>
+      <div class="page-subtitle">Scroll back through past Live AI Trainer sessions. Every setup transition + forward outcome. · <span id="market-clock">--</span></div>
+    </div>
+    <div class="flex gap-8">
+      <a href="live-train.html" class="btn btn-primary">🎓 Live Trainer</a>
+      <a href="radar.html" class="btn btn-ghost">📡 Radar</a>
+      <a href="risk-attribution.html" class="btn btn-ghost">🎯 Attribution</a>
+    </div>
+  </div>
+
+  <!-- Controls -->
+  <div class="controls">
+    <div>
+      <label>Symbol</label>
+      <select id="symSelect" style="font-size:14px;font-weight:700;font-family:var(--font-mono);"></select>
+    </div>
+    <div>
+      <label>Date</label>
+      <select id="dateSelect" style="font-size:13px;"></select>
+    </div>
+    <div>
+      <label>Filter setup</label>
+      <select id="setupFilter"><option value="">(all setups)</option></select>
+    </div>
+    <div>
+      <label>Show</label>
+      <select id="resultFilter">
+        <option value="all">All events</option>
+        <option value="winners">Winners (5m + or 30m +)</option>
+        <option value="losers">Losers (5m − or 30m −)</option>
+        <option value="bullish">Bullish setups</option>
+        <option value="bearish">Bearish setups</option>
+      </select>
+    </div>
+    <div style="margin-left:auto;">
+      <button id="btnExport" class="btn btn-ghost">⬇ Export this symbol's events (JSON)</button>
+      <button id="btnClear" class="btn btn-ghost" style="color:var(--red);">Clear this symbol's events</button>
+    </div>
+  </div>
+
+  <!-- Session strip (date pills) -->
+  <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px;">Sessions for <span id="symLabel" style="color:var(--accent);font-family:var(--font-mono);">—</span></div>
+  <div id="sessionStrip" class="session-strip"></div>
+
+  <!-- KPI strip -->
+  <div class="kpi-strip">
+    <div class="tile"><div class="lab">Events</div><div class="val mono" id="kEvents">—</div></div>
+    <div class="tile"><div class="lab">Avg 5m reaction</div><div class="val mono" id="k5m">—</div></div>
+    <div class="tile"><div class="lab">Avg 30m reaction</div><div class="val mono" id="k30m">—</div></div>
+    <div class="tile"><div class="lab">Best setup on this day</div><div class="val mono" id="kBest" style="font-size:13px;">—</div></div>
+    <div class="tile"><div class="lab">Worst setup on this day</div><div class="val mono" id="kWorst" style="font-size:13px;">—</div></div>
+  </div>
+
+  <!-- Chart -->
+  <div class="chart-wrap mb-24">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+      <div style="font-weight:600;font-size:14px;">📈 Event timeline · price overlaid with transition markers</div>
+      <div style="font-size:11px;color:var(--text-muted);">▲ bull events · ▼ bear events</div>
+    </div>
+    <div style="height:280px;"><canvas id="eventChart"></canvas></div>
+  </div>
+
+  <!-- Setup performance for this session -->
+  <div class="grid grid-12 mb-24">
+    <div class="card col-7">
+      <div class="card-header"><div class="card-title">📋 Events on this day</div></div>
+      <div class="event-row" style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;font-weight:600;">
+        <div>Time</div>
+        <div>Transition</div>
+        <div style="text-align:right;">Px</div>
+        <div style="text-align:right;">RSI / ADX</div>
+        <div style="text-align:right;">5m R</div>
+        <div style="text-align:right;">30m R</div>
+        <div style="text-align:right;">Score</div>
+      </div>
+      <div id="eventList" style="max-height:460px;overflow-y:auto;"></div>
+    </div>
+    <div class="card col-5">
+      <div class="card-header"><div class="card-title">📊 Per-setup performance</div></div>
+      <div class="setup-stat-row" style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;font-weight:600;">
+        <div>Setup</div>
+        <div style="text-align:right;">N</div>
+        <div style="text-align:right;">5m %</div>
+        <div>30m %</div>
+      </div>
+      <div id="setupStatsBody" style="max-height:420px;overflow-y:auto;"></div>
+    </div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script src="js/ta.js"></script>
+<script src="js/learn.js"></script>
+<script>buildNav('learn');</script>
+
+<script>
+(function () {
+  const KEY = 'bpleone_train_events_v1';
+  let currentSym = null;
+  let currentDate = null;
+  let chart = null;
+
+  function load() { try { return JSON.parse(localStorage.getItem(KEY) || '{"bySym":{}}'); } catch (e) { return { bySym: {} }; } }
+  function save(s) { try { localStorage.setItem(KEY, JSON.stringify(s)); } catch (e) {} }
+
+  function dayKey(ts) {
+    return new Date(ts).toLocaleDateString('en-US', { timeZone: 'America/New_York', year: 'numeric', month: '2-digit', day: '2-digit' });
+  }
+
+  function biasFromTag(tag) {
+    const bullTags = ['volume-breakout', '52w-break', 'unusual-call', '50ma-reclaim', 'macd-cross', 'momentum-extension', 'bull-flag', 'cup-handle', 'vwap-reclaim', 'continuation-bull'];
+    const bearTags = ['flush-on-volume', 'breakdown', 'unusual-put', 'bear-flag', 'overbought-fade', 'vwap-rejection', 'continuation-bear', 'bb-stretch-up'];
+    if (bullTags.indexOf(tag) !== -1) return 'bull';
+    if (bearTags.indexOf(tag) !== -1) return 'bear';
+    if (tag === 'oversold-mean-revert' || tag === 'bb-stretch-down') return 'bull';
+    return 'neutral';
+  }
+
+  function getSymbols() {
+    const store = load();
+    return Object.keys(store.bySym || {}).filter(s => store.bySym[s] && store.bySym[s].length).sort();
+  }
+  function getDates(sym) {
+    const store = load();
+    const evts = (store.bySym[sym] || []);
+    const days = {};
+    evts.forEach(e => {
+      const k = dayKey(e.ts);
+      if (!days[k]) days[k] = 0;
+      days[k]++;
+    });
+    return Object.entries(days).sort((a, b) => b[0].localeCompare(a[0]));
+  }
+  function eventsFor(sym, date) {
+    const store = load();
+    const evts = store.bySym[sym] || [];
+    return evts.filter(e => dayKey(e.ts) === date);
+  }
+
+  function populateSymbols() {
+    const syms = getSymbols();
+    const sel = document.getElementById('symSelect');
+    sel.innerHTML = syms.length ? syms.map(s => `<option value="${s}">${s}</option>`).join('') : '<option value="">(no sessions yet)</option>';
+    return syms;
+  }
+  function populateDates() {
+    const dates = getDates(currentSym);
+    const sel = document.getElementById('dateSelect');
+    sel.innerHTML = dates.length ? dates.map(([d, n]) => `<option value="${d}">${d} · ${n} events</option>`).join('') : '<option value="">(no events)</option>';
+    if (dates.length) currentDate = dates[0][0];
+    // Session pills
+    document.getElementById('sessionStrip').innerHTML = dates.map(([d, n]) => `<div class="session-pill ${d === currentDate ? 'active' : ''}" data-d="${d}">${d}<span class="count">(${n})</span></div>`).join('');
+    document.querySelectorAll('.session-pill').forEach(p => p.addEventListener('click', () => { currentDate = p.dataset.d; document.getElementById('dateSelect').value = currentDate; render(); }));
+  }
+
+  function populateSetupFilter() {
+    const evts = currentDate ? eventsFor(currentSym, currentDate) : [];
+    const setups = Array.from(new Set(evts.map(e => e.to))).sort();
+    const sel = document.getElementById('setupFilter');
+    const prev = sel.value;
+    sel.innerHTML = '<option value="">(all setups)</option>' + setups.map(s => `<option value="${s}">${s}</option>`).join('');
+    if (setups.indexOf(prev) !== -1) sel.value = prev;
+  }
+
+  function applyFilters(evts) {
+    const setupFilter = document.getElementById('setupFilter').value;
+    const resultFilter = document.getElementById('resultFilter').value;
+    return evts.filter(e => {
+      if (setupFilter && e.to !== setupFilter) return false;
+      if (resultFilter === 'winners' && !((e.reaction5m && e.reaction5m > 0) || (e.reaction30m && e.reaction30m > 0))) return false;
+      if (resultFilter === 'losers' && !((e.reaction5m && e.reaction5m < 0) || (e.reaction30m && e.reaction30m < 0))) return false;
+      if (resultFilter === 'bullish' && biasFromTag(e.to) !== 'bull') return false;
+      if (resultFilter === 'bearish' && biasFromTag(e.to) !== 'bear') return false;
+      return true;
+    });
+  }
+
+  function renderKPIs(evts) {
+    document.getElementById('kEvents').textContent = evts.length;
+    const r5 = evts.filter(e => e.reaction5m != null);
+    const r30 = evts.filter(e => e.reaction30m != null);
+    const avg5 = r5.length ? r5.reduce((a, e) => a + e.reaction5m, 0) / r5.length : null;
+    const avg30 = r30.length ? r30.reduce((a, e) => a + e.reaction30m, 0) / r30.length : null;
+    document.getElementById('k5m').textContent = avg5 != null ? (avg5 >= 0 ? '+' : '') + avg5.toFixed(2) + '%' : '—';
+    document.getElementById('k5m').className = 'val mono ' + (avg5 > 0 ? 'r-pos' : avg5 < 0 ? 'r-neg' : '');
+    document.getElementById('k30m').textContent = avg30 != null ? (avg30 >= 0 ? '+' : '') + avg30.toFixed(2) + '%' : '—';
+    document.getElementById('k30m').className = 'val mono ' + (avg30 > 0 ? 'r-pos' : avg30 < 0 ? 'r-neg' : '');
+
+    // Best/worst setup (sign-adjusted by bias)
+    const bySetup = {};
+    evts.forEach(e => {
+      const r = e.reaction30m != null ? e.reaction30m : e.reaction5m;
+      if (r == null) return;
+      const sign = biasFromTag(e.to) === 'bear' ? -1 : 1;
+      const dirAdj = r * sign;
+      if (!bySetup[e.to]) bySetup[e.to] = [];
+      bySetup[e.to].push(dirAdj);
+    });
+    const setupAvgs = Object.entries(bySetup).map(([k, arr]) => ({ k, avg: arr.reduce((a, x) => a + x, 0) / arr.length, n: arr.length }));
+    setupAvgs.sort((a, b) => b.avg - a.avg);
+    if (setupAvgs.length) {
+      const best = setupAvgs[0], worst = setupAvgs[setupAvgs.length - 1];
+      document.getElementById('kBest').textContent = best.k + ' (' + (best.avg >= 0 ? '+' : '') + best.avg.toFixed(2) + '%)';
+      document.getElementById('kWorst').textContent = worst.k + ' (' + (worst.avg >= 0 ? '+' : '') + worst.avg.toFixed(2) + '%)';
+    } else {
+      document.getElementById('kBest').textContent = '—';
+      document.getElementById('kWorst').textContent = '—';
+    }
+  }
+
+  function renderEventList(evts) {
+    const body = document.getElementById('eventList');
+    if (!evts.length) { body.innerHTML = '<div class="empty">No events for this session/filter.</div>'; return; }
+    body.innerHTML = evts.slice().reverse().map(e => {
+      const time = new Date(e.ts).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
+      const r5 = e.reaction5m != null ? (e.reaction5m >= 0 ? '+' : '') + e.reaction5m.toFixed(2) + '%' : '—';
+      const r30 = e.reaction30m != null ? (e.reaction30m >= 0 ? '+' : '') + e.reaction30m.toFixed(2) + '%' : '—';
+      const r5cls = e.reaction5m > 0 ? 'r-pos' : e.reaction5m < 0 ? 'r-neg' : 'r-zero';
+      const r30cls = e.reaction30m > 0 ? 'r-pos' : e.reaction30m < 0 ? 'r-neg' : 'r-zero';
+      const bias = biasFromTag(e.to);
+      return `<div class="event-row">
+        <div class="mono" style="font-size:11px;color:var(--text-muted);">${time}</div>
+        <div><span class="tag">${e.from || '—'}</span>→<span class="tag ${bias}">${e.to}</span></div>
+        <div class="mono" style="text-align:right;">$${(e.px || 0).toFixed(2)}</div>
+        <div class="mono" style="text-align:right;font-size:11px;color:var(--text-muted);">${e.rsi != null ? e.rsi.toFixed(0) : '—'} / ${e.adx != null ? e.adx.toFixed(0) : '—'}</div>
+        <div class="mono ${r5cls}" style="text-align:right;">${r5}</div>
+        <div class="mono ${r30cls}" style="text-align:right;">${r30}</div>
+        <div class="mono" style="text-align:right;font-size:11px;">${e.regime || '—'}</div>
+      </div>`;
+    }).join('');
+  }
+
+  function renderSetupStats(evts) {
+    const bySetup = {};
+    evts.forEach(e => {
+      if (!bySetup[e.to]) bySetup[e.to] = { n: 0, r5sum: 0, r5n: 0, r30sum: 0, r30n: 0 };
+      bySetup[e.to].n++;
+      if (e.reaction5m != null) { bySetup[e.to].r5sum += e.reaction5m; bySetup[e.to].r5n++; }
+      if (e.reaction30m != null) { bySetup[e.to].r30sum += e.reaction30m; bySetup[e.to].r30n++; }
+    });
+    const rows = Object.entries(bySetup).map(([k, v]) => ({
+      k, n: v.n,
+      avg5: v.r5n ? v.r5sum / v.r5n : null,
+      avg30: v.r30n ? v.r30sum / v.r30n : null
+    })).sort((a, b) => (Math.abs(b.avg30 || 0)) - (Math.abs(a.avg30 || 0)));
+    const max = Math.max.apply(null, rows.map(r => Math.abs(r.avg30 || 0))) || 1;
+    document.getElementById('setupStatsBody').innerHTML = rows.length ? rows.map(r => {
+      const r5cls = r.avg5 > 0 ? 'r-pos' : r.avg5 < 0 ? 'r-neg' : 'r-zero';
+      const cls = (r.avg30 || 0) > 0 ? 'pos' : 'neg';
+      const pct = ((Math.abs(r.avg30 || 0)) / max) * 50;
+      const offset = (r.avg30 || 0) >= 0 ? 50 : (50 - pct);
+      return `<div class="setup-stat-row">
+        <div><span class="tag">${r.k}</span></div>
+        <div class="mono" style="text-align:right;">${r.n}</div>
+        <div class="mono ${r5cls}" style="text-align:right;">${r.avg5 != null ? (r.avg5 >= 0 ? '+' : '') + r.avg5.toFixed(2) + '%' : '—'}</div>
+        <div class="bar-track">
+          <div class="bar-zero" style="left:50%;"></div>
+          <div class="bar-fill ${cls}" style="left:${offset}%;width:${pct}%;"></div>
+        </div>
+      </div>`;
+    }).join('') : '<div class="empty">No setups in this session.</div>';
+  }
+
+  function renderChart(evts) {
+    const ctx = document.getElementById('eventChart').getContext('2d');
+    if (chart) chart.destroy();
+    if (!evts.length) return;
+    const sorted = evts.slice().sort((a, b) => a.ts - b.ts);
+    const pricePts = sorted.map(e => ({ x: e.ts, y: e.px }));
+    const bullEvts = sorted.filter(e => biasFromTag(e.to) === 'bull');
+    const bearEvts = sorted.filter(e => biasFromTag(e.to) === 'bear');
+    chart = new Chart(ctx, {
+      data: {
+        datasets: [
+          { type: 'line', label: 'Price', data: pricePts, borderColor: '#00d4ff', backgroundColor: 'rgba(0,212,255,0.06)', fill: true, tension: 0.15, pointRadius: 0, borderWidth: 1.5 },
+          { type: 'scatter', label: '▲ bull events', data: bullEvts.map(e => ({ x: e.ts, y: e.px })), pointBackgroundColor: '#10b981', pointBorderColor: '#10b981', pointRadius: 5, pointStyle: 'triangle' },
+          { type: 'scatter', label: '▼ bear events', data: bearEvts.map(e => ({ x: e.ts, y: e.px })), pointBackgroundColor: '#ef4444', pointBorderColor: '#ef4444', pointRadius: 5, pointStyle: 'triangle', rotation: 180 }
+        ]
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false, animation: false,
+        parsing: false,
+        plugins: { legend: { labels: { color: '#999', font: { size: 10 } } }, tooltip: { callbacks: { label: (c) => { const d = c.raw; const evt = evts.find(e => e.ts === d.x); return evt ? `${new Date(evt.ts).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })} · ${evt.to} @ $${d.y.toFixed(2)}` : `$${d.y.toFixed(2)}`; } } } },
+        scales: {
+          x: { type: 'linear', grid: { display: false }, ticks: { color: '#666', font: { size: 10 }, callback: (v) => new Date(v).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }) } },
+          y: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#999', font: { family: 'JetBrains Mono', size: 10 } } }
+        }
+      }
+    });
+  }
+
+  function render() {
+    if (!currentSym) {
+      document.getElementById('symLabel').textContent = '—';
+      document.getElementById('eventList').innerHTML = '<div class="empty">No symbols logged yet. Open the <a href="live-train.html" style="color:var(--accent);">Live AI Trainer</a> and let it run for a bit.</div>';
+      return;
+    }
+    document.getElementById('symLabel').textContent = currentSym;
+    populateSetupFilter();
+    const evts = currentDate ? eventsFor(currentSym, currentDate) : [];
+    const filtered = applyFilters(evts);
+    renderKPIs(filtered);
+    renderEventList(filtered);
+    renderSetupStats(filtered);
+    renderChart(filtered);
+    // Update session pill active state
+    document.querySelectorAll('.session-pill').forEach(p => p.classList.toggle('active', p.dataset.d === currentDate));
+  }
+
+  function init() {
+    const syms = populateSymbols();
+    if (syms.length) {
+      const params = new URLSearchParams(location.search);
+      currentSym = params.has('sym') && syms.indexOf(params.get('sym').toUpperCase()) !== -1 ? params.get('sym').toUpperCase() : syms[0];
+      document.getElementById('symSelect').value = currentSym;
+      populateDates();
+      render();
+    } else {
+      render();
+    }
+  }
+
+  document.getElementById('symSelect').addEventListener('change', e => { currentSym = e.target.value; populateDates(); render(); });
+  document.getElementById('dateSelect').addEventListener('change', e => { currentDate = e.target.value; render(); });
+  document.getElementById('setupFilter').addEventListener('change', render);
+  document.getElementById('resultFilter').addEventListener('change', render);
+  document.getElementById('btnExport').addEventListener('click', () => {
+    if (!currentSym) return;
+    const store = load();
+    const evts = store.bySym[currentSym] || [];
+    const blob = new Blob([JSON.stringify({ symbol: currentSym, exportedAt: new Date().toISOString(), events: evts }, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = 'bpleone-train-' + currentSym + '-' + new Date().toISOString().slice(0, 10) + '.json';
+    a.click();
+    URL.revokeObjectURL(url);
+  });
+  document.getElementById('btnClear').addEventListener('click', () => {
+    if (!currentSym) return;
+    if (!confirm('Clear all training events for ' + currentSym + '? Cannot be undone.')) return;
+    const store = load();
+    delete store.bySym[currentSym];
+    save(store);
+    currentSym = null; currentDate = null;
+    init();
+  });
+
+  init();
+})();
+</script>
+</body>
+</html>

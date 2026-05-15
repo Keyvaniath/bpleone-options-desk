@@ -1,0 +1,326 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Alerts Dashboard — bpleone / trade</title>
+<meta name="description" content="Central view of fired alerts. Configure watchlist, threshold, mute window, sound, desktop, and Discord routing.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.alert-card { background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 10px; padding: 14px; transition: transform .12s ease; }
+.alert-card.bull { border-left: 4px solid var(--green); }
+.alert-card.bear { border-left: 4px solid var(--red); }
+.alert-card.recent { animation: glow 2s ease; }
+@keyframes glow { 0% { box-shadow: 0 0 0 2px var(--accent); } 100% { box-shadow: none; } }
+.kpi-strip { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; margin-bottom: 18px; }
+.tile-k { background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 10px; padding: 14px; text-align: center; }
+.tile-k .lab { font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; }
+.tile-k .val { font-family: var(--font-mono); font-weight: 700; font-size: 20px; margin-top: 4px; }
+.tag { display: inline-block; padding: 2px 8px; border-radius: 4px; background: var(--bg-secondary); font-family: var(--font-mono); font-size: 10px; border: 1px solid var(--border); }
+.tag.bull { background: rgba(16,185,129,0.12); color: var(--green); border-color: rgba(16,185,129,0.3); }
+.tag.bear { background: rgba(239,68,68,0.12); color: var(--red); border-color: rgba(239,68,68,0.3); }
+.r-pos { color: var(--green); } .r-neg { color: var(--red); }
+.row { display: grid; grid-template-columns: 80px 80px 100px 80px 1fr 90px 100px; gap: 10px; padding: 10px 0; border-top: 1px solid var(--border); font-size: 12px; align-items: center; }
+.mono { font-family: var(--font-mono); }
+.cfg-row { display: grid; grid-template-columns: 220px 1fr; gap: 14px; align-items: center; padding: 10px 0; border-top: 1px solid var(--border); }
+.cfg-row:first-child { border-top: none; }
+.cfg-row label { font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; }
+.cfg-row input[type=text], .cfg-row input[type=number] { background: var(--bg-secondary); border: 1px solid var(--border); color: var(--text-primary); padding: 8px 10px; border-radius: 6px; font-family: inherit; font-size: 13px; width: 100%; box-sizing: border-box; }
+.toggle { position: relative; width: 38px; height: 22px; background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 999px; cursor: pointer; transition: all .15s ease; display: inline-block; }
+.toggle.on { background: var(--accent); border-color: var(--accent); }
+.toggle .knob { position: absolute; width: 16px; height: 16px; background: var(--text-primary); border-radius: 50%; top: 2px; left: 2px; transition: all .15s ease; }
+.toggle.on .knob { left: 18px; background: #052838; }
+.banner-mute { background: rgba(245,158,11,0.10); border: 1px solid rgba(245,158,11,0.3); border-radius: 10px; padding: 14px 18px; color: var(--yellow); margin-bottom: 16px; }
+.banner-mute strong { color: var(--yellow); }
+.empty { padding: 40px; text-align: center; color: var(--text-muted); }
+.universe-pill { display: inline-block; padding: 4px 10px; border-radius: 999px; background: var(--bg-secondary); border: 1px solid var(--border); margin: 2px; font-family: var(--font-mono); font-size: 11px; }
+.universe-pill .x { color: var(--red); margin-left: 6px; cursor: pointer; opacity: 0.5; }
+.universe-pill .x:hover { opacity: 1; }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">Alerts Dashboard <span class="feat-badge feat-new">NEW</span> <span class="feat-badge feat-live">LIVE</span></div>
+      <div class="page-subtitle">Central view of every signal fire. Tune what alerts and how. · <span id="market-clock">--</span></div>
+    </div>
+    <div class="flex gap-8">
+      <a href="radar.html" class="btn btn-ghost">📡 Radar</a>
+      <a href="live-train.html" class="btn btn-ghost">🎓 Trainer</a>
+      <a href="account.html" class="btn btn-ghost">👤 Discord Setup</a>
+    </div>
+  </div>
+
+  <!-- Mute banner -->
+  <div id="muteBanner" class="banner-mute" style="display:none;">
+    <strong>⏸ Alerts muted</strong> until <span id="muteUntil"></span> · <button id="btnUnmute" class="btn btn-ghost" style="margin-left:10px;font-size:11px;">Unmute now</button>
+  </div>
+
+  <!-- KPI strip -->
+  <div class="kpi-strip">
+    <div class="tile-k"><div class="lab">Today's fires</div><div class="val mono" id="kToday">0</div></div>
+    <div class="tile-k"><div class="lab">Last 24h</div><div class="val mono" id="k24h">0</div></div>
+    <div class="tile-k"><div class="lab">Bull / Bear split</div><div class="val mono" id="kSplit" style="font-size:14px;">—</div></div>
+    <div class="tile-k"><div class="lab">Most-fired symbol</div><div class="val mono" id="kTopSym" style="font-size:14px;">—</div></div>
+    <div class="tile-k"><div class="lab">Most-fired setup</div><div class="val mono" id="kTopSetup" style="font-size:14px;">—</div></div>
+  </div>
+
+  <!-- Config + Recent fires -->
+  <div class="grid grid-12">
+    <div class="card col-5">
+      <div class="card-header"><div class="card-title">⚙ Alert configuration</div></div>
+      <div style="font-size:11px;color:var(--text-muted);line-height:1.6;margin-bottom:10px;">
+        Engine runs on dashboard / radar / live-train / edge-scanner / plays / signals.
+        Fires when a setup transition crosses the min-score threshold for a symbol in your watchlist.
+      </div>
+      <div class="cfg-row">
+        <label>Enabled</label>
+        <div class="toggle" id="togEnabled"><div class="knob"></div></div>
+      </div>
+      <div class="cfg-row">
+        <label>Min adjusted score</label>
+        <input id="cfgMinScore" type="number" step="0.01" min="0" max="1.5" style="width:120px;">
+      </div>
+      <div class="cfg-row">
+        <label>Dedup window (hours)</label>
+        <input id="cfgDedup" type="number" step="0.5" min="0.25" max="24" style="width:120px;">
+      </div>
+      <div class="cfg-row">
+        <label>Desktop notifications</label>
+        <div class="toggle" id="togDesktop"><div class="knob"></div></div>
+      </div>
+      <div class="cfg-row">
+        <label>Discord webhook</label>
+        <div class="toggle" id="togDiscord"><div class="knob"></div></div>
+      </div>
+      <div class="cfg-row">
+        <label>Sound (beep on fire)</label>
+        <div class="toggle" id="togSound"><div class="knob"></div></div>
+      </div>
+      <div class="cfg-row" style="grid-template-columns:1fr;">
+        <label>Watchlist (universe)</label>
+        <div>
+          <div id="universeChips" style="margin-bottom:8px;"></div>
+          <div style="display:flex;gap:6px;">
+            <input id="addSym" type="text" placeholder="Add symbol (e.g. SPY)" style="text-transform:uppercase;">
+            <button id="btnAdd" class="btn btn-ghost">Add</button>
+            <button id="btnReset" class="btn btn-ghost" style="font-size:11px;">Reset to 12-default</button>
+          </div>
+        </div>
+      </div>
+      <div class="cfg-row">
+        <label>Mute for…</label>
+        <div style="display:flex;gap:6px;">
+          <button class="btn btn-ghost" data-mute="15">15m</button>
+          <button class="btn btn-ghost" data-mute="60">1h</button>
+          <button class="btn btn-ghost" data-mute="240">4h</button>
+          <button class="btn btn-ghost" data-mute="1440">24h</button>
+        </div>
+      </div>
+      <div style="margin-top:14px;padding-top:14px;border-top:1px solid var(--border);">
+        <button id="btnTestFire" class="btn btn-ghost" style="font-size:11px;">🔔 Test fire on SPY</button>
+        <button id="btnClearLog" class="btn btn-ghost" style="font-size:11px;color:var(--red);">Clear alert log</button>
+      </div>
+    </div>
+
+    <div class="card col-7">
+      <div class="card-header" style="display:flex;justify-content:space-between;align-items:center;">
+        <div class="card-title">📋 Recent fires</div>
+        <select id="filterSym" style="background:var(--bg-secondary);border:1px solid var(--border);color:var(--text-primary);padding:4px 8px;border-radius:6px;font-size:11px;">
+          <option value="">All symbols</option>
+        </select>
+      </div>
+      <div class="row" style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;font-weight:600;">
+        <div>Time</div>
+        <div>Sym</div>
+        <div>Setup</div>
+        <div style="text-align:right;">Score</div>
+        <div>Reasoning</div>
+        <div style="text-align:right;">Px</div>
+        <div style="text-align:right;">Action</div>
+      </div>
+      <div id="firesList" style="max-height:600px;overflow-y:auto;"></div>
+    </div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script src="js/ta.js"></script>
+<script src="js/learn.js"></script>
+<script src="js/discord.js"></script>
+<script src="js/alerts-engine.js"></script>
+<script>buildNav('alerts');</script>
+
+<script>
+(function () {
+  function refresh() {
+    if (typeof AlertsEngine === 'undefined') {
+      document.getElementById('firesList').innerHTML = '<div class="empty">AlertsEngine not loaded — check console.</div>';
+      return;
+    }
+    const cfg = AlertsEngine.config();
+    const fires = AlertsEngine.recent(200);
+
+    // Config UI
+    document.getElementById('togEnabled').classList.toggle('on', !!cfg.enabled);
+    document.getElementById('togDesktop').classList.toggle('on', !!cfg.desktopOn);
+    document.getElementById('togDiscord').classList.toggle('on', !!cfg.discordOn);
+    document.getElementById('togSound').classList.toggle('on', !!cfg.soundOn);
+    document.getElementById('cfgMinScore').value = cfg.minScore;
+    document.getElementById('cfgDedup').value = cfg.dedupHours;
+
+    document.getElementById('universeChips').innerHTML = (cfg.symbols || []).map(s => `<span class="universe-pill">${s}<span class="x" data-sym="${s}">×</span></span>`).join('');
+    document.querySelectorAll('.universe-pill .x').forEach(x => x.addEventListener('click', () => {
+      const c = AlertsEngine.config();
+      c.symbols = c.symbols.filter(s => s !== x.dataset.sym);
+      AlertsEngine.setConfig(c);
+      refresh();
+    }));
+
+    // Mute banner
+    if (cfg.muteUntil && Date.now() < cfg.muteUntil) {
+      document.getElementById('muteBanner').style.display = '';
+      document.getElementById('muteUntil').textContent = new Date(cfg.muteUntil).toLocaleString('en-US', { hour: '2-digit', minute: '2-digit', month: 'short', day: 'numeric' });
+    } else {
+      document.getElementById('muteBanner').style.display = 'none';
+    }
+
+    // KPIs
+    const today = new Date(); today.setHours(0, 0, 0, 0);
+    const tToday = fires.filter(f => f.ts >= today.getTime()).length;
+    const t24h = fires.filter(f => Date.now() - f.ts < 24 * 3600 * 1000).length;
+    const bulls = fires.filter(f => f.bias === 'bull').length;
+    const bears = fires.filter(f => f.bias === 'bear').length;
+    document.getElementById('kToday').textContent = tToday;
+    document.getElementById('k24h').textContent = t24h;
+    document.getElementById('kSplit').textContent = bulls + ' / ' + bears;
+    // Top symbol / setup
+    const bySym = {}, bySetup = {};
+    fires.forEach(f => { bySym[f.sym] = (bySym[f.sym] || 0) + 1; bySetup[f.setup] = (bySetup[f.setup] || 0) + 1; });
+    const topSym = Object.entries(bySym).sort((a, b) => b[1] - a[1])[0];
+    const topSetup = Object.entries(bySetup).sort((a, b) => b[1] - a[1])[0];
+    document.getElementById('kTopSym').textContent = topSym ? topSym[0] + ' (' + topSym[1] + ')' : '—';
+    document.getElementById('kTopSetup').textContent = topSetup ? topSetup[0] + ' (' + topSetup[1] + ')' : '—';
+
+    // Filter dropdown
+    const sel = document.getElementById('filterSym');
+    const prev = sel.value;
+    const syms = Array.from(new Set(fires.map(f => f.sym))).sort();
+    sel.innerHTML = '<option value="">All symbols</option>' + syms.map(s => `<option value="${s}">${s}</option>`).join('');
+    if (syms.indexOf(prev) !== -1) sel.value = prev;
+
+    // Fires list
+    const filtered = sel.value ? fires.filter(f => f.sym === sel.value) : fires;
+    const body = document.getElementById('firesList');
+    if (!filtered.length) {
+      body.innerHTML = '<div class="empty">No fires yet. Trade-of-the-day live or wait for a setup transition on your watchlist.</div>';
+      return;
+    }
+    body.innerHTML = filtered.map(f => {
+      const time = new Date(f.ts).toLocaleString('en-US', { hour: '2-digit', minute: '2-digit', month: 'short', day: 'numeric' });
+      const reasoning = (f.reasons || []).join(' · ').slice(0, 90);
+      const params = new URLSearchParams({ sym: f.sym, bias: f.bias === 'bull' ? 'bull' : 'bear', source: 'signals', note: 'Alert: ' + f.setup }).toString();
+      return `<div class="row">
+        <div class="mono" style="font-size:11px;color:var(--text-muted);">${time}</div>
+        <div class="mono" style="font-weight:700;">${f.sym}</div>
+        <div><span class="tag ${f.bias}">${f.setup}</span></div>
+        <div class="mono" style="text-align:right;font-weight:700;">${(+f.score).toFixed(2)}</div>
+        <div style="font-size:11px;color:var(--text-muted);">${reasoning}</div>
+        <div class="mono" style="text-align:right;">$${(+f.last).toFixed(2)}</div>
+        <div style="text-align:right;display:flex;gap:6px;justify-content:flex-end;">
+          <a href="live-train.html?sym=${f.sym}" style="color:var(--text-muted);font-size:11px;">🎓</a>
+          <a href="ai-cotrader.html?sym=${f.sym}" style="color:var(--text-muted);font-size:11px;">🤖</a>
+          <a href="hypothetical.html?${params}" style="color:var(--accent);font-size:11px;">📝</a>
+        </div>
+      </div>`;
+    }).join('');
+  }
+
+  // Toggle handlers
+  function wireToggle(id, key) {
+    document.getElementById(id).addEventListener('click', async () => {
+      const cfg = AlertsEngine.config();
+      const newVal = !cfg[key];
+      // Special: requesting desktop perms when toggling on
+      if (key === 'desktopOn' && newVal && typeof Notify !== 'undefined' && Notify.permission && Notify.permission() !== 'granted') {
+        await Notify.request();
+      }
+      AlertsEngine.setConfig({ [key]: newVal });
+      refresh();
+    });
+  }
+  wireToggle('togEnabled', 'enabled');
+  wireToggle('togDesktop', 'desktopOn');
+  wireToggle('togDiscord', 'discordOn');
+  wireToggle('togSound', 'soundOn');
+
+  // Number inputs
+  ['cfgMinScore', 'cfgDedup'].forEach(id => {
+    document.getElementById(id).addEventListener('change', e => {
+      const v = parseFloat(e.target.value);
+      if (id === 'cfgMinScore') AlertsEngine.setConfig({ minScore: v });
+      else AlertsEngine.setConfig({ dedupHours: v });
+      refresh();
+    });
+  });
+
+  // Watchlist editor
+  document.getElementById('btnAdd').addEventListener('click', () => {
+    const s = (document.getElementById('addSym').value || '').trim().toUpperCase();
+    if (!s) return;
+    const cfg = AlertsEngine.config();
+    if (cfg.symbols.indexOf(s) === -1) cfg.symbols.push(s);
+    AlertsEngine.setConfig(cfg);
+    document.getElementById('addSym').value = '';
+    refresh();
+  });
+  document.getElementById('addSym').addEventListener('keydown', e => { if (e.key === 'Enter') document.getElementById('btnAdd').click(); });
+  document.getElementById('btnReset').addEventListener('click', () => {
+    AlertsEngine.setConfig({ symbols: ['SPY', 'QQQ', 'NVDA', 'TSLA', 'AAPL', 'MSFT', 'META', 'AMZN', 'GOOGL', 'AMD', 'COIN', 'PLTR'] });
+    refresh();
+  });
+
+  // Mute buttons
+  document.querySelectorAll('[data-mute]').forEach(b => b.addEventListener('click', () => {
+    AlertsEngine.mute(parseInt(b.dataset.mute, 10));
+    refresh();
+  }));
+  document.getElementById('btnUnmute').addEventListener('click', () => {
+    AlertsEngine.setConfig({ muteUntil: 0 });
+    refresh();
+  });
+
+  // Test fire
+  document.getElementById('btnTestFire').addEventListener('click', () => {
+    AlertsEngine.fire({ sym: 'SPY', setup: 'test-fire', score: 0.9, last: 561, bias: 'bull', reasons: ['manual test'] });
+    refresh();
+  });
+  document.getElementById('btnClearLog').addEventListener('click', () => {
+    if (!confirm('Clear all alert history?')) return;
+    AlertsEngine.clear();
+    refresh();
+  });
+
+  document.getElementById('filterSym').addEventListener('change', refresh);
+
+  // Listen for live fires
+  window.addEventListener('bpleone:alert', () => refresh());
+
+  refresh();
+  setInterval(refresh, 10000);
+})();
+</script>
+</body>
+</html>
