@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Gut Check — bpleone / trade</title>
+<meta name="description" content="60-second pre-trade checklist. Stop set? Size right? Brain agrees? Run this before every position.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.check-row { display:flex;align-items:center;gap:14px;padding:14px;background:var(--bg-elevated);border-radius:10px;margin-bottom:10px;cursor:pointer;border:2px solid transparent;transition:all 0.15s; }
+.check-row:hover { background:var(--bg); }
+.check-row.checked { border-color:var(--green); }
+.check-row.checked .box { background:var(--green);color:#000; }
+.check-row.fail { border-color:var(--red); }
+.check-row.fail .box { background:var(--red);color:#fff; }
+.check-row .box { width:32px;height:32px;border-radius:8px;background:var(--bg);border:2px solid var(--border);display:flex;align-items:center;justify-content:center;font-weight:700;font-family:var(--font-mono);flex-shrink:0; }
+.check-row .text { flex:1; }
+.check-row .text h4 { font-size:14px;font-weight:700;margin-bottom:2px; }
+.check-row .text p { font-size:11px;color:var(--text-muted); }
+.verdict { padding:28px;border-radius:14px;text-align:center;margin-top:18px; }
+.verdict.go { background:rgba(16,185,129,0.1);border:2px solid rgba(16,185,129,0.4); }
+.verdict.wait { background:rgba(245,158,11,0.1);border:2px solid rgba(245,158,11,0.4); }
+.verdict.no { background:rgba(239,68,68,0.15);border:2px solid rgba(239,68,68,0.4); }
+.verdict h2 { font-size:36px;font-weight:800;font-family:var(--font-mono); }
+.verdict p { font-size:13px;color:var(--text-secondary);margin-top:10px;line-height:1.6; }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">✅ Gut Check</div>
+      <div class="page-subtitle">60-second pre-trade checklist · run before every position · <span id="market-clock">--</span></div>
+    </div>
+    <div class="flex gap-8">
+      <button class="btn btn-ghost" id="resetBtn">↺ Reset</button>
+    </div>
+  </div>
+
+  <div class="card mb-24" style="background:linear-gradient(135deg,rgba(0,212,255,0.05),transparent);">
+    <div style="font-size:14px;color:var(--text-primary);line-height:1.7;">
+      Before you click <strong>buy</strong> — 60 seconds, 8 questions. Each one catches a different way you'd hurt yourself. If you can't answer YES to all of them, the trade isn't ready yet.
+    </div>
+  </div>
+
+  <div class="grid grid-2" style="gap:18px;">
+    <div>
+      <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.6px;font-weight:700;margin-bottom:10px;">📋 Trade details</div>
+      <div class="card mb-24">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;font-size:12px;">
+          <div><label style="display:block;font-size:10px;color:var(--text-muted);margin-bottom:4px;">Symbol</label><input type="text" id="sym" style="width:100%;padding:8px;background:var(--bg);border:1px solid var(--border);color:var(--text-primary);border-radius:6px;font-family:var(--font-mono);text-transform:uppercase;"></div>
+          <div><label style="display:block;font-size:10px;color:var(--text-muted);margin-bottom:4px;">Side</label><select id="side" style="width:100%;padding:8px;background:var(--bg);border:1px solid var(--border);color:var(--text-primary);border-radius:6px;font-size:12px;"><option>LONG</option><option>SHORT</option></select></div>
+          <div><label style="display:block;font-size:10px;color:var(--text-muted);margin-bottom:4px;">Entry $</label><input type="number" id="entry" style="width:100%;padding:8px;background:var(--bg);border:1px solid var(--border);color:var(--text-primary);border-radius:6px;font-family:var(--font-mono);"></div>
+          <div><label style="display:block;font-size:10px;color:var(--text-muted);margin-bottom:4px;">Stop $</label><input type="number" id="stop" style="width:100%;padding:8px;background:var(--bg);border:1px solid var(--border);color:var(--text-primary);border-radius:6px;font-family:var(--font-mono);"></div>
+          <div><label style="display:block;font-size:10px;color:var(--text-muted);margin-bottom:4px;">Target $</label><input type="number" id="target" style="width:100%;padding:8px;background:var(--bg);border:1px solid var(--border);color:var(--text-primary);border-radius:6px;font-family:var(--font-mono);"></div>
+          <div><label style="display:block;font-size:10px;color:var(--text-muted);margin-bottom:4px;">Risk $ (1% of book)</label><input type="number" id="risk" style="width:100%;padding:8px;background:var(--bg);border:1px solid var(--border);color:var(--text-primary);border-radius:6px;font-family:var(--font-mono);" placeholder="100"></div>
+        </div>
+        <div style="margin-top:12px;padding:10px;background:var(--bg);border-radius:8px;font-size:12px;font-family:var(--font-mono);" id="autoSize"></div>
+      </div>
+    </div>
+
+    <div>
+      <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.6px;font-weight:700;margin-bottom:10px;">✅ 8-question check</div>
+      <div id="checks"></div>
+    </div>
+  </div>
+
+  <div id="verdict"></div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script src="js/model.js"></script>
+<script>
+buildNav('gut-check');
+
+const CHECKS = [
+  { id:'stop',  q:'Stop loss is set, not "in my head"', detail:'Mental stops fail. You must commit to a price. If unsure, don\'t trade.' },
+  { id:'rr',    q:'R:R is at least 1.5:1', detail:'Distance to target ≥ 1.5x distance to stop. Otherwise math doesn\'t work long-term.' },
+  { id:'size',  q:'Size respects daily loss limit', detail:'If this trade loses, will the loss alone exceed your daily limit? If yes, halve size.' },
+  { id:'brain', q:'Brain ML confidence ≥ 55%', detail:'Or you have specific qualitative reason to disagree with the model.' },
+  { id:'plan',  q:'I have a written plan, not a feeling', detail:'Why long? What level? What invalidates? Three sentences before clicking buy.' },
+  { id:'news',  q:'No major news / earnings within 24h', detail:'If earnings are tonight, your edge dies. Pass or wait until after.' },
+  { id:'tilt',  q:'I am not chasing / revenge-trading', detail:'If you\'re trading because you JUST lost or missed a move, stop. Wait 15 min.' },
+  { id:'mkt',   q:'Market environment supports this trade', detail:'Long during -2% SPY day? Have a good reason. Trade WITH the tide, not against.' }
+];
+
+const KEY = 'bpleone_gut_v1';
+function load() { try { return JSON.parse(sessionStorage.getItem(KEY) || '{}'); } catch(e) { return {}; } }
+function save(d) { try { sessionStorage.setItem(KEY, JSON.stringify(d)); } catch(e) {} }
+
+function render() {
+  const state = load();
+  const wrap = document.getElementById('checks');
+  wrap.innerHTML = CHECKS.map(c => {
+    const v = state[c.id];
+    const cls = v === true ? 'checked' : v === false ? 'fail' : '';
+    const icon = v === true ? '✓' : v === false ? '✗' : '?';
+    return '<div class="check-row ' + cls + '" data-id="' + c.id + '">'
+      + '<div class="box">' + icon + '</div>'
+      + '<div class="text"><h4>' + c.q + '</h4><p>' + c.detail + '</p></div>'
+      + '</div>';
+  }).join('');
+
+  wrap.querySelectorAll('.check-row').forEach(r => r.addEventListener('click', () => {
+    const id = r.dataset.id;
+    const cur = state[id];
+    if (cur === true) state[id] = false;
+    else if (cur === false) delete state[id];
+    else state[id] = true;
+    save(state);
+    render();
+  }));
+
+  // Verdict
+  const passed = Object.values(state).filter(v => v === true).length;
+  const failed = Object.values(state).filter(v => v === false).length;
+  const unanswered = CHECKS.length - passed - failed;
+  const vWrap = document.getElementById('verdict');
+  if (unanswered > 0) {
+    vWrap.innerHTML = '<div class="verdict wait"><h2>⏳ ' + unanswered + ' UNANSWERED</h2><p>Complete the checklist before deciding. Most blowups happen when you skip a step.</p></div>';
+  } else if (failed > 0) {
+    vWrap.innerHTML = '<div class="verdict no"><h2>🛑 DO NOT TRADE</h2><p>' + failed + ' check' + (failed > 1 ? 's' : '') + ' failed. Fix what\'s broken or pass on this trade entirely.</p></div>';
+  } else {
+    const sym = document.getElementById('sym').value.toUpperCase();
+    vWrap.innerHTML = '<div class="verdict go"><h2>✓ GREEN LIGHT</h2><p>All 8 checks passed. Trade your plan. <a href="positions-live.html" style="color:var(--accent);">Open the position</a>' + (sym ? ' (or use <a href="trade-coach.html?sym=' + sym + '" style="color:var(--accent);">Trade Coach for ' + sym + '</a>)' : '') + '.</p></div>';
+  }
+
+  // Auto size calc
+  const entry = parseFloat(document.getElementById('entry').value);
+  const stop = parseFloat(document.getElementById('stop').value);
+  const risk = parseFloat(document.getElementById('risk').value);
+  const autoSize = document.getElementById('autoSize');
+  if (entry && stop && risk) {
+    const perShare = Math.abs(entry - stop);
+    const shares = Math.floor(risk / perShare);
+    const exposure = shares * entry;
+    const target = parseFloat(document.getElementById('target').value);
+    const rr = target ? Math.abs(target - entry) / perShare : null;
+    autoSize.innerHTML = '<strong>Auto-size:</strong> ' + shares + ' shares · exposure $' + exposure.toFixed(0) + ' · risk/share $' + perShare.toFixed(2) + (rr ? ' · R:R ' + rr.toFixed(2) + ':1' : '');
+  } else {
+    autoSize.innerHTML = '<em style="color:var(--text-muted);">Fill entry / stop / risk to auto-size →</em>';
+  }
+}
+
+['entry','stop','target','risk','sym','side'].forEach(id => document.getElementById(id).addEventListener('input', render));
+document.getElementById('resetBtn').addEventListener('click', () => {
+  sessionStorage.removeItem(KEY);
+  document.querySelectorAll('input[type=number], #sym').forEach(i => i.value = '');
+  render();
+});
+
+render();
+</script>
+</body>
+</html>

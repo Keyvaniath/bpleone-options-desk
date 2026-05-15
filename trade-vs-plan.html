@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Trade vs Plan — bpleone / trade</title>
+<meta name="description" content="Did you actually follow the plan, or improvise? Track discipline score across every trade.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<style>
+.compare-row { display:grid;grid-template-columns:120px 1fr 200px 200px 90px;gap:14px;padding:14px;border-bottom:1px solid var(--border);align-items:center;font-size:12px; }
+.compare-row.hdr { background:var(--bg-elevated);font-size:9px;color:var(--text-muted);font-weight:800;letter-spacing:0.5px; }
+.diff { font-family:var(--font-mono);font-size:11px;padding:6px 10px;border-radius:6px;background:var(--bg-elevated); }
+.score-pill { display:inline-block;padding:5px 12px;border-radius:14px;font-weight:700;font-size:11px;text-transform:uppercase;letter-spacing:0.5px; }
+.score-pill.a { background:rgba(16,185,129,0.15);color:var(--green); }
+.score-pill.b { background:rgba(0,212,255,0.15);color:var(--accent); }
+.score-pill.c { background:rgba(245,158,11,0.15);color:var(--yellow); }
+.score-pill.f { background:rgba(239,68,68,0.15);color:var(--red); }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">📐 Trade vs Plan</div>
+      <div class="page-subtitle">Discipline score · did you follow the plan or improvise · <span id="market-clock">--</span></div>
+    </div>
+  </div>
+
+  <div class="grid grid-4 mb-24">
+    <div class="card"><div class="card-header"><div class="card-title">Discipline grade</div></div><div class="mono" style="font-size:36px;font-weight:800;" id="kGrade">--</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">Plan followed</div></div><div class="mono" style="font-size:28px;font-weight:700;color:var(--green);" id="kFollowed">--</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">Plan broken</div></div><div class="mono" style="font-size:28px;font-weight:700;color:var(--red);" id="kBroken">--</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">Cost of breaking</div></div><div class="mono" style="font-size:22px;font-weight:700;" id="kCost">--</div></div>
+  </div>
+
+  <div class="grid grid-2 mb-24">
+    <div class="card">
+      <div class="card-header"><div class="card-title">📊 P&L: plan-followed vs plan-broken</div></div>
+      <canvas id="pnlChart" height="200"></canvas>
+    </div>
+    <div class="card">
+      <div class="card-header"><div class="card-title">📈 Discipline trend (last 30 days)</div></div>
+      <canvas id="trendChart" height="200"></canvas>
+    </div>
+  </div>
+
+  <div class="card mb-24">
+    <div class="card-header"><div class="card-title">📋 Recent trades · plan vs reality</div></div>
+    <div class="compare-row hdr">
+      <div>DATE</div><div>SYMBOL / SETUP</div><div>PLAN</div><div>ACTUAL</div><div>SCORE</div>
+    </div>
+    <div id="compareBody"></div>
+  </div>
+
+  <div class="card">
+    <div class="card-header"><div class="card-title">💡 Reading this</div></div>
+    <div style="font-size:13px;color:var(--text-secondary);line-height:1.7;">
+      Each trade is scored A-F based on how closely the realized exit matched your planned exit (stop/target). Breaking the plan early (cutting winners) costs as much as not honoring stops on losers.
+      <br><br>
+      <strong>The cost of breaking</strong> is the difference between what you would have made following the plan vs what you actually made. A negative number means following the plan would have been worse — your discretion saved you. A positive number means improvising cost you money.
+      <br><br>
+      Over enough trades, your discipline grade is the single best predictor of long-term success. Aim for B+ or better.
+    </div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script>
+buildNav('trade-vs-plan');
+
+function loadJournal() { try { return JSON.parse(localStorage.getItem('bpleone_journal_pro_v1') || '[]'); } catch(e) { return []; } }
+
+function compareTrade(t) {
+  // Plan = stop/target. Actual = exit price.
+  // If trade is closed, compute discipline:
+  // - If exited at/near stop or target → A (followed plan)
+  // - If exited between → B/C (partial discipline)
+  // - If exited beyond target → A+ (let winners run, but check ahead)
+  // - If exited well above stop on a loser → C/D (cut early, fear)
+  if (!t.entry || !t.exit) return null;
+  const stop = t.stop || (t.side === 'long' ? t.entry * 0.98 : t.entry * 1.02);
+  const target = t.target || (t.side === 'long' ? t.entry * 1.02 : t.entry * 0.98);
+  const plannedR = (t.side === 'long' ? (target - t.entry) : (t.entry - target)) / Math.abs(t.entry - stop);
+  const actualR = (t.side === 'long' ? (t.exit - t.entry) : (t.entry - t.exit)) / Math.abs(t.entry - stop);
+  const adherence = actualR > 0 ? Math.min(actualR / plannedR, 1) : Math.min((1 + actualR), 1);
+  // Score
+  let score = 'A';
+  if (adherence >= 0.9) score = 'A';
+  else if (adherence >= 0.6) score = 'B';
+  else if (adherence >= 0.3) score = 'C';
+  else score = 'F';
+  // Special: if actualR is very positive (let winner run) and plannedR was hit
+  if (actualR > plannedR * 1.2 && actualR > 0) score = 'A+';
+  // Cost
+  const wouldHaveBeen = t.qty ? plannedR * Math.abs(t.entry - stop) * t.qty * (actualR > 0 ? 1 : -1) : null;
+  const actual = t.pnl;
+  const cost = wouldHaveBeen != null ? actual - wouldHaveBeen : null;
+  return { plannedR, actualR, score, cost };
+}
+
+function render() {
+  const journal = loadJournal();
+  const closed = journal.filter(t => t.exit != null);
+  const cmps = closed.map(t => ({ t, c: compareTrade(t) })).filter(x => x.c != null);
+
+  const followed = cmps.filter(x => x.c.score.startsWith('A')).length;
+  const broken = cmps.filter(x => x.c.score === 'C' || x.c.score === 'F').length;
+  const totalCost = cmps.reduce((a, x) => a + (x.c.cost || 0), 0);
+
+  // Overall grade — weighted average
+  let scoreVal = 0;
+  cmps.forEach(x => {
+    if (x.c.score === 'A+') scoreVal += 4.3;
+    else if (x.c.score === 'A') scoreVal += 4;
+    else if (x.c.score === 'B') scoreVal += 3;
+    else if (x.c.score === 'C') scoreVal += 2;
+    else scoreVal += 0;
+  });
+  const avg = cmps.length > 0 ? scoreVal / cmps.length : 0;
+  const grade = avg >= 3.7 ? 'A' : avg >= 3.0 ? 'B' : avg >= 2.0 ? 'C' : avg >= 1.0 ? 'D' : 'F';
+  const gradeCol = grade === 'A' ? 'var(--green)' : grade === 'B' ? '#84cc16' : grade === 'C' ? 'var(--yellow)' : grade === 'D' ? '#f97316' : 'var(--red)';
+
+  document.getElementById('kGrade').textContent = grade;
+  document.getElementById('kGrade').style.color = gradeCol;
+  document.getElementById('kFollowed').textContent = followed;
+  document.getElementById('kBroken').textContent = broken;
+  document.getElementById('kCost').textContent = (totalCost >= 0 ? '+' : '-') + '$' + Math.abs(totalCost).toFixed(0);
+  document.getElementById('kCost').style.color = totalCost >= 0 ? 'var(--green)' : 'var(--red)';
+
+  // Comparison table
+  const body = document.getElementById('compareBody');
+  if (cmps.length === 0) {
+    body.innerHTML = '<div style="padding:40px;text-align:center;font-size:13px;color:var(--text-muted);">No closed trades yet. Trades appear here once you close them in Journal PRO or Live Positions.</div>';
+  } else {
+    body.innerHTML = cmps.slice(0, 20).map(({ t, c }) => {
+      const stop = t.stop || (t.side === 'long' ? t.entry * 0.98 : t.entry * 1.02);
+      const target = t.target || (t.side === 'long' ? t.entry * 1.02 : t.entry * 0.98);
+      const scoreCls = c.score.startsWith('A') ? 'a' : c.score === 'B' ? 'b' : c.score === 'C' ? 'c' : 'f';
+      return '<div class="compare-row">'
+        + '<div style="font-family:var(--font-mono);font-size:11px;color:var(--text-muted);">' + new Date(t.ts).toLocaleDateString() + '</div>'
+        + '<div><strong>' + (t.sym || '?') + '</strong> · ' + (t.side || 'long').toUpperCase() + '</div>'
+        + '<div class="diff">Entry $' + t.entry.toFixed(2) + ' → Target $' + target.toFixed(2) + '<br>Stop $' + stop.toFixed(2) + ' (' + c.plannedR.toFixed(2) + 'R)</div>'
+        + '<div class="diff">Exit $' + t.exit.toFixed(2) + '<br>' + (c.actualR >= 0 ? '+' : '') + c.actualR.toFixed(2) + 'R · ' + (t.pnl >= 0 ? '+' : '-') + '$' + Math.abs(t.pnl).toFixed(0) + '</div>'
+        + '<div><span class="score-pill ' + scoreCls + '">' + c.score + '</span></div>'
+        + '</div>';
+    }).join('');
+  }
+
+  // Charts
+  const planFollowedPnl = cmps.filter(x => x.c.score.startsWith('A')).reduce((a, x) => a + (x.t.pnl || 0), 0);
+  const planBrokenPnl = cmps.filter(x => x.c.score === 'C' || x.c.score === 'F').reduce((a, x) => a + (x.t.pnl || 0), 0);
+
+  if (window._pnlChart) window._pnlChart.destroy();
+  window._pnlChart = new Chart(document.getElementById('pnlChart'), {
+    type: 'bar',
+    data: {
+      labels: ['Plan followed', 'Plan partial', 'Plan broken'],
+      datasets: [{
+        data: [planFollowedPnl, cmps.filter(x => x.c.score === 'B').reduce((a, x) => a + (x.t.pnl || 0), 0), planBrokenPnl],
+        backgroundColor: ['#10b981', '#00d4ff', '#ef4444']
+      }]
+    },
+    options: { responsive:true, maintainAspectRatio:false, plugins:{legend:{display:false}}, scales:{x:{ticks:{color:'#888'},grid:{display:false}},y:{ticks:{color:'#888',callback:v=>'$'+v},grid:{color:'#222'}}} }
+  });
+
+  // Trend
+  const days = 30;
+  const byDay = Array(days).fill(0).map(() => []);
+  const now = new Date(); now.setHours(0,0,0,0);
+  cmps.forEach(({ t, c }) => {
+    const dayOffset = Math.floor((now.getTime() - new Date(t.ts).setHours(0,0,0,0)) / 86400000);
+    if (dayOffset >= 0 && dayOffset < days) {
+      byDay[days - 1 - dayOffset].push(c.score);
+    }
+  });
+  const dailyAvg = byDay.map(arr => {
+    if (!arr.length) return null;
+    let sum = 0;
+    arr.forEach(s => { sum += s === 'A+' ? 4.3 : s === 'A' ? 4 : s === 'B' ? 3 : s === 'C' ? 2 : 0; });
+    return sum / arr.length;
+  });
+  if (window._trendChart) window._trendChart.destroy();
+  window._trendChart = new Chart(document.getElementById('trendChart'), {
+    type: 'line',
+    data: {
+      labels: Array(days).fill(0).map((_, i) => { const d = new Date(now); d.setDate(d.getDate() - (days - 1 - i)); return d.toLocaleDateString([], { month:'short', day:'numeric' }); }),
+      datasets: [{ data: dailyAvg, borderColor:'#00d4ff', backgroundColor:'rgba(0,212,255,0.1)', tension:0.3, fill:true, spanGaps:true, pointRadius:3 }]
+    },
+    options: { responsive:true, maintainAspectRatio:false, plugins:{legend:{display:false}}, scales:{x:{ticks:{color:'#888',maxTicksLimit:8},grid:{color:'#222'}},y:{ticks:{color:'#888',callback:v=>v.toFixed(1)},grid:{color:'#222'},min:0,max:4.3}} }
+  });
+}
+
+render();
+</script>
+</body>
+</html>

@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Risk Limits — bpleone / trade</title>
+<meta name="description" content="Set hard daily loss limits and max position size. Brain enforces them. Stop the spiral before it starts.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.limit-card { padding:22px;background:var(--bg-elevated);border-radius:12px;border:1px solid var(--border);margin-bottom:14px; }
+.limit-card h4 { font-size:14px;font-weight:700;margin-bottom:10px; }
+.limit-card .row { display:flex;gap:14px;align-items:end;margin-top:10px; }
+.limit-card .row > div { flex:1; }
+.limit-card label { font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.4px;font-weight:700;display:block;margin-bottom:4px; }
+.limit-card input { width:100%;padding:10px;background:var(--bg);border:1px solid var(--border);color:var(--text-primary);border-radius:6px;font-family:var(--font-mono);font-size:14px;font-weight:700; }
+.status-card { padding:24px;border-radius:14px;text-align:center; }
+.status-card.ok { background:rgba(16,185,129,0.08);border:1px solid rgba(16,185,129,0.25); }
+.status-card.warn { background:rgba(245,158,11,0.08);border:1px solid rgba(245,158,11,0.25); }
+.status-card.stop { background:rgba(239,68,68,0.12);border:2px solid rgba(239,68,68,0.4); }
+.progress { width:100%;height:14px;background:var(--bg);border-radius:7px;overflow:hidden;margin-top:8px; }
+.progress > div { height:100%;transition:width 0.4s; }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">🚧 Risk Limits</div>
+      <div class="page-subtitle">Hard rules that stop the spiral · daily loss / position size / cooldown · <span id="market-clock">--</span></div>
+    </div>
+    <div class="flex gap-8">
+      <button class="btn btn-ghost" id="resetBtn">↺ Reset day</button>
+      <button class="btn btn-primary" id="saveBtn">💾 Save limits</button>
+    </div>
+  </div>
+
+  <div id="statusBlock" class="status-card ok mb-24">
+    <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:1px;margin-bottom:8px;">Current status</div>
+    <div id="statusBig" style="font-size:38px;font-weight:800;font-family:var(--font-mono);">--</div>
+    <div id="statusNote" style="font-size:13px;color:var(--text-secondary);margin-top:8px;">--</div>
+  </div>
+
+  <div class="grid grid-3 mb-24">
+    <div class="card"><div class="card-header"><div class="card-title">Today's P&L</div></div><div class="mono" style="font-size:26px;font-weight:800;" id="kDay">--</div><div class="progress"><div id="dayBar" style="background:var(--green);width:0%;"></div></div></div>
+    <div class="card"><div class="card-header"><div class="card-title">Daily limit</div></div><div class="mono" style="font-size:26px;font-weight:800;color:var(--red);" id="kLimit">--</div><div style="font-size:11px;color:var(--text-muted);margin-top:4px;" id="kLimitSub">--</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">Largest position</div></div><div class="mono" style="font-size:26px;font-weight:800;" id="kPos">--</div><div class="progress"><div id="posBar" style="background:var(--green);width:0%;"></div></div></div>
+  </div>
+
+  <div class="limit-card">
+    <h4>💰 Daily loss limit</h4>
+    <div style="font-size:12px;color:var(--text-secondary);line-height:1.6;">When today's losses hit this, you stop trading for the day. Period. No "one more setup." This is the single biggest edge most retail traders never use.</div>
+    <div class="row">
+      <div><label>Max daily loss ($)</label><input type="number" id="lossLimit" placeholder="500" step="10"></div>
+      <div><label>Or % of book</label><input type="number" id="lossPct" placeholder="2" step="0.5"></div>
+      <div><label>Book size ($)</label><input type="number" id="bookSize" placeholder="10000" step="500"></div>
+    </div>
+  </div>
+
+  <div class="limit-card">
+    <h4>📐 Max position size</h4>
+    <div style="font-size:12px;color:var(--text-secondary);line-height:1.6;">Cap on the largest single position. Even if the brain says 90%, you don't put 50% of book on one ticker. Defends against fat-finger errors and over-conviction.</div>
+    <div class="row">
+      <div><label>Max position ($)</label><input type="number" id="posLimit" placeholder="2000" step="100"></div>
+      <div><label>Or % of book</label><input type="number" id="posPct" placeholder="10" step="1"></div>
+      <div><label>Max concurrent positions</label><input type="number" id="maxConc" placeholder="5" step="1"></div>
+    </div>
+  </div>
+
+  <div class="limit-card">
+    <h4>⏸ Cooldown rules</h4>
+    <div style="font-size:12px;color:var(--text-secondary);line-height:1.6;">After 3 losses in a row, the brain enforces a 30-min cooldown. Tilt protection. Most blowups happen here.</div>
+    <div class="row">
+      <div><label>Cooldown after N losses</label><input type="number" id="cdN" placeholder="3" step="1"></div>
+      <div><label>Cooldown duration (min)</label><input type="number" id="cdDur" placeholder="30" step="5"></div>
+      <div><label>Max trades per day</label><input type="number" id="maxTrades" placeholder="10" step="1"></div>
+    </div>
+  </div>
+
+  <div class="limit-card">
+    <h4>🛑 Hard stops (always enforced)</h4>
+    <div style="font-size:12px;color:var(--text-secondary);line-height:1.6;">These can’t be turned off. If you find yourself wanting to disable them, that’s the strongest signal you need them.</div>
+    <div style="margin-top:12px;font-size:12px;color:var(--text-secondary);line-height:1.85;">
+      <div>✓ <strong>Stop loss required</strong> on every position before opening</div>
+      <div>✓ <strong>No averaging down</strong> losing positions (no exception)</div>
+      <div>✓ <strong>No revenge trading</strong> — 5-min lockout after each closed loss</div>
+      <div>✓ <strong>Friday afternoon caution</strong> — half size after 2pm ET Fri</div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-header"><div class="card-title">💡 The discipline tax</div></div>
+    <div style="font-size:13px;color:var(--text-secondary);line-height:1.7;">
+      Most edge in trading comes from <em>not</em> trading at the wrong time, not from genius timing of the right trades.
+      <br><br>
+      The single most predictive trait in profitable retail traders is rule-following. The single most destructive habit is "just this once" — which becomes 10 times.
+      <br><br>
+      Set the limits. Forget them. Trade your plan.
+    </div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script>
+buildNav('risk-limits');
+
+const KEY = 'bpleone_risk_limits_v1';
+function loadLim() { try { return JSON.parse(localStorage.getItem(KEY) || '{}'); } catch(e) { return {}; } }
+function saveLim(l) { try { localStorage.setItem(KEY, JSON.stringify(l)); } catch(e) {} }
+
+function loadDayPnl() {
+  try {
+    const today0 = new Date(); today0.setHours(0,0,0,0);
+    const journal = JSON.parse(localStorage.getItem('bpleone_journal_pro_v1') || '[]');
+    return journal.filter(j => j.ts >= today0.getTime()).reduce((a, j) => a + (j.pnl || 0), 0);
+  } catch(e) { return 0; }
+}
+function loadLargestPos() {
+  try {
+    const pos = JSON.parse(localStorage.getItem('bpleone_positions_live_v1') || '[]');
+    if (!pos.length) return 0;
+    return Math.max(...pos.map(p => p.entry * p.qty));
+  } catch(e) { return 0; }
+}
+
+function render() {
+  const l = loadLim();
+  // Populate inputs
+  ['lossLimit','lossPct','bookSize','posLimit','posPct','maxConc','cdN','cdDur','maxTrades'].forEach(id => {
+    if (l[id] != null) document.getElementById(id).value = l[id];
+  });
+  // Defaults
+  const book = l.bookSize || 10000;
+  const lossLimit = l.lossLimit || (l.lossPct ? book * (l.lossPct/100) : 500);
+  const posLimit = l.posLimit || (l.posPct ? book * (l.posPct/100) : 2000);
+
+  // Status
+  const dayPnl = loadDayPnl();
+  const largest = loadLargestPos();
+  document.getElementById('kDay').textContent = (dayPnl >= 0 ? '+' : '-') + '$' + Math.abs(dayPnl).toFixed(0);
+  document.getElementById('kDay').style.color = dayPnl > 0 ? 'var(--green)' : dayPnl < 0 ? 'var(--red)' : 'var(--text-primary)';
+  const dayUsedPct = dayPnl < 0 ? Math.min(100, (-dayPnl / lossLimit) * 100) : 0;
+  document.getElementById('dayBar').style.width = dayUsedPct + '%';
+  document.getElementById('dayBar').style.background = dayUsedPct < 50 ? 'var(--green)' : dayUsedPct < 80 ? 'var(--yellow)' : 'var(--red)';
+
+  document.getElementById('kLimit').textContent = '$' + lossLimit.toFixed(0);
+  document.getElementById('kLimitSub').textContent = (lossLimit / book * 100).toFixed(1) + '% of book';
+
+  document.getElementById('kPos').textContent = '$' + largest.toFixed(0);
+  const posUsedPct = Math.min(100, (largest / posLimit) * 100);
+  document.getElementById('posBar').style.width = posUsedPct + '%';
+  document.getElementById('posBar').style.background = posUsedPct < 80 ? 'var(--green)' : 'var(--red)';
+
+  // Top status
+  const block = document.getElementById('statusBlock');
+  const big = document.getElementById('statusBig');
+  const note = document.getElementById('statusNote');
+  if (-dayPnl >= lossLimit) {
+    block.className = 'status-card stop mb-24';
+    big.textContent = '🛑 DAILY LIMIT HIT';
+    big.style.color = 'var(--red)';
+    note.innerHTML = 'You\'ve hit your max daily loss of $' + lossLimit.toFixed(0) + '. <strong>Stop trading.</strong> Walk away. Come back tomorrow with a clear head.';
+  } else if (-dayPnl >= lossLimit * 0.7) {
+    block.className = 'status-card warn mb-24';
+    big.textContent = '⚠ CLOSE TO LIMIT';
+    big.style.color = 'var(--yellow)';
+    note.textContent = 'You\'re at ' + dayUsedPct.toFixed(0) + '% of daily loss limit. One more loss and you should stop. Tighten stops or reduce size.';
+  } else {
+    block.className = 'status-card ok mb-24';
+    big.textContent = '✓ ALL CLEAR';
+    big.style.color = 'var(--green)';
+    note.textContent = 'You\'re within all risk limits. Keep trading your plan.';
+  }
+}
+
+document.getElementById('saveBtn').addEventListener('click', () => {
+  const l = {};
+  ['lossLimit','lossPct','bookSize','posLimit','posPct','maxConc','cdN','cdDur','maxTrades'].forEach(id => {
+    const v = document.getElementById(id).value;
+    if (v) l[id] = parseFloat(v);
+  });
+  saveLim(l);
+  render();
+  document.getElementById('saveBtn').textContent = '✓ Saved';
+  setTimeout(() => { document.getElementById('saveBtn').textContent = '💾 Save limits'; }, 1500);
+});
+
+document.getElementById('resetBtn').addEventListener('click', () => {
+  if (!confirm('Reset all risk limit overrides?')) return;
+  try { localStorage.removeItem(KEY); } catch(e) {}
+  document.querySelectorAll('input[type=number]').forEach(i => i.value = '');
+  render();
+});
+
+render();
+setInterval(render, 5000);
+</script>
+</body>
+</html>

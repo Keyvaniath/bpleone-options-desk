@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Brain Evolution — bpleone / trade</title>
+<meta name="description" content="Animated view of how the model weights have evolved over time. Which features matter more / less now?">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<style>
+.weight-row { display:grid;grid-template-columns:180px 1fr 70px 70px;gap:14px;padding:9px 0;border-bottom:1px solid var(--border);align-items:center;font-size:12px; }
+.weight-bar { height:8px;background:var(--bg);border-radius:4px;overflow:hidden;position:relative; }
+.weight-bar > div { height:100%;transition:width 0.6s; }
+.delta-up { color:var(--green); }
+.delta-down { color:var(--red); }
+.feature-name { font-family:var(--font-mono);font-size:12px;font-weight:600; }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">🧬 Brain Evolution</div>
+      <div class="page-subtitle">How feature weights have shifted over time · what the brain values more vs less now · <span id="market-clock">--</span></div>
+    </div>
+    <div class="flex gap-8">
+      <button class="btn btn-ghost" id="snapshotBtn">📸 Snapshot now</button>
+      <select id="metric" class="btn btn-secondary" style="background:var(--bg-elevated);border:1px solid var(--border);color:var(--text-primary);padding:8px 14px;">
+        <option value="abs">Sort: largest |weight|</option>
+        <option value="positive">Sort: most positive</option>
+        <option value="negative">Sort: most negative</option>
+        <option value="delta">Sort: biggest change</option>
+      </select>
+    </div>
+  </div>
+
+  <div class="grid grid-4 mb-24">
+    <div class="card"><div class="card-header"><div class="card-title">Snapshots</div></div><div class="mono" style="font-size:28px;font-weight:800;" id="kSnap">--</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">Active features</div></div><div class="mono" style="font-size:28px;font-weight:800;color:var(--accent);" id="kFeat">--</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">Biggest gain</div></div><div class="mono" style="font-size:16px;font-weight:700;color:var(--green);" id="kGain">--</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">Biggest loss</div></div><div class="mono" style="font-size:16px;font-weight:700;color:var(--red);" id="kLoss">--</div></div>
+  </div>
+
+  <div class="card mb-24">
+    <div class="card-header"><div class="card-title">📈 Top-5 weights over time</div></div>
+    <canvas id="timelineChart" height="260"></canvas>
+  </div>
+
+  <div class="card mb-24">
+    <div class="card-header"><div class="card-title">🎚 Current weights vs first snapshot</div></div>
+    <div id="weights"></div>
+  </div>
+
+  <div class="card">
+    <div class="card-header"><div class="card-title">💡 What evolution tells you</div></div>
+    <div style="font-size:13px;color:var(--text-secondary);line-height:1.7;">
+      A healthy brain has weights that shift gradually as new data comes in — it's learning. <strong>Big jumps</strong> usually mean a regime change happened and the brain adapted (good) or the brain over-fit to a recent run (bad).
+      <br><br>
+      Take snapshots regularly (or let the brain auto-snapshot during training). The first snapshot is your baseline. Compare current vs baseline to see what the brain has learned.
+      <br><br>
+      <strong>Up arrow on a positive-weight feature:</strong> "This feature predicts wins more strongly now."<br>
+      <strong>Down arrow on a positive-weight feature:</strong> "This feature is becoming less reliable."<br>
+      <strong>Sign flip (e.g. positive → negative):</strong> Big deal. The brain reversed its belief about this feature. Investigate why.
+    </div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script src="js/model.js"></script>
+<script>
+buildNav('brain-evolution');
+
+const SNAP_KEY = 'bpleone_weight_snapshots_v1';
+function loadSnaps() { try { return JSON.parse(localStorage.getItem(SNAP_KEY) || '[]'); } catch(e) { return []; } }
+function saveSnaps(s) { try { localStorage.setItem(SNAP_KEY, JSON.stringify(s.slice(-100))); } catch(e) {} }
+
+function takeSnapshot() {
+  try {
+    const m = JSON.parse(localStorage.getItem('bpleone_model_v1') || 'null');
+    if (!m || !m.weights) return false;
+    const snaps = loadSnaps();
+    snaps.push({ ts: Date.now(), weights: [...m.weights], bias: m.bias || 0 });
+    saveSnaps(snaps);
+    return true;
+  } catch(e) { return false; }
+}
+
+// Auto-snapshot daily
+(function autoSnap() {
+  const snaps = loadSnaps();
+  const today = new Date().toDateString();
+  const last = snaps.length > 0 ? new Date(snaps[snaps.length - 1].ts).toDateString() : null;
+  if (last !== today) takeSnapshot();
+})();
+
+const FNAMES = (typeof window.FEATURES !== 'undefined' && window.FEATURES.length > 0) ? window.FEATURES.map(f => f.name) :
+  ['rsi','macd_hist','vol_z','atr_pct','price_z','dist_ma20','dist_ma50','trend_score','breadth','vix_level','put_call','setup_strength','sector_rs','beta','liq_score','hour_norm','dow','severity_score','recency','prior_hit','dist_high','momentum'];
+
+function render() {
+  const snaps = loadSnaps();
+  document.getElementById('kSnap').textContent = snaps.length;
+  if (snaps.length === 0) {
+    document.getElementById('weights').innerHTML = '<div style="padding:40px;text-align:center;color:var(--text-muted);font-size:13px;">No snapshots yet. Click "📸 Snapshot now" to capture the current state, then come back tomorrow to see evolution.</div>';
+    return;
+  }
+
+  const first = snaps[0];
+  const latest = snaps[snaps.length - 1];
+
+  // Number of active (non-zero) features
+  const active = latest.weights.filter(w => Math.abs(w) > 0.01).length;
+  document.getElementById('kFeat').textContent = active;
+
+  // Build per-feature comparison
+  const compared = FNAMES.map((name, i) => ({
+    name,
+    current: latest.weights[i] || 0,
+    initial: first.weights[i] || 0,
+    delta: (latest.weights[i] || 0) - (first.weights[i] || 0)
+  }));
+
+  // Biggest gain/loss
+  const sortedDelta = [...compared].sort((a, b) => b.delta - a.delta);
+  document.getElementById('kGain').textContent = sortedDelta[0] ? sortedDelta[0].name + ' (+' + sortedDelta[0].delta.toFixed(2) + ')' : '—';
+  document.getElementById('kLoss').textContent = sortedDelta[sortedDelta.length - 1] ? sortedDelta[sortedDelta.length - 1].name + ' (' + sortedDelta[sortedDelta.length - 1].delta.toFixed(2) + ')' : '—';
+
+  // Sort
+  const sortBy = document.getElementById('metric').value;
+  let arr = [...compared];
+  if (sortBy === 'abs') arr.sort((a, b) => Math.abs(b.current) - Math.abs(a.current));
+  else if (sortBy === 'positive') arr.sort((a, b) => b.current - a.current);
+  else if (sortBy === 'negative') arr.sort((a, b) => a.current - b.current);
+  else if (sortBy === 'delta') arr.sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta));
+
+  const maxW = Math.max(...arr.map(c => Math.abs(c.current)), 0.5);
+
+  document.getElementById('weights').innerHTML = arr.map(c => {
+    const barW = Math.abs(c.current) / maxW * 100;
+    const barCol = c.current > 0 ? '#10b981' : '#ef4444';
+    const deltaArrow = c.delta > 0.05 ? '↑' : c.delta < -0.05 ? '↓' : '·';
+    const deltaCls = c.delta > 0.05 ? 'delta-up' : c.delta < -0.05 ? 'delta-down' : '';
+    const flip = (c.current * c.initial) < 0 && Math.abs(c.current) > 0.05 && Math.abs(c.initial) > 0.05;
+    return '<div class="weight-row">'
+      + '<div class="feature-name">' + c.name + (flip ? ' <span style="color:var(--yellow);font-size:10px;">⚡FLIPPED</span>' : '') + '</div>'
+      + '<div class="weight-bar"><div style="width:' + barW + '%;background:' + barCol + ';' + (c.current < 0 ? 'margin-left:auto;' : '') + '"></div></div>'
+      + '<div style="font-family:var(--font-mono);font-weight:700;color:' + barCol + ';">' + (c.current >= 0 ? '+' : '') + c.current.toFixed(3) + '</div>'
+      + '<div class="' + deltaCls + '" style="font-family:var(--font-mono);font-weight:700;">' + deltaArrow + ' ' + (c.delta >= 0 ? '+' : '') + c.delta.toFixed(3) + '</div>'
+      + '</div>';
+  }).join('');
+
+  // Timeline chart — top 5 by |current|
+  const top5 = [...compared].sort((a, b) => Math.abs(b.current) - Math.abs(a.current)).slice(0, 5);
+  const top5Names = top5.map(c => c.name);
+  const top5Idx = top5.map(c => FNAMES.indexOf(c.name));
+  const palette = ['#00d4ff','#a78bfa','#f59e0b','#10b981','#ef4444'];
+  const datasets = top5Idx.map((idx, i) => ({
+    label: top5Names[i],
+    data: snaps.map(s => s.weights[idx] || 0),
+    borderColor: palette[i],
+    backgroundColor: palette[i] + '20',
+    tension: 0.3,
+    pointRadius: 1,
+    borderWidth: 2
+  }));
+  const labels = snaps.map(s => new Date(s.ts).toLocaleDateString([], { month:'short', day:'numeric' }));
+  if (window._tlChart) window._tlChart.destroy();
+  window._tlChart = new Chart(document.getElementById('timelineChart'), {
+    type: 'line',
+    data: { labels, datasets },
+    options: { responsive:true, maintainAspectRatio:false, plugins:{legend:{labels:{color:'#ccc'}}}, scales:{x:{ticks:{color:'#888',maxTicksLimit:10},grid:{color:'#222'}},y:{ticks:{color:'#888'},grid:{color:'#222'}}} }
+  });
+}
+
+document.getElementById('snapshotBtn').addEventListener('click', () => {
+  if (takeSnapshot()) {
+    document.getElementById('snapshotBtn').textContent = '✓ Snapped';
+    setTimeout(() => { document.getElementById('snapshotBtn').textContent = '📸 Snapshot now'; render(); }, 1500);
+  } else {
+    alert('No trained model to snapshot. Open Model Trainer first.');
+  }
+});
+document.getElementById('metric').addEventListener('change', render);
+
+render();
+</script>
+</body>
+</html>
