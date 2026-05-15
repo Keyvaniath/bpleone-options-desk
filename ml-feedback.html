@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ML Feedback Loop — bpleone / trade</title>
+<meta name="description" content="The brain rating itself. Hit-rate of past findings, per-setup accuracy, learned weight shifts driven by outcomes.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.banner { background: linear-gradient(135deg, rgba(16,185,129,0.10), rgba(0,212,255,0.06)); border: 1px solid rgba(16,185,129,0.25); border-radius: 12px; padding: 16px 18px; margin-bottom: 18px; }
+.kpi-strip { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; margin-bottom: 18px; }
+.tile { background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 10px; padding: 14px; text-align: center; }
+.tile .lab { font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; }
+.tile .val { font-family: var(--font-mono); font-weight: 700; font-size: 22px; margin-top: 4px; }
+.r-pos { color: var(--green); } .r-neg { color: var(--red); } .r-warn { color: var(--yellow); }
+.chart-card { background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 10px; padding: 16px; margin-bottom: 14px; }
+.setup-row { display: grid; grid-template-columns: 200px 80px 80px 100px 100px 1fr; gap: 10px; padding: 8px 0; border-top: 1px solid var(--border); font-size: 12px; align-items: center; }
+.mono { font-family: var(--font-mono); }
+.tag { display: inline-block; padding: 2px 8px; border-radius: 4px; background: var(--bg-secondary); font-family: var(--font-mono); font-size: 10px; }
+.tag.hit { background: rgba(16,185,129,0.15); color: var(--green); }
+.tag.miss { background: rgba(239,68,68,0.15); color: var(--red); }
+.tag.flat { background: var(--bg-secondary); color: var(--text-muted); }
+.bar-track { background: var(--bg-secondary); border-radius: 3px; height: 8px; overflow: hidden; }
+.bar-fill { height: 100%; transition: width .3s; }
+.bar-fill.win { background: linear-gradient(to right, rgba(16,185,129,0.5), var(--green)); }
+.empty { padding: 40px; text-align: center; color: var(--text-muted); }
+</style>
+</head>
+<body data-needs="live">
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">ML Feedback Loop <span class="feat-badge feat-pro">PRO</span></div>
+      <div class="page-subtitle">The brain rating itself. Forward-tested accuracy of past findings. · <span id="market-clock">--</span></div>
+    </div>
+    <div class="flex gap-8">
+      <a href="brain-heartbeat.html" class="btn btn-ghost">🫀 Heartbeat</a>
+      <a href="discoveries.html" class="btn btn-ghost">📜 Discoveries</a>
+      <a href="weight-heatmap.html" class="btn btn-ghost">🌡 Weight map</a>
+    </div>
+  </div>
+
+  <div class="banner">
+    <strong style="font-size:14px;">🧠 The honest scoreboard.</strong>
+    <div style="font-size:11px;color:var(--text-muted);margin-top:6px;line-height:1.6;">
+      Every high-conviction-signal and confluence-6star finding is auto-rated 30 minutes after it fires:
+      <strong class="r-pos">HIT</strong> if signed move ≥ +0.5%, <strong class="r-neg">MISS</strong> if ≤ -0.5%, <strong>FLAT</strong> otherwise.
+      Hit-rate by setup tells you which patterns the brain ACTUALLY predicts well vs. which are noise.
+      <strong>Outcomes feed back into per-symbol weights</strong> — hit nudges +0.005, miss -0.005 — autonomously, every 5 min.
+    </div>
+  </div>
+
+  <div class="kpi-strip">
+    <div class="tile"><div class="lab">Findings rated</div><div class="val mono" id="kRated">0</div></div>
+    <div class="tile"><div class="lab">Hit rate</div><div class="val mono r-pos" id="kHitRate">—</div></div>
+    <div class="tile"><div class="lab">Avg realized %</div><div class="val mono" id="kRealizedAvg">—</div></div>
+    <div class="tile"><div class="lab">Weights nudged</div><div class="val mono" id="kNudged">0</div></div>
+    <div class="tile"><div class="lab">Best setup</div><div class="val mono" id="kBestSetup" style="font-size:13px;">—</div></div>
+  </div>
+
+  <div class="chart-card">
+    <div style="font-weight:700;font-size:14px;margin-bottom:10px;">📊 Hit rate by setup</div>
+    <div style="height:280px;"><canvas id="setupChart"></canvas></div>
+  </div>
+
+  <div class="chart-card">
+    <div style="font-weight:700;font-size:14px;margin-bottom:10px;">📈 Cumulative realized R (assumes 1.5R stop-distance per signal)</div>
+    <div style="height:240px;"><canvas id="cumChart"></canvas></div>
+  </div>
+
+  <div class="chart-card">
+    <div style="font-weight:700;font-size:14px;margin-bottom:10px;">🎯 Per-setup performance breakdown</div>
+    <div class="setup-row" style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;font-weight:600;">
+      <div>Setup</div>
+      <div style="text-align:right;">N</div>
+      <div style="text-align:right;">Hits</div>
+      <div style="text-align:right;">Hit %</div>
+      <div style="text-align:right;">Avg %</div>
+      <div>Visual</div>
+    </div>
+    <div id="setupTable"></div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script src="js/ta.js"></script>
+<script src="js/learn.js"></script>
+<script src="js/discord.js"></script>
+<script src="js/brain-loop.js"></script>
+<script>buildNav('learn');</script>
+
+<script>
+(function () {
+  let setupChart = null, cumChart = null;
+
+  function loadFindings() {
+    try { return JSON.parse(localStorage.getItem('bpleone_brain_findings_v1') || '{"items":[]}').items || []; }
+    catch (e) { return []; }
+  }
+  function loadFedState() {
+    try { return JSON.parse(localStorage.getItem('bpleone_brain_loop_state_v1') || '{}').fedFindings || {}; }
+    catch (e) { return {}; }
+  }
+
+  function render() {
+    const all = loadFindings();
+    const rated = all.filter(f => f.outcome && f.outcome !== 'unknown');
+    const fed = loadFedState();
+
+    document.getElementById('kRated').textContent = rated.length;
+    if (rated.length === 0) {
+      document.getElementById('kHitRate').textContent = '—';
+      document.getElementById('kRealizedAvg').textContent = '—';
+      document.getElementById('kNudged').textContent = '0';
+      document.getElementById('kBestSetup').textContent = '—';
+      document.getElementById('setupTable').innerHTML = '<div class="empty">No findings rated yet. Brain rates 30+ min after each signal fires. Come back later.</div>';
+      return;
+    }
+    const hits = rated.filter(f => f.outcome === 'hit').length;
+    const misses = rated.filter(f => f.outcome === 'miss').length;
+    const hitRate = (hits / rated.length) * 100;
+    const avgRealized = rated.reduce((s, f) => s + (f.realizedPct || 0), 0) / rated.length;
+    document.getElementById('kHitRate').textContent = hitRate.toFixed(0) + '%';
+    document.getElementById('kHitRate').className = 'val mono ' + (hitRate > 55 ? 'r-pos' : hitRate > 45 ? 'r-warn' : 'r-neg');
+    document.getElementById('kRealizedAvg').textContent = (avgRealized >= 0 ? '+' : '') + avgRealized.toFixed(2) + '%';
+    document.getElementById('kRealizedAvg').className = 'val mono ' + (avgRealized > 0 ? 'r-pos' : 'r-neg');
+    document.getElementById('kNudged').textContent = Object.keys(fed).length;
+
+    // Per-setup
+    const bySetup = {};
+    rated.forEach(f => {
+      const setup = f.meta && f.meta.setup ? f.meta.setup : 'unknown';
+      if (!bySetup[setup]) bySetup[setup] = { n: 0, hits: 0, misses: 0, flats: 0, sumPct: 0 };
+      bySetup[setup].n++;
+      bySetup[setup][f.outcome === 'hit' ? 'hits' : f.outcome === 'miss' ? 'misses' : 'flats']++;
+      bySetup[setup].sumPct += f.realizedPct || 0;
+    });
+    const setupRows = Object.entries(bySetup).map(([k, v]) => ({
+      setup: k,
+      n: v.n,
+      hits: v.hits,
+      hitRate: (v.hits / v.n) * 100,
+      avgPct: v.sumPct / v.n
+    })).sort((a, b) => b.hitRate - a.hitRate);
+    const best = setupRows.filter(r => r.n >= 3)[0];
+    document.getElementById('kBestSetup').textContent = best ? best.setup + ' ' + best.hitRate.toFixed(0) + '%' : '—';
+
+    document.getElementById('setupTable').innerHTML = setupRows.map(r => `<div class="setup-row">
+      <div><span class="tag">${r.setup}</span></div>
+      <div class="mono" style="text-align:right;">${r.n}</div>
+      <div class="mono" style="text-align:right;color:var(--green);">${r.hits}</div>
+      <div class="mono" style="text-align:right;font-weight:700;color:${r.hitRate >= 60 ? 'var(--green)' : r.hitRate >= 50 ? 'var(--yellow)' : 'var(--red)'};">${r.hitRate.toFixed(0)}%</div>
+      <div class="mono" style="text-align:right;color:${r.avgPct > 0 ? 'var(--green)' : 'var(--red)'};">${r.avgPct >= 0 ? '+' : ''}${r.avgPct.toFixed(2)}%</div>
+      <div class="bar-track"><div class="bar-fill win" style="width:${Math.min(100, r.hitRate)}%;"></div></div>
+    </div>`).join('');
+
+    // Setup chart
+    const ctx = document.getElementById('setupChart').getContext('2d');
+    if (setupChart) setupChart.destroy();
+    setupChart = new Chart(ctx, {
+      type: 'bar',
+      data: {
+        labels: setupRows.map(r => r.setup + ' (n=' + r.n + ')'),
+        datasets: [{ data: setupRows.map(r => r.hitRate), backgroundColor: setupRows.map(r => r.hitRate >= 60 ? 'rgba(16,185,129,0.7)' : r.hitRate >= 50 ? 'rgba(245,158,11,0.7)' : 'rgba(239,68,68,0.7)') }]
+      },
+      options: { indexAxis: 'y', responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { ticks: { color: '#999', callback: v => v + '%' }, grid: { color: 'rgba(255,255,255,0.05)' }, min: 0, max: 100 }, y: { ticks: { color: '#bbb', font: { family: 'JetBrains Mono', size: 10 } }, grid: { display: false } } } }
+    });
+
+    // Cumulative R: assume each finding is 1× position, hit = +1R (capture 1.5x avg-move), miss = -1R, flat = 0
+    const sortedRated = rated.slice().sort((a, b) => a.ts - b.ts);
+    let cum = 0;
+    const cumData = sortedRated.map(f => {
+      cum += f.outcome === 'hit' ? 1 : f.outcome === 'miss' ? -1 : 0;
+      return { x: f.ts, y: cum };
+    });
+    const ctx2 = document.getElementById('cumChart').getContext('2d');
+    if (cumChart) cumChart.destroy();
+    cumChart = new Chart(ctx2, {
+      type: 'line',
+      data: { datasets: [{ label: 'Cumulative R (hit=+1, miss=-1)', data: cumData, borderColor: '#00d4ff', backgroundColor: 'rgba(0,212,255,0.10)', fill: true, tension: 0.2, pointRadius: 0, borderWidth: 1.5 }] },
+      options: { responsive: true, maintainAspectRatio: false, parsing: false, plugins: { legend: { display: false } }, scales: { x: { type: 'linear', ticks: { color: '#666', font: { size: 10 }, callback: v => new Date(v).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) }, grid: { display: false } }, y: { ticks: { color: '#999', font: { family: 'JetBrains Mono' }, callback: v => v.toFixed(1) + 'R' }, grid: { color: 'rgba(255,255,255,0.05)' } } } }
+    });
+  }
+
+  setTimeout(render, 500);
+  setInterval(render, 5000);
+  window.addEventListener('bpleone:brain-finding', render);
+})();
+</script>
+</body>
+</html>

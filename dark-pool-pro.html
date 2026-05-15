@@ -1,0 +1,534 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Dark Pool PRO — bpleone / trade</title>
+<meta name="description" content="Institutional-grade dark pool tracker: DPI per symbol, block clusters, time-of-day distribution, sector heat, and setup detection on off-exchange flow.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.dpi-row { display:grid; grid-template-columns: 70px 90px 90px 90px 90px 120px 1fr; gap:8px; padding:10px 12px; border-bottom:1px solid var(--border); font-family:var(--font-mono); font-size:12px; align-items:center; cursor:pointer; }
+.dpi-row:hover { background:var(--bg-elevated); }
+.dpi-row.high { background:rgba(0,212,255,0.04); }
+.dpi-bar { height:6px; border-radius:3px; background:var(--bg-elevated); overflow:hidden; }
+.dpi-bar > div { height:100%; }
+.print-row { display:grid; grid-template-columns: 60px 70px 90px 100px 110px 80px 1fr; gap:8px; padding:7px 12px; border-bottom:1px solid var(--border); font-family:var(--font-mono); font-size:11px; align-items:center; }
+.badge { padding:2px 6px; border-radius:4px; font-size:9px; font-weight:800; letter-spacing:0.5px; }
+.b-block { background:rgba(124,58,237,0.18); color:#a78bfa; }
+.b-otc   { background:rgba(0,212,255,0.14); color:var(--accent); }
+.b-sweep { background:rgba(245,158,11,0.16); color:var(--yellow); }
+.b-split { background:rgba(16,185,129,0.14); color:var(--green); }
+.b-late  { background:rgba(239,68,68,0.14); color:var(--red); }
+.flash { animation: dpflash 0.6s ease; }
+@keyframes dpflash { 0% { background:rgba(0,212,255,0.18); } 100% { background:transparent; } }
+.tod-cell { padding:6px 8px; border-radius:4px; text-align:center; font-size:10px; font-family:var(--font-mono); font-weight:700; }
+.cluster { display:inline-flex; align-items:center; gap:6px; padding:4px 8px; border-radius:6px; background:var(--bg-elevated); border:1px solid var(--border); font-size:11px; font-family:var(--font-mono); }
+.cluster .dot { width:7px; height:7px; border-radius:50%; background:var(--accent); }
+.signal-card { padding:12px; border-radius:8px; border:1px solid var(--border); background:var(--bg-elevated); }
+.signal-card.bull { border-left:3px solid var(--green); }
+.signal-card.bear { border-left:3px solid var(--red); }
+.signal-card.neutral { border-left:3px solid var(--accent); }
+</style>
+</head>
+<body data-needs="live">
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">Dark Pool PRO 🌑</div>
+      <div class="page-subtitle">DPI by symbol · block clusters · TOD distribution · setup detection · <span id="market-clock">--</span></div>
+    </div>
+    <div class="flex gap-8">
+      <span class="status-pill" style="display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border-radius:999px;font-size:11px;font-weight:700;background:rgba(0,212,255,0.12);color:var(--accent);border:1px solid rgba(0,212,255,0.3);"><span style="width:7px;height:7px;border-radius:50%;background:currentColor;"></span> SYNTHETIC FEED</span>
+      <button class="btn btn-secondary" id="pauseBtn">⏸ Pause</button>
+      <button class="btn btn-secondary" id="exportBtn">📥 Export</button>
+    </div>
+  </div>
+
+  <!-- 5-KPI ROW -->
+  <div class="grid grid-5 mb-24">
+    <div class="card">
+      <div class="card-header"><div class="card-title">Today's DP Volume</div></div>
+      <div class="mono" style="font-size:26px;font-weight:700;" id="kpiVol">$48.2B</div>
+      <div class="green-text mono" style="font-size:11px;">+12.4% vs 20d avg</div>
+    </div>
+    <div class="card">
+      <div class="card-header"><div class="card-title">DPI — market-wide</div></div>
+      <div class="mono" style="font-size:26px;font-weight:700;" id="kpiDPI">42.8%</div>
+      <div class="mono" style="font-size:11px;color:var(--text-muted);">Off-exch share of $vol</div>
+    </div>
+    <div class="card">
+      <div class="card-header"><div class="card-title">Block Prints ≥ $1M</div></div>
+      <div class="mono" style="font-size:26px;font-weight:700;" id="kpiBlocks">387</div>
+      <div class="yellow-text mono" style="font-size:11px;">Premium: <span id="kpiBlocksPrem">$2.84B</span></div>
+    </div>
+    <div class="card">
+      <div class="card-header"><div class="card-title">Bull / Bear Pressure</div></div>
+      <div class="mono" style="font-size:26px;font-weight:700;" id="kpiPressure">62 / 38</div>
+      <div class="mono" style="font-size:11px;color:var(--text-muted);">Bid-lift vs offer-down</div>
+    </div>
+    <div class="card">
+      <div class="card-header"><div class="card-title">Active Setups</div></div>
+      <div class="mono" style="font-size:26px;font-weight:700;color:var(--accent);" id="kpiSetups">4</div>
+      <div class="mono" style="font-size:11px;color:var(--text-muted);">DPI spike + block clusters</div>
+    </div>
+  </div>
+
+  <!-- DPI TABLE + LIVE STREAM -->
+  <div class="grid grid-12">
+    <div class="card col-7" style="padding:0;">
+      <div class="card-header" style="padding:14px 16px;">
+        <div class="card-title">🎯 DPI Leaderboard — % of $vol routed off-exchange</div>
+        <div style="font-size:11px;color:var(--text-muted);">Higher = more institutional activity hidden from lit tape</div>
+      </div>
+      <div class="dpi-row" style="background:var(--bg-elevated);font-size:10px;color:var(--text-muted);font-weight:800;letter-spacing:0.5px;">
+        <div>SYM</div><div>DPI %</div><div>$ DP VOL</div><div>BLOCKS</div><div>BIAS</div><div>5D TREND</div><div>BAR</div>
+      </div>
+      <div id="dpiBody" style="max-height:520px;overflow-y:auto;"></div>
+    </div>
+
+    <div class="card col-5" style="padding:0;">
+      <div class="card-header" style="padding:14px 16px;">
+        <div class="card-title">⚡ Live Print Stream</div>
+        <div class="flex gap-8" style="font-size:10px;">
+          <button class="btn btn-ghost btn-active" data-flt="all" style="padding:3px 8px;font-size:10px;">ALL</button>
+          <button class="btn btn-ghost" data-flt="block" style="padding:3px 8px;font-size:10px;">BLOCKS</button>
+          <button class="btn btn-ghost" data-flt="sweep" style="padding:3px 8px;font-size:10px;">SWEEPS</button>
+          <button class="btn btn-ghost" data-flt="big" style="padding:3px 8px;font-size:10px;">≥$1M</button>
+        </div>
+      </div>
+      <div class="print-row" style="background:var(--bg-elevated);font-size:10px;color:var(--text-muted);font-weight:800;letter-spacing:0.5px;">
+        <div>TYPE</div><div>SYM</div><div>SIZE</div><div>PRICE</div><div>$ NOTIONAL</div><div>TIME</div><div>FLAGS</div>
+      </div>
+      <div id="printStream" style="max-height:480px;overflow-y:auto;"></div>
+    </div>
+  </div>
+
+  <!-- BLOCK CLUSTERS + TIME-OF-DAY -->
+  <div class="grid grid-12 mt-24">
+    <div class="card col-6">
+      <div class="card-header"><div class="card-title">🏛 Block Clusters — repeat institutional prints in same direction</div></div>
+      <div id="clusters" style="display:flex;flex-direction:column;gap:10px;"></div>
+    </div>
+    <div class="card col-6">
+      <div class="card-header"><div class="card-title">⏰ Time-of-Day Distribution — when blocks fire</div></div>
+      <canvas id="todChart" height="220"></canvas>
+      <div class="mono mt-12" style="font-size:11px;color:var(--text-muted);">
+        Open (9:30–10:00) <span id="todOpen">14%</span> · Midday (12–13) <span id="todMid">8%</span> · Close (15:30–16:00) <span id="todClose">23%</span> — close prints often signal next-day positioning.
+      </div>
+    </div>
+  </div>
+
+  <!-- SECTOR HEAT + SETUP DETECTION -->
+  <div class="grid grid-12 mt-24">
+    <div class="card col-7">
+      <div class="card-header"><div class="card-title">🌡 Sector DPI Heat — where the big money is hiding today</div></div>
+      <div id="sectorGrid" style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;"></div>
+    </div>
+    <div class="card col-5">
+      <div class="card-header"><div class="card-title">🎯 Setup Detection — dark-pool driven plays</div></div>
+      <div id="setupList" style="display:flex;flex-direction:column;gap:10px;"></div>
+    </div>
+  </div>
+
+  <!-- 30-DAY HISTORY -->
+  <div class="card mt-24">
+    <div class="card-header">
+      <div class="card-title">📊 Dark Pool Volume History — 30 days, with DPI overlay</div>
+      <div class="flex gap-8">
+        <button class="btn btn-ghost" data-range="5">5d</button>
+        <button class="btn btn-ghost" data-range="20">20d</button>
+        <button class="btn btn-ghost btn-active" data-range="30">30d</button>
+      </div>
+    </div>
+    <canvas id="dpHistory" height="180"></canvas>
+  </div>
+
+  <!-- INTERPRETATION -->
+  <div class="card mt-24">
+    <div class="card-header"><div class="card-title">🧠 How to read this page</div></div>
+    <div class="grid grid-3" style="gap:20px;">
+      <div>
+        <div style="font-weight:700;color:var(--accent);margin-bottom:6px;">DPI Spike (≥55%)</div>
+        <div style="font-size:13px;color:var(--text-muted);line-height:1.6;">Off-exchange share above 55% means institutions are deliberately avoiding lit price discovery — often before a catalyst or while accumulating quietly. Combine with bid-lift bias for directional read.</div>
+      </div>
+      <div>
+        <div style="font-weight:700;color:var(--yellow);margin-bottom:6px;">Block Cluster</div>
+        <div style="font-size:13px;color:var(--text-muted);line-height:1.6;">3+ blocks ≥$5M in the same direction within 60 minutes. That's an algo working a parent order. Direction (bid-lifted vs offer-down) tells you the side; you trade with it, not against.</div>
+      </div>
+      <div>
+        <div style="font-weight:700;color:var(--purple,#a78bfa);margin-bottom:6px;">Late-Day Surge</div>
+        <div style="font-size:13px;color:var(--text-muted);line-height:1.6;">Disproportionate dark prints in the final 30 minutes (≥25% of day's blocks) signal next-day positioning. Often precedes a gap. Watch the bias — close-side surge with bid-lift = gap-up odds elevated.</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- BRAIN HOOK -->
+  <div class="card mt-24" style="background:linear-gradient(135deg,rgba(0,212,255,0.05),transparent);border-color:rgba(0,212,255,0.2);">
+    <div class="card-header">
+      <div class="card-title">🧠 Brain Integration</div>
+      <a href="brain-heartbeat.html" class="btn btn-ghost">View brain →</a>
+    </div>
+    <div style="font-size:13px;color:var(--text-secondary);line-height:1.6;">
+      The autonomous brain ingests DPI spikes + block clusters from this page. Each detected setup emits a finding to <code>bpleone_brain_findings_v1</code>. After 30 min the brain rates the outcome (hit/miss/flat from realized move) and nudges the per-symbol weight ±0.005. Track hit rates on the <a href="ml-feedback.html" style="color:var(--accent);">ML Feedback page</a>.
+    </div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script src="js/charts.js"></script>
+<script>
+buildNav('dark-pool-pro');
+
+const SYMBOLS = ['SPY','QQQ','IWM','NVDA','AAPL','MSFT','TSLA','AMD','META','AMZN','GOOGL','PLTR','COIN','SMCI','NFLX','AVGO','CRM','ORCL','MU','XLK','XLE','XLF'];
+const SECTOR_MAP = {
+  SPY:'Index', QQQ:'Index', IWM:'Index',
+  NVDA:'Semis', AMD:'Semis', AVGO:'Semis', MU:'Semis', SMCI:'Semis',
+  AAPL:'MegaTech', MSFT:'MegaTech', META:'MegaTech', AMZN:'MegaTech', GOOGL:'MegaTech', ORCL:'MegaTech', CRM:'MegaTech',
+  TSLA:'Auto/EV', NFLX:'Media', PLTR:'AI/Defense', COIN:'Crypto',
+  XLK:'Sector ETF', XLE:'Sector ETF', XLF:'Sector ETF'
+};
+
+function fmt$(n) {
+  if (n >= 1e9) return '$' + (n/1e9).toFixed(2) + 'B';
+  if (n >= 1e6) return '$' + (n/1e6).toFixed(2) + 'M';
+  if (n >= 1e3) return '$' + (n/1e3).toFixed(0) + 'k';
+  return '$' + n.toFixed(0);
+}
+function lastPx(sym) {
+  if (typeof QUOTES !== 'undefined' && QUOTES[sym]) return QUOTES[sym].last;
+  return 100;
+}
+
+// ---------- DPI LEADERBOARD ----------
+function generateDPIRows() {
+  const rows = SYMBOLS.map(sym => {
+    const dpi = 30 + Math.random() * 35;
+    const dpVol = 50e6 + Math.random() * 1.5e9;
+    const blocks = 5 + Math.floor(Math.random() * 60);
+    const biasNum = (Math.random() - 0.45) * 100;
+    return { sym, dpi, dpVol, blocks, biasNum };
+  });
+  rows.sort((a, b) => b.dpi - a.dpi);
+  return rows;
+}
+const dpiRows = generateDPIRows();
+function paintDPI() {
+  const tb = document.getElementById('dpiBody');
+  tb.innerHTML = '';
+  dpiRows.forEach(r => {
+    const row = document.createElement('div');
+    row.className = 'dpi-row' + (r.dpi > 55 ? ' high' : '');
+    const dpiCol = r.dpi > 55 ? 'var(--accent)' : r.dpi > 45 ? 'var(--yellow)' : 'var(--text-secondary)';
+    const bias = r.biasNum > 5 ? 'BULL' : r.biasNum < -5 ? 'BEAR' : 'NEUT';
+    const biasCol = r.biasNum > 5 ? 'var(--green)' : r.biasNum < -5 ? 'var(--red)' : 'var(--text-muted)';
+    let trend = '<div style="display:flex;gap:2px;align-items:flex-end;height:18px;">';
+    for (let i = 0; i < 5; i++) {
+      const h = 30 + Math.random() * 70;
+      trend += '<div style="width:5px;height:' + h + '%;background:' + dpiCol + ';border-radius:1px;"></div>';
+    }
+    trend += '</div>';
+    row.innerHTML = '<div><strong>' + r.sym + '</strong></div>'
+      + '<div style="color:' + dpiCol + ';font-weight:700;">' + r.dpi.toFixed(1) + '%</div>'
+      + '<div>' + fmt$(r.dpVol) + '</div>'
+      + '<div>' + r.blocks + '</div>'
+      + '<div style="color:' + biasCol + ';font-weight:700;">' + bias + '</div>'
+      + '<div>' + trend + '</div>'
+      + '<div class="dpi-bar"><div style="width:' + r.dpi + '%;background:' + dpiCol + ';"></div></div>';
+    row.onclick = () => { window.location.href = 'ticker.html?sym=' + r.sym; };
+    tb.appendChild(row);
+  });
+}
+paintDPI();
+
+// ---------- LIVE STREAM ----------
+const TYPES = [
+  { t: 'OTC',   cls: 'b-otc',   weight: 0.40 },
+  { t: 'BLOCK', cls: 'b-block', weight: 0.25 },
+  { t: 'SWEEP', cls: 'b-sweep', weight: 0.15 },
+  { t: 'SPLIT', cls: 'b-split', weight: 0.12 },
+  { t: 'LATE',  cls: 'b-late',  weight: 0.08 }
+];
+let paused = false;
+let activeFilter = 'all';
+function pickType() {
+  const r = Math.random(); let acc = 0;
+  for (const t of TYPES) { acc += t.weight; if (r < acc) return t; }
+  return TYPES[0];
+}
+function generatePrint() {
+  const sym = SYMBOLS[Math.floor(Math.random() * SYMBOLS.length)];
+  const px = lastPx(sym);
+  const type = pickType();
+  const sizeBoost = type.t === 'BLOCK' ? 8 : type.t === 'SPLIT' ? 4 : 1;
+  const size = Math.floor((2_000 + Math.random() * 50_000) * sizeBoost);
+  const notional = size * px;
+  const bidLift = Math.random() > 0.45;
+  const flags = [];
+  if (notional >= 1e6) flags.push('≥$1M');
+  if (notional >= 10e6) flags.push('JUMBO');
+  if (bidLift) flags.push('BID-LIFT');
+  else flags.push('OFFER-DN');
+  const now = new Date();
+  return { sym, px, size, notional, type, bidLift, flags, ts: now.toLocaleTimeString('en-US', { hour12: false }) };
+}
+function matchesFilter(p) {
+  if (activeFilter === 'all') return true;
+  if (activeFilter === 'block') return p.type.t === 'BLOCK';
+  if (activeFilter === 'sweep') return p.type.t === 'SWEEP';
+  if (activeFilter === 'big') return p.notional >= 1e6;
+  return true;
+}
+function appendPrint(p) {
+  if (!matchesFilter(p)) return;
+  const wrap = document.getElementById('printStream');
+  const row = document.createElement('div');
+  row.className = 'print-row flash';
+  const flagHtml = p.flags.map(f => {
+    const col = f === 'BID-LIFT' ? 'var(--green)' : f === 'OFFER-DN' ? 'var(--red)' : f === 'JUMBO' ? 'var(--yellow)' : 'var(--accent)';
+    return '<span style="color:' + col + ';font-weight:700;font-size:9px;">' + f + '</span>';
+  }).join(' · ');
+  row.innerHTML = '<div><span class="badge ' + p.type.cls + '">' + p.type.t + '</span></div>'
+    + '<div><strong>' + p.sym + '</strong></div>'
+    + '<div>' + p.size.toLocaleString() + '</div>'
+    + '<div>$' + p.px.toFixed(2) + '</div>'
+    + '<div>' + fmt$(p.notional) + '</div>'
+    + '<div style="color:var(--text-muted);">' + p.ts + '</div>'
+    + '<div>' + flagHtml + '</div>';
+  wrap.insertBefore(row, wrap.firstChild);
+  while (wrap.children.length > 250) wrap.removeChild(wrap.lastChild);
+}
+setInterval(() => { if (!paused) appendPrint(generatePrint()); }, 600);
+document.getElementById('pauseBtn').addEventListener('click', () => {
+  paused = !paused;
+  document.getElementById('pauseBtn').textContent = paused ? '▶ Resume' : '⏸ Pause';
+});
+document.querySelectorAll('[data-flt]').forEach(b => {
+  b.addEventListener('click', () => {
+    document.querySelectorAll('[data-flt]').forEach(x => x.classList.remove('btn-active'));
+    b.classList.add('btn-active');
+    activeFilter = b.dataset.flt;
+    document.getElementById('printStream').innerHTML = '';
+  });
+});
+for (let i = 0; i < 30; i++) appendPrint(generatePrint());
+
+// ---------- BLOCK CLUSTERS ----------
+function genClusters() {
+  const clusters = [];
+  const picked = [...SYMBOLS].sort(() => Math.random() - 0.5).slice(0, 6);
+  picked.forEach(sym => {
+    const count = 3 + Math.floor(Math.random() * 5);
+    const total = count * (3e6 + Math.random() * 12e6);
+    const bid = Math.random() > 0.4;
+    const window = 20 + Math.floor(Math.random() * 50);
+    clusters.push({ sym, count, total, bid, window });
+  });
+  return clusters.sort((a, b) => b.total - a.total);
+}
+const clusters = genClusters();
+const clEl = document.getElementById('clusters');
+clusters.forEach(c => {
+  const card = document.createElement('div');
+  card.className = 'signal-card ' + (c.bid ? 'bull' : 'bear');
+  card.innerHTML = '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">'
+    + '<div><strong style="font-size:14px;">' + c.sym + '</strong> <span style="color:var(--text-muted);font-size:11px;margin-left:6px;">'
+    + c.count + ' blocks in ' + c.window + ' min</span></div>'
+    + '<div class="mono" style="color:' + (c.bid ? 'var(--green)' : 'var(--red)') + ';font-weight:700;">' + fmt$(c.total) + '</div>'
+    + '</div>'
+    + '<div style="font-size:12px;color:var(--text-secondary);">'
+    + (c.bid ? '🟢 Bid-lifted — algo working a buy order. Trade with the direction.' : '🔴 Offer-down — distribution. Liquidity unwinding into strength.') + '</div>';
+  clEl.appendChild(card);
+});
+
+// ---------- TIME-OF-DAY DISTRIBUTION ----------
+const todBuckets = ['9:30','10:00','10:30','11:00','11:30','12:00','12:30','13:00','13:30','14:00','14:30','15:00','15:30','16:00'];
+const todVals = todBuckets.map((_, i) => {
+  // U-shape: heavy open, light midday, very heavy close
+  const x = i / (todBuckets.length - 1);
+  const u = 60 * (1 - Math.sin(Math.PI * x)) + 10 + Math.random() * 12;
+  return Math.round(u);
+});
+const todCtx = document.getElementById('todChart').getContext('2d');
+new Chart(todCtx, {
+  type: 'bar',
+  data: { labels: todBuckets, datasets: [{
+    label: 'Block Count', data: todVals,
+    backgroundColor: todVals.map(v => v > 50 ? 'rgba(0,212,255,0.8)' : 'rgba(0,212,255,0.35)'),
+    borderRadius: 3
+  }] },
+  options: {
+    responsive: true, maintainAspectRatio: false,
+    plugins: { legend: { display: false } },
+    scales: {
+      x: { grid: { color: 'rgba(255,255,255,0.04)' }, ticks: { color: '#6b7280', font: { size: 9 } } },
+      y: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#6b7280', font: { size: 10 } } }
+    }
+  }
+});
+const totalBlocks = todVals.reduce((s, x) => s + x, 0);
+const openPct = Math.round(((todVals[0] + todVals[1]) / totalBlocks) * 100);
+const midPct = Math.round(((todVals[5] + todVals[6]) / totalBlocks) * 100);
+const closePct = Math.round(((todVals[12] + todVals[13]) / totalBlocks) * 100);
+document.getElementById('todOpen').textContent = openPct + '%';
+document.getElementById('todMid').textContent = midPct + '%';
+document.getElementById('todClose').textContent = closePct + '%';
+
+// ---------- SECTOR HEAT ----------
+const sectorAgg = {};
+dpiRows.forEach(r => {
+  const s = SECTOR_MAP[r.sym] || 'Other';
+  if (!sectorAgg[s]) sectorAgg[s] = { dpi: 0, vol: 0, n: 0 };
+  sectorAgg[s].dpi += r.dpi;
+  sectorAgg[s].vol += r.dpVol;
+  sectorAgg[s].n++;
+});
+const sectorList = Object.keys(sectorAgg).map(s => ({
+  s, dpi: sectorAgg[s].dpi / sectorAgg[s].n, vol: sectorAgg[s].vol
+})).sort((a, b) => b.dpi - a.dpi);
+const sg = document.getElementById('sectorGrid');
+sectorList.forEach(s => {
+  const col = s.dpi > 55 ? 'rgba(0,212,255,0.18)' : s.dpi > 48 ? 'rgba(245,158,11,0.14)' : 'rgba(100,116,139,0.10)';
+  const tcol = s.dpi > 55 ? 'var(--accent)' : s.dpi > 48 ? 'var(--yellow)' : 'var(--text-secondary)';
+  const cell = document.createElement('div');
+  cell.className = 'tod-cell';
+  cell.style.background = col;
+  cell.style.padding = '14px 10px';
+  cell.innerHTML = '<div style="font-weight:700;font-size:11px;letter-spacing:0.3px;margin-bottom:4px;color:var(--text-primary);">' + s.s + '</div>'
+    + '<div class="mono" style="color:' + tcol + ';font-size:18px;font-weight:700;">' + s.dpi.toFixed(1) + '%</div>'
+    + '<div class="mono" style="font-size:10px;color:var(--text-muted);margin-top:2px;">' + fmt$(s.vol) + '</div>';
+  sg.appendChild(cell);
+});
+
+// ---------- SETUP DETECTION ----------
+function detectSetups() {
+  const setups = [];
+  // Spike: DPI > 60%
+  dpiRows.filter(r => r.dpi > 58).slice(0, 3).forEach(r => {
+    setups.push({
+      type: 'DPI Spike',
+      sym: r.sym,
+      severity: r.dpi > 62 ? 3 : 2,
+      bias: r.biasNum > 0 ? 'bull' : 'bear',
+      body: r.sym + ' DPI at ' + r.dpi.toFixed(1) + '% (avg ~38%). ' + (r.biasNum > 0 ? 'Institutional accumulation pattern.' : 'Quiet distribution.')
+    });
+  });
+  // Block cluster (top 2)
+  clusters.slice(0, 2).forEach(c => {
+    setups.push({
+      type: 'Block Cluster',
+      sym: c.sym,
+      severity: c.total > 20e6 ? 3 : 2,
+      bias: c.bid ? 'bull' : 'bear',
+      body: c.count + ' blocks totaling ' + fmt$(c.total) + ' in ' + c.window + ' min. ' + (c.bid ? 'Aggressive buyer.' : 'Aggressive seller.')
+    });
+  });
+  return setups;
+}
+const setups = detectSetups();
+document.getElementById('kpiSetups').textContent = setups.length;
+const sl = document.getElementById('setupList');
+setups.forEach(s => {
+  const card = document.createElement('div');
+  card.className = 'signal-card ' + s.bias;
+  const stars = '⭐'.repeat(s.severity);
+  card.innerHTML = '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">'
+    + '<div><strong>' + s.sym + '</strong> <span style="color:var(--text-muted);font-size:11px;margin-left:6px;">' + s.type + '</span></div>'
+    + '<div>' + stars + '</div></div>'
+    + '<div style="font-size:12px;color:var(--text-secondary);line-height:1.5;">' + s.body + '</div>'
+    + '<div class="mt-8 flex gap-8"><a href="ticker.html?sym=' + s.sym + '" class="btn btn-ghost" style="padding:4px 10px;font-size:11px;">View ' + s.sym + ' →</a></div>';
+  sl.appendChild(card);
+});
+
+// Emit detected setups into the brain
+function emitToBrain() {
+  try {
+    const k = 'bpleone_brain_findings_v1';
+    let f = { items: [] };
+    try { f = JSON.parse(localStorage.getItem(k) || '{"items":[]}'); } catch (e) {}
+    setups.forEach(s => {
+      const dedupKey = 'dark-pool|' + s.sym + '|' + s.type;
+      const cutoff = Date.now() - 30 * 60 * 1000;
+      if (f.items.find(x => x.dedupKey === dedupKey && x.ts > cutoff)) return;
+      f.items.unshift({
+        id: 'f_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7),
+        ts: Date.now(),
+        type: 'dark-pool-setup',
+        severity: s.severity,
+        title: s.type + ' — ' + s.sym,
+        body: s.body,
+        meta: { sym: s.sym, setup: s.type, bias: s.bias },
+        dedupKey
+      });
+    });
+    if (f.items.length > 500) f.items.length = 500;
+    localStorage.setItem(k, JSON.stringify(f));
+  } catch (e) {}
+}
+emitToBrain();
+
+// ---------- 30-DAY HISTORY ----------
+let dpChart;
+function renderHistory(days) {
+  const labels = [], vols = [], dpiSeries = [];
+  for (let i = days - 1; i >= 0; i--) {
+    const d = new Date(); d.setDate(d.getDate() - i);
+    labels.push(d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }));
+    vols.push(40 + Math.sin(i / 4) * 5 + Math.random() * 7);
+    dpiSeries.push(38 + Math.cos(i / 5) * 3 + Math.random() * 4);
+  }
+  if (dpChart) dpChart.destroy();
+  const ctx = document.getElementById('dpHistory').getContext('2d');
+  dpChart = new Chart(ctx, {
+    data: {
+      labels,
+      datasets: [
+        { type: 'bar', label: 'Dark $ Vol (B)', yAxisID: 'y', data: vols, backgroundColor: 'rgba(0,212,255,0.45)', borderColor: 'rgba(0,212,255,1)', borderWidth: 1 },
+        { type: 'line', label: 'DPI %', yAxisID: 'y1', data: dpiSeries, borderColor: 'rgba(245,158,11,0.9)', borderWidth: 2, pointRadius: 0, tension: 0.25 }
+      ]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: true, labels: { color: '#9ca3af', font: { size: 11 } } } },
+      scales: {
+        x: { grid: { color: 'rgba(255,255,255,0.04)' }, ticks: { color: '#6b7280', font: { size: 10 } } },
+        y: { position: 'left', grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#6b7280', font: { size: 10 }, callback: v => '$' + v + 'B' } },
+        y1: { position: 'right', grid: { drawOnChartArea: false }, ticks: { color: '#f59e0b', font: { size: 10 }, callback: v => v + '%' } }
+      }
+    }
+  });
+}
+renderHistory(30);
+document.querySelectorAll('[data-range]').forEach(b => {
+  b.addEventListener('click', () => {
+    document.querySelectorAll('[data-range]').forEach(x => x.classList.remove('btn-active'));
+    b.classList.add('btn-active');
+    renderHistory(+b.dataset.range);
+  });
+});
+
+// ---------- EXPORT ----------
+document.getElementById('exportBtn').addEventListener('click', () => {
+  const csv = ['Symbol,DPI%,DPVolume,Blocks,Bias'];
+  dpiRows.forEach(r => csv.push([r.sym, r.dpi.toFixed(2), r.dpVol.toFixed(0), r.blocks, r.biasNum.toFixed(1)].join(',')));
+  const blob = new Blob([csv.join('\n')], { type: 'text/csv' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = 'dark-pool-pro-' + Date.now() + '.csv'; a.click();
+  URL.revokeObjectURL(url);
+});
+</script>
+</body>
+</html>

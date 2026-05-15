@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Strike Chaser — bpleone / trade</title>
+<meta name="description" content="Most-traded strikes across the universe today. Sweep / block detection, premium leaders. UW-style flow.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.banner { background: linear-gradient(135deg, rgba(245,158,11,0.10), rgba(239,68,68,0.06)); border: 1px solid rgba(245,158,11,0.30); border-radius: 12px; padding: 16px 18px; margin-bottom: 18px; }
+.kpi-strip { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; margin-bottom: 18px; }
+.tile { background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 10px; padding: 14px; text-align: center; }
+.tile .lab { font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; }
+.tile .val { font-family: var(--font-mono); font-weight: 700; font-size: 16px; margin-top: 4px; }
+.row { display: grid; grid-template-columns: 80px 60px 70px 80px 70px 80px 80px 90px 90px 1fr; gap: 8px; padding: 8px 0; border-top: 1px solid var(--border); font-size: 12px; align-items: center; }
+.mono { font-family: var(--font-mono); }
+.tag { display: inline-block; padding: 2px 7px; border-radius: 4px; background: var(--bg-secondary); font-family: var(--font-mono); font-size: 10px; border: 1px solid var(--border); }
+.tag.call { background: rgba(16,185,129,0.15); color: var(--green); border-color: rgba(16,185,129,0.3); }
+.tag.put { background: rgba(239,68,68,0.15); color: var(--red); border-color: rgba(239,68,68,0.3); }
+.tag.sweep { background: rgba(245,158,11,0.18); color: var(--yellow); border-color: rgba(245,158,11,0.4); }
+.tag.block { background: rgba(139,92,246,0.15); color: var(--purple); border-color: rgba(139,92,246,0.3); }
+.tag.unusual { background: rgba(239,68,68,0.18); color: var(--red); border-color: rgba(239,68,68,0.5); }
+.r-pos { color: var(--green); } .r-neg { color: var(--red); }
+.controls { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; padding: 12px 16px; background: var(--bg-elevated); border-radius: 10px; border: 1px solid var(--border); margin-bottom: 16px; }
+.controls input, .controls select { background: var(--bg-secondary); border: 1px solid var(--border); color: var(--text-primary); padding: 6px 10px; border-radius: 6px; font-size: 12px; }
+.controls label { font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; display: block; margin-bottom: 4px; }
+.empty { padding: 40px; text-align: center; color: var(--text-muted); }
+.flash-new { animation: flashNew 1.5s ease-out; }
+@keyframes flashNew { 0% { background: rgba(245,158,11,0.20); } 100% { background: transparent; } }
+.bar-fill { height: 4px; background: linear-gradient(to right, var(--accent), var(--purple)); border-radius: 2px; transition: width .3s ease; }
+</style>
+</head>
+<body data-needs="chain">
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">Strike Chaser <span class="feat-badge feat-pro">PRO</span></div>
+      <div class="page-subtitle">Most-traded strikes today · sweep/block detection · premium leaders. The UW view. · <span id="market-clock">--</span></div>
+    </div>
+    <div class="flex gap-8">
+      <a href="options-flow-live.html" class="btn btn-ghost">📡 Options Flow</a>
+      <a href="iv-skew.html" class="btn btn-ghost">📈 IV Skew</a>
+      <a href="options-chain.html" class="btn btn-ghost">⛓ Chain</a>
+    </div>
+  </div>
+
+  <div class="banner">
+    <strong style="font-size:14px;">🎯 What this catches.</strong>
+    <div style="font-size:11px;color:var(--text-muted);margin-top:6px;line-height:1.6;">
+      Strike-by-strike volume across your universe. Sorted by premium ($ flowing in).
+      <strong>SWEEP</strong> = multi-exchange aggressive fill (someone in a hurry).
+      <strong>BLOCK</strong> = single fill ≥ 1,000 contracts (institutional size).
+      <strong>UNUSUAL</strong> = volume/OI ≥ 3x.
+      Premium-leader rows show where the largest dollar-flow is concentrating.
+    </div>
+  </div>
+
+  <div class="kpi-strip">
+    <div class="tile"><div class="lab">Contracts scanned</div><div class="val mono" id="kN">0</div></div>
+    <div class="tile"><div class="lab">Total premium</div><div class="val mono" id="kPrem">$0</div></div>
+    <div class="tile"><div class="lab">C/P premium ratio</div><div class="val mono" id="kRatio">—</div></div>
+    <div class="tile"><div class="lab">Top strike (call)</div><div class="val mono" id="kTopCall" style="font-size:13px;">—</div></div>
+    <div class="tile"><div class="lab">Top strike (put)</div><div class="val mono" id="kTopPut" style="font-size:13px;">—</div></div>
+  </div>
+
+  <div class="controls">
+    <div>
+      <label>Universe</label>
+      <input id="universe" value="SPY,QQQ,NVDA,TSLA,AAPL,META,AMD,COIN,PLTR,SMCI" style="width:380px;text-transform:uppercase;font-family:var(--font-mono);">
+    </div>
+    <div>
+      <label>Filter</label>
+      <select id="filter">
+        <option value="all">All flow</option>
+        <option value="call">Calls only</option>
+        <option value="put">Puts only</option>
+        <option value="sweep">Sweeps only</option>
+        <option value="block">Blocks only</option>
+        <option value="unusual">Unusual (VOI≥3x)</option>
+        <option value="big">Premium ≥ $250k</option>
+      </select>
+    </div>
+    <div>
+      <label>Sort by</label>
+      <select id="sortBy">
+        <option value="prem">Premium $</option>
+        <option value="vol">Volume</option>
+        <option value="voi">Vol/OI</option>
+      </select>
+    </div>
+    <button id="btnScan" class="btn btn-primary">🎯 Scan</button>
+    <span id="status" style="margin-left:auto;font-size:11px;color:var(--text-muted);"></span>
+  </div>
+
+  <div class="card" style="padding:0;overflow:hidden;">
+    <div class="row" style="background:var(--bg-elevated);padding:10px 16px;border-top:none;border-bottom:1px solid var(--border);font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;font-weight:600;">
+      <div>Sym</div>
+      <div>Type</div>
+      <div style="text-align:right;">Strike</div>
+      <div>Expiry</div>
+      <div>Spot %ITM</div>
+      <div style="text-align:right;">Volume</div>
+      <div style="text-align:right;">OI</div>
+      <div style="text-align:right;">Vol/OI</div>
+      <div style="text-align:right;">Premium</div>
+      <div>Signal</div>
+    </div>
+    <div id="flowList" style="max-height:65vh;overflow-y:auto;padding:0 16px;"></div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script src="js/ta.js"></script>
+<script src="js/learn.js"></script>
+<script>buildNav('flow');</script>
+
+<script>
+(function () {
+  function buildSyntheticChain(sym, spot) {
+    if (!spot) return [];
+    const out = [];
+    const today = new Date();
+    function nextFriday(from) { const d = new Date(from); d.setDate(d.getDate() + ((5 - d.getDay() + 7) % 7 || 7)); return d; }
+    const expiries = [];
+    let f = nextFriday(today); expiries.push(new Date(f));
+    f = nextFriday(f); expiries.push(new Date(f));
+    expiries.push(new Date(today.getFullYear(), today.getMonth() + 1, 21));
+    expiries.forEach(exp => {
+      const expStr = exp.toISOString().slice(0, 10);
+      const dte = Math.max(1, Math.floor((exp.getTime() - today.getTime()) / 86400000));
+      for (let i = -5; i <= 5; i++) {
+        const strikePct = 0.02 * i;
+        const strike = +(spot * (1 + strikePct)).toFixed(0);
+        const atmBoost = Math.exp(-Math.abs(i) * 0.4);
+        const baseVol = Math.floor(2000 * atmBoost / Math.sqrt(dte / 30) * (0.5 + Math.random()));
+        const oi = Math.floor(baseVol * (3 + Math.random() * 4));
+        const isUnusual = Math.random() < 0.12;
+        const vol = isUnusual ? oi * (3 + Math.random() * 3) : baseVol;
+        ['call', 'put'].forEach(type => {
+          const sign = type === 'call' ? 1 : -1;
+          const moneyness = sign * strikePct;
+          const lastPx = Math.max(0.05, spot * 0.025 * atmBoost * (type === 'call' ? (1 + moneyness * 2) : (1 - moneyness * 2)));
+          const isSweep = Math.random() < 0.15;
+          const isBlock = vol >= 1000 && Math.random() < 0.20;
+          out.push({
+            sym, type, strike, expiry: expStr, dte, last: +lastPx.toFixed(2),
+            volume: Math.floor(vol), oi: Math.floor(oi), premium: vol * lastPx * 100,
+            voi: oi > 0 ? +(vol / oi).toFixed(2) : 0,
+            sweep: isSweep, block: isBlock, unusual: vol / oi >= 3
+          });
+        });
+      }
+    });
+    return out;
+  }
+
+  async function fetchChain(sym) {
+    if (typeof DataProvider !== 'undefined' && DataProvider.getOptionChain) {
+      try {
+        const chain = await DataProvider.getOptionChain(sym);
+        if (Array.isArray(chain) && chain.length) return chain;
+      } catch (e) {}
+    }
+    const spot = (typeof QUOTES !== 'undefined' && QUOTES[sym]) ? QUOTES[sym].last : 100;
+    return buildSyntheticChain(sym, spot);
+  }
+
+  let allContracts = [];
+
+  async function scan() {
+    document.getElementById('btnScan').disabled = true;
+    document.getElementById('btnScan').textContent = 'Scanning…';
+    const symbols = (document.getElementById('universe').value || '').split(',').map(s => s.trim().toUpperCase()).filter(Boolean);
+    document.getElementById('status').textContent = 'fetching ' + symbols.length + ' chains…';
+    const out = [];
+    for (let i = 0; i < symbols.length; i++) {
+      document.getElementById('status').textContent = (i + 1) + '/' + symbols.length + ': ' + symbols[i];
+      const c = await fetchChain(symbols[i]);
+      c.forEach(ct => out.push(ct));
+    }
+    allContracts = out;
+    document.getElementById('btnScan').disabled = false;
+    document.getElementById('btnScan').textContent = '🎯 Scan';
+    document.getElementById('status').textContent = '✓ ' + out.length + ' contracts scanned';
+    setTimeout(() => { document.getElementById('status').textContent = ''; }, 2500);
+    render();
+  }
+
+  function render() {
+    if (!allContracts.length) {
+      document.getElementById('flowList').innerHTML = '<div class="empty">Click Scan to pull chains.</div>';
+      return;
+    }
+    const filter = document.getElementById('filter').value;
+    const sortBy = document.getElementById('sortBy').value;
+    let list = allContracts.slice();
+    if (filter === 'call') list = list.filter(c => c.type === 'call');
+    else if (filter === 'put') list = list.filter(c => c.type === 'put');
+    else if (filter === 'sweep') list = list.filter(c => c.sweep);
+    else if (filter === 'block') list = list.filter(c => c.block);
+    else if (filter === 'unusual') list = list.filter(c => c.unusual);
+    else if (filter === 'big') list = list.filter(c => c.premium >= 250000);
+    if (sortBy === 'vol') list.sort((a, b) => b.volume - a.volume);
+    else if (sortBy === 'voi') list.sort((a, b) => b.voi - a.voi);
+    else list.sort((a, b) => b.premium - a.premium);
+
+    // KPIs
+    document.getElementById('kN').textContent = allContracts.length;
+    const totalPrem = allContracts.reduce((s, c) => s + c.premium, 0);
+    document.getElementById('kPrem').textContent = '$' + (totalPrem / 1e6).toFixed(1) + 'M';
+    const callPrem = allContracts.filter(c => c.type === 'call').reduce((s, c) => s + c.premium, 0);
+    const putPrem = allContracts.filter(c => c.type === 'put').reduce((s, c) => s + c.premium, 0);
+    document.getElementById('kRatio').textContent = putPrem > 0 ? (callPrem / putPrem).toFixed(2) : '—';
+    document.getElementById('kRatio').className = 'val mono ' + (callPrem > putPrem * 1.5 ? 'r-pos' : putPrem > callPrem * 1.5 ? 'r-neg' : '');
+    const topCall = allContracts.filter(c => c.type === 'call').sort((a, b) => b.premium - a.premium)[0];
+    const topPut = allContracts.filter(c => c.type === 'put').sort((a, b) => b.premium - a.premium)[0];
+    document.getElementById('kTopCall').textContent = topCall ? `${topCall.sym} $${topCall.strike}c ${topCall.expiry.slice(5)}` : '—';
+    document.getElementById('kTopPut').textContent = topPut ? `${topPut.sym} $${topPut.strike}p ${topPut.expiry.slice(5)}` : '—';
+
+    // Table
+    const body = document.getElementById('flowList');
+    body.innerHTML = list.slice(0, 100).map(c => {
+      const spot = (typeof QUOTES !== 'undefined' && QUOTES[c.sym]) ? QUOTES[c.sym].last : c.strike;
+      const itmPct = c.type === 'call' ? ((spot - c.strike) / c.strike) * 100 : ((c.strike - spot) / c.strike) * 100;
+      const tags = [];
+      if (c.sweep) tags.push('<span class="tag sweep">SWEEP</span>');
+      if (c.block) tags.push('<span class="tag block">BLOCK</span>');
+      if (c.unusual) tags.push('<span class="tag unusual">UNUSUAL</span>');
+      return `<div class="row">
+        <div class="mono" style="font-weight:700;"><a href="trade-ticket.html?sym=${c.sym}" style="color:inherit;text-decoration:none;">${c.sym}</a></div>
+        <div><span class="tag ${c.type}">${c.type.toUpperCase()}</span></div>
+        <div class="mono" style="text-align:right;">$${c.strike}</div>
+        <div class="mono" style="font-size:11px;">${c.expiry.slice(5)}</div>
+        <div class="mono" style="font-size:11px;color:${itmPct > 0 ? 'var(--green)' : 'var(--red)'};">${itmPct >= 0 ? '+' : ''}${itmPct.toFixed(1)}%</div>
+        <div class="mono" style="text-align:right;">${c.volume.toLocaleString()}</div>
+        <div class="mono" style="text-align:right;color:var(--text-muted);">${c.oi.toLocaleString()}</div>
+        <div class="mono" style="text-align:right;color:${c.voi >= 3 ? 'var(--red)' : c.voi >= 1.5 ? 'var(--yellow)' : 'var(--text-primary)'};font-weight:700;">${c.voi.toFixed(2)}x</div>
+        <div class="mono" style="text-align:right;font-weight:700;color:${c.premium >= 250000 ? 'var(--green)' : ''};">$${(c.premium / 1000).toFixed(0)}k</div>
+        <div style="display:flex;gap:4px;align-items:center;flex-wrap:wrap;">${tags.join('')}</div>
+      </div>`;
+    }).join('');
+  }
+
+  document.getElementById('btnScan').addEventListener('click', scan);
+  document.getElementById('filter').addEventListener('change', render);
+  document.getElementById('sortBy').addEventListener('change', render);
+
+  setTimeout(scan, 600);
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,267 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Symbol Comparison — bpleone / trade</title>
+<meta name="description" content="Compare 5+ tickers side-by-side across 14 metrics: price action, TA, brain edge, fundamentals, sentiment.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.banner { background: linear-gradient(135deg, rgba(0,212,255,0.08), rgba(139,92,246,0.04)); border: 1px solid rgba(0,212,255,0.18); border-radius: 12px; padding: 16px 18px; margin-bottom: 18px; }
+.comp-table { width: 100%; border-collapse: separate; border-spacing: 0; background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
+.comp-table thead th { background: var(--bg-secondary); padding: 12px 10px; font-family: var(--font-mono); font-weight: 700; font-size: 12px; text-align: center; border-bottom: 1px solid var(--border); }
+.comp-table thead th:first-child { text-align: left; font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; }
+.comp-table tbody td { padding: 10px; border-top: 1px solid var(--border); font-family: var(--font-mono); font-size: 12px; text-align: center; }
+.comp-table tbody td:first-child { text-align: left; color: var(--text-muted); font-family: inherit; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600; }
+.comp-table tbody tr:hover { background: rgba(0,212,255,0.03); }
+.r-pos { color: var(--green); font-weight: 700; }
+.r-neg { color: var(--red); font-weight: 700; }
+.r-warn { color: var(--yellow); }
+.cell-best { background: rgba(16,185,129,0.10); font-weight: 800; }
+.cell-worst { background: rgba(239,68,68,0.10); }
+.controls { display: flex; gap: 10px; align-items: end; flex-wrap: wrap; padding: 14px 18px; background: var(--bg-elevated); border-radius: 10px; border: 1px solid var(--border); margin-bottom: 16px; }
+.controls input, .controls select { background: var(--bg-secondary); border: 1px solid var(--border); color: var(--text-primary); padding: 6px 10px; border-radius: 6px; font-size: 12px; }
+.controls label { font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; display: block; margin-bottom: 4px; }
+.chart-card { background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 10px; padding: 14px; margin-top: 16px; }
+.tag { display: inline-block; padding: 2px 8px; border-radius: 4px; background: var(--bg-secondary); font-family: var(--font-mono); font-size: 10px; }
+.tag.bull { background: rgba(16,185,129,0.15); color: var(--green); }
+.tag.bear { background: rgba(239,68,68,0.15); color: var(--red); }
+.tag.neutral { background: var(--bg-secondary); color: var(--text-muted); }
+.sym-cell { font-family: var(--font-mono); font-weight: 800; font-size: 16px; }
+.sym-cell .name { font-family: inherit; font-weight: 400; font-size: 10px; color: var(--text-muted); margin-top: 2px; }
+.action-row { display: flex; gap: 4px; justify-content: center; margin-top: 4px; }
+.action-row a { font-size: 11px; color: var(--accent); text-decoration: none; }
+</style>
+</head>
+<body data-needs="live">
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">Symbol Comparison <span class="feat-badge feat-pro">PRO</span></div>
+      <div class="page-subtitle">Side-by-side multi-symbol scan across 14 metrics. The Koyfin view. · <span id="market-clock">--</span></div>
+    </div>
+    <div class="flex gap-8">
+      <a href="conviction-board.html" class="btn btn-ghost">⭐ Conviction</a>
+      <a href="radar.html" class="btn btn-ghost">📡 Radar</a>
+      <a href="cross-asset-correlations.html" class="btn btn-ghost">🔗 Correlations</a>
+    </div>
+  </div>
+
+  <div class="banner">
+    <strong style="font-size:14px;">📊 Pick your war room.</strong>
+    <div style="font-size:11px;color:var(--text-muted);margin-top:6px;line-height:1.6;">
+      Type up to 8 tickers comma-separated. Every metric is live: price action (day%, 5d%, 20d%), TA (RSI, MACD, ADX, ATR%, VWAP dist), brain (auto-setup, conviction, per-sym weight), sentiment, sector.
+      Best-in-row cell highlights <strong class="r-pos">green</strong>, worst <strong class="r-neg">red</strong>. Click any symbol → Trade Ticket.
+    </div>
+  </div>
+
+  <div class="controls">
+    <div style="flex:1;min-width:300px;">
+      <label>Symbols (comma-separated, max 8)</label>
+      <input id="symList" value="NVDA,AAPL,MSFT,META,GOOGL,AMZN,TSLA,AMD" style="width:100%;text-transform:uppercase;font-family:var(--font-mono);">
+    </div>
+    <div>
+      <label>Sort by row</label>
+      <select id="sortBy">
+        <option value="">— ranking only —</option>
+        <option value="day">Day %</option>
+        <option value="adj">Brain adj-score</option>
+        <option value="rsi">RSI</option>
+        <option value="adx">ADX</option>
+        <option value="conv">Conviction</option>
+      </select>
+    </div>
+    <button id="btnRender" class="btn btn-primary">📊 Compare</button>
+  </div>
+
+  <div id="tableWrap"></div>
+
+  <div class="chart-card">
+    <div style="font-weight:700;font-size:14px;margin-bottom:10px;">📈 Day % bar comparison</div>
+    <div style="height:240px;"><canvas id="dayChart"></canvas></div>
+  </div>
+
+  <div class="chart-card">
+    <div style="font-weight:700;font-size:14px;margin-bottom:10px;">🎯 Brain adj-score comparison</div>
+    <div style="height:240px;"><canvas id="adjChart"></canvas></div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script src="js/ta.js"></script>
+<script src="js/learn.js"></script>
+<script>buildNav('plays');</script>
+
+<script>
+(function () {
+  let dayChart = null, adjChart = null;
+
+  const COMPANY_NAMES = {
+    SPY: 'S&P 500', QQQ: 'Nasdaq 100', IWM: 'Russell 2000', DIA: 'Dow Jones',
+    AAPL: 'Apple', MSFT: 'Microsoft', GOOGL: 'Alphabet', META: 'Meta',
+    AMZN: 'Amazon', NVDA: 'Nvidia', TSLA: 'Tesla', AMD: 'AMD',
+    NFLX: 'Netflix', CRM: 'Salesforce', ORCL: 'Oracle', AVGO: 'Broadcom',
+    MU: 'Micron', COIN: 'Coinbase', PLTR: 'Palantir', SMCI: 'Super Micro',
+    UBER: 'Uber', SHOP: 'Shopify', JPM: 'JPMorgan', XOM: 'Exxon',
+    BTC: 'Bitcoin', ETH: 'Ethereum', GLD: 'Gold', SLV: 'Silver',
+    USO: 'US Oil', UNG: 'Nat Gas'
+  };
+
+  function biasFromTag(tag) {
+    const bull = ['volume-breakout','52w-break','50ma-reclaim','macd-cross','bull-flag','cup-handle','vwap-reclaim','momentum-extension','continuation-bull','oversold-mean-revert'];
+    const bear = ['flush-on-volume','breakdown','bear-flag','vwap-rejection','overbought-fade','continuation-bear'];
+    if (bull.indexOf(tag) !== -1) return 'bull';
+    if (bear.indexOf(tag) !== -1) return 'bear';
+    return 'neutral';
+  }
+
+  function conviction(adj, n) {
+    if (adj >= 0.9 && n >= 10) return 5;
+    if (adj >= 0.8) return 4;
+    if (adj >= 0.7) return 3;
+    if (adj >= 0.55) return 2;
+    return 1;
+  }
+
+  function dataForSym(sym) {
+    const q = (typeof QUOTES !== 'undefined') ? QUOTES[sym] : null;
+    if (!q) return null;
+    const snap = (typeof TA !== 'undefined') ? TA.snapshot(sym) : null;
+    const features = {
+      last: q.last, prevClose: q.prevClose, dayHigh: q.dayHigh, dayLow: q.dayLow,
+      volume: q.volume, avgVolume: q.avgVolume,
+      rsi: snap ? snap.rsi : null, macdHist: snap ? snap.hist : null,
+      atrPct: snap ? snap.atrPct : null, adx: snap ? snap.adx : null,
+      vwapDist: snap ? snap.vwapDist : null,
+      trend: snap ? snap.trend : null, regime: snap ? snap.regime : null,
+      donchUp: snap ? snap.donchUp : null, donchDn: snap ? snap.donchDn : null
+    };
+    const tag = (typeof Learn !== 'undefined') ? Learn.autoTagSetup(features, { symbol: sym }) : null;
+    const weight = (tag && Learn.weightFor) ? Learn.weightFor(tag.tag, { symbol: sym }) : 1.0;
+    const adj = tag ? tag.score * weight : 0;
+    const stats = (typeof Learn !== 'undefined' && Learn.symbolStats) ? Learn.symbolStats(sym) : null;
+    const setupHist = stats && tag ? (stats.bySetup || {})[tag.tag] : null;
+    const n = setupHist ? setupHist.n : 0;
+    return {
+      sym, q, snap, tag, weight, adj,
+      bias: tag ? biasFromTag(tag.tag) : 'neutral',
+      conviction: conviction(adj, n),
+      n
+    };
+  }
+
+  // Metric rows
+  const METRICS = [
+    { key: 'price', label: 'Price', val: d => d.q.last != null ? '$' + d.q.last.toFixed(2) : '—', raw: d => d.q.last, fmt: v => '$' + v.toFixed(2), rank: 'higher' },
+    { key: 'day', label: 'Day %', val: d => (d.q.changePct >= 0 ? '+' : '') + (d.q.changePct || 0).toFixed(2) + '%', raw: d => d.q.changePct || 0, fmt: v => (v >= 0 ? '+' : '') + v.toFixed(2) + '%', rank: 'higher', signed: true },
+    { key: 'rsi', label: 'RSI', val: d => d.snap && d.snap.rsi != null ? d.snap.rsi.toFixed(0) : '—', raw: d => d.snap ? d.snap.rsi : null, rank: 'middle-50' },
+    { key: 'macd', label: 'MACD hist', val: d => d.snap && d.snap.hist != null ? (d.snap.hist >= 0 ? '+' : '') + d.snap.hist.toFixed(3) : '—', raw: d => d.snap ? d.snap.hist : null, rank: 'higher', signed: true },
+    { key: 'adx', label: 'ADX (trend)', val: d => d.snap && d.snap.adx != null ? d.snap.adx.toFixed(0) : '—', raw: d => d.snap ? d.snap.adx : null, rank: 'higher' },
+    { key: 'atr', label: 'ATR%', val: d => d.snap && d.snap.atrPct != null ? d.snap.atrPct.toFixed(2) + '%' : '—', raw: d => d.snap ? d.snap.atrPct : null, rank: 'higher' },
+    { key: 'vwap', label: 'vs VWAP', val: d => d.snap && d.snap.vwapDist != null ? (d.snap.vwapDist >= 0 ? '+' : '') + d.snap.vwapDist.toFixed(2) + '%' : '—', raw: d => d.snap ? d.snap.vwapDist : null, rank: 'higher', signed: true },
+    { key: 'setup', label: 'Brain setup', val: d => d.tag ? `<span class="tag ${d.bias}">${d.tag.tag}</span>` : '—', raw: () => null },
+    { key: 'adj', label: 'Adj score', val: d => d.tag ? d.adj.toFixed(2) : '—', raw: d => d.adj || null, rank: 'higher' },
+    { key: 'weight', label: 'Per-sym weight', val: d => d.weight.toFixed(2) + '×', raw: d => d.weight, rank: 'higher' },
+    { key: 'conv', label: 'Conviction', val: d => '★'.repeat(d.conviction) + '☆'.repeat(5 - d.conviction), raw: d => d.conviction, rank: 'higher' },
+    { key: 'n', label: 'Brain n (samples)', val: d => d.n, raw: d => d.n, rank: 'higher' },
+    { key: 'regime', label: 'Vol regime', val: d => d.snap ? (d.snap.regime || '—') : '—', raw: () => null },
+    { key: 'trend', label: 'Trend', val: d => d.snap ? (d.snap.trend || '—') : '—', raw: () => null }
+  ];
+
+  function render() {
+    const syms = (document.getElementById('symList').value || '').split(',').map(s => s.trim().toUpperCase()).filter(Boolean).slice(0, 8);
+    let rows = syms.map(dataForSym).filter(Boolean);
+    const sortBy = document.getElementById('sortBy').value;
+    if (sortBy) {
+      const m = METRICS.find(m => m.key === sortBy);
+      if (m && m.raw) rows.sort((a, b) => (m.raw(b) || 0) - (m.raw(a) || 0));
+    }
+    if (!rows.length) {
+      document.getElementById('tableWrap').innerHTML = '<div class="empty" style="padding:30px;text-align:center;color:var(--text-muted);">No symbols. Type into the box and click Compare.</div>';
+      return;
+    }
+    // Build table
+    let html = '<div style="overflow-x:auto;"><table class="comp-table"><thead><tr><th>Metric</th>';
+    rows.forEach(d => {
+      html += `<th><div class="sym-cell">${d.sym}<div class="name">${COMPANY_NAMES[d.sym] || ''}</div></div></th>`;
+    });
+    html += '</tr></thead><tbody>';
+    METRICS.forEach(m => {
+      const rawVals = rows.map(d => m.raw ? m.raw(d) : null).filter(v => v != null && !isNaN(v));
+      let maxVal = null, minVal = null;
+      if (m.rank === 'higher' && rawVals.length) {
+        maxVal = Math.max(...rawVals);
+        minVal = Math.min(...rawVals);
+      }
+      html += `<tr><td>${m.label}</td>`;
+      rows.forEach(d => {
+        const v = m.val(d);
+        const rv = m.raw ? m.raw(d) : null;
+        let cls = '';
+        if (m.rank === 'higher' && rv != null) {
+          if (rv === maxVal && rawVals.length > 1) cls = 'cell-best';
+          else if (rv === minVal && rawVals.length > 1) cls = 'cell-worst';
+        }
+        let signedCls = '';
+        if (m.signed && rv != null) {
+          signedCls = rv > 0 ? ' r-pos' : rv < 0 ? ' r-neg' : '';
+        }
+        html += `<td class="${cls}${signedCls}">${v}</td>`;
+      });
+      html += '</tr>';
+    });
+    // Action row
+    html += `<tr><td></td>`;
+    rows.forEach(d => {
+      html += `<td><div class="action-row">
+        <a href="trade-ticket.html?sym=${d.sym}">🎯</a>
+        <a href="live-train.html?sym=${d.sym}">🎓</a>
+        <a href="ai-cotrader.html?sym=${d.sym}">🤖</a>
+      </div></td>`;
+    });
+    html += '</tr></tbody></table></div>';
+    document.getElementById('tableWrap').innerHTML = html;
+
+    // Charts
+    const ctx1 = document.getElementById('dayChart').getContext('2d');
+    if (dayChart) dayChart.destroy();
+    dayChart = new Chart(ctx1, {
+      type: 'bar',
+      data: { labels: rows.map(d => d.sym), datasets: [{ data: rows.map(d => d.q.changePct || 0), backgroundColor: rows.map(d => (d.q.changePct || 0) >= 0 ? 'rgba(16,185,129,0.7)' : 'rgba(239,68,68,0.7)') }] },
+      options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { ticks: { color: '#bbb', font: { family: 'JetBrains Mono', size: 11 } }, grid: { display: false } }, y: { ticks: { color: '#999', font: { family: 'JetBrains Mono' }, callback: v => v.toFixed(1) + '%' }, grid: { color: 'rgba(255,255,255,0.05)' } } } }
+    });
+    const ctx2 = document.getElementById('adjChart').getContext('2d');
+    if (adjChart) adjChart.destroy();
+    adjChart = new Chart(ctx2, {
+      type: 'bar',
+      data: { labels: rows.map(d => d.sym), datasets: [{ data: rows.map(d => d.adj), backgroundColor: rows.map(d => d.bias === 'bull' ? 'rgba(16,185,129,0.7)' : d.bias === 'bear' ? 'rgba(239,68,68,0.7)' : 'rgba(139,92,246,0.5)') }] },
+      options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { ticks: { color: '#bbb', font: { family: 'JetBrains Mono', size: 11 } }, grid: { display: false } }, y: { ticks: { color: '#999', font: { family: 'JetBrains Mono' }, callback: v => v.toFixed(2) }, grid: { color: 'rgba(255,255,255,0.05)' }, min: 0, max: 1.5 } } }
+    });
+  }
+
+  document.getElementById('btnRender').addEventListener('click', render);
+  document.getElementById('symList').addEventListener('keydown', e => { if (e.key === 'Enter') render(); });
+  document.getElementById('sortBy').addEventListener('change', render);
+
+  setTimeout(() => {
+    const syms = (document.getElementById('symList').value || '').split(',').map(s => s.trim().toUpperCase()).filter(Boolean);
+    syms.forEach(s => { if (typeof TA !== 'undefined') TA.warmup(s); });
+    render();
+  }, 500);
+  setInterval(render, 3000);
+})();
+</script>
+</body>
+</html>

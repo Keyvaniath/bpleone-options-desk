@@ -175,6 +175,78 @@ const BrainLoop = (function () {
     });
   }
 
+  // --- Outcome tracker: rate past findings against forward price moves ---
+  // Looks at "high-conviction-signal" findings from 30+ min ago, checks what the symbol did since,
+  // tags them with outcome ('hit' / 'miss' / 'flat') so we can compute hit-rate over time.
+  function tickOutcomes() {
+    if (typeof QUOTES === 'undefined') return;
+    const findings = loadFindings();
+    let changed = false;
+    findings.items.forEach(f => {
+      if (f.outcome) return; // already rated
+      if (f.type !== 'high-conviction-signal' && f.type !== 'confluence-6star') return;
+      const age = Date.now() - f.ts;
+      // Wait at least 30 min before rating
+      if (age < 30 * 60 * 1000) return;
+      const sym = f.meta && f.meta.sym;
+      const entryPx = f.meta && f.meta.last;
+      const bias = f.meta && f.meta.bias;
+      if (!sym || !entryPx || !bias) { f.outcome = 'unknown'; changed = true; return; }
+      const q = QUOTES[sym];
+      if (!q || !q.last) return;
+      const move = ((q.last - entryPx) / entryPx) * 100;
+      // Bias-adjusted: for short, positive R = price went DOWN
+      const signedMove = bias === 'short' ? -move : move;
+      // After 30+ min, rate as:
+      //   hit if signedMove ≥ 0.5%
+      //   miss if signedMove ≤ -0.5%
+      //   flat otherwise
+      let outcome;
+      if (signedMove >= 0.5) outcome = 'hit';
+      else if (signedMove <= -0.5) outcome = 'miss';
+      else outcome = 'flat';
+      f.outcome = outcome;
+      f.realizedPct = +signedMove.toFixed(2);
+      f.outcomeRatedAt = Date.now();
+      changed = true;
+    });
+    if (changed) saveFindings(findings);
+  }
+
+  // --- ML feedback: nudge per-symbol weight when outcome rated ---
+  function tickMLFeedback() {
+    if (typeof Learn === 'undefined' || !Learn.load) return;
+    const findings = loadFindings();
+    const state = loadState();
+    if (!state.fedFindings) state.fedFindings = {};
+    let nudged = 0;
+    findings.items.forEach(f => {
+      if (!f.outcome || f.outcome === 'unknown') return;
+      if (state.fedFindings[f.id]) return; // already fed back
+      const sym = f.meta && f.meta.sym;
+      const setup = f.meta && f.meta.setup;
+      if (!sym || !setup) return;
+      // Subtle nudge to per-symbol weight: +0.005 for hit, -0.005 for miss, 0 for flat
+      try {
+        const data = Learn.load();
+        if (!data.symbolWeights) data.symbolWeights = {};
+        if (!data.symbolWeights[sym]) data.symbolWeights[sym] = {};
+        const entry = data.symbolWeights[sym][setup] || { w: 1.0, n: 0, expectancy: 0 };
+        const delta = f.outcome === 'hit' ? 0.005 : f.outcome === 'miss' ? -0.005 : 0;
+        entry.w = Math.max(0.5, Math.min(1.6, entry.w + delta));
+        entry.n = (entry.n || 0) + 1;
+        data.symbolWeights[sym][setup] = entry;
+        try { localStorage.setItem('bpleone_learn_v1', JSON.stringify(data)); } catch (e) {}
+        state.fedFindings[f.id] = { ts: Date.now(), outcome: f.outcome, delta };
+        nudged++;
+      } catch (e) {}
+    });
+    if (nudged > 0) {
+      saveState(state);
+      emit('ml-feedback', 'low', 'ML feedback ran', `Adjusted ${nudged} per-symbol weights from outcome ratings (hit=+0.005, miss=-0.005)`, { nudged });
+    }
+  }
+
   // --- Hourly digest ---
   function tickHourlyDigest() {
     const findings = loadFindings();
@@ -195,6 +267,8 @@ const BrainLoop = (function () {
     setTimeout(() => { tickHighConviction(); timers.push(setInterval(tickHighConviction, 60 * 1000)); }, 5000);
     setTimeout(() => { tickWeightShift(); timers.push(setInterval(tickWeightShift, 5 * 60 * 1000)); }, 8000);
     setTimeout(() => { tickConfluence(); timers.push(setInterval(tickConfluence, 15 * 60 * 1000)); }, 12000);
+    // Outcome rating + ML feedback — every 5 min
+    setTimeout(() => { tickOutcomes(); tickMLFeedback(); timers.push(setInterval(() => { tickOutcomes(); tickMLFeedback(); }, 5 * 60 * 1000)); }, 15000);
     // Hourly digest aligned to clock minute :30
     const minToHalf = (90 - (new Date().getMinutes() * 60 + new Date().getSeconds()) % 3600 / 60) % 60;
     setTimeout(() => { tickHourlyDigest(); timers.push(setInterval(tickHourlyDigest, 60 * 60 * 1000)); }, Math.max(15000, minToHalf * 60 * 1000));
@@ -215,6 +289,6 @@ const BrainLoop = (function () {
     }
   }
 
-  return { start, stop, recent, clear, emit, tickHighConviction, tickWeightShift, tickConfluence };
+  return { start, stop, recent, clear, emit, tickHighConviction, tickWeightShift, tickConfluence, tickOutcomes, tickMLFeedback };
 })();
 if (typeof window !== 'undefined') window.BrainLoop = BrainLoop;
