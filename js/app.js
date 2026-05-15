@@ -86,7 +86,7 @@ function buildNav(activePage) {
   activePage = activePage || '';
   const playsGrp = ['totd','plays','signals','earnings','earnings-preview','pre-market','zero-dte','setup-wizard','paper-trade','game-plan','hot-movers','squeeze-radar','trade-plan'];
   const tradeGrp = ['flow','chain','ta','momentum','market-internals','smart-money','heatmap','watchlists','vol-surface','gex','tape','sectors','pairs','calendar-analyzer','vol-cone','dark-pool','short-interest','etf-flows','volume-profile','order-flow','ticker','multi-leg-builder','bracket-builder','spread-scanner','wheel','correlation'];
-  const toolsGrp = ['risk','fundamentals','backtester','edge','learn','crypto','journal','alerts','macro','news','screener','anomalies','assistant','ai-scout','portfolio-builder','position-sizing','execution','strategies','api','seasonality','economic-events','settings','mindset'];
+  const toolsGrp = ['risk','fundamentals','backtester','edge','learn','learn-engine-explained','crypto','journal','alerts','macro','news','screener','anomalies','assistant','ai-scout','portfolio-builder','position-sizing','execution','strategies','api','seasonality','economic-events','settings','mindset','changelog'];
   const isTrade = tradeGrp.indexOf(activePage) !== -1;
   const isPlays = playsGrp.indexOf(activePage) !== -1;
   const isTools = toolsGrp.indexOf(activePage) !== -1;
@@ -153,6 +153,7 @@ function buildNav(activePage) {
     + '<a href="alerts.html">🔔 Alerts</a>'
     + '<a href="edge-analytics.html">🧠 Edge Analytics</a>'
     + '<a href="learn-dashboard.html">🧠 Learn Dashboard <span class="feat-badge feat-new" style="font-size:8px;padding:0 5px;">NEW</span></a>'
+    + '<a href="learn-engine-explained.html">🧬 How the Brain Learns <span class="feat-badge feat-new" style="font-size:8px;padding:0 5px;">NEW</span></a>'
     + '<a href="mindset.html">🧘 Mindset Tracker <span class="feat-badge feat-new" style="font-size:8px;padding:0 5px;">NEW</span></a>'
     + '<a href="crypto.html">₿ Crypto Desk</a>'
     + '<a href="screener.html">🔎 Multi-Factor Screener</a>'
@@ -167,11 +168,13 @@ function buildNav(activePage) {
     + '<a href="economic-events.html">🏦 Economic Events</a>'
     + '<a href="api.html">🔌 API & Webhooks</a>'
     + '<a href="settings.html">⚙ Settings</a>'
+    + '<a href="changelog.html">📋 Changelog <span class="feat-badge feat-new" style="font-size:8px;padding:0 5px;">NEW</span></a>'
     + '</div></li>'
     + '<li><a href="education.html" class="' + (activePage==='education'?'active':'') + '">Education</a></li>'
     + '</ul>'
     + '<div class="nav-actions">'
     + '<a id="dataStatusPill" href="settings.html" title="Data feed status — click to configure" class="data-pill data-pill-mock"><span class="data-pill-dot"></span><span class="data-pill-label">MOCK</span></a>'
+    + '<form id="navSearchForm" class="nav-search" style="display:flex;align-items:center;gap:4px;background:var(--bg-elevated);border:1px solid var(--border);border-radius:8px;padding:3px 4px 3px 10px;"><span style="font-size:12px;color:var(--text-muted);">🔍</span><input id="navSearch" placeholder="Search symbol or page…" autocomplete="off" style="background:transparent;border:none;outline:none;color:var(--text-primary);font-size:12px;width:160px;font-family:inherit;text-transform:uppercase;"></form>'
     + '<button id="cmdkBtn" title="Search & navigate (⌘K)" class="btn btn-ghost" style="padding:6px 10px;font-size:11px;font-family:var(--font-mono);">⌘K</button>'
     + '<button id="themeBtn" title="Toggle theme" class="btn btn-ghost" style="padding:6px 10px;">🌓</button>'
     + '<button id="notifyBtn" title="Enable signal alerts" class="btn btn-ghost" style="padding:6px 10px;">🔔</button>'
@@ -185,6 +188,20 @@ function buildNav(activePage) {
   wireDataPill();
   const cmdkBtn = document.getElementById('cmdkBtn');
   if (cmdkBtn && window.CmdPalette) cmdkBtn.addEventListener('click', () => CmdPalette.open());
+  // Wire nav search: short ticker (1-5 chars) → ticker.html, otherwise open ⌘K
+  const navSearchForm = document.getElementById('navSearchForm');
+  if (navSearchForm) {
+    navSearchForm.addEventListener('submit', e => {
+      e.preventDefault();
+      const v = (document.getElementById('navSearch').value || '').trim().toUpperCase();
+      if (!v) return;
+      if (/^[A-Z]{1,6}(\.[A-Z]+)?$/.test(v)) {
+        location.href = 'ticker.html?sym=' + v;
+      } else {
+        if (window.CmdPalette) { CmdPalette.open(); setTimeout(() => { const i = document.querySelector('.cmdk-input'); if (i) { i.value = v; i.dispatchEvent(new Event('input', { bubbles: true })); } }, 50); }
+      }
+    });
+  }
   const themeBtn = document.getElementById('themeBtn');
   if (themeBtn) {
     const sync = () => {
@@ -340,6 +357,8 @@ function buildFooter() {
     + '<li><a href="assistant.html">AI Assistant</a></li>'
     + '<li><a href="ai-scout.html">AI Scout</a></li>'
     + '<li><a href="mindset.html">Mindset</a></li>'
+    + '<li><a href="learn-engine-explained.html">How it Learns</a></li>'
+    + '<li><a href="changelog.html">Changelog</a></li>'
     + '<li><a href="portfolio-builder.html">Portfolio</a></li>'
     + '<li><a href="position-sizing.html">Sizing</a></li>'
     + '<li><a href="execution.html">Execution</a></li>'

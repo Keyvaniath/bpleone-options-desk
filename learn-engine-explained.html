@@ -1,0 +1,301 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>How the Brain Learns — bpleone / trade</title>
+<meta name="description" content="Plain-English explainer of the bpleone self-training engine: how trades get logged, how setup weights adjust, and how to train it.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.phase-card { padding: 22px 26px; background: var(--bg-elevated); border-radius: 14px; border-left: 5px solid var(--accent); margin-bottom: 16px; }
+.phase-card.green { border-left-color: var(--green); }
+.phase-card.yellow { border-left-color: var(--yellow); }
+.phase-card.purple { border-left-color: #a78bfa; }
+.phase-card h3 { margin: 0 0 6px; font-size: 19px; }
+.phase-num { font-family: var(--font-mono); font-size: 11px; color: var(--text-muted); letter-spacing: 0.6px; text-transform: uppercase; }
+.phase-card .body { font-size: 14px; color: var(--text-secondary); line-height: 1.75; }
+.phase-card pre { background: var(--bg-secondary); padding: 12px 16px; border-radius: 8px; font-family: var(--font-mono); font-size: 12px; overflow-x: auto; color: var(--text-primary); margin: 12px 0; line-height: 1.6; }
+.phase-card code { background: var(--bg-secondary); padding: 1px 6px; border-radius: 3px; font-family: var(--font-mono); font-size: 12px; }
+.example-box { padding: 14px 18px; background: rgba(0,212,255,0.06); border: 1px solid rgba(0,212,255,0.3); border-radius: 10px; margin: 10px 0; font-size: 13px; line-height: 1.7; }
+.diagram { background: var(--bg-secondary); border-radius: 12px; padding: 28px; text-align: center; margin: 18px 0; }
+.dia-row { display: flex; gap: 14px; align-items: center; justify-content: center; flex-wrap: wrap; margin-bottom: 10px; }
+.dia-box { padding: 12px 18px; background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 8px; min-width: 140px; }
+.dia-box .icon { font-size: 22px; }
+.dia-box .name { font-size: 12px; font-weight: 700; margin-top: 4px; }
+.dia-box .sub { font-size: 10px; color: var(--text-muted); margin-top: 2px; }
+.dia-arrow { font-size: 22px; color: var(--accent); }
+.cta-card { padding: 22px 26px; background: linear-gradient(135deg, rgba(16,185,129,0.12), rgba(0,212,255,0.08)); border: 1px solid rgba(16,185,129,0.35); border-radius: 14px; text-align: center; }
+.cta-card h3 { margin: 0 0 8px; font-size: 20px; }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">🧠 How the Brain Learns</div>
+      <div class="page-subtitle">The bpleone self-training engine, in plain English · <span id="market-clock">--</span></div>
+    </div>
+    <div class="flex gap-8">
+      <a href="learn-dashboard.html" class="btn btn-secondary">🧠 See what it learned</a>
+      <a href="edge-analytics.html" class="btn btn-ghost">📊 Numerical view</a>
+    </div>
+  </div>
+
+  <!-- TL;DR -->
+  <div class="live-banner">
+    <span class="icon">📌</span>
+    <div><strong>TL;DR.</strong> Every trade you close is logged. The system computes <code>R = P&amp;L / stop-distance</code>, then adjusts setup weights by realized expectancy. Multipliers split by sector × day-of-week × hold band × VIX regime. After ~50 closed trades the weights are personalized to <em>your</em> edge. Surfaces as <strong>learn-adjusted scores</strong> on every Play, Signal, Trade-of-the-Day, and AI Scout idea.</div>
+  </div>
+
+  <!-- The pipeline diagram -->
+  <div class="card mb-24">
+    <div class="card-header"><div class="card-title">🔁 The Learning Pipeline</div></div>
+    <div class="diagram">
+      <div class="dia-row">
+        <div class="dia-box"><div class="icon">📝</div><div class="name">Log Trade</div><div class="sub">Journal / Paper / Wizard</div></div>
+        <span class="dia-arrow">→</span>
+        <div class="dia-box"><div class="icon">📊</div><div class="name">Close + R-Multiple</div><div class="sub">P/L ÷ stop dist</div></div>
+        <span class="dia-arrow">→</span>
+        <div class="dia-box"><div class="icon">⚖</div><div class="name">Rebalance Weights</div><div class="sub">setup × context</div></div>
+      </div>
+      <div class="dia-row">
+        <span class="dia-arrow">↑</span><span style="opacity:0.5;">feeds back</span><span class="dia-arrow">↑</span>
+      </div>
+      <div class="dia-row">
+        <div class="dia-box"><div class="icon">🎯</div><div class="name">Plays / Signals</div><div class="sub">show adjusted score</div></div>
+        <span class="dia-arrow">←</span>
+        <div class="dia-box"><div class="icon">🧮</div><div class="name">Score Application</div><div class="sub">raw × base × conditional</div></div>
+      </div>
+    </div>
+    <div style="font-size:13px;color:var(--text-muted);text-align:center;">Each cycle improves the next score. The longer you trade with it, the more personalized it gets.</div>
+  </div>
+
+  <!-- PHASE 1 -->
+  <div class="phase-card">
+    <div class="phase-num">Phase 1</div>
+    <h3>📝 Recording Every Trade</h3>
+    <div class="body">
+      <p>Every trade you ever close gets logged to your browser's <code>localStorage</code> under the key <code>bpleone_learn_v1</code>. The schema is dead simple:</p>
+      <pre>{
+  id: 't_1778..._abc',
+  ts: 1778788000000,          // open time
+  closedTs: 1778799600000,    // close time
+  symbol: 'NVDA',
+  setup: 'macd-cross',        // or 'bull-flag', 'cup-handle', etc.
+  sector: 'Semiconductors',
+  bias: 'bull',               // or 'bear'
+  vixRegime: 'low',           // captured at OPEN time
+  score: 78,                  // the raw score when entered
+  entry: 138.27,
+  stop: 133.80,
+  exit: 143.50,               // filled at this price
+  pnl: 521.00,
+  R: 1.17,                    // ← THE key metric: pnl / |entry − stop|
+  result: 'win',              // 'win' if R ≥ 0
+  holdDays: 1.3,
+  closeReason: 'target'       // 'target', 'stop', 'manual', 'trail'
+}</pre>
+      <p><strong>Where trades come from:</strong></p>
+      <ul style="line-height:1.9;font-size:13px;color:var(--text-secondary);">
+        <li><a href="paper-trade.html" style="color:var(--accent);">paper-trade.html</a> — auto-logs on every fill (closes are R-computed)</li>
+        <li><a href="journal.html" style="color:var(--accent);">journal.html</a> — manual entry with full fields</li>
+        <li><a href="setup-wizard.html" style="color:var(--accent);">setup-wizard.html</a> — guided 6-step builder</li>
+        <li><a href="trade-plan.html" style="color:var(--accent);">trade-plan.html</a> — "Save to Journal" button</li>
+      </ul>
+      <div class="example-box">
+        <strong>Seeded with 240 simulated trades</strong> so the system has signal from minute one. You can wipe with Settings → Reset → Edge Analytics, and start clean. Real trades dilute the seeds rapidly — after ~50 real closes, the weights start reflecting <em>your</em> edge.
+      </div>
+    </div>
+  </div>
+
+  <!-- PHASE 2 -->
+  <div class="phase-card green">
+    <div class="phase-num">Phase 2</div>
+    <h3>⚖ Base Setup Weights — Updated on Every Close</h3>
+    <div class="body">
+      <p>Each setup type accumulates a list of R-multiples from your closed trades. The base weight is then:</p>
+      <pre>weight = clamp(1 + avgR × 0.3, 0.5, 1.6)</pre>
+      <p>Three real worked examples:</p>
+      <div class="example-box">
+        <strong>macd-cross</strong> · 12 closed trades · sum of R = +7.2 · avg = <code>+0.60R</code><br>
+        weight = 1 + 0.60 × 0.3 = <strong style="color:var(--green);">1.18×</strong> (boost)
+      </div>
+      <div class="example-box">
+        <strong>bull-flag</strong> · 8 closed trades · sum of R = −2.4 · avg = <code>−0.30R</code><br>
+        weight = 1 + (−0.30) × 0.3 = <strong style="color:var(--yellow);">0.91×</strong> (slight fade)
+      </div>
+      <div class="example-box">
+        <strong>unusual-put</strong> · 5 closed trades · sum of R = −4.0 · avg = <code>−0.80R</code><br>
+        weight = 1 + (−0.80) × 0.3 = <strong style="color:var(--red);">0.76×</strong> (heavy fade)
+      </div>
+      <p>Clamped to <code>[0.5, 1.6]</code> so the system can amplify or dampen <strong>without flipping direction</strong>. A bad setup is faded, not made bullish; a good setup is boosted, not made infinite.</p>
+      <p>Triggered by: <code>Learn.closeTrade(id, exit, reason)</code> → automatically calls <code>Learn.rebalanceWeights()</code> after every close.</p>
+    </div>
+  </div>
+
+  <!-- PHASE 3 -->
+  <div class="phase-card yellow">
+    <div class="phase-num">Phase 3</div>
+    <h3>🎚 Conditional Weights — by Sector × DoW × Regime</h3>
+    <div class="body">
+      <p>Base weights tell you "macd-cross is good for me." Conditional weights tell you "macd-cross is good for me <em>in Tech on Tuesdays in low-VIX regimes</em>." The same math, partitioned:</p>
+      <pre>// 4 dimensions tracked simultaneously
+ctx = {
+  sector: 'Semiconductors',
+  dow:    'Tue',                // Mon/Tue/Wed/Thu/Fri
+  hold:   '1–3d',               // Intraday / 1-3d / 4-9d / 10-29d / 30d+
+  bias:   'bull',
+  regime: 'low'                 // low/normal/elevated/panic (VIX bucket)
+}
+
+// Per (setup × dim × bucket) with n ≥ 3:
+adj = clamp(1 + expectancy × 0.18, 0.7, 1.35)</pre>
+      <p>Conditional adjustments are <strong>gentler</strong> (0.18 vs base 0.30) and tighter-clamped — they refine the base, they don't flip it.</p>
+      <div class="example-box">
+        <strong>macd-cross in Tech</strong> — 14 trades, avg +0.9R<br>
+        → adj = 1 + 0.9 × 0.18 = <strong style="color:var(--green);">1.16×</strong>
+      </div>
+      <div class="example-box">
+        <strong>macd-cross on Friday</strong> — 6 trades, avg −0.4R<br>
+        → adj = 1 + (−0.4) × 0.18 = <strong style="color:var(--yellow);">0.93×</strong>
+      </div>
+      <p>Triggered by: <code>Learn.rebalanceConditional()</code> — runs alongside <code>rebalanceWeights</code> after every close.</p>
+    </div>
+  </div>
+
+  <!-- PHASE 4 -->
+  <div class="phase-card purple">
+    <div class="phase-num">Phase 4</div>
+    <h3>🧮 Score Application — How the Brain Surfaces Insight</h3>
+    <div class="body">
+      <p>When a new setup appears (a momentum scan, an unusual call sweep, an AI Scout idea), the raw heuristic score gets multiplied by base × conditional:</p>
+      <pre>// Live code from learn.js
+function adjustedScoreCtx(rawScore, type, ctx) {
+  const base = state.weights[type] || 1.0;
+  let mult = base;
+  for (const dim in ctx) {
+    const adj = state.conditional[type]?.[dim]?.[ctx[dim]]?.adj;
+    if (adj) mult *= adj;
+  }
+  return clamp(0, 100, Math.round(rawScore × mult));
+}</pre>
+      <p><strong>Worked example</strong> — a fresh macd-cross signal on NVDA today:</p>
+      <pre>raw      = 72   (MACD bullish + 50DMA reclaim + 1.84× volume)
+base     = 1.18× (macd-cross has +0.6R avg in your history)
+sector   = 1.16× (Tech has been favored for this setup)
+dow      = 0.93× (Friday slightly worse)
+regime   = 1.06× (low-VIX regimes have edge for you)
+hold     = 1.04× (1-3d holds are your sweet spot)
+─────────────────
+final    = 72 × 1.18 × 1.16 × 0.93 × 1.06 × 1.04
+         = 95   (clamped to 100)</pre>
+      <p><strong>You see this score on:</strong> <a href="plays.html" style="color:var(--accent);">Plays of the Day</a>, <a href="signals.html" style="color:var(--accent);">Live Signals</a>, <a href="trade-of-the-day.html" style="color:var(--accent);">Trade of the Day</a>, <a href="ticker.html" style="color:var(--accent);">Ticker Focus</a>, <a href="ai-scout.html" style="color:var(--accent);">AI Scout</a> (Claude sees the learned weights and uses them in its reasoning), and <a href="trade-plan.html" style="color:var(--accent);">Trade Plan Generator</a>.</p>
+      <p>You can call it from the browser console anytime:</p>
+      <pre>Learn.explain('macd-cross', {
+  sector: 'Tech',
+  dow: 'Thu',
+  regime: 'low'
+});
+// → array of human-readable reasons + impact</pre>
+    </div>
+  </div>
+
+  <!-- HOW TO TRAIN IT -->
+  <div class="phase-card">
+    <div class="phase-num">Workflow</div>
+    <h3>🎯 How To Actually Train It</h3>
+    <div class="body">
+      <p>The brain only gets smart if you feed it. Here's the 4-week shakedown to get the weights tuned to your edge:</p>
+      <ol style="line-height:2;font-size:14px;color:var(--text-secondary);">
+        <li><strong>Week 1 — Paper trade aggressively.</strong> Hit <a href="paper-trade.html" style="color:var(--accent);">paper-trade.html</a> daily during market hours. Aim for 3-5 trades a day. Every close auto-logs.</li>
+        <li><strong>Week 2 — Add real (small) trades.</strong> If you find a setup with high learn-adjusted score and your discipline is clear, take it. Log it via <a href="journal.html" style="color:var(--accent);">journal.html</a> the moment you close.</li>
+        <li><strong>Week 3 — Audit the brain.</strong> Open <a href="learn-dashboard.html" style="color:var(--accent);">learn-dashboard.html</a> at week-end. Look at base weights — anything fading hard? Anything boosted? Match it against your gut.</li>
+        <li><strong>Week 4 — Trust + size up.</strong> By now you have ~80-100 closed trades. The conditional weights start telling you specific facts ("bull-flag on Mondays underperforms by 0.3R for me"). Trust the brain, size up the high-score setups, fade the low-score ones.</li>
+      </ol>
+      <div class="example-box">
+        <strong>Rule of thumb on data volume:</strong><br>
+        • <strong>0-20 trades</strong> → ignore the score, you're still seeded<br>
+        • <strong>20-50 trades</strong> → base weights starting to matter<br>
+        • <strong>50-100 trades</strong> → base + sector + DoW have signal<br>
+        • <strong>100+ trades</strong> → all 4 dimensions reliable, this is YOUR edge model
+      </div>
+      <p><strong>What to journal carefully</strong>: setup type (use the dropdown — don't make up new ones), sector, entry, stop (this defines R!), exit, and close reason. The R-multiple is the entire engine — if you don't log the stop accurately, the system can't learn.</p>
+    </div>
+  </div>
+
+  <!-- DATA STORAGE / PRIVACY -->
+  <div class="phase-card">
+    <div class="phase-num">Privacy</div>
+    <h3>🔒 Where Your Data Lives</h3>
+    <div class="body">
+      <p>Everything is in your browser's <code>localStorage</code>. We don't have a backend, we don't see your trades, we don't track you. Your edge is yours.</p>
+      <pre>localStorage keys used by the learn engine:
+  bpleone_learn_v1        — trades + signals + weights + conditional
+  bpleone_journal         — manual journal entries
+  bpleone_paper_v1        — paper-trade positions & fills
+  bpleone_mindset_v1      — daily check-ins (sleep, tilt, etc.)
+  bpleone_watchlists      — your saved symbol lists
+  bpleone_alerts          — your custom alerts</pre>
+      <p><strong>Backup:</strong> Settings → Export / Reset → "Download Backup" → JSON file you can save anywhere.<br>
+      <strong>Restore:</strong> Same page → "Import Backup".<br>
+      <strong>Reset:</strong> Same page → Danger Zone → reset journal, learn, watchlists individually.</p>
+    </div>
+  </div>
+
+  <!-- THE BIG GOTCHA -->
+  <div class="phase-card yellow">
+    <div class="phase-num">Honest Caveat</div>
+    <h3>⚠ This is NOT a Black-Box ML Model</h3>
+    <div class="body">
+      <p>The bpleone "brain" is <strong>not</strong> a neural network. It's an expectancy-tracking heuristic with conditional bucketing. Here's what that means for you:</p>
+      <ul style="line-height:1.9;font-size:13px;color:var(--text-secondary);">
+        <li>✅ <strong>Transparent</strong> — every adjustment is auditable. Call <code>Learn.explain()</code> and you see the multipliers.</li>
+        <li>✅ <strong>Fast</strong> — scoring is microseconds. No model loading, no inference cost.</li>
+        <li>✅ <strong>Personalized</strong> — your trades shape your weights.</li>
+        <li>⚠ <strong>Doesn't discover novel patterns</strong> — it can't tell you "macd-cross combined with 200DMA reclaim AND > 2× volume" is better than either alone. It scores what you tell it to score.</li>
+        <li>⚠ <strong>Requires honest journaling</strong> — garbage in = garbage out. If your setups aren't labeled accurately, the weights drift to noise.</li>
+        <li>⚠ <strong>Doesn't backtest</strong> — it's forward-only. The seeded 240 trades are a cold start, not history.</li>
+      </ul>
+      <p>If you want true ML (gradient boosting, ensemble models, walk-forward analysis), that's a roadmap item. For now this engine is honest, fast, and personalized — which beats most retail "AI" products that just rebrand RSI as "neural pattern detection."</p>
+    </div>
+  </div>
+
+  <!-- CTA -->
+  <div class="cta-card mt-24">
+    <h3>🚀 Start training the brain today</h3>
+    <p style="color:var(--text-secondary);margin:0 0 14px;">Open paper-trade.html, take 3 setups, close them out. Then come back and check the learn dashboard. You'll see your weights move.</p>
+    <div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap;">
+      <a href="paper-trade.html" class="btn btn-primary btn-lg">🎮 Paper Trade Now</a>
+      <a href="learn-dashboard.html" class="btn btn-secondary btn-lg">🧠 See the Brain</a>
+      <a href="journal.html" class="btn btn-ghost btn-lg">📓 Open Journal</a>
+    </div>
+  </div>
+
+  <div class="related-bar mt-24">
+    <span class="lbl">Related →</span>
+    <a href="learn-dashboard.html">🧠 Learn Dashboard</a>
+    <a href="edge-analytics.html">📊 Edge Analytics</a>
+    <a href="journal.html">📓 Journal</a>
+    <a href="paper-trade.html">🎮 Paper Trade</a>
+    <a href="ai-scout.html">🤖 AI Scout</a>
+    <a href="settings.html">⚙ Settings</a>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script src="js/learn.js"></script>
+<script>buildNav('learn-engine-explained');</script>
+</body>
+</html>
