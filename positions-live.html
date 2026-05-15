@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Live Positions — bpleone / trade</title>
+<meta name="description" content="All open paper positions with live P&L, brain commentary, exit alerts. Quick-close any position.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.pos-card { background:var(--bg-elevated);border:1px solid var(--border);border-radius:12px;padding:18px;margin-bottom:12px;display:grid;grid-template-columns:80px 1fr 110px 110px 110px 120px;gap:18px;align-items:center; }
+.pos-card.win { border-left:4px solid var(--green); }
+.pos-card.loss { border-left:4px solid var(--red); }
+.pos-card.flat { border-left:4px solid var(--text-muted); }
+.pos-card .sym { font-family:var(--font-mono);font-size:22px;font-weight:800; }
+.pos-card .side { font-size:9px;font-weight:700;padding:2px 6px;border-radius:4px;text-transform:uppercase; }
+.pos-card .pnl-big { font-family:var(--font-mono);font-size:24px;font-weight:800;text-align:right; }
+.commentary { font-size:11px;color:var(--text-secondary);font-style:italic;margin-top:6px;line-height:1.5; }
+.new-pos { padding:18px;background:var(--bg-elevated);border-radius:12px;display:grid;grid-template-columns:1fr 90px 90px 90px 90px 60px;gap:12px;align-items:end; }
+.new-pos label { font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.4px;font-weight:700;margin-bottom:4px;display:block; }
+.new-pos input { width:100%;padding:8px 10px;background:var(--bg);border:1px solid var(--border);color:var(--text-primary);border-radius:6px;font-family:var(--font-mono);font-size:12px; }
+</style>
+</head>
+<body data-needs="live">
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">📊 Live Positions</div>
+      <div class="page-subtitle">All open paper positions · live P&amp;L · brain commentary · <span id="market-clock">--</span></div>
+    </div>
+    <div class="flex gap-8">
+      <button class="btn btn-ghost" id="closeAllBtn">🛑 Close all</button>
+      <button class="btn btn-ghost" id="exportBtn">📤 Export</button>
+    </div>
+  </div>
+
+  <div class="grid grid-4 mb-24">
+    <div class="card"><div class="card-header"><div class="card-title">Open positions</div></div><div class="mono" style="font-size:28px;font-weight:800;" id="kOpen">--</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">Total exposure</div></div><div class="mono" style="font-size:28px;font-weight:800;color:var(--accent);" id="kExp">--</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">Unrealized P&L</div></div><div class="mono" style="font-size:28px;font-weight:800;" id="kPnl">--</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">Day P&L</div></div><div class="mono" style="font-size:28px;font-weight:800;" id="kDay">--</div></div>
+  </div>
+
+  <div class="card mb-24">
+    <div class="card-header"><div class="card-title">➕ Open new position</div></div>
+    <div class="new-pos">
+      <div><label>Symbol</label><input type="text" id="newSym" placeholder="NVDA" style="text-transform:uppercase;"></div>
+      <div><label>Side</label><select id="newSide" style="width:100%;padding:8px 10px;background:var(--bg);border:1px solid var(--border);color:var(--text-primary);border-radius:6px;font-size:12px;"><option value="long">LONG</option><option value="short">SHORT</option></select></div>
+      <div><label>Entry $</label><input type="number" id="newEntry" placeholder="450"></div>
+      <div><label>Stop $</label><input type="number" id="newStop" placeholder="445"></div>
+      <div><label>Target $</label><input type="number" id="newTarget" placeholder="460"></div>
+      <div><button class="btn btn-primary" id="openBtn" style="width:100%;padding:10px 12px;">+ Open</button></div>
+    </div>
+  </div>
+
+  <div id="positions"></div>
+
+  <div class="card" id="emptyState" style="text-align:center;padding:50px;display:none;">
+    <div style="font-size:48px;margin-bottom:14px;">🌱</div>
+    <div style="font-size:14px;font-weight:600;margin-bottom:8px;">No open positions</div>
+    <div style="font-size:12px;color:var(--text-muted);">Use the form above to open a paper position, or let <a href="auto-paper.html" style="color:var(--accent);">Autopilot</a> open them based on brain signals.</div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script src="js/model.js"></script>
+<script>
+buildNav('positions-live');
+
+const POS_KEY = 'bpleone_positions_live_v1';
+function loadPos() { try { return JSON.parse(localStorage.getItem(POS_KEY) || '[]'); } catch(e) { return []; } }
+function savePos(p) { try { localStorage.setItem(POS_KEY, JSON.stringify(p)); } catch(e) {} }
+
+function fmt(ts) {
+  const diff = Date.now() - ts;
+  if (diff < 60000) return Math.floor(diff/1000) + 's';
+  if (diff < 3600000) return Math.floor(diff/60000) + 'm';
+  if (diff < 86400000) return Math.floor(diff/3600000) + 'h';
+  return Math.floor(diff/86400000) + 'd';
+}
+
+function getQ(sym) { return (typeof QUOTES !== 'undefined' && QUOTES[sym]) ? QUOTES[sym] : null; }
+
+function commentate(p, q) {
+  if (!q) return 'No live quote — open Settings to wire data feed.';
+  const cur = q.last;
+  const pnlPct = p.side === 'long' ? (cur - p.entry) / p.entry : (p.entry - cur) / p.entry;
+  const stopDist = p.side === 'long' ? (cur - p.stop) / p.entry : (p.stop - cur) / p.entry;
+  const targetDist = p.side === 'long' ? (p.target - cur) / p.entry : (cur - p.target) / p.entry;
+  if (pnlPct > 0.02) return '🟢 In the money. Trail stop to break-even if you haven\'t.';
+  if (pnlPct > 0 && targetDist < 0.005) return '🎯 Target within reach. Don\'t fall in love — book it.';
+  if (stopDist < 0.003) return '⚠ Stop is right there. Be ready to exit cleanly.';
+  if (pnlPct < -0.015) return '🟠 Underwater. Don\'t move the stop. Cut at the level you committed to.';
+  return 'On track. Plan holds.';
+}
+
+function render() {
+  const pos = loadPos();
+  document.getElementById('emptyState').style.display = pos.length === 0 ? 'block' : 'none';
+
+  let totalExp = 0, unrealized = 0, day = 0;
+  pos.forEach(p => {
+    const q = getQ(p.sym);
+    if (!q) return;
+    const cur = q.last;
+    const pnl = p.side === 'long' ? (cur - p.entry) * p.qty : (p.entry - cur) * p.qty;
+    totalExp += cur * p.qty;
+    unrealized += pnl;
+    if (q.changePct) day += (cur * p.qty) * (q.changePct / 100) * (p.side === 'long' ? 1 : -1);
+  });
+
+  document.getElementById('kOpen').textContent = pos.length;
+  document.getElementById('kExp').textContent = '$' + totalExp.toFixed(0);
+  document.getElementById('kPnl').textContent = (unrealized >= 0 ? '+' : '') + '$' + Math.abs(unrealized).toFixed(0);
+  document.getElementById('kPnl').style.color = unrealized > 0 ? 'var(--green)' : unrealized < 0 ? 'var(--red)' : 'var(--text-primary)';
+  document.getElementById('kDay').textContent = (day >= 0 ? '+' : '') + '$' + Math.abs(day).toFixed(0);
+  document.getElementById('kDay').style.color = day > 0 ? 'var(--green)' : day < 0 ? 'var(--red)' : 'var(--text-primary)';
+
+  const wrap = document.getElementById('positions');
+  wrap.innerHTML = pos.map(p => {
+    const q = getQ(p.sym);
+    const cur = q ? q.last : p.entry;
+    const pnl = p.side === 'long' ? (cur - p.entry) * p.qty : (p.entry - cur) * p.qty;
+    const pnlPct = p.side === 'long' ? (cur - p.entry) / p.entry : (p.entry - cur) / p.entry;
+    const cls = pnl > 0 ? 'win' : pnl < 0 ? 'loss' : 'flat';
+    const sideCol = p.side === 'long' ? '#10b981' : '#ef4444';
+    return '<div class="pos-card ' + cls + '">'
+      + '<div><div class="sym">' + p.sym + '</div><div class="side" style="background:' + sideCol + '20;color:' + sideCol + ';">' + p.side + '</div></div>'
+      + '<div><div style="font-size:12px;color:var(--text-secondary);font-family:var(--font-mono);">'
+        + 'Entry $' + p.entry.toFixed(2) + ' · ' + p.qty + ' shrs · opened ' + fmt(p.ts) + ' ago'
+        + '<br>Stop $' + p.stop.toFixed(2) + ' · Target $' + p.target.toFixed(2)
+      + '</div><div class="commentary">' + commentate(p, q) + '</div></div>'
+      + '<div style="font-family:var(--font-mono);font-size:14px;">' + (q ? '$' + cur.toFixed(2) : '—') + '<br><span style="font-size:11px;color:' + (q && q.changePct >= 0 ? 'var(--green)' : 'var(--red)') + ';">' + (q ? (q.changePct >= 0 ? '+' : '') + q.changePct.toFixed(2) + '%' : '') + '</span></div>'
+      + '<div class="pnl-big" style="color:' + (pnl > 0 ? 'var(--green)' : 'var(--red)') + ';">' + (pnl >= 0 ? '+' : '-') + '$' + Math.abs(pnl).toFixed(0) + '<br><span style="font-size:11px;">' + (pnlPct >= 0 ? '+' : '') + (pnlPct*100).toFixed(2) + '%</span></div>'
+      + '<div style="text-align:right;font-family:var(--font-mono);font-size:11px;color:var(--text-muted);">'
+        + 'R: ' + ((pnl) / (Math.abs(p.entry - p.stop) * p.qty) || 0).toFixed(2) + '<br>'
+        + 'Risk: $' + (Math.abs(p.entry - p.stop) * p.qty).toFixed(0)
+      + '</div>'
+      + '<div style="display:flex;flex-direction:column;gap:6px;">'
+        + '<a href="trade-coach.html?sym=' + p.sym + '" class="btn btn-ghost" style="padding:5px 10px;font-size:10px;">📋 Coach</a>'
+        + '<button class="btn btn-ghost close-btn" data-pid="' + p.id + '" style="padding:5px 10px;font-size:10px;color:var(--red);">✗ Close</button>'
+      + '</div>'
+      + '</div>';
+  }).join('');
+
+  wrap.querySelectorAll('.close-btn').forEach(b => b.addEventListener('click', () => {
+    if (!confirm('Close this position?')) return;
+    const pid = b.dataset.pid;
+    const list = loadPos();
+    const p = list.find(x => x.id === pid);
+    if (!p) return;
+    const q = getQ(p.sym);
+    const exit = q ? q.last : p.entry;
+    const pnl = p.side === 'long' ? (exit - p.entry) * p.qty : (p.entry - exit) * p.qty;
+    // Log to journal
+    try {
+      const journal = JSON.parse(localStorage.getItem('bpleone_journal_pro_v1') || '[]');
+      journal.unshift({ id: 'j-' + Date.now(), ts: Date.now(), opened: p.ts, sym: p.sym, side: p.side, entry: p.entry, exit, qty: p.qty, pnl, source: 'live-positions' });
+      localStorage.setItem('bpleone_journal_pro_v1', JSON.stringify(journal));
+    } catch(e) {}
+    savePos(list.filter(x => x.id !== pid));
+    render();
+  }));
+}
+
+document.getElementById('openBtn').addEventListener('click', () => {
+  const sym = document.getElementById('newSym').value.trim().toUpperCase();
+  const side = document.getElementById('newSide').value;
+  const entry = parseFloat(document.getElementById('newEntry').value);
+  const stop = parseFloat(document.getElementById('newStop').value);
+  const target = parseFloat(document.getElementById('newTarget').value);
+  if (!sym || !entry || !stop) { alert('Need symbol, entry, and stop.'); return; }
+  const qty = Math.max(1, Math.round(1000 / Math.abs(entry - stop)));  // 1% bankroll risk
+  const list = loadPos();
+  list.unshift({ id: 'p-' + Date.now(), ts: Date.now(), sym, side, entry, stop, target: target || entry * (side === 'long' ? 1.02 : 0.98), qty });
+  savePos(list);
+  ['newSym','newEntry','newStop','newTarget'].forEach(id => document.getElementById(id).value = '');
+  render();
+});
+
+document.getElementById('closeAllBtn').addEventListener('click', () => {
+  if (!loadPos().length) return;
+  if (!confirm('Close ALL open positions?')) return;
+  savePos([]);
+  render();
+});
+
+document.getElementById('exportBtn').addEventListener('click', () => {
+  const pos = loadPos();
+  if (!pos.length) { alert('No positions to export.'); return; }
+  const lines = ['symbol,side,entry,stop,target,qty,opened'];
+  pos.forEach(p => lines.push([p.sym, p.side, p.entry, p.stop, p.target, p.qty, new Date(p.ts).toISOString()].join(',')));
+  const blob = new Blob([lines.join('\n')], { type: 'text/csv' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = 'positions-' + new Date().toISOString().slice(0,10) + '.csv';
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+});
+
+render();
+setInterval(render, 2000);
+</script>
+</body>
+</html>

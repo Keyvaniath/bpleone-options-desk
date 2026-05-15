@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Time-of-Day Brain — bpleone / trade</title>
+<meta name="description" content="When is the brain at its best? Hit rate by hour, day of week, market session. Actionable scheduling intel.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<style>
+.heatmap-cell { aspect-ratio:1.6;border-radius:4px;display:flex;align-items:center;justify-content:center;font-family:var(--font-mono);font-size:10px;font-weight:700;cursor:pointer;transition:transform 0.1s;position:relative; }
+.heatmap-cell:hover { transform:scale(1.06);z-index:2; }
+.callout-card { padding:18px;background:var(--bg-elevated);border-radius:10px;border-left:4px solid var(--accent); }
+.callout-card.good { border-left-color:var(--green); }
+.callout-card.bad  { border-left-color:var(--red); }
+.callout-card h4 { font-size:13px;font-weight:700;margin-bottom:6px; }
+.callout-card p { font-size:12px;color:var(--text-secondary);line-height:1.6; }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">⏰ Time-of-Day Brain</div>
+      <div class="page-subtitle">When does the brain crush? When does it bleed? Schedule your day around the data · <span id="market-clock">--</span></div>
+    </div>
+    <div class="flex gap-8">
+      <select id="metric" class="btn btn-secondary" style="background:var(--bg-elevated);border:1px solid var(--border);color:var(--text-primary);padding:8px 14px;">
+        <option value="hitRate">Hit rate</option>
+        <option value="expectancy">Expectancy (R)</option>
+        <option value="signals">Signal count</option>
+      </select>
+    </div>
+  </div>
+
+  <div class="grid grid-3 mb-24">
+    <div class="callout-card good" id="bestHour"><h4>⏰ Best hour</h4><p>--</p></div>
+    <div class="callout-card bad" id="worstHour"><h4>📉 Worst hour</h4><p>--</p></div>
+    <div class="callout-card" id="prime"><h4>💡 Prime session</h4><p>--</p></div>
+  </div>
+
+  <div class="card mb-24">
+    <div class="card-header"><div class="card-title">🗓 Hour × Day heatmap</div></div>
+    <div style="overflow-x:auto;padding:14px 0;">
+      <div style="min-width:560px;display:grid;grid-template-columns:60px repeat(24, 1fr);gap:3px;font-size:9px;">
+        <div></div>
+        <div style="font-size:8px;text-align:center;color:var(--text-muted);" id="hourLabels"></div>
+      </div>
+      <div id="heatmap" style="min-width:560px;display:grid;grid-template-columns:60px repeat(24, 1fr);gap:3px;font-size:9px;margin-top:8px;"></div>
+      <div style="display:flex;justify-content:center;gap:10px;margin-top:14px;font-size:10px;color:var(--text-muted);">
+        Worst <span style="display:inline-block;width:18px;height:14px;background:#ef4444;border-radius:2px;"></span>
+        <span style="display:inline-block;width:18px;height:14px;background:#f59e0b;border-radius:2px;"></span>
+        <span style="display:inline-block;width:18px;height:14px;background:#00d4ff;border-radius:2px;"></span>
+        <span style="display:inline-block;width:18px;height:14px;background:#10b981;border-radius:2px;"></span> Best
+      </div>
+    </div>
+  </div>
+
+  <div class="grid grid-2 mb-24">
+    <div class="card">
+      <div class="card-header"><div class="card-title">📊 Hit rate by hour (ET)</div></div>
+      <canvas id="hourChart" height="220"></canvas>
+    </div>
+    <div class="card">
+      <div class="card-header"><div class="card-title">📅 Hit rate by weekday</div></div>
+      <canvas id="dowChart" height="220"></canvas>
+    </div>
+  </div>
+
+  <div class="card mb-24">
+    <div class="card-header"><div class="card-title">🚦 Market session breakdown</div></div>
+    <canvas id="sessionChart" height="180"></canvas>
+  </div>
+
+  <div class="card">
+    <div class="card-header"><div class="card-title">💡 How to use this</div></div>
+    <div style="font-size:13px;color:var(--text-secondary);line-height:1.7;">
+      <strong>Find your prime window:</strong> If the brain is +25% better in the 10-11am hour, that's where you put the most attention. Skip trades outside your prime window.<br>
+      <strong>Avoid the dead zone:</strong> Most traders lose money in lunchtime chop. The brain might too — let the data tell you.<br>
+      <strong>Watch for weekend effects:</strong> Monday-after-Sunday-news and Friday-OPEX often skew the data.<br>
+      <strong>Sample size matters:</strong> A 100% hit rate from 2 trades is noise. Look for hours with at least 10+ trades before drawing conclusions.
+    </div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script src="js/model.js"></script>
+<script>
+buildNav('time-of-day-brain');
+
+function loadTrain() { try { return JSON.parse(localStorage.getItem('bpleone_train_v1') || '[]'); } catch(e) { return []; } }
+
+function compute() {
+  const train = loadTrain();
+  const byHour = Array(24).fill(0).map(() => ({ n:0, w:0, r:0 }));
+  const byDow = Array(7).fill(0).map(() => ({ n:0, w:0, r:0 }));
+  const byHourDow = {};
+  train.forEach(t => {
+    const d = new Date(t.ts);
+    const h = d.getHours();
+    const w = d.getDay();
+    const r = t.y === 1 ? (t.r || 1.5) : -1.0;
+    byHour[h].n++;
+    byHour[h].r += r;
+    if (t.y === 1) byHour[h].w++;
+    byDow[w].n++;
+    byDow[w].r += r;
+    if (t.y === 1) byDow[w].w++;
+    const k = w + '-' + h;
+    if (!byHourDow[k]) byHourDow[k] = { n:0, w:0, r:0 };
+    byHourDow[k].n++;
+    byHourDow[k].r += r;
+    if (t.y === 1) byHourDow[k].w++;
+  });
+  // Sessions
+  const sessions = {
+    'Pre-market (4-9:30am)': { hours:[4,5,6,7,8,9], data:{n:0,w:0,r:0} },
+    'Open (9:30-10:30)':     { hours:[10], data:{n:0,w:0,r:0} },
+    'Morning (10:30-12)':    { hours:[11], data:{n:0,w:0,r:0} },
+    'Midday (12-2)':         { hours:[12,13], data:{n:0,w:0,r:0} },
+    'PowerHour (2-3)':       { hours:[14], data:{n:0,w:0,r:0} },
+    'Close (3-4)':           { hours:[15], data:{n:0,w:0,r:0} },
+    'After-hours (4-8pm)':   { hours:[16,17,18,19], data:{n:0,w:0,r:0} },
+    'Overnight (8pm-4am)':   { hours:[20,21,22,23,0,1,2,3], data:{n:0,w:0,r:0} }
+  };
+  Object.values(sessions).forEach(s => {
+    s.hours.forEach(h => {
+      s.data.n += byHour[h].n;
+      s.data.w += byHour[h].w;
+      s.data.r += byHour[h].r;
+    });
+  });
+  return { byHour, byDow, byHourDow, sessions };
+}
+
+function metricFn(metric) {
+  return (cell) => {
+    if (cell.n === 0) return null;
+    if (metric === 'hitRate') return cell.w / cell.n;
+    if (metric === 'expectancy') return cell.r / cell.n;
+    if (metric === 'signals') return cell.n;
+    return 0;
+  };
+}
+
+function cellColor(v, metric) {
+  if (v == null) return 'var(--bg-elevated)';
+  if (metric === 'hitRate') {
+    if (v >= 0.7) return '#10b981';
+    if (v >= 0.55) return '#84cc16';
+    if (v >= 0.45) return '#00d4ff';
+    if (v >= 0.35) return '#f59e0b';
+    return '#ef4444';
+  }
+  if (metric === 'expectancy') {
+    if (v >= 0.5) return '#10b981';
+    if (v >= 0.2) return '#84cc16';
+    if (v >= -0.2) return '#00d4ff';
+    if (v >= -0.5) return '#f59e0b';
+    return '#ef4444';
+  }
+  if (metric === 'signals') {
+    if (v >= 10) return '#10b981';
+    if (v >= 5) return '#00d4ff';
+    if (v >= 2) return '#f59e0b';
+    return '#ef4444';
+  }
+}
+
+function render() {
+  const metric = document.getElementById('metric').value;
+  const { byHour, byDow, byHourDow, sessions } = compute();
+  const fn = metricFn(metric);
+
+  // Best/worst hour
+  const hourScores = byHour.map((c, h) => ({ h, v: fn(c), n: c.n })).filter(x => x.n >= 3);
+  const sortedH = [...hourScores].sort((a, b) => (b.v || 0) - (a.v || 0));
+  if (sortedH.length > 0) {
+    document.getElementById('bestHour').querySelector('p').textContent = sortedH[0].h + ':00 — ' + (metric === 'hitRate' ? (sortedH[0].v*100).toFixed(0) + '% hit' : metric === 'expectancy' ? (sortedH[0].v >= 0 ? '+' : '') + sortedH[0].v.toFixed(2) + 'R' : sortedH[0].v + ' signals') + ' (n=' + sortedH[0].n + ')';
+    const worst = sortedH[sortedH.length - 1];
+    document.getElementById('worstHour').querySelector('p').textContent = worst.h + ':00 — ' + (metric === 'hitRate' ? (worst.v*100).toFixed(0) + '% hit' : metric === 'expectancy' ? (worst.v >= 0 ? '+' : '') + worst.v.toFixed(2) + 'R' : worst.v + ' signals') + ' (n=' + worst.n + ')';
+  } else {
+    document.getElementById('bestHour').querySelector('p').textContent = 'Not enough data yet.';
+    document.getElementById('worstHour').querySelector('p').textContent = 'Not enough data yet.';
+  }
+  // Prime session
+  const sessArr = Object.entries(sessions).map(([n, s]) => ({ n, v: fn(s.data), count: s.data.n })).filter(s => s.count >= 3);
+  const primeSess = sessArr.sort((a, b) => (b.v || 0) - (a.v || 0))[0];
+  document.getElementById('prime').querySelector('p').textContent = primeSess ? primeSess.n + ' · ' + (metric === 'hitRate' ? (primeSess.v*100).toFixed(0) + '%' : metric === 'expectancy' ? (primeSess.v >= 0 ? '+' : '') + primeSess.v.toFixed(2) + 'R' : primeSess.v) : 'Not enough data yet.';
+
+  // Hour labels (above heatmap)
+  document.getElementById('hourLabels').style.gridColumn = 'span 24';
+  document.getElementById('hourLabels').innerHTML = ''; // we'll just embed labels in cells
+
+  // Heatmap
+  const dowNames = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+  let html = '';
+  for (let w = 1; w <= 5; w++) {  // Mon-Fri
+    html += '<div style="font-size:10px;color:var(--text-muted);align-self:center;text-align:right;padding-right:8px;font-weight:700;">' + dowNames[w] + '</div>';
+    for (let h = 0; h < 24; h++) {
+      const cell = byHourDow[w + '-' + h] || { n:0, w:0, r:0 };
+      const v = fn(cell);
+      html += '<div class="heatmap-cell" style="background:' + cellColor(v, metric) + ';color:' + (v != null ? '#fff' : 'var(--text-muted)') + ';" title="' + dowNames[w] + ' ' + h + ':00 · n=' + cell.n + (v != null ? ' · ' + (metric === 'hitRate' ? (v*100).toFixed(0) + '%' : v.toFixed(2)) : '') + '">'
+        + (cell.n > 0 ? (metric === 'signals' ? cell.n : (metric === 'hitRate' ? (v*100).toFixed(0) : v.toFixed(1))) : '·')
+        + '</div>';
+    }
+  }
+  document.getElementById('heatmap').innerHTML = html;
+
+  // Hour chart
+  if (window._hourChart) window._hourChart.destroy();
+  window._hourChart = new Chart(document.getElementById('hourChart'), {
+    type: 'bar',
+    data: {
+      labels: Array(24).fill(0).map((_,h) => h + ':00'),
+      datasets: [{ data: byHour.map(c => fn(c) === null ? null : (metric === 'hitRate' ? fn(c)*100 : fn(c))), backgroundColor: byHour.map(c => cellColor(fn(c), metric)) }]
+    },
+    options: { responsive:true, maintainAspectRatio:false, plugins:{legend:{display:false}}, scales:{x:{ticks:{color:'#888',maxRotation:0},grid:{display:false}},y:{ticks:{color:'#888'},grid:{color:'#222'}}} }
+  });
+
+  // DoW chart
+  if (window._dowChart) window._dowChart.destroy();
+  window._dowChart = new Chart(document.getElementById('dowChart'), {
+    type: 'bar',
+    data: {
+      labels: dowNames,
+      datasets: [{ data: byDow.map(c => fn(c) === null ? null : (metric === 'hitRate' ? fn(c)*100 : fn(c))), backgroundColor: byDow.map(c => cellColor(fn(c), metric)) }]
+    },
+    options: { responsive:true, maintainAspectRatio:false, plugins:{legend:{display:false}}, scales:{x:{ticks:{color:'#888'},grid:{display:false}},y:{ticks:{color:'#888'},grid:{color:'#222'}}} }
+  });
+
+  // Session chart
+  if (window._sessChart) window._sessChart.destroy();
+  window._sessChart = new Chart(document.getElementById('sessionChart'), {
+    type: 'bar',
+    data: {
+      labels: Object.keys(sessions),
+      datasets: [{ data: Object.values(sessions).map(s => fn(s.data) === null ? null : (metric === 'hitRate' ? fn(s.data)*100 : fn(s.data))), backgroundColor: Object.values(sessions).map(s => cellColor(fn(s.data), metric)) }]
+    },
+    options: { indexAxis:'y', responsive:true, maintainAspectRatio:false, plugins:{legend:{display:false}}, scales:{x:{ticks:{color:'#888'},grid:{color:'#222'}},y:{ticks:{color:'#888'},grid:{display:false}}} }
+  });
+}
+
+document.getElementById('metric').addEventListener('change', render);
+render();
+</script>
+</body>
+</html>

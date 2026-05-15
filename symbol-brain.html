@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Symbol Brain — bpleone / trade</title>
+<meta name="description" content="Everything the brain knows about one symbol: history, predictions, hit rate, drift, best setups.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<style>
+.sym-hero { background:linear-gradient(135deg, rgba(0,212,255,0.08), rgba(167,139,250,0.04));border:1px solid rgba(0,212,255,0.25);border-radius:14px;padding:32px;display:grid;grid-template-columns:1fr 1fr;gap:24px;align-items:center;margin-bottom:24px; }
+.sym-hero .big { font-family:var(--font-mono);font-size:64px;font-weight:800;line-height:1; }
+.sym-hero .verdict { font-size:14px;font-weight:700;text-transform:uppercase;letter-spacing:0.6px;margin-top:14px; }
+.kpi-tile { padding:14px;background:var(--bg-elevated);border-radius:10px;text-align:center; }
+.kpi-tile .lbl { font-size:9px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px; }
+.kpi-tile .val { font-family:var(--font-mono);font-size:22px;font-weight:800;margin-top:4px; }
+.feed-row { display:grid;grid-template-columns:80px 100px 1fr 90px;gap:10px;padding:9px 0;border-bottom:1px solid var(--border);font-size:11px;font-family:var(--font-mono);align-items:center; }
+.feed-row .ts { color:var(--text-muted); }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">🧬 Symbol Brain</div>
+      <div class="page-subtitle">Per-symbol model deep-dive · history, predictions, hit rate, drift · <span id="market-clock">--</span></div>
+    </div>
+    <div class="flex gap-8">
+      <input type="text" id="symInput" placeholder="Enter symbol..." style="padding:8px 14px;background:var(--bg-elevated);border:1px solid var(--border);color:var(--text-primary);border-radius:6px;font-family:var(--font-mono);font-size:14px;text-transform:uppercase;width:120px;">
+      <button class="btn btn-primary" id="loadBtn">🔍 Load</button>
+    </div>
+  </div>
+
+  <div id="content"></div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script src="js/model.js"></script>
+<script>
+buildNav('symbol-brain');
+
+function getSymFromURL() { try { return new URLSearchParams(window.location.search).get('sym'); } catch(e) { return null; } }
+
+function loadTrain() { try { return JSON.parse(localStorage.getItem('bpleone_train_v1') || '[]'); } catch(e) { return []; } }
+function loadFindings() { try { return JSON.parse(localStorage.getItem('bpleone_brain_findings_v1') || '{"items":[]}').items; } catch(e) { return []; } }
+function loadLearn() { try { return JSON.parse(localStorage.getItem('bpleone_learn_v1') || '{}'); } catch(e) { return {}; } }
+
+function analyze(sym) {
+  const train = loadTrain().filter(t => t.meta?.sym === sym);
+  const findings = loadFindings().filter(f => f.meta?.sym === sym);
+  const learn = loadLearn();
+  const w = (learn.symbols && learn.symbols[sym] && learn.symbols[sym].w) || 1.0;
+  const wins = train.filter(t => t.y === 1).length;
+  const n = train.length;
+  const hitRate = n > 0 ? wins / n : null;
+  const totalR = train.reduce((a, t) => a + (t.y === 1 ? (t.r || 1.5) : -1.0), 0);
+  const avgR = n > 0 ? totalR / n : null;
+  // Avg ML prob
+  const probs = train.map(t => { try { return window.predictForFinding ? window.predictForFinding(t).prob : null; } catch(e){return null;} }).filter(Boolean);
+  const avgProb = probs.length > 0 ? probs.reduce((a,b)=>a+b,0)/probs.length : 0;
+  // Drift: recent 14d vs lifetime
+  const recent = train.filter(t => Date.now() - t.ts < 14 * 86400000);
+  const recentHit = recent.length > 0 ? recent.filter(t => t.y === 1).length / recent.length : null;
+  const drift = (recentHit != null && hitRate != null) ? recentHit - hitRate : null;
+  // By setup
+  const bySetup = {};
+  train.forEach(t => {
+    const s = t.meta?.setup || 'unknown';
+    if (!bySetup[s]) bySetup[s] = { n: 0, w: 0, r: 0 };
+    bySetup[s].n++;
+    if (t.y === 1) { bySetup[s].w++; bySetup[s].r += (t.r || 1.5); }
+    else bySetup[s].r -= 1.0;
+  });
+  // Current pending findings
+  const recent6h = findings.filter(f => Date.now() - f.ts < 6 * 3600 * 1000);
+  const live = recent6h.map(f => {
+    let prob = null; try { if (window.predictForFinding) { const p = window.predictForFinding(f); prob = p ? p.prob : null; } } catch(e) {}
+    return { ...f, prob };
+  });
+  return { train, findings, n, hitRate, totalR, avgR, avgProb, drift, recentHit, bySetup, live, weight: w };
+}
+
+function render(sym) {
+  const wrap = document.getElementById('content');
+  if (!sym) {
+    wrap.innerHTML = '<div class="card" style="text-align:center;padding:60px;color:var(--text-muted);font-size:14px;">Enter a symbol above to see what the brain knows about it.</div>';
+    return;
+  }
+  document.getElementById('symInput').value = sym;
+  history.replaceState(null, '', '?sym=' + sym);
+  const a = analyze(sym);
+  const q = (typeof QUOTES !== 'undefined' && QUOTES[sym]) ? QUOTES[sym] : null;
+
+  // Verdict
+  let verdict = '—', verdictCol = 'var(--text-muted)';
+  if (a.n >= 5) {
+    if (a.hitRate >= 0.65 && a.avgR > 0.3) { verdict = '🏆 BRAIN LOVES THIS — TRADE WITH SIZE'; verdictCol = 'var(--green)'; }
+    else if (a.hitRate >= 0.55) { verdict = '✓ Trustworthy on this symbol'; verdictCol = '#84cc16'; }
+    else if (a.hitRate >= 0.45) { verdict = '⚠ Mixed — coin-flip territory'; verdictCol = 'var(--yellow)'; }
+    else { verdict = '✗ BRAIN STRUGGLES HERE — AVOID OR HALF-SIZE'; verdictCol = 'var(--red)'; }
+  } else {
+    verdict = '🌱 Low sample size — keep gathering data';
+    verdictCol = '#a78bfa';
+  }
+
+  let html = '<div class="sym-hero">'
+    + '<div><div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:1px;">Symbol</div>'
+      + '<div class="big">' + sym + '</div>'
+      + (q ? '<div style="font-size:14px;color:var(--text-secondary);margin-top:6px;font-family:var(--font-mono);">$' + q.last.toFixed(2) + ' <span style="color:' + (q.changePct >= 0 ? 'var(--green)' : 'var(--red)') + ';">' + (q.changePct >= 0 ? '+' : '') + q.changePct.toFixed(2) + '%</span></div>' : '')
+      + '<div class="verdict" style="color:' + verdictCol + ';">' + verdict + '</div></div>'
+    + '<div style="text-align:right;"><div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:1px;">Brain confidence on this symbol</div>'
+      + '<div style="font-family:var(--font-mono);font-size:48px;font-weight:800;color:var(--accent);margin-top:8px;">' + (a.avgProb*100).toFixed(0) + '%</div>'
+      + '<div style="font-size:11px;color:var(--text-muted);">avg across ' + a.train.length + ' trades</div></div>'
+    + '</div>';
+
+  // KPIs
+  html += '<div class="grid grid-4 mb-24">'
+    + '<div class="kpi-tile"><div class="lbl">Trades</div><div class="val">' + a.n + '</div></div>'
+    + '<div class="kpi-tile"><div class="lbl">Hit rate</div><div class="val" style="color:' + (a.hitRate >= 0.55 ? 'var(--green)' : a.hitRate >= 0.45 ? 'var(--text-primary)' : 'var(--red)') + ';">' + (a.hitRate != null ? (a.hitRate*100).toFixed(0) + '%' : '—') + '</div></div>'
+    + '<div class="kpi-tile"><div class="lbl">Avg R</div><div class="val" style="color:' + (a.avgR > 0 ? 'var(--green)' : 'var(--red)') + ';">' + (a.avgR != null ? (a.avgR >= 0 ? '+' : '') + a.avgR.toFixed(2) : '—') + '</div></div>'
+    + '<div class="kpi-tile"><div class="lbl">Learned weight</div><div class="val" style="color:' + (a.weight > 1.05 ? 'var(--green)' : a.weight < 0.95 ? 'var(--red)' : 'var(--text-primary)') + ';">' + a.weight.toFixed(2) + 'x</div></div>'
+    + '</div>';
+
+  // Drift + active signals
+  html += '<div class="grid grid-2 mb-24">';
+  html += '<div class="card"><div class="card-header"><div class="card-title">📊 Drift on this symbol</div></div>';
+  if (a.drift == null) html += '<div style="font-size:13px;color:var(--text-muted);padding:14px 0;">Need more trades to compute drift.</div>';
+  else {
+    const driftCol = Math.abs(a.drift) > 0.1 ? 'var(--yellow)' : 'var(--green)';
+    html += '<div style="font-family:var(--font-mono);font-size:36px;font-weight:800;color:' + driftCol + ';">' + (a.drift >= 0 ? '+' : '') + (a.drift * 100).toFixed(1) + '%</div>'
+      + '<div style="font-size:12px;color:var(--text-secondary);margin-top:6px;">Recent 14d hit (' + (a.recentHit*100).toFixed(0) + '%) vs lifetime (' + (a.hitRate*100).toFixed(0) + '%). '
+      + (Math.abs(a.drift) > 0.1 ? '<strong style="color:var(--yellow);">Significant — regime change?</strong>' : 'Stable.') + '</div>';
+  }
+  html += '</div>';
+
+  html += '<div class="card"><div class="card-header"><div class="card-title">📡 Active signals (last 6h)</div></div>';
+  if (a.live.length === 0) html += '<div style="font-size:13px;color:var(--text-muted);padding:14px 0;">No live signals right now.</div>';
+  else html += a.live.map(f => '<div class="feed-row">'
+    + '<div class="ts">' + (function(ts){ const d=Date.now()-ts; if(d<60000)return Math.floor(d/1000)+'s';if(d<3600000)return Math.floor(d/60000)+'m';return Math.floor(d/3600000)+'h'; })(f.ts) + ' ago</div>'
+    + '<div>' + (f.meta?.setup || 'signal') + '</div>'
+    + '<div style="color:var(--text-secondary);">' + (f.title || '') + '</div>'
+    + '<div style="color:' + (f.prob >= 0.7 ? 'var(--green)' : f.prob >= 0.5 ? 'var(--accent)' : 'var(--red)') + ';font-weight:700;">' + (f.prob != null ? (f.prob*100).toFixed(0) + '%' : '—') + '</div>'
+    + '</div>').join('');
+  html += '</div></div>';
+
+  // By setup
+  const setups = Object.entries(a.bySetup).filter(([,v]) => v.n >= 2).sort((a,b) => b[1].r/b[1].n - a[1].r/a[1].n);
+  if (setups.length > 0) {
+    html += '<div class="card mb-24"><div class="card-header"><div class="card-title">🎯 Best & worst setups on ' + sym + '</div></div>';
+    html += '<canvas id="setupChart" height="180"></canvas>';
+    html += '<div style="margin-top:12px;">' + setups.map(([s, v]) =>
+      '<div style="padding:7px 0;border-bottom:1px solid var(--border);display:grid;grid-template-columns:1fr 70px 70px 70px;gap:10px;font-size:12px;align-items:center;">'
+        + '<div><strong>' + s + '</strong></div>'
+        + '<div style="font-family:var(--font-mono);">' + v.n + ' trades</div>'
+        + '<div style="font-family:var(--font-mono);color:' + (v.w/v.n >= 0.55 ? 'var(--green)' : 'var(--red)') + ';">' + ((v.w/v.n)*100).toFixed(0) + '%</div>'
+        + '<div style="font-family:var(--font-mono);color:' + (v.r > 0 ? 'var(--green)' : 'var(--red)') + ';font-weight:700;">' + (v.r >= 0 ? '+' : '') + v.r.toFixed(1) + 'R</div>'
+      + '</div>'
+    ).join('') + '</div></div>';
+  }
+
+  // Action shortcuts
+  html += '<div class="card"><div class="card-header"><div class="card-title">⚡ Quick actions</div></div>'
+    + '<div class="grid grid-4" style="gap:10px;">'
+    + '<a href="trade-coach.html?sym=' + sym + '" class="btn btn-primary" style="text-align:center;">📋 Build Trade Plan</a>'
+    + '<a href="ticker.html?sym=' + sym + '" class="btn btn-secondary" style="text-align:center;">🔍 Focus View</a>'
+    + '<a href="options-chain.html?sym=' + sym + '" class="btn btn-secondary" style="text-align:center;">⛓ Options Chain</a>'
+    + '<a href="technical-analysis.html?sym=' + sym + '" class="btn btn-secondary" style="text-align:center;">📊 Technicals</a>'
+    + '</div></div>';
+
+  wrap.innerHTML = html;
+
+  if (setups.length > 0) {
+    if (window._setupChart) window._setupChart.destroy();
+    window._setupChart = new Chart(document.getElementById('setupChart'), {
+      type: 'bar',
+      data: { labels: setups.map(s => s[0]), datasets: [{ data: setups.map(s => s[1].r), backgroundColor: setups.map(s => s[1].r > 0 ? '#10b981' : '#ef4444') }] },
+      options: { indexAxis:'y', responsive:true, maintainAspectRatio:false, plugins:{legend:{display:false}}, scales:{x:{ticks:{color:'#888'},grid:{color:'#222'}},y:{ticks:{color:'#888'},grid:{display:false}}} }
+    });
+  }
+}
+
+document.getElementById('loadBtn').addEventListener('click', () => {
+  const s = document.getElementById('symInput').value.trim().toUpperCase();
+  if (s) render(s);
+});
+document.getElementById('symInput').addEventListener('keydown', e => {
+  if (e.key === 'Enter') document.getElementById('loadBtn').click();
+});
+
+const initial = getSymFromURL();
+if (initial) render(initial.toUpperCase());
+else render(null);
+</script>
+</body>
+</html>
