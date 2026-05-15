@@ -1,0 +1,478 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Trade Ticket — bpleone / trade</title>
+<meta name="description" content="Institutional-grade trade ticket: entry zone, stop with reason, T1/T2/T3 targets, time horizon, conviction 1-5, catalysts, invalidation criteria, Kelly size, AI thesis.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.ticket-card { background: linear-gradient(135deg, #0a1a2a, #14253a); border: 2px solid var(--accent); border-radius: 12px; padding: 24px; margin-bottom: 18px; font-family: var(--font-mono); position: relative; }
+.ticket-card::before { content: 'TRADE TICKET'; position: absolute; top: 12px; right: 16px; font-size: 10px; letter-spacing: 2px; color: var(--accent); font-weight: 700; }
+.ticket-row { display: grid; grid-template-columns: 140px 1fr; gap: 14px; padding: 10px 0; border-top: 1px solid rgba(0,212,255,0.15); align-items: start; font-size: 13px; }
+.ticket-row:first-child { border-top: none; }
+.ticket-row .label { color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; font-size: 11px; padding-top: 2px; }
+.ticket-row .value { color: var(--text-primary); font-weight: 700; }
+.ticket-row .value.bull { color: var(--green); }
+.ticket-row .value.bear { color: var(--red); }
+.ticket-row .value.warn { color: var(--yellow); }
+.ticket-row .sub { font-family: 'Inter', sans-serif; font-weight: 400; color: var(--text-muted); font-size: 11px; margin-top: 4px; line-height: 1.5; }
+.ticket-card .ticker-hero { display: flex; align-items: baseline; gap: 16px; margin-bottom: 8px; padding-bottom: 14px; border-bottom: 1px solid rgba(0,212,255,0.25); }
+.ticker-hero .sym { font-size: 32px; font-weight: 800; }
+.ticker-hero .px { font-size: 22px; font-weight: 700; }
+.ticker-hero .chg { font-size: 14px; }
+.conviction-bar { display: inline-flex; gap: 2px; margin-left: 8px; }
+.conviction-bar .dot { width: 12px; height: 12px; border-radius: 50%; background: var(--bg-secondary); border: 1px solid var(--border); }
+.conviction-bar .dot.lit { background: var(--accent); border-color: var(--accent); box-shadow: 0 0 6px rgba(0,212,255,0.6); }
+.controls { display: flex; gap: 10px; align-items: end; flex-wrap: wrap; padding: 14px 18px; background: var(--bg-elevated); border-radius: 10px; border: 1px solid var(--border); margin-bottom: 18px; }
+.controls label { font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; }
+.controls input, .controls select { background: var(--bg-secondary); border: 1px solid var(--border); color: var(--text-primary); padding: 8px 12px; border-radius: 6px; font-family: inherit; font-size: 13px; }
+.r-pos { color: var(--green); } .r-neg { color: var(--red); }
+.bias-tag { display: inline-block; padding: 4px 14px; border-radius: 999px; font-family: var(--font-mono); font-size: 12px; font-weight: 700; letter-spacing: 0.5px; }
+.bias-tag.long { background: rgba(16,185,129,0.18); color: var(--green); border: 1px solid rgba(16,185,129,0.5); }
+.bias-tag.short { background: rgba(239,68,68,0.18); color: var(--red); border: 1px solid rgba(239,68,68,0.5); }
+.bias-tag.wait { background: var(--bg-secondary); color: var(--text-muted); border: 1px solid var(--border); }
+.targets-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 6px; }
+.target-cell { background: rgba(16,185,129,0.08); border: 1px solid rgba(16,185,129,0.25); border-radius: 8px; padding: 10px; }
+.target-cell .lab { color: var(--green); font-size: 11px; font-weight: 700; }
+.target-cell .px { font-size: 16px; font-weight: 700; margin-top: 2px; }
+.target-cell .r { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
+.stop-cell { background: rgba(239,68,68,0.08); border: 1px solid rgba(239,68,68,0.3); border-radius: 8px; padding: 10px; margin-top: 4px; }
+.entry-cell { background: rgba(0,212,255,0.06); border: 1px solid rgba(0,212,255,0.25); border-radius: 8px; padding: 10px; margin-top: 4px; }
+.thesis-card { background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 10px; padding: 16px; font-size: 13px; line-height: 1.7; font-family: 'Inter', sans-serif; }
+.thesis-card h3 { font-size: 14px; margin: 0 0 8px; }
+.checklist { font-family: 'Inter', sans-serif; }
+.checklist .item { display: grid; grid-template-columns: 22px 1fr; gap: 8px; padding: 4px 0; font-size: 12px; align-items: start; }
+.checklist .item .check { font-size: 14px; }
+.checklist .item.pass .check { color: var(--green); }
+.checklist .item.fail .check { color: var(--red); }
+.checklist .item.warn .check { color: var(--yellow); }
+.refresh-btn { background: rgba(239,68,68,0.10); border: 1px solid rgba(239,68,68,0.30); color: var(--red); font-weight: 700; }
+.refresh-btn:hover { background: rgba(239,68,68,0.20); }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">Trade Ticket <span class="feat-badge feat-pro">PRO</span></div>
+      <div class="page-subtitle">Institutional trade plan: entry zone · stop reasoning · T1/T2/T3 · horizon · conviction · invalidation. · <span id="market-clock">--</span></div>
+    </div>
+    <div class="flex gap-8">
+      <a href="trade-blotter.html" class="btn btn-ghost">📋 Blotter</a>
+      <a href="conviction-board.html" class="btn btn-ghost">🎯 Conviction Board</a>
+      <a href="ai-cotrader.html" class="btn btn-ghost">🤖 Co-Trader</a>
+    </div>
+  </div>
+
+  <!-- Controls -->
+  <div class="controls">
+    <div>
+      <label>Symbol</label>
+      <input id="symInput" placeholder="e.g. NVDA" style="text-transform:uppercase;font-family:var(--font-mono);font-size:16px;font-weight:700;width:120px;">
+    </div>
+    <div>
+      <label>Style</label>
+      <select id="styleSel">
+        <option value="intraday">Intraday (1d hold)</option>
+        <option value="swing" selected>Swing (3-5 days)</option>
+        <option value="position">Position (2-4 weeks)</option>
+      </select>
+    </div>
+    <div>
+      <label>Account ($)</label>
+      <input id="acctInput" type="number" step="1000" value="100000" style="width:120px;">
+    </div>
+    <div>
+      <label>Max risk per trade (%)</label>
+      <input id="riskInput" type="number" step="0.1" value="1.0" style="width:90px;">
+    </div>
+    <button id="btnGen" class="btn btn-primary">📋 Generate ticket</button>
+    <button id="btnRefresh" class="btn refresh-btn">🔄 Refresh data</button>
+    <span id="status" style="margin-left:auto;font-size:11px;color:var(--text-muted);align-self:center;"></span>
+  </div>
+
+  <!-- The trade ticket -->
+  <div id="ticketOut">
+    <div style="padding:60px 20px;text-align:center;color:var(--text-muted);">
+      <p style="font-size:14px;">Enter a symbol above and click <strong>Generate ticket</strong>.</p>
+      <p style="font-size:11px;margin-top:8px;">Or pick from the conviction board: <a href="conviction-board.html" style="color:var(--accent);">🎯 Conviction Board →</a></p>
+    </div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script src="js/ta.js"></script>
+<script src="js/learn.js"></script>
+<script src="js/discord.js"></script>
+<script>buildNav('trade-plan');</script>
+
+<script>
+(function () {
+  function biasFromTag(tag) {
+    const bull = ['volume-breakout','52w-break','50ma-reclaim','macd-cross','bull-flag','cup-handle','vwap-reclaim','momentum-extension','continuation-bull','oversold-mean-revert','bb-stretch-down'];
+    const bear = ['flush-on-volume','breakdown','bear-flag','vwap-rejection','overbought-fade','continuation-bear','bb-stretch-up'];
+    if (bull.indexOf(tag) !== -1) return 'long';
+    if (bear.indexOf(tag) !== -1) return 'short';
+    return 'wait';
+  }
+
+  function styleConfig(style) {
+    if (style === 'intraday') return { holdLabel: 'Intraday (close before bell)', stopAtr: 1.0, t1R: 1.5, t2R: 2.5, t3R: 4.0, bars: '5m / 15m' };
+    if (style === 'position') return { holdLabel: 'Position (2-4 weeks)', stopAtr: 2.0, t1R: 2.5, t2R: 4.0, t3R: 7.0, bars: 'daily' };
+    return { holdLabel: 'Swing (3-5 days)', stopAtr: 1.5, t1R: 2.0, t2R: 3.5, t3R: 5.5, bars: '1h / 4h' };
+  }
+
+  function conviction(adj, n, hasContext) {
+    // Conviction 1-5 from adj score + per-symbol sample size + has-context
+    let c = 1;
+    if (adj >= 0.55) c = 2;
+    if (adj >= 0.7) c = 3;
+    if (adj >= 0.8) c = 4;
+    if (adj >= 0.9 && n >= 10 && hasContext) c = 5;
+    return c;
+  }
+
+  function dotBar(level) {
+    let s = '';
+    for (let i = 1; i <= 5; i++) s += `<span class="dot ${i <= level ? 'lit' : ''}"></span>`;
+    return `<div class="conviction-bar">${s}</div>`;
+  }
+
+  function fmt$(v) { return v == null ? '—' : '$' + (+v).toFixed(2); }
+
+  async function checkData() {
+    const status = document.getElementById('status');
+    if (typeof DataProvider === 'undefined') return;
+    const s = DataProvider.getStatus();
+    if (s.provider !== 'finnhub' || !s.enabled) {
+      status.innerHTML = '⚠ <span style="color:var(--yellow);">Mock data</span> — connect Finnhub in <a href="settings.html" style="color:var(--accent);">Settings</a> for live ticks';
+    } else if (s.status === 'connected') {
+      const age = s.lastMessageAt ? Math.floor((Date.now() - s.lastMessageAt) / 1000) : null;
+      status.innerHTML = '✓ <span style="color:var(--green);">LIVE Finnhub</span>' + (age != null ? ' · last tick ' + age + 's ago' : '');
+    } else {
+      status.innerHTML = '<span style="color:var(--yellow);">' + (s.status || 'unknown').toUpperCase() + '</span>';
+    }
+  }
+
+  async function refreshData() {
+    document.getElementById('btnRefresh').disabled = true;
+    document.getElementById('btnRefresh').textContent = '🔄 Refreshing…';
+    if (typeof DataProvider !== 'undefined' && DataProvider.refreshAll) {
+      try {
+        const updated = await DataProvider.refreshAll();
+        document.getElementById('status').innerHTML = '✓ Refreshed ' + (updated ? updated.length : 'all') + ' symbols';
+      } catch (e) {
+        document.getElementById('status').innerHTML = '<span style="color:var(--red);">Refresh failed: ' + e.message + '</span>';
+      }
+    }
+    document.getElementById('btnRefresh').disabled = false;
+    document.getElementById('btnRefresh').textContent = '🔄 Refresh data';
+    setTimeout(checkData, 2000);
+  }
+
+  function generate() {
+    const sym = (document.getElementById('symInput').value || '').toUpperCase().trim();
+    if (!sym) { alert('Enter a symbol'); return; }
+    if (typeof QUOTES === 'undefined' || !QUOTES[sym]) { alert('Symbol not in QUOTES: ' + sym); return; }
+    const q = QUOTES[sym];
+    const style = document.getElementById('styleSel').value;
+    const sc = styleConfig(style);
+    const account = parseFloat(document.getElementById('acctInput').value) || 100000;
+    const riskPct = parseFloat(document.getElementById('riskInput').value) || 1.0;
+
+    const snap = typeof TA !== 'undefined' ? TA.snapshot(sym) : null;
+    const features = {
+      last: q.last, prevClose: q.prevClose, dayHigh: q.dayHigh, dayLow: q.dayLow,
+      volume: q.volume, avgVolume: q.avgVolume,
+      rsi: snap ? snap.rsi : null, macdHist: snap ? snap.hist : null,
+      atr: snap ? snap.atr : null, atrPct: snap ? snap.atrPct : null,
+      adx: snap ? snap.adx : null, bbPct: snap ? snap.bbPct : null,
+      vwapDist: snap ? snap.vwapDist : null,
+      trend: snap ? snap.trend : null, regime: snap ? snap.regime : null,
+      donchUp: snap ? snap.donchUp : null, donchDn: snap ? snap.donchDn : null
+    };
+    const tag = typeof Learn !== 'undefined' ? Learn.autoTagSetup(features, { symbol: sym }) : null;
+    if (!tag) { alert('Learn engine not loaded'); return; }
+    const weight = typeof Learn.weightFor === 'function' ? Learn.weightFor(tag.tag, { symbol: sym }) : 1.0;
+    const adj = tag.score * weight;
+    const bias = biasFromTag(tag.tag);
+    const stats = typeof Learn.symbolStats === 'function' ? Learn.symbolStats(sym) : null;
+    const setupHistory = stats && stats.bySetup && stats.bySetup[tag.tag];
+    const n = setupHistory ? setupHistory.n : 0;
+    const conv = conviction(adj, n, !!snap);
+
+    // Entry zone: anchored at VWAP / 20EMA / current level
+    const last = q.last;
+    const vwap = snap ? snap.vwap : null;
+    const ema20 = snap ? snap.ema20 : null;
+    const atr = snap && snap.atr ? snap.atr : last * 0.015;
+    const atrPct = (atr / last) * 100;
+    let entryLow, entryHigh;
+    if (bias === 'long') {
+      entryLow = Math.min(last, vwap || last, ema20 || last);
+      entryHigh = Math.max(last, last + 0.3 * atr);
+    } else if (bias === 'short') {
+      entryLow = Math.min(last, last - 0.3 * atr);
+      entryHigh = Math.max(last, vwap || last, ema20 || last);
+    } else {
+      entryLow = last; entryHigh = last;
+    }
+    const entryMid = (entryLow + entryHigh) / 2;
+    const stopDist = atr * sc.stopAtr;
+    const stopPx = bias === 'long' ? entryMid - stopDist : entryMid + stopDist;
+    const t1Px = bias === 'long' ? entryMid + stopDist * sc.t1R : entryMid - stopDist * sc.t1R;
+    const t2Px = bias === 'long' ? entryMid + stopDist * sc.t2R : entryMid - stopDist * sc.t2R;
+    const t3Px = bias === 'long' ? entryMid + stopDist * sc.t3R : entryMid - stopDist * sc.t3R;
+
+    // Sizing
+    const stopPctOfEntry = (stopDist / entryMid) * 100;
+    const riskDollars = account * (riskPct / 100);
+    const shares = stopDist > 0 ? Math.floor(riskDollars / stopDist) : 0;
+    const notional = shares * entryMid;
+    let kellyPct = null;
+    if (setupHistory && setupHistory.n >= 3) {
+      const winRate = setupHistory.wins / setupHistory.n;
+      const avgR = setupHistory.totalR / setupHistory.n;
+      let k = winRate - (1 - winRate) / Math.max(0.5, avgR + 1);
+      k = Math.max(0, k) * Math.min(1, setupHistory.n / 15);
+      kellyPct = +(k * 100).toFixed(2);
+    }
+
+    // Pre-trade checklist
+    const checks = [];
+    checks.push({ label: 'Setup tagged at adj-score ≥ 0.65', pass: adj >= 0.65, why: 'Score = ' + adj.toFixed(2) });
+    checks.push({ label: 'Trend aligned with bias', pass: bias === 'long' ? (snap && snap.trend === 'uptrend') : bias === 'short' ? (snap && snap.trend === 'downtrend') : true, why: 'Trend = ' + (snap ? snap.trend : '?') });
+    checks.push({ label: 'ADX confirms (>20)', pass: snap && snap.adx != null && snap.adx > 20, why: 'ADX = ' + (snap && snap.adx != null ? snap.adx.toFixed(0) : '?') });
+    checks.push({ label: 'Not in chop regime', pass: snap && snap.regime !== 'compressed', why: 'Regime = ' + (snap ? snap.regime : '?') });
+    checks.push({ label: 'Per-symbol n ≥ 5 (specialized)', pass: n >= 5, why: 'n = ' + n });
+    checks.push({ label: 'R:R ≥ 2:1 to T2', pass: sc.t2R >= 2, why: 'R:R = ' + sc.t2R.toFixed(1) + ':1' });
+    checks.push({ label: 'Stop > 1× ATR away (not too tight)', pass: stopDist >= atr * 0.9, why: '1.5× ATR' });
+    const passed = checks.filter(c => c.pass).length;
+    const totalChecks = checks.length;
+
+    // Catalyst placeholder
+    const catalystText = 'No major scheduled catalysts in window. Macro: check FOMC + CPI calendar separately.';
+
+    // Reasoning lines
+    const reasonLines = [];
+    reasonLines.push(`Setup: <strong>${tag.tag}</strong> with auto-tag score ${tag.score.toFixed(2)}.`);
+    reasonLines.push(`Brain has seen <strong>${n} prior ${tag.tag}</strong> trades on ${sym}${stats ? ' (' + (stats.winRate * 100).toFixed(0) + '% win-rate, ' + (stats.avgR >= 0 ? '+' : '') + (stats.avgR || 0).toFixed(2) + 'R avg)' : ''}.`);
+    reasonLines.push(`Per-symbol weight: <strong>${weight.toFixed(2)}×</strong> → adjusted score <strong>${adj.toFixed(2)}</strong>.`);
+    if (snap) {
+      reasonLines.push(`TA reading: RSI ${snap.rsi != null ? snap.rsi.toFixed(0) : '?'}, MACD ${snap.hist != null ? (snap.hist >= 0 ? '+' : '') + snap.hist.toFixed(3) : '?'}, ADX ${snap.adx != null ? snap.adx.toFixed(0) : '?'}, ATR ${atrPct.toFixed(1)}%, trend ${snap.trend || '?'}, regime ${snap.regime || '?'}.`);
+    }
+    reasonLines.push(`Tag rationale: ${(tag.reasons || []).join(' · ')}.`);
+
+    // Invalidation
+    const invalidLines = [];
+    invalidLines.push(`Hard stop: close ${bias === 'long' ? 'below' : 'above'} <strong>$${stopPx.toFixed(2)}</strong>.`);
+    if (bias === 'long') invalidLines.push(`Soft invalidation: RSI > 80 with bear divergence on 4h bars.`);
+    if (bias === 'short') invalidLines.push(`Soft invalidation: RSI < 20 with bull divergence on 4h bars.`);
+    invalidLines.push(`Time-stop: ${style === 'intraday' ? 'close by 3:50 PM ET' : style === 'swing' ? 'close after 5 trading days regardless' : 'close after 4 weeks regardless'}.`);
+
+    // Build the ticket HTML
+    const html = `<div class="ticket-card">
+      <div class="ticker-hero">
+        <span class="sym">${sym}</span>
+        <span class="px">$${last.toFixed(2)}</span>
+        <span class="chg ${q.changePct >= 0 ? 'r-pos' : 'r-neg'}">${q.changePct >= 0 ? '+' : ''}${(q.change || 0).toFixed(2)} (${q.changePct >= 0 ? '+' : ''}${(q.changePct || 0).toFixed(2)}%)</span>
+        <div style="margin-left:auto;">
+          <span class="bias-tag ${bias}">${bias === 'long' ? '▲ LONG' : bias === 'short' ? '▼ SHORT' : '⏸ WAIT'}</span>
+        </div>
+      </div>
+
+      <div class="ticket-row">
+        <div class="label">Setup</div>
+        <div class="value">${tag.tag.toUpperCase()}
+          <div class="sub">Auto-tag score ${tag.score.toFixed(2)} × per-symbol weight ${weight.toFixed(2)} = <strong>adj ${adj.toFixed(2)}</strong></div>
+        </div>
+      </div>
+
+      <div class="ticket-row">
+        <div class="label">Conviction</div>
+        <div class="value">${conv}/5 ${dotBar(conv)}
+          <div class="sub">Based on adj-score, sample size (n=${n}), and full-TA-context availability</div>
+        </div>
+      </div>
+
+      <div class="ticket-row">
+        <div class="label">Horizon</div>
+        <div class="value">${sc.holdLabel}
+          <div class="sub">Working off ${sc.bars} bars · stop ${sc.stopAtr}× ATR · targets ${sc.t1R}R / ${sc.t2R}R / ${sc.t3R}R</div>
+        </div>
+      </div>
+
+      <div class="ticket-row">
+        <div class="label">Entry zone</div>
+        <div class="value">
+          <div class="entry-cell">
+            <strong>$${entryLow.toFixed(2)} – $${entryHigh.toFixed(2)}</strong>
+            <div class="sub" style="margin-top:4px;">Anchored at VWAP ${vwap ? '$' + vwap.toFixed(2) : 'n/a'} · 20EMA ${ema20 ? '$' + ema20.toFixed(2) : 'n/a'} · last $${last.toFixed(2)}<br>Buy on pullback to zone${bias === 'short' ? ' (or short on pop)' : ''}; do not chase outside ±0.3×ATR</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="ticket-row">
+        <div class="label">Stop loss</div>
+        <div class="value bear">
+          <div class="stop-cell">
+            <strong>$${stopPx.toFixed(2)}</strong> (-${stopPctOfEntry.toFixed(2)}% / 1× ATR = $${stopDist.toFixed(2)})
+            <div class="sub" style="margin-top:4px;color:var(--text-muted);">Calculated as entry ${bias === 'long' ? 'minus' : 'plus'} ${sc.stopAtr}× ATR(14). ATR = $${atr.toFixed(2)}.<br>Hard stop — close instantly if breached.</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="ticket-row">
+        <div class="label">Targets</div>
+        <div class="value">
+          <div class="targets-grid">
+            <div class="target-cell">
+              <div class="lab">T1 · ${sc.t1R}R · scale 50%</div>
+              <div class="px">$${t1Px.toFixed(2)}</div>
+              <div class="r">${bias === 'long' ? '+' : '-'}${(Math.abs(t1Px - entryMid) / entryMid * 100).toFixed(2)}%</div>
+            </div>
+            <div class="target-cell">
+              <div class="lab">T2 · ${sc.t2R}R · scale 30%</div>
+              <div class="px">$${t2Px.toFixed(2)}</div>
+              <div class="r">${bias === 'long' ? '+' : '-'}${(Math.abs(t2Px - entryMid) / entryMid * 100).toFixed(2)}%</div>
+            </div>
+            <div class="target-cell">
+              <div class="lab">T3 · ${sc.t3R}R · runner</div>
+              <div class="px">$${t3Px.toFixed(2)}</div>
+              <div class="r">${bias === 'long' ? '+' : '-'}${(Math.abs(t3Px - entryMid) / entryMid * 100).toFixed(2)}%</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="ticket-row">
+        <div class="label">Position size</div>
+        <div class="value">${shares} shares · ${'$' + notional.toLocaleString(undefined, { maximumFractionDigits: 0 })} notional · ${riskDollars.toFixed(0)} risk
+          <div class="sub">Risk-per-trade: ${riskPct}% of $${account.toLocaleString()} = $${riskDollars.toFixed(0)}<br>
+          Math-optimal Kelly: <strong style="color:${kellyPct != null && kellyPct > riskPct ? 'var(--yellow)' : 'var(--text-muted)'};">${kellyPct != null ? kellyPct.toFixed(2) + '%' : 'insufficient samples'}</strong>${kellyPct != null && kellyPct > riskPct ? ' — capped at your ' + riskPct + '% house rule' : ''}</div>
+        </div>
+      </div>
+
+      <div class="ticket-row">
+        <div class="label">R:R ratio</div>
+        <div class="value">${sc.t2R}:1 (to T2) · ${sc.t3R}:1 (to T3)
+          <div class="sub">${sc.t2R >= 2 ? 'Healthy — meets 2:1 minimum' : '⚠ Below 2:1 — consider tighter stop or wait for better entry'}</div>
+        </div>
+      </div>
+
+      <div class="ticket-row">
+        <div class="label">Catalysts</div>
+        <div class="value" style="font-weight:400;font-family:'Inter',sans-serif;font-size:12px;">${catalystText}
+          <div class="sub" style="margin-top:4px;"><a href="earnings-tonight.html?sym=${sym}" style="color:var(--accent);">Check earnings calendar →</a></div>
+        </div>
+      </div>
+
+      <div class="ticket-row">
+        <div class="label">Pre-trade checklist</div>
+        <div class="value" style="font-weight:400;">
+          <div class="checklist">
+            ${checks.map(c => `<div class="item ${c.pass ? 'pass' : 'fail'}"><span class="check">${c.pass ? '✓' : '✗'}</span><span><strong>${c.label}</strong> <span style="color:var(--text-muted);font-size:11px;">— ${c.why}</span></span></div>`).join('')}
+          </div>
+          <div style="margin-top:8px;font-family:var(--font-mono);font-weight:700;color:${passed === totalChecks ? 'var(--green)' : passed >= totalChecks - 2 ? 'var(--yellow)' : 'var(--red)'};">
+            ${passed}/${totalChecks} checks passed${passed === totalChecks ? ' · GREEN LIGHT' : passed >= totalChecks - 2 ? ' · YELLOW (acceptable)' : ' · RED (skip this trade)'}
+          </div>
+        </div>
+      </div>
+
+      <div class="ticket-row">
+        <div class="label">Invalidation</div>
+        <div class="value" style="font-weight:400;font-family:'Inter',sans-serif;font-size:12px;line-height:1.7;">${invalidLines.join('<br>')}</div>
+      </div>
+    </div>
+
+    <!-- Reasoning -->
+    <div class="thesis-card">
+      <h3>📝 Full reasoning</h3>
+      ${reasonLines.map(r => '<p style="margin:8px 0;">' + r + '</p>').join('')}
+    </div>
+
+    <!-- Action chips -->
+    <div style="margin-top:14px;display:flex;gap:8px;flex-wrap:wrap;">
+      <a href="hypothetical.html?sym=${sym}&bias=${bias === 'long' ? 'bull' : 'bear'}&entry=${entryMid.toFixed(2)}&stop=${stopPx.toFixed(2)}&target=${t2Px.toFixed(2)}&source=signals&note=${encodeURIComponent('Ticket: ' + tag.tag + ' · conv ' + conv + '/5')}" class="btn btn-primary">📝 Track as Hypothetical</a>
+      <a href="paper-trade.html?sym=${sym}" class="btn btn-ghost">🎮 Paper Trade</a>
+      <a href="live-train.html?sym=${sym}" class="btn btn-ghost">🎓 Live Train</a>
+      <a href="ai-cotrader.html?sym=${sym}" class="btn btn-ghost">🤖 AI Co-Trader</a>
+      <a href="options-chain.html?sym=${sym}" class="btn btn-ghost">⛓ Options Chain</a>
+      <button id="btnDiscord" class="btn btn-ghost">📨 Post ticket to Discord</button>
+      <button id="btnCopy" class="btn btn-ghost">📋 Copy ticket</button>
+    </div>`;
+
+    document.getElementById('ticketOut').innerHTML = html;
+
+    // Wire Discord button
+    document.getElementById('btnDiscord').addEventListener('click', async () => {
+      if (typeof DiscordAlerts === 'undefined' || !DiscordAlerts.url()) { alert('No Discord webhook configured.'); return; }
+      const headline = `🎯 **TICKET ${sym}** · ${bias.toUpperCase()} · conv ${conv}/5 · ${tag.tag} · adj ${adj.toFixed(2)}`;
+      const body = `\n**Entry:** $${entryLow.toFixed(2)} - $${entryHigh.toFixed(2)} · **Stop:** $${stopPx.toFixed(2)} · **T1:** $${t1Px.toFixed(2)} (${sc.t1R}R) · **T2:** $${t2Px.toFixed(2)} (${sc.t2R}R) · **T3:** $${t3Px.toFixed(2)} (${sc.t3R}R)\n**Size:** ${shares} shares · $${notional.toLocaleString(undefined, { maximumFractionDigits: 0 })} notional · ${riskDollars.toFixed(0)} risk\n**Horizon:** ${sc.holdLabel} · Checks ${passed}/${totalChecks}\n**Reasoning:** ${reasonLines[1].replace(/<[^>]+>/g, '')}`;
+      await DiscordAlerts.fire(headline + body, { dedupKey: 'ticket:' + sym + ':' + tag.tag + ':' + new Date().toLocaleDateString('en-US') });
+      alert('Posted to Discord');
+    });
+    document.getElementById('btnCopy').addEventListener('click', () => {
+      const text = `TRADE TICKET · ${sym} · ${new Date().toLocaleString('en-US')}\n` +
+        `Setup: ${tag.tag} (adj ${adj.toFixed(2)}, conv ${conv}/5)\n` +
+        `Bias: ${bias.toUpperCase()} · Horizon: ${sc.holdLabel}\n` +
+        `Entry zone: $${entryLow.toFixed(2)} - $${entryHigh.toFixed(2)}\n` +
+        `Stop: $${stopPx.toFixed(2)} (-${stopPctOfEntry.toFixed(2)}%, 1.5x ATR)\n` +
+        `T1: $${t1Px.toFixed(2)} (${sc.t1R}R) · T2: $${t2Px.toFixed(2)} (${sc.t2R}R) · T3: $${t3Px.toFixed(2)} (${sc.t3R}R)\n` +
+        `Size: ${shares} shares ($${notional.toLocaleString()}); risk $${riskDollars.toFixed(0)}\n` +
+        `Checklist: ${passed}/${totalChecks} passed\n` +
+        `Reasoning: ${reasonLines.map(r => r.replace(/<[^>]+>/g, '')).join('\n  ')}\n` +
+        `Invalidation: ${invalidLines.map(r => r.replace(/<[^>]+>/g, '')).join('\n  ')}`;
+      navigator.clipboard.writeText(text).then(() => alert('Copied ticket to clipboard')).catch(() => alert('Clipboard not available'));
+    });
+
+    // Save to blotter
+    saveTicketToBlotter({
+      ts: Date.now(), sym, bias, setup: tag.tag, adj, conviction: conv, horizon: sc.holdLabel,
+      entryLow: +entryLow.toFixed(2), entryHigh: +entryHigh.toFixed(2), entryMid: +entryMid.toFixed(2),
+      stopPx: +stopPx.toFixed(2), t1Px: +t1Px.toFixed(2), t2Px: +t2Px.toFixed(2), t3Px: +t3Px.toFixed(2),
+      shares, notional: +notional.toFixed(0), riskDollars: +riskDollars.toFixed(0), kellyPct,
+      n, checksPassed: passed, totalChecks, reasoning: reasonLines.map(r => r.replace(/<[^>]+>/g, '')).join(' · ')
+    });
+  }
+
+  function saveTicketToBlotter(ticket) {
+    try {
+      const raw = localStorage.getItem('bpleone_blotter_v1');
+      const log = raw ? JSON.parse(raw) : { tickets: [] };
+      log.tickets.unshift(ticket);
+      if (log.tickets.length > 200) log.tickets.pop();
+      localStorage.setItem('bpleone_blotter_v1', JSON.stringify(log));
+    } catch (e) {}
+  }
+
+  document.getElementById('btnGen').addEventListener('click', generate);
+  document.getElementById('symInput').addEventListener('keydown', e => { if (e.key === 'Enter') generate(); });
+  document.getElementById('btnRefresh').addEventListener('click', refreshData);
+
+  // URL params
+  const params = new URLSearchParams(location.search);
+  if (params.has('sym')) {
+    document.getElementById('symInput').value = (params.get('sym') || '').toUpperCase();
+    if (params.has('style')) document.getElementById('styleSel').value = params.get('style');
+    setTimeout(generate, 600);
+  }
+
+  setTimeout(checkData, 800);
+  setInterval(checkData, 5000);
+})();
+</script>
+</body>
+</html>

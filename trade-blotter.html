@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Trade Blotter — bpleone / trade</title>
+<meta name="description" content="The desk's call sheet. Every generated trade ticket tracked with live P&L. Pending → triggered → target/stop hit.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.banner { background: linear-gradient(135deg, rgba(0,212,255,0.08), rgba(139,92,246,0.04)); border: 1px solid rgba(0,212,255,0.18); border-radius: 12px; padding: 16px 18px; margin-bottom: 18px; }
+.kpi-strip { display: grid; grid-template-columns: repeat(6, 1fr); gap: 12px; margin-bottom: 18px; }
+.tile { background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 10px; padding: 14px; text-align: center; }
+.tile .lab { font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; }
+.tile .val { font-family: var(--font-mono); font-weight: 700; font-size: 18px; margin-top: 4px; }
+.r-pos { color: var(--green); } .r-neg { color: var(--red); } .r-zero { color: var(--text-muted); }
+.row { display: grid; grid-template-columns: 100px 70px 70px 100px 100px 90px 70px 80px 70px 100px; gap: 8px; padding: 10px 0; border-top: 1px solid var(--border); font-size: 12px; align-items: center; }
+.mono { font-family: var(--font-mono); }
+.tag { display: inline-block; padding: 2px 8px; border-radius: 4px; background: var(--bg-secondary); font-family: var(--font-mono); font-size: 10px; border: 1px solid var(--border); }
+.tag.long { background: rgba(16,185,129,0.15); color: var(--green); border-color: rgba(16,185,129,0.3); }
+.tag.short { background: rgba(239,68,68,0.15); color: var(--red); border-color: rgba(239,68,68,0.3); }
+.tag.pending { background: rgba(245,158,11,0.15); color: var(--yellow); border-color: rgba(245,158,11,0.3); }
+.tag.active { background: rgba(0,212,255,0.15); color: var(--accent); border-color: rgba(0,212,255,0.3); }
+.tag.t1 { background: rgba(16,185,129,0.10); color: var(--green); }
+.tag.t2 { background: rgba(16,185,129,0.20); color: var(--green); }
+.tag.t3 { background: rgba(16,185,129,0.30); color: var(--green); }
+.tag.stop { background: rgba(239,68,68,0.20); color: var(--red); }
+.dots { font-family: var(--font-mono); font-size: 10px; letter-spacing: 1px; }
+.controls { display: flex; gap: 10px; align-items: center; margin-bottom: 14px; flex-wrap: wrap; }
+.controls select { background: var(--bg-secondary); border: 1px solid var(--border); color: var(--text-primary); padding: 6px 10px; border-radius: 6px; font-size: 12px; }
+.empty { padding: 40px; text-align: center; color: var(--text-muted); }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">Trade Blotter <span class="feat-badge feat-pro">PRO</span></div>
+      <div class="page-subtitle">The desk's call sheet. Every published ticket tracked with status + live P&L. · <span id="market-clock">--</span></div>
+    </div>
+    <div class="flex gap-8">
+      <a href="trade-ticket.html" class="btn btn-primary">📋 New Ticket</a>
+      <a href="conviction-board.html" class="btn btn-ghost">🎯 Conviction Board</a>
+      <a href="risk-attribution.html" class="btn btn-ghost">🎯 Attribution</a>
+    </div>
+  </div>
+
+  <div class="banner">
+    <strong style="font-size:14px;">📋 What this is.</strong>
+    <div style="font-size:11px;color:var(--text-muted);margin-top:6px;line-height:1.6;">
+      Every ticket generated via <a href="trade-ticket.html" style="color:var(--accent);">Trade Ticket</a> auto-logs here.
+      Status auto-updates live: <strong>PENDING</strong> while price is outside entry zone, <strong>ACTIVE</strong> once entered, <strong>T1/T2/T3 hit</strong> or <strong>STOPPED</strong> when an exit fires.
+      This is the desk's transparent call record — what you'd show a buyer of the service.
+    </div>
+  </div>
+
+  <!-- KPIs -->
+  <div class="kpi-strip">
+    <div class="tile"><div class="lab">Total tickets</div><div class="val mono" id="kN">0</div></div>
+    <div class="tile"><div class="lab">Active</div><div class="val mono" id="kActive">0</div></div>
+    <div class="tile"><div class="lab">Hit T1+</div><div class="val mono r-pos" id="kT1">0</div></div>
+    <div class="tile"><div class="lab">Hit T2+</div><div class="val mono r-pos" id="kT2">0</div></div>
+    <div class="tile"><div class="lab">Stopped</div><div class="val mono r-neg" id="kStopped">0</div></div>
+    <div class="tile"><div class="lab">Realized R</div><div class="val mono" id="kR">0R</div></div>
+  </div>
+
+  <!-- Controls -->
+  <div class="controls">
+    <select id="statusFilter">
+      <option value="all">All statuses</option>
+      <option value="pending">Pending only</option>
+      <option value="active">Active only</option>
+      <option value="closed">Closed only</option>
+    </select>
+    <select id="biasFilter">
+      <option value="all">All biases</option>
+      <option value="long">Long only</option>
+      <option value="short">Short only</option>
+    </select>
+    <button id="btnClear" class="btn btn-ghost" style="color:var(--red);margin-left:auto;">Clear blotter</button>
+  </div>
+
+  <!-- Blotter table -->
+  <div class="card" style="padding:0;overflow:hidden;">
+    <div style="max-height:70vh;overflow-y:auto;">
+      <div class="row" style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;font-weight:600;background:var(--bg-elevated);padding:10px 16px;border-top:none;border-bottom:1px solid var(--border);position:sticky;top:0;">
+        <div>Snapped</div>
+        <div>Sym</div>
+        <div>Bias</div>
+        <div>Setup</div>
+        <div>Entry</div>
+        <div>Last</div>
+        <div style="text-align:right;">R now</div>
+        <div>Conv</div>
+        <div>Status</div>
+        <div>Actions</div>
+      </div>
+      <div id="blotterBody" style="padding:0 16px;"></div>
+    </div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script src="js/ta.js"></script>
+<script src="js/learn.js"></script>
+<script>buildNav('plays');</script>
+
+<script>
+(function () {
+  const KEY = 'bpleone_blotter_v1';
+
+  function loadBlotter() { try { return JSON.parse(localStorage.getItem(KEY) || '{"tickets":[]}'); } catch (e) { return { tickets: [] }; } }
+  function save(b) { try { localStorage.setItem(KEY, JSON.stringify(b)); } catch (e) {} }
+
+  function evaluateTicket(t) {
+    const q = (typeof QUOTES !== 'undefined') ? QUOTES[t.sym] : null;
+    const last = q ? q.last : null;
+    if (last == null) return Object.assign({}, t, { last: null, status: t.status || 'pending', currentR: 0 });
+
+    let status = t.status || 'pending';
+    let exitR = null;
+    const stopDist = Math.abs(t.entryMid - t.stopPx);
+
+    // Compute "would have entered" if not yet active
+    if (status === 'pending') {
+      if (t.bias === 'long' && last <= t.entryHigh && last >= t.entryLow) status = 'active';
+      else if (t.bias === 'short' && last >= t.entryLow && last <= t.entryHigh) status = 'active';
+    }
+    // If active, check exits in order
+    if (status === 'active' || status === 't1') {
+      if (t.bias === 'long') {
+        if (last <= t.stopPx) { status = 'stop'; exitR = -1; }
+        else if (last >= t.t3Px) { status = 't3'; exitR = ((t.t3Px - t.entryMid) / stopDist); }
+        else if (last >= t.t2Px) { status = 't2'; exitR = ((t.t2Px - t.entryMid) / stopDist); }
+        else if (last >= t.t1Px && status === 'active') status = 't1';
+      } else if (t.bias === 'short') {
+        if (last >= t.stopPx) { status = 'stop'; exitR = -1; }
+        else if (last <= t.t3Px) { status = 't3'; exitR = ((t.entryMid - t.t3Px) / stopDist); }
+        else if (last <= t.t2Px) { status = 't2'; exitR = ((t.entryMid - t.t2Px) / stopDist); }
+        else if (last <= t.t1Px && status === 'active') status = 't1';
+      }
+    }
+
+    // Current unrealized R
+    let currentR = 0;
+    if (status === 'active' || status === 't1') {
+      const move = t.bias === 'long' ? (last - t.entryMid) : (t.entryMid - last);
+      currentR = stopDist ? move / stopDist : 0;
+    } else if (exitR != null) {
+      currentR = exitR;
+    }
+
+    return Object.assign({}, t, { last, status, currentR: +currentR.toFixed(2), exitR });
+  }
+
+  function render() {
+    const b = loadBlotter();
+    const statusF = document.getElementById('statusFilter').value;
+    const biasF = document.getElementById('biasFilter').value;
+
+    // Evaluate live status for each ticket
+    const evaluated = (b.tickets || []).map(evaluateTicket);
+    // Persist status changes
+    b.tickets = evaluated.map(({ last, currentR, exitR, ...rest }) => rest);
+    save(b);
+
+    // KPIs
+    const total = evaluated.length;
+    const active = evaluated.filter(t => t.status === 'active' || t.status === 't1').length;
+    const t1 = evaluated.filter(t => ['t1','t2','t3'].includes(t.status)).length;
+    const t2 = evaluated.filter(t => ['t2','t3'].includes(t.status)).length;
+    const stopped = evaluated.filter(t => t.status === 'stop').length;
+    const realized = evaluated.filter(t => t.exitR != null).reduce((s, t) => s + (t.exitR || 0), 0);
+
+    document.getElementById('kN').textContent = total;
+    document.getElementById('kActive').textContent = active;
+    document.getElementById('kT1').textContent = t1;
+    document.getElementById('kT2').textContent = t2;
+    document.getElementById('kStopped').textContent = stopped;
+    document.getElementById('kR').textContent = (realized >= 0 ? '+' : '') + realized.toFixed(2) + 'R';
+    document.getElementById('kR').className = 'val mono ' + (realized > 0 ? 'r-pos' : realized < 0 ? 'r-neg' : '');
+
+    // Filter
+    let filtered = evaluated;
+    if (statusF === 'pending') filtered = filtered.filter(t => t.status === 'pending');
+    else if (statusF === 'active') filtered = filtered.filter(t => t.status === 'active' || t.status === 't1');
+    else if (statusF === 'closed') filtered = filtered.filter(t => ['t2','t3','stop'].includes(t.status));
+    if (biasF !== 'all') filtered = filtered.filter(t => t.bias === biasF);
+
+    const body = document.getElementById('blotterBody');
+    if (!filtered.length) { body.innerHTML = '<div class="empty">No tickets match. <a href="trade-ticket.html" style="color:var(--accent);">Generate one →</a></div>'; return; }
+    body.innerHTML = filtered.map(t => {
+      const when = new Date(t.ts).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+      const rCls = t.currentR > 0 ? 'r-pos' : t.currentR < 0 ? 'r-neg' : 'r-zero';
+      const statusTag = `<span class="tag ${t.status === 'stop' ? 'stop' : t.status === 't1' ? 't1' : t.status === 't2' ? 't2' : t.status === 't3' ? 't3' : t.status}">${t.status.toUpperCase()}</span>`;
+      const dots = (() => { let s = ''; for (let i = 1; i <= 5; i++) s += i <= (t.conviction || 0) ? '●' : '○'; return s; })();
+      return `<div class="row">
+        <div class="mono" style="font-size:10px;color:var(--text-muted);">${when}</div>
+        <div class="mono" style="font-weight:700;">${t.sym}</div>
+        <div><span class="tag ${t.bias}">${t.bias === 'long' ? '▲' : '▼'}</span></div>
+        <div><span class="tag">${(t.setup || '').slice(0, 18)}</span></div>
+        <div class="mono">$${t.entryMid.toFixed(2)}</div>
+        <div class="mono">${t.last != null ? '$' + t.last.toFixed(2) : '—'}</div>
+        <div class="mono ${rCls}" style="text-align:right;font-weight:700;">${t.currentR >= 0 ? '+' : ''}${t.currentR.toFixed(2)}R</div>
+        <div class="dots" style="color:var(--accent);">${dots}</div>
+        <div>${statusTag}</div>
+        <div style="display:flex;gap:4px;font-size:11px;">
+          <a href="trade-ticket.html?sym=${t.sym}" style="color:var(--text-muted);">🔄</a>
+          <a href="live-train.html?sym=${t.sym}" style="color:var(--text-muted);">🎓</a>
+          <a href="ai-cotrader.html?sym=${t.sym}" style="color:var(--accent);">🤖</a>
+        </div>
+      </div>`;
+    }).join('');
+  }
+
+  document.getElementById('statusFilter').addEventListener('change', render);
+  document.getElementById('biasFilter').addEventListener('change', render);
+  document.getElementById('btnClear').addEventListener('click', () => {
+    if (!confirm('Clear all tickets from the blotter?')) return;
+    save({ tickets: [] });
+    render();
+  });
+
+  setTimeout(render, 400);
+  setInterval(render, 2000);
+  if (typeof Feed !== 'undefined') Feed.subscribe('*', render);
+})();
+</script>
+</body>
+</html>

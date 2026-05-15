@@ -193,9 +193,12 @@ const DataProvider = (function() {
   // CRITICAL: every page reads QUOTES synchronously on initial render. We
   // run this bootstrap, mark each symbol fresh, then fire Feed.publish('*')
   // so all pages re-render with real values.
-  async function bootstrapFinnhub() {
+  async function bootstrapFinnhub(opts) {
     if (typeof QUOTES === 'undefined') return;
-    const syms = symbolsToSubscribe();
+    opts = opts || {};
+    // ALL mode bootstraps every symbol in QUOTES — used by "Refresh all data" buttons
+    // so macro/international symbols (not subscribed via WS) still get fresh /quote
+    const syms = opts.all ? Object.keys(QUOTES) : symbolsToSubscribe();
     const updated = [];
     await Promise.all(syms.map(async sym => {
       try {
@@ -230,8 +233,9 @@ const DataProvider = (function() {
 
   function connectFinnhub() {
     if (!config.apiKey) throw new Error('Finnhub requires an API key');
-    // Fire bootstrap REST calls (don't await — let WS connect in parallel)
-    bootstrapFinnhub();
+    // Fire bootstrap REST calls for ALL symbols (don't await — let WS connect in parallel)
+    // This ensures macro/intl symbols (unsubscribed via WS) still get fresh /quote data
+    bootstrapFinnhub({ all: true });
     ws = new WebSocket('wss://ws.finnhub.io?token=' + encodeURIComponent(config.apiKey));
     ws.onopen = () => {
       symbolsToSubscribe().forEach(sym => {
@@ -581,6 +585,8 @@ const DataProvider = (function() {
     getStatus,
     onStatus,
     getHistorical,
+    // Force a fresh /quote pull for every symbol in QUOTES (incl. unsubscribed macro/intl)
+    refreshAll: () => bootstrapFinnhub({ all: true }),
     // Real-data helpers (Finnhub)
     getInsiderTransactions,
     getInsiderSentiment,

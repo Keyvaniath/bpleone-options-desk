@@ -54,7 +54,41 @@ const QUOTES = {
   UBER: { symbol: 'UBER', last: 68.20,  prevClose: 67.42, volume: 12_400_000 },
   SLV:  { symbol: 'SLV',  last: 30.42,  prevClose: 30.01, volume: 14_800_000 },
   UNG:  { symbol: 'UNG',  last: 14.85,  prevClose: 15.12, volume: 6_400_000 },
-  DBA:  { symbol: 'DBA',  last: 25.18,  prevClose: 25.06, volume: 800_000 }
+  DBA:  { symbol: 'DBA',  last: 25.18,  prevClose: 25.06, volume: 800_000 },
+  // --- International indices ---
+  FXI:  { symbol: 'FXI',  last: 32.18,  prevClose: 31.95, volume: 24_500_000 },     // China large-cap
+  MCHI: { symbol: 'MCHI', last: 58.42,  prevClose: 58.10, volume: 4_200_000 },      // MSCI China
+  EWJ:  { symbol: 'EWJ',  last: 78.21,  prevClose: 77.94, volume: 8_100_000 },      // Japan
+  EWG:  { symbol: 'EWG',  last: 38.45,  prevClose: 38.27, volume: 2_400_000 },      // Germany
+  EWU:  { symbol: 'EWU',  last: 38.92,  prevClose: 38.74, volume: 1_800_000 },      // UK
+  INDA: { symbol: 'INDA', last: 56.41,  prevClose: 56.18, volume: 4_500_000 },      // India
+  EWZ:  { symbol: 'EWZ',  last: 24.85,  prevClose: 24.62, volume: 18_400_000 },     // Brazil
+  EWY:  { symbol: 'EWY',  last: 64.18,  prevClose: 63.92, volume: 3_200_000 },      // South Korea
+  EWT:  { symbol: 'EWT',  last: 52.61,  prevClose: 52.14, volume: 6_400_000 },      // Taiwan
+  EEM:  { symbol: 'EEM',  last: 45.82,  prevClose: 45.51, volume: 38_400_000 },     // Emerging
+  EFA:  { symbol: 'EFA',  last: 84.21,  prevClose: 83.87, volume: 12_400_000 },     // Developed ex-US
+  VEA:  { symbol: 'VEA',  last: 56.18,  prevClose: 55.94, volume: 11_200_000 },     // Vanguard developed
+  VWO:  { symbol: 'VWO',  last: 48.92,  prevClose: 48.67, volume: 8_400_000 },      // Vanguard emerging
+  // --- Forex proxies ---
+  UUP:  { symbol: 'UUP',  last: 28.92,  prevClose: 29.04, volume: 4_200_000 },      // Dollar bullish
+  FXE:  { symbol: 'FXE',  last: 100.42, prevClose: 100.18, volume: 320_000 },       // Euro
+  FXY:  { symbol: 'FXY',  last: 62.18,  prevClose: 62.45, volume: 480_000 },        // Yen
+  FXB:  { symbol: 'FXB',  last: 124.18, prevClose: 123.94, volume: 120_000 },       // British pound
+  FXC:  { symbol: 'FXC',  last: 71.42,  prevClose: 71.28, volume: 240_000 },        // Canadian dollar
+  FXA:  { symbol: 'FXA',  last: 64.18,  prevClose: 64.34, volume: 180_000 },        // Australian dollar
+  FXF:  { symbol: 'FXF',  last: 108.92, prevClose: 108.74, volume: 120_000 },       // Swiss franc
+  // --- Treasuries / credit ---
+  SHY:  { symbol: 'SHY',  last: 82.18,  prevClose: 82.14, volume: 6_400_000 },      // 1-3y treasury
+  IEF:  { symbol: 'IEF',  last: 96.42,  prevClose: 96.55, volume: 12_800_000 },     // 7-10y
+  TBT:  { symbol: 'TBT',  last: 28.45,  prevClose: 28.61, volume: 4_200_000 },      // 2x inverse 20+y
+  HYG:  { symbol: 'HYG',  last: 80.42,  prevClose: 80.31, volume: 28_400_000 },     // High-yield bonds
+  LQD:  { symbol: 'LQD',  last: 110.18, prevClose: 109.92, volume: 12_400_000 },    // Investment grade
+  TIP:  { symbol: 'TIP',  last: 110.42, prevClose: 110.27, volume: 4_800_000 },     // Inflation-protected
+  // --- Volatility ---
+  VXX:  { symbol: 'VXX',  last: 42.18,  prevClose: 43.51, volume: 28_400_000 },     // VIX short-term
+  UVXY: { symbol: 'UVXY', last: 18.42,  prevClose: 19.21, volume: 38_400_000 },     // 2x VIX short-term
+  // --- Real estate ---
+  VNQ:  { symbol: 'VNQ',  last: 92.18,  prevClose: 91.94, volume: 4_200_000 }       // Real estate
 };
 
 function computeDerived(q) {

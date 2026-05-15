@@ -1,0 +1,296 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Conviction Board — bpleone / trade</title>
+<meta name="description" content="Desk-wide top picks ranked by conviction. The 5-star setups ready for a trade ticket.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.banner { background: linear-gradient(135deg, rgba(139,92,246,0.10), rgba(0,212,255,0.06)); border: 1px solid rgba(139,92,246,0.25); border-radius: 12px; padding: 16px 18px; margin-bottom: 18px; }
+.conv-card { background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 12px; padding: 18px; margin-bottom: 14px; transition: transform .12s, border-color .15s; cursor: pointer; }
+.conv-card:hover { transform: translateY(-2px); border-color: var(--accent); }
+.conv-card.conv-5 { border-left: 5px solid var(--green); background: linear-gradient(90deg, rgba(16,185,129,0.06), var(--bg-elevated) 30%); }
+.conv-card.conv-4 { border-left: 5px solid var(--accent); }
+.conv-card.conv-3 { border-left: 5px solid var(--yellow); }
+.conv-card.conv-2 { border-left: 5px solid var(--text-muted); }
+.conv-card.conv-1 { border-left: 5px solid var(--border); opacity: 0.7; }
+.conv-card .head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 10px; }
+.conv-card .sym { font-family: var(--font-mono); font-weight: 800; font-size: 22px; }
+.conv-card .px { font-family: var(--font-mono); font-weight: 700; font-size: 16px; }
+.conv-card .chg { font-family: var(--font-mono); font-size: 12px; }
+.dots { display: inline-flex; gap: 3px; margin-left: 10px; vertical-align: middle; }
+.dots .dot { width: 12px; height: 12px; border-radius: 50%; background: var(--bg-secondary); border: 1px solid var(--border); }
+.dots .dot.lit { background: var(--accent); border-color: var(--accent); }
+.metrics { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; margin: 10px 0; }
+.metric { background: var(--bg-secondary); border-radius: 6px; padding: 8px; text-align: center; }
+.metric .lab { font-size: 9px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.3px; }
+.metric .val { font-family: var(--font-mono); font-weight: 700; font-size: 13px; margin-top: 2px; }
+.r-pos { color: var(--green); } .r-neg { color: var(--red); }
+.bias-tag { display: inline-block; padding: 3px 10px; border-radius: 999px; font-family: var(--font-mono); font-size: 11px; font-weight: 700; }
+.bias-tag.long { background: rgba(16,185,129,0.15); color: var(--green); }
+.bias-tag.short { background: rgba(239,68,68,0.15); color: var(--red); }
+.bias-tag.wait { background: var(--bg-secondary); color: var(--text-muted); }
+.thesis-row { display: flex; gap: 10px; font-size: 12px; color: var(--text-muted); margin-top: 6px; line-height: 1.5; flex-wrap: wrap; }
+.thesis-row .item { display: inline-flex; align-items: center; gap: 4px; }
+.thesis-row .icon { font-size: 14px; }
+.actions { margin-top: 10px; display: flex; gap: 6px; flex-wrap: wrap; }
+.actions a { color: var(--text-muted); text-decoration: none; padding: 4px 10px; border-radius: 4px; background: var(--bg-secondary); border: 1px solid var(--border); font-size: 11px; }
+.actions a.primary { color: var(--accent); border-color: rgba(0,212,255,0.4); background: rgba(0,212,255,0.06); }
+.actions a:hover { color: var(--accent); border-color: var(--accent); }
+.kpi-strip { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; margin-bottom: 18px; }
+.tile { background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 10px; padding: 14px; text-align: center; }
+.tile .lab { font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; }
+.tile .val { font-family: var(--font-mono); font-weight: 700; font-size: 18px; margin-top: 4px; }
+.controls { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; padding: 12px 16px; background: var(--bg-elevated); border-radius: 10px; border: 1px solid var(--border); margin-bottom: 16px; }
+.controls select, .controls input { background: var(--bg-secondary); border: 1px solid var(--border); color: var(--text-primary); padding: 6px 10px; border-radius: 6px; font-family: inherit; font-size: 12px; }
+.empty { padding: 40px; text-align: center; color: var(--text-muted); }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">Conviction Board <span class="feat-badge feat-pro">PRO</span></div>
+      <div class="page-subtitle">Desk-wide setups ranked by conviction. Click any → full trade ticket. · <span id="market-clock">--</span></div>
+    </div>
+    <div class="flex gap-8">
+      <a href="trade-ticket.html" class="btn btn-primary">📋 New Ticket</a>
+      <a href="trade-blotter.html" class="btn btn-ghost">📋 Blotter</a>
+      <a href="radar.html" class="btn btn-ghost">📡 Radar</a>
+    </div>
+  </div>
+
+  <div class="banner">
+    <strong style="font-size:14px;">🎯 The 5-star list.</strong>
+    <div style="font-size:11px;color:var(--text-muted);margin-top:6px;line-height:1.6;">
+      Brain scans the universe + applies per-symbol weights + filters by TA-context-quality.
+      Conviction 1-5 stars. <strong>Only ≥3-star setups make this board.</strong> Click any → instant trade ticket with entry/stop/T1/T2/T3.
+    </div>
+  </div>
+
+  <!-- KPIs -->
+  <div class="kpi-strip">
+    <div class="tile"><div class="lab">Total candidates</div><div class="val mono" id="kN">0</div></div>
+    <div class="tile"><div class="lab">5-star ⭐</div><div class="val mono r-pos" id="k5">0</div></div>
+    <div class="tile"><div class="lab">4-star</div><div class="val mono" id="k4" style="color:var(--accent);">0</div></div>
+    <div class="tile"><div class="lab">3-star</div><div class="val mono r-warn" id="k3" style="color:var(--yellow);">0</div></div>
+    <div class="tile"><div class="lab">Bull / Bear split</div><div class="val mono" id="kSplit" style="font-size:13px;">—</div></div>
+  </div>
+
+  <!-- Controls -->
+  <div class="controls">
+    <div>
+      <label style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;display:block;margin-bottom:4px;">Min conviction</label>
+      <select id="minConv">
+        <option value="5">5-star only</option>
+        <option value="4">4+ star</option>
+        <option value="3" selected>3+ star (default)</option>
+        <option value="2">2+ star (loose)</option>
+      </select>
+    </div>
+    <div>
+      <label style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;display:block;margin-bottom:4px;">Bias</label>
+      <select id="biasFilter">
+        <option value="all">Both</option>
+        <option value="long">Long only</option>
+        <option value="short">Short only</option>
+      </select>
+    </div>
+    <div>
+      <label style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;display:block;margin-bottom:4px;">Universe</label>
+      <select id="universe">
+        <option value="majors" selected>US Majors (20)</option>
+        <option value="megacaps">Mega-cap tech</option>
+        <option value="crypto">Crypto + commodities</option>
+        <option value="international">International</option>
+        <option value="all">All available (50+)</option>
+      </select>
+    </div>
+    <button id="btnRefresh" class="btn btn-primary" style="margin-left:auto;">🔄 Refresh data</button>
+  </div>
+
+  <div id="boardList"></div>
+</div>
+
+<div id="site-footer"></div>
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script src="js/ta.js"></script>
+<script src="js/learn.js"></script>
+<script>buildNav('plays');</script>
+
+<script>
+(function () {
+  const UNIVERSES = {
+    majors: ['SPY','QQQ','IWM','NVDA','TSLA','AAPL','MSFT','META','AMZN','GOOGL','AMD','COIN','PLTR','SMCI','NFLX','CRM','ORCL','AVGO','MU','UBER'],
+    megacaps: ['AAPL','MSFT','GOOGL','META','AMZN','NVDA','AVGO','TSLA','ORCL','CRM','NFLX'],
+    crypto: ['BTC','ETH','COIN','MARA','GLD','SLV','USO','UNG','DBA','XLE'],
+    international: ['FXI','MCHI','EWJ','EWG','EWU','INDA','EWZ','EWY','EWT','EEM','EFA','VEA','VWO'],
+    all: ['SPY','QQQ','IWM','DIA','XLK','XLE','XLF','XLV','XLY','XLP','XLI','XLU','XLB','XLRE','XLC',
+          'NVDA','TSLA','AAPL','MSFT','META','AMZN','GOOGL','AMD','COIN','PLTR','SMCI','NFLX','CRM','ORCL','AVGO','MU','UBER','SHOP','BABA',
+          'BTC','ETH','MARA','GLD','SLV','USO','UNG','DBA',
+          'FXI','MCHI','EWJ','EWG','EWU','INDA','EWZ','EWY','EWT','EEM','EFA','VEA','VWO',
+          'UUP','FXE','FXY','TLT','IEF','HYG','LQD','VXX','VNQ']
+  };
+
+  function biasFromTag(tag) {
+    const bull = ['volume-breakout','52w-break','50ma-reclaim','macd-cross','bull-flag','cup-handle','vwap-reclaim','momentum-extension','continuation-bull','oversold-mean-revert','bb-stretch-down'];
+    const bear = ['flush-on-volume','breakdown','bear-flag','vwap-rejection','overbought-fade','continuation-bear','bb-stretch-up'];
+    if (bull.indexOf(tag) !== -1) return 'long';
+    if (bear.indexOf(tag) !== -1) return 'short';
+    return 'wait';
+  }
+
+  function convictionScore(adj, n, snap) {
+    let c = 1;
+    if (adj >= 0.55) c = 2;
+    if (adj >= 0.7) c = 3;
+    if (adj >= 0.8) c = 4;
+    if (adj >= 0.9 && n >= 10 && snap && snap.bars && snap.bars['5m'] >= 30) c = 5;
+    return c;
+  }
+
+  function dotBar(level) {
+    let s = '';
+    for (let i = 1; i <= 5; i++) s += `<span class="dot ${i <= level ? 'lit' : ''}"></span>`;
+    return `<div class="dots">${s}</div>`;
+  }
+
+  function scan() {
+    if (typeof QUOTES === 'undefined' || typeof Learn === 'undefined') return [];
+    const universe = UNIVERSES[document.getElementById('universe').value] || UNIVERSES.majors;
+    const out = [];
+    universe.forEach(sym => {
+      const q = QUOTES[sym];
+      if (!q || !q.last) return;
+      const snap = typeof TA !== 'undefined' ? TA.snapshot(sym) : null;
+      const features = {
+        last: q.last, prevClose: q.prevClose, dayHigh: q.dayHigh, dayLow: q.dayLow,
+        volume: q.volume, avgVolume: q.avgVolume,
+        rsi: snap ? snap.rsi : null, macdHist: snap ? snap.hist : null,
+        atr: snap ? snap.atr : null, atrPct: snap ? snap.atrPct : null,
+        adx: snap ? snap.adx : null, bbPct: snap ? snap.bbPct : null,
+        vwapDist: snap ? snap.vwapDist : null,
+        trend: snap ? snap.trend : null, regime: snap ? snap.regime : null,
+        donchUp: snap ? snap.donchUp : null, donchDn: snap ? snap.donchDn : null
+      };
+      const tag = Learn.autoTagSetup(features, { symbol: sym });
+      const weight = typeof Learn.weightFor === 'function' ? Learn.weightFor(tag.tag, { symbol: sym }) : 1.0;
+      const adj = tag.score * weight;
+      const bias = biasFromTag(tag.tag);
+      if (bias === 'wait') return;
+      const stats = typeof Learn.symbolStats === 'function' ? Learn.symbolStats(sym) : null;
+      const setupHistory = stats && stats.bySetup && stats.bySetup[tag.tag];
+      const n = setupHistory ? setupHistory.n : 0;
+      const conv = convictionScore(adj, n, snap);
+      out.push({ sym, q, snap, tag, weight, adj, bias, conv, n, setupHistory, stats });
+    });
+    out.sort((a, b) => b.conv - a.conv || b.adj - a.adj);
+    return out;
+  }
+
+  function render() {
+    const all = scan();
+    const minConv = parseInt(document.getElementById('minConv').value, 10);
+    const biasF = document.getElementById('biasFilter').value;
+    let list = all.filter(x => x.conv >= minConv);
+    if (biasF !== 'all') list = list.filter(x => x.bias === biasF);
+
+    document.getElementById('kN').textContent = all.length;
+    document.getElementById('k5').textContent = all.filter(x => x.conv === 5).length;
+    document.getElementById('k4').textContent = all.filter(x => x.conv === 4).length;
+    document.getElementById('k3').textContent = all.filter(x => x.conv === 3).length;
+    const bulls = all.filter(x => x.bias === 'long').length;
+    const bears = all.filter(x => x.bias === 'short').length;
+    document.getElementById('kSplit').textContent = bulls + ' / ' + bears;
+
+    const body = document.getElementById('boardList');
+    if (!list.length) { body.innerHTML = '<div class="empty">No setups meet current filters. Try lowering min conviction or refreshing data.</div>'; return; }
+    body.innerHTML = list.map(d => {
+      const q = d.q;
+      const snap = d.snap;
+      const winRate = d.setupHistory ? (d.setupHistory.wins / d.setupHistory.n * 100).toFixed(0) : null;
+      const avgR = d.setupHistory ? (d.setupHistory.totalR / d.setupHistory.n).toFixed(2) : null;
+      const horizonHint = d.tag.tag === 'macd-cross' || d.tag.tag === 'bull-flag' ? 'Swing 3-5d' : d.tag.tag === 'momentum-extension' ? 'Intraday' : 'Swing/Position';
+      return `<div class="conv-card conv-${d.conv}" onclick="if(!event.target.closest('a')&&!event.target.closest('button'))location.href='trade-ticket.html?sym=${d.sym}';">
+        <div class="head">
+          <div>
+            <span class="sym">${d.sym}</span>
+            ${dotBar(d.conv)}
+            <span class="bias-tag ${d.bias}" style="margin-left:10px;">${d.bias === 'long' ? '▲ LONG' : '▼ SHORT'}</span>
+            <span style="font-family:var(--font-mono);font-size:11px;color:var(--text-muted);margin-left:8px;">${d.tag.tag}</span>
+          </div>
+          <div style="text-align:right;">
+            <div class="px">$${q.last.toFixed(2)}</div>
+            <div class="chg ${q.changePct >= 0 ? 'r-pos' : 'r-neg'}">${q.changePct >= 0 ? '+' : ''}${(q.changePct || 0).toFixed(2)}%</div>
+          </div>
+        </div>
+        <div class="metrics">
+          <div class="metric"><div class="lab">Adj score</div><div class="val">${d.adj.toFixed(2)}</div></div>
+          <div class="metric"><div class="lab">Per-sym weight</div><div class="val">${d.weight.toFixed(2)}×</div></div>
+          <div class="metric"><div class="lab">Samples (n)</div><div class="val">${d.n}</div></div>
+          <div class="metric"><div class="lab">Hist win %</div><div class="val ${winRate >= 60 ? 'r-pos' : winRate < 40 ? 'r-neg' : ''}">${winRate != null ? winRate + '%' : '—'}</div></div>
+          <div class="metric"><div class="lab">Hist avg R</div><div class="val ${avgR > 0 ? 'r-pos' : avgR < 0 ? 'r-neg' : ''}">${avgR != null ? (avgR >= 0 ? '+' : '') + avgR + 'R' : '—'}</div></div>
+        </div>
+        <div class="thesis-row">
+          <span class="item"><span class="icon">📊</span>${horizonHint}</span>
+          ${snap && snap.rsi != null ? `<span class="item"><span class="icon">📈</span>RSI ${snap.rsi.toFixed(0)}</span>` : ''}
+          ${snap && snap.adx != null ? `<span class="item"><span class="icon">💪</span>ADX ${snap.adx.toFixed(0)} ${snap.adx >= 25 ? '(strong trend)' : '(chop)'}</span>` : ''}
+          ${snap && snap.vwapDist != null ? `<span class="item"><span class="icon">🎯</span>${snap.vwapDist >= 0 ? '+' : ''}${snap.vwapDist.toFixed(1)}% vs VWAP</span>` : ''}
+          ${snap && snap.regime ? `<span class="item"><span class="icon">⚡</span>${snap.regime} vol</span>` : ''}
+        </div>
+        <div style="font-size:11px;color:var(--text-muted);margin-top:6px;font-style:italic;">"${(d.tag.reasons || []).join(' · ')}"</div>
+        <div class="actions">
+          <a href="trade-ticket.html?sym=${d.sym}" class="primary">📋 Full Trade Ticket →</a>
+          <a href="ai-cotrader.html?sym=${d.sym}">🤖 Co-trade</a>
+          <a href="live-train.html?sym=${d.sym}">🎓 Train</a>
+          <a href="kelly-sizer.html?sym=${d.sym}">📐 Size</a>
+          <a href="hypothetical.html?sym=${d.sym}&bias=${d.bias === 'long' ? 'bull' : 'bear'}&source=signals" onclick="event.stopPropagation();">📝 Track</a>
+        </div>
+      </div>`;
+    }).join('');
+  }
+
+  document.getElementById('minConv').addEventListener('change', render);
+  document.getElementById('biasFilter').addEventListener('change', render);
+  document.getElementById('universe').addEventListener('change', render);
+  document.getElementById('btnRefresh').addEventListener('click', async () => {
+    document.getElementById('btnRefresh').disabled = true;
+    document.getElementById('btnRefresh').textContent = 'Refreshing…';
+    if (typeof DataProvider !== 'undefined' && DataProvider.refreshAll) {
+      try { await DataProvider.refreshAll(); } catch (e) {}
+    }
+    document.getElementById('btnRefresh').disabled = false;
+    document.getElementById('btnRefresh').textContent = '🔄 Refresh data';
+    render();
+  });
+
+  setTimeout(() => {
+    // Warmup TA for current universe
+    const symbols = UNIVERSES[document.getElementById('universe').value] || UNIVERSES.majors;
+    symbols.forEach(s => { if (typeof TA !== 'undefined') TA.warmup(s); });
+    render();
+  }, 500);
+  setInterval(render, 3000);
+  if (typeof Feed !== 'undefined') {
+    let pending = false;
+    Feed.subscribe('*', () => {
+      if (pending) return;
+      pending = true;
+      requestAnimationFrame(() => { pending = false; render(); });
+    });
+  }
+})();
+</script>
+</body>
+</html>
