@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Smart Watchlist — bpleone / trade</title>
+<meta name="description" content="Auto-curated watchlist of top brain picks. Re-builds every 10 minutes. One-click trade plan.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.sw-card { padding:18px;background:var(--bg-elevated);border:1px solid var(--border);border-radius:12px;transition:all 0.15s;cursor:pointer;position:relative;overflow:hidden; }
+.sw-card:hover { transform:translateY(-2px);box-shadow:0 8px 24px rgba(0,212,255,0.08);border-color:var(--accent); }
+.sw-card.tier-a { border-left:4px solid var(--green); }
+.sw-card.tier-b { border-left:4px solid var(--accent); }
+.sw-card.tier-c { border-left:4px solid var(--yellow); }
+.sw-card .sym { font-family:var(--font-mono);font-size:24px;font-weight:800;margin-bottom:2px; }
+.sw-card .setup { font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;font-weight:600; }
+.sw-card .price { font-family:var(--font-mono);font-size:14px;margin:8px 0; }
+.sw-card .ml-large { font-family:var(--font-mono);font-size:32px;font-weight:800;color:var(--accent);margin:6px 0; }
+.sw-card .tier { position:absolute;top:8px;right:10px;font-size:9px;font-weight:800;text-transform:uppercase;letter-spacing:0.5px;padding:2px 8px;border-radius:10px; }
+.sw-card .tier.a { background:rgba(16,185,129,0.18);color:var(--green); }
+.sw-card .tier.b { background:rgba(0,212,255,0.18);color:var(--accent); }
+.sw-card .tier.c { background:rgba(245,158,11,0.18);color:var(--yellow); }
+.sw-card .footer { display:flex;justify-content:space-between;font-size:10px;color:var(--text-muted);margin-top:10px;padding-top:10px;border-top:1px solid var(--border); }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">⭐ Smart Watchlist</div>
+      <div class="page-subtitle">Auto-curated top brain picks · refreshes every 30s · click any to plan · <span id="market-clock">--</span></div>
+    </div>
+    <div class="flex gap-8">
+      <select id="tier" class="btn btn-secondary" style="background:var(--bg-elevated);border:1px solid var(--border);color:var(--text-primary);padding:8px 14px;">
+        <option value="all">All tiers</option>
+        <option value="a">A only (≥80%)</option>
+        <option value="ab" selected>A + B (≥65%)</option>
+      </select>
+      <button class="btn btn-ghost" id="saveBtn">💾 Save as watchlist</button>
+      <button class="btn btn-primary" id="exportBtn">📤 Export</button>
+    </div>
+  </div>
+
+  <div class="grid grid-4 mb-24">
+    <div class="card"><div class="card-header"><div class="card-title">Tracked syms</div></div><div class="mono" style="font-size:24px;font-weight:700;" id="kTrack">--</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">A-tier</div></div><div class="mono" style="font-size:24px;font-weight:700;color:var(--green);" id="kA">--</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">B-tier</div></div><div class="mono" style="font-size:24px;font-weight:700;color:var(--accent);" id="kB">--</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">Last rebuild</div></div><div class="mono" style="font-size:14px;font-weight:700;" id="kRebuild">--</div></div>
+  </div>
+
+  <div class="grid grid-3" id="picks" style="gap:14px;"></div>
+
+  <div class="card mt-24">
+    <div class="card-header"><div class="card-title">🎯 How this is built</div></div>
+    <div style="font-size:13px;color:var(--text-secondary);line-height:1.7;">
+      The smart watchlist re-scans every brain finding from the last 6 hours, deduplicates by symbol (keeping the highest ML confidence per symbol), and tier-ranks them:
+      <br>
+      <strong>A-tier (≥80% ML confidence):</strong> Trade these with full size. The model has high conviction.<br>
+      <strong>B-tier (65-80%):</strong> Take half-size or use them as paper-trade learning.<br>
+      <strong>C-tier (50-65%):</strong> Watch only — too marginal to act on.<br>
+      Anything below 50% is filtered out.
+      <br><br>
+      Click <strong>Save as watchlist</strong> to lock in the current picks as a named watchlist in Watchlist PRO — useful when you want today's picks frozen vs. the auto-updating smart list.
+    </div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script src="js/model.js"></script>
+<script>
+buildNav('smart-watchlist');
+
+function loadFindings() { try { return JSON.parse(localStorage.getItem('bpleone_brain_findings_v1') || '{"items":[]}').items; } catch(e) { return []; } }
+
+let lastRebuild = Date.now();
+
+function build() {
+  const findings = loadFindings().filter(f => (Date.now() - f.ts) < 6 * 3600 * 1000);
+  // Score each finding
+  const scored = findings.map(f => {
+    let prob = null;
+    try { if (window.predictForFinding) { const p = window.predictForFinding(f); prob = p ? p.prob : null; } } catch(e) {}
+    return { ...f, _prob: prob };
+  }).filter(f => f._prob != null && f._prob >= 0.5);
+
+  // Deduplicate by symbol (highest prob wins)
+  const bySym = {};
+  scored.forEach(f => {
+    const s = f.meta?.sym || 'UNK';
+    if (!bySym[s] || bySym[s]._prob < f._prob) bySym[s] = f;
+  });
+  return Object.values(bySym).sort((a, b) => b._prob - a._prob);
+}
+
+function tier(p) {
+  if (p >= 0.8) return 'a';
+  if (p >= 0.65) return 'b';
+  return 'c';
+}
+
+function render() {
+  const picks = build();
+  const filter = document.getElementById('tier').value;
+  let filtered = picks;
+  if (filter === 'a') filtered = picks.filter(p => tier(p._prob) === 'a');
+  if (filter === 'ab') filtered = picks.filter(p => tier(p._prob) !== 'c');
+
+  document.getElementById('kTrack').textContent = picks.length;
+  document.getElementById('kA').textContent = picks.filter(p => tier(p._prob) === 'a').length;
+  document.getElementById('kB').textContent = picks.filter(p => tier(p._prob) === 'b').length;
+  document.getElementById('kRebuild').textContent = (function(t){ const d=Date.now()-t; if(d<60000)return Math.floor(d/1000)+'s ago';if(d<3600000)return Math.floor(d/60000)+'m ago';return Math.floor(d/3600000)+'h ago'; })(lastRebuild);
+
+  const wrap = document.getElementById('picks');
+  if (filtered.length === 0) {
+    wrap.innerHTML = '<div class="card" style="grid-column:1/-1;text-align:center;padding:60px;color:var(--text-muted);font-size:13px;">No brain picks match the filter yet. The brain is scanning — check back in a few minutes.</div>';
+    return;
+  }
+  wrap.innerHTML = filtered.map(p => {
+    const sym = p.meta?.sym || '?';
+    const setup = p.meta?.setup || 'signal';
+    const t = tier(p._prob);
+    const q = (typeof QUOTES !== 'undefined' && QUOTES[sym]) ? QUOTES[sym] : null;
+    return '<div class="sw-card tier-' + t + '" onclick="window.location.href=\'trade-coach.html?sym=' + sym + '\'">'
+      + '<div class="tier ' + t + '">' + t.toUpperCase() + '-tier</div>'
+      + '<div class="sym">' + sym + '</div>'
+      + '<div class="setup">' + setup + '</div>'
+      + '<div class="ml-large">' + (p._prob * 100).toFixed(0) + '%</div>'
+      + (q ? '<div class="price">$' + q.last.toFixed(2) + ' <span style="color:' + (q.changePct >= 0 ? 'var(--green)' : 'var(--red)') + ';font-size:12px;">' + (q.changePct >= 0 ? '+' : '') + q.changePct.toFixed(2) + '%</span></div>' : '')
+      + '<div class="footer">'
+        + '<span>🕐 ' + (function(ts){ const d=Date.now()-ts; if(d<60000)return Math.floor(d/1000)+'s';if(d<3600000)return Math.floor(d/60000)+'m';return Math.floor(d/3600000)+'h'; })(p.ts) + ' ago</span>'
+        + '<span style="color:' + (p.severity === 'high' ? 'var(--red)' : p.severity === 'med' ? 'var(--yellow)' : 'var(--text-muted)') + ';font-weight:700;text-transform:uppercase;">' + (p.severity || 'med') + '</span>'
+      + '</div>'
+      + '</div>';
+  }).join('');
+}
+
+document.getElementById('tier').addEventListener('change', render);
+
+document.getElementById('saveBtn').addEventListener('click', () => {
+  const picks = build();
+  if (picks.length === 0) { alert('No picks to save.'); return; }
+  const name = prompt('Watchlist name?', 'Smart ' + new Date().toLocaleDateString());
+  if (!name) return;
+  try {
+    const lists = JSON.parse(localStorage.getItem('bpleone_watchlist_pro_v1') || '[]');
+    lists.unshift({ name, syms: picks.slice(0, 20).map(p => p.meta?.sym).filter(Boolean) });
+    localStorage.setItem('bpleone_watchlist_pro_v1', JSON.stringify(lists));
+    alert('✓ Saved "' + name + '" with ' + picks.length + ' symbols. Open Watchlist PRO to view.');
+  } catch(e) { alert('Save failed: ' + e.message); }
+});
+
+document.getElementById('exportBtn').addEventListener('click', () => {
+  const picks = build();
+  const txt = picks.map(p => p.meta?.sym).filter(Boolean).join(',\n');
+  const blob = new Blob([txt], { type: 'text/plain' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'smart-watchlist-' + new Date().toISOString().slice(0,10) + '.txt';
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+});
+
+render();
+setInterval(() => { lastRebuild = Date.now(); render(); }, 30000);
+</script>
+</body>
+</html>
