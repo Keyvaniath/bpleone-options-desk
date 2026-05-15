@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Pair Trades — bpleone / trade</title>
+<meta name="description" content="Long-short pair trade scanner: z-score on price ratios within same-sector pairs. Mean-reversion edge with reduced beta.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.banner { background: linear-gradient(135deg, rgba(0,212,255,0.10), rgba(139,92,246,0.06)); border: 1px solid rgba(0,212,255,0.25); border-radius: 12px; padding: 16px 18px; margin-bottom: 18px; }
+.kpi-strip { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 18px; }
+.tile { background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 10px; padding: 14px; text-align: center; }
+.tile .lab { font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; }
+.tile .val { font-family: var(--font-mono); font-weight: 700; font-size: 18px; margin-top: 4px; }
+.row { display: grid; grid-template-columns: 100px 100px 100px 90px 100px 90px 1fr; gap: 8px; padding: 10px 0; border-top: 1px solid var(--border); font-size: 12px; align-items: center; }
+.mono { font-family: var(--font-mono); }
+.tag { display: inline-block; padding: 2px 8px; border-radius: 4px; background: var(--bg-secondary); font-family: var(--font-mono); font-size: 10px; border: 1px solid var(--border); }
+.tag.long { background: rgba(16,185,129,0.15); color: var(--green); border-color: rgba(16,185,129,0.3); }
+.tag.short { background: rgba(239,68,68,0.15); color: var(--red); border-color: rgba(239,68,68,0.3); }
+.tag.tight { background: rgba(245,158,11,0.15); color: var(--yellow); border-color: rgba(245,158,11,0.3); }
+.tag.extreme { background: rgba(239,68,68,0.20); color: var(--red); border-color: rgba(239,68,68,0.5); }
+.r-pos { color: var(--green); } .r-neg { color: var(--red); }
+.empty { padding: 40px; text-align: center; color: var(--text-muted); }
+.section-h { font-size: 13px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; margin: 16px 0 8px; padding-left: 4px; }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">Pair Trades <span class="feat-badge feat-pro">PRO</span></div>
+      <div class="page-subtitle">Same-sector long/short pairs ranked by z-score deviation from historical ratio. · <span id="market-clock">--</span></div>
+    </div>
+    <div class="flex gap-8">
+      <a href="pairs.html" class="btn btn-ghost">⚖ Pairs (basic)</a>
+      <a href="sector-rotation.html" class="btn btn-ghost">🔄 Sector Rotation</a>
+      <a href="cross-asset-correlations.html" class="btn btn-ghost">🔗 Correlations</a>
+    </div>
+  </div>
+
+  <div class="banner">
+    <strong style="font-size:14px;">⚖ Why pair trades.</strong>
+    <div style="font-size:11px;color:var(--text-muted);margin-top:6px;line-height:1.6;">
+      Two stocks in the same sector with high correlation should move together. When their ratio diverges, mean reversion is the edge.
+      <strong>Z-score &gt; 2σ</strong> = high-confidence pair trade: long the laggard, short the leader.
+      <strong>Beta-neutral</strong> — you don't care if SPY goes up or down. You only care about the SPREAD.
+      Best for choppy/sideways markets.
+    </div>
+  </div>
+
+  <div class="kpi-strip">
+    <div class="tile"><div class="lab">Pairs scanned</div><div class="val mono" id="kN">0</div></div>
+    <div class="tile"><div class="lab">Extreme (|z| ≥ 2)</div><div class="val mono r-neg" id="kExtreme">0</div></div>
+    <div class="tile"><div class="lab">High (|z| 1.5-2)</div><div class="val mono" id="kHigh" style="color:var(--yellow);">0</div></div>
+    <div class="tile"><div class="lab">Best opportunity</div><div class="val mono" id="kBest" style="font-size:13px;">—</div></div>
+  </div>
+
+  <button id="btnRefresh" class="btn btn-primary" style="margin-bottom:16px;">🔄 Recompute pairs</button>
+  <span id="status" style="margin-left:10px;font-size:11px;color:var(--text-muted);"></span>
+
+  <div class="section-h">⚖ Pair scanner (z-score sorted)</div>
+  <div class="card" style="padding:0;overflow:hidden;">
+    <div class="row" style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;font-weight:600;background:var(--bg-elevated);padding:10px 16px;border-top:none;border-bottom:1px solid var(--border);">
+      <div>Long</div>
+      <div>Short</div>
+      <div>Sector</div>
+      <div style="text-align:right;">Ratio</div>
+      <div style="text-align:right;">Z-score</div>
+      <div style="text-align:right;">Corr</div>
+      <div>Signal + Action</div>
+    </div>
+    <div id="pairsList" style="padding:0 16px;"></div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script src="js/ta.js"></script>
+<script src="js/learn.js"></script>
+<script>buildNav('pairs');</script>
+
+<script>
+(function () {
+  // Hand-curated pairs grouped by sector
+  const PAIRS = [
+    // Mega-cap tech
+    { a: 'AAPL', b: 'MSFT', sector: 'Tech mega-cap' },
+    { a: 'AAPL', b: 'GOOGL', sector: 'Tech mega-cap' },
+    { a: 'MSFT', b: 'GOOGL', sector: 'Tech mega-cap' },
+    { a: 'META', b: 'GOOGL', sector: 'Ad tech' },
+    // Semis
+    { a: 'NVDA', b: 'AMD', sector: 'Semis' },
+    { a: 'NVDA', b: 'AVGO', sector: 'Semis' },
+    { a: 'AMD', b: 'INTC', sector: 'Semis' },
+    { a: 'MU', b: 'AMD', sector: 'Semis' },
+    // EV
+    { a: 'TSLA', b: 'RIVN', sector: 'EV' },
+    { a: 'RIVN', b: 'LCID', sector: 'EV' },
+    // Banks
+    { a: 'JPM', b: 'BAC', sector: 'Banks' },
+    { a: 'GS', b: 'MS', sector: 'IB' },
+    // Indices
+    { a: 'SPY', b: 'QQQ', sector: 'Indices' },
+    { a: 'SPY', b: 'IWM', sector: 'Indices' },
+    { a: 'QQQ', b: 'IWM', sector: 'Indices' },
+    // Crypto-adjacent
+    { a: 'COIN', b: 'MARA', sector: 'Crypto' },
+    // Streamers
+    { a: 'NFLX', b: 'DIS', sector: 'Streaming' },
+    // Energy
+    { a: 'XOM', b: 'CVX', sector: 'Big oil' },
+    // Retail
+    { a: 'WMT', b: 'TGT', sector: 'Retail' },
+    { a: 'HD', b: 'LOW', sector: 'Home improvement' },
+    // Travel
+    { a: 'ABNB', b: 'BKNG', sector: 'Travel' },
+    { a: 'UBER', b: 'LYFT', sector: 'Rideshare' },
+    // China
+    { a: 'FXI', b: 'MCHI', sector: 'China indices' },
+    // Bonds
+    { a: 'TLT', b: 'IEF', sector: 'Treasury curve' },
+    // Sector pairs
+    { a: 'XLK', b: 'XLE', sector: 'Tech vs Energy' },
+    { a: 'XLY', b: 'XLP', sector: 'Discretionary vs Staples' }
+  ];
+
+  async function fetchDailyCloses(sym) {
+    if (typeof DataProvider === 'undefined' || !DataProvider.getHistorical) return null;
+    try {
+      const to = Date.now();
+      const from = to - 90 * 86400000;
+      const bars = await DataProvider.getHistorical(sym, 'D', from, to);
+      if (!Array.isArray(bars) || bars.length < 30) return null;
+      return bars.map(b => b.c).filter(Boolean).slice(-60);
+    } catch (e) { return null; }
+  }
+
+  function pearson(x, y) {
+    const n = Math.min(x.length, y.length);
+    if (n < 10) return null;
+    const a = x.slice(-n), b = y.slice(-n);
+    const ma = a.reduce((s, v) => s + v, 0) / n;
+    const mb = b.reduce((s, v) => s + v, 0) / n;
+    let num = 0, dx = 0, dy = 0;
+    for (let i = 0; i < n; i++) {
+      num += (a[i] - ma) * (b[i] - mb);
+      dx += Math.pow(a[i] - ma, 2);
+      dy += Math.pow(b[i] - mb, 2);
+    }
+    return num / Math.sqrt(dx * dy);
+  }
+
+  function zscore(arr, val) {
+    if (!arr || arr.length < 5) return null;
+    const m = arr.reduce((s, v) => s + v, 0) / arr.length;
+    const v = arr.reduce((s, x) => s + Math.pow(x - m, 2), 0) / arr.length;
+    const sd = Math.sqrt(v);
+    return sd ? (val - m) / sd : null;
+  }
+
+  let closesCache = {};
+
+  async function loadCloses(symbols) {
+    document.getElementById('status').textContent = 'fetching ' + symbols.length + ' symbols…';
+    let done = 0;
+    await Promise.all(symbols.map(async sym => {
+      const closes = await fetchDailyCloses(sym);
+      if (closes) closesCache[sym] = closes;
+      done++;
+      document.getElementById('status').textContent = done + '/' + symbols.length;
+    }));
+    document.getElementById('status').textContent = '';
+  }
+
+  function severity(z) {
+    if (Math.abs(z) >= 2.5) return 'extreme';
+    if (Math.abs(z) >= 1.5) return 'tight';
+    return '';
+  }
+
+  async function refresh() {
+    document.getElementById('btnRefresh').disabled = true;
+    document.getElementById('btnRefresh').textContent = 'Computing…';
+    const allSyms = Array.from(new Set([].concat(...PAIRS.map(p => [p.a, p.b]))));
+    await loadCloses(allSyms);
+
+    const results = PAIRS.map(p => {
+      const ca = closesCache[p.a], cb = closesCache[p.b];
+      if (!ca || !cb) return null;
+      const n = Math.min(ca.length, cb.length);
+      const a = ca.slice(-n), b = cb.slice(-n);
+      const ratios = [];
+      for (let i = 0; i < n; i++) ratios.push(a[i] / b[i]);
+      const lastRatio = ratios[ratios.length - 1];
+      const z = zscore(ratios, lastRatio);
+      const corr = pearson(a, b);
+      return { ...p, lastRatio, z, corr };
+    }).filter(Boolean);
+
+    document.getElementById('btnRefresh').disabled = false;
+    document.getElementById('btnRefresh').textContent = '🔄 Recompute pairs';
+    render(results);
+  }
+
+  function render(results) {
+    if (!results || !results.length) {
+      document.getElementById('pairsList').innerHTML = '<div class="empty">No data. Check DataProvider config.</div>';
+      return;
+    }
+    const sorted = results.slice().sort((a, b) => Math.abs(b.z || 0) - Math.abs(a.z || 0));
+    document.getElementById('kN').textContent = sorted.length;
+    document.getElementById('kExtreme').textContent = sorted.filter(r => Math.abs(r.z) >= 2).length;
+    document.getElementById('kHigh').textContent = sorted.filter(r => Math.abs(r.z) >= 1.5 && Math.abs(r.z) < 2).length;
+    const best = sorted[0];
+    document.getElementById('kBest').textContent = best ? `Long ${best.z > 0 ? best.b : best.a} / Short ${best.z > 0 ? best.a : best.b}` : '—';
+
+    document.getElementById('pairsList').innerHTML = sorted.map(r => {
+      const sev = severity(r.z || 0);
+      const sevTag = sev === 'extreme' ? '<span class="tag extreme">EXTREME 2σ+</span>' : sev === 'tight' ? '<span class="tag tight">HIGH 1.5σ</span>' : '';
+      const longSym = (r.z || 0) > 0 ? r.b : r.a;
+      const shortSym = (r.z || 0) > 0 ? r.a : r.b;
+      const corrCls = (r.corr || 0) >= 0.7 ? 'r-pos' : (r.corr || 0) >= 0.5 ? '' : 'r-neg';
+      return `<div class="row">
+        <div class="mono" style="font-weight:700;color:var(--green);">${longSym}</div>
+        <div class="mono" style="font-weight:700;color:var(--red);">${shortSym}</div>
+        <div style="font-size:11px;">${r.sector}</div>
+        <div class="mono" style="text-align:right;">${r.lastRatio != null ? r.lastRatio.toFixed(3) : '—'}</div>
+        <div class="mono" style="text-align:right;font-weight:700;color:${Math.abs(r.z || 0) >= 2 ? 'var(--red)' : Math.abs(r.z || 0) >= 1.5 ? 'var(--yellow)' : 'var(--text-muted)'};">${r.z != null ? (r.z >= 0 ? '+' : '') + r.z.toFixed(2) + 'σ' : '—'}</div>
+        <div class="mono ${corrCls}" style="text-align:right;">${r.corr != null ? r.corr.toFixed(2) : '—'}</div>
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:11px;">
+          ${sevTag}
+          ${Math.abs(r.z || 0) >= 1.5 ? `<a href="trade-ticket.html?sym=${longSym}" style="color:var(--accent);">🎯 ${longSym}</a> · <a href="trade-ticket.html?sym=${shortSym}" style="color:var(--accent);">🎯 ${shortSym}</a>` : '<span style="color:var(--text-muted);">monitoring</span>'}
+        </div>
+      </div>`;
+    }).join('');
+  }
+
+  document.getElementById('btnRefresh').addEventListener('click', refresh);
+  setTimeout(refresh, 600);
+})();
+</script>
+</body>
+</html>

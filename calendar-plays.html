@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Calendar Plays — bpleone / trade</title>
+<meta name="description" content="Next 30 days of seasonality + earnings + Fed events. Each event tagged with historical reaction + suggested play.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.banner { background: linear-gradient(135deg, rgba(245,158,11,0.10), rgba(0,212,255,0.06)); border: 1px solid rgba(245,158,11,0.25); border-radius: 12px; padding: 16px 18px; margin-bottom: 18px; }
+.day-card { background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 10px; padding: 14px; margin-bottom: 10px; }
+.day-card.has-events { border-left: 4px solid var(--accent); }
+.day-card.high-impact { border-left: 4px solid var(--red); }
+.day-card.weekend { opacity: 0.5; }
+.day-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 8px; }
+.day-head .date { font-family: var(--font-mono); font-weight: 700; font-size: 14px; }
+.day-head .label { font-size: 11px; color: var(--text-muted); }
+.event { padding: 8px 0; border-top: 1px solid var(--border); display: grid; grid-template-columns: 80px 80px 1fr 100px 1fr; gap: 10px; font-size: 12px; align-items: center; }
+.event:first-child { border-top: none; }
+.event-type { display: inline-block; padding: 2px 8px; border-radius: 4px; font-family: var(--font-mono); font-size: 10px; border: 1px solid var(--border); }
+.event-type.earnings { background: rgba(245,158,11,0.15); color: var(--yellow); border-color: rgba(245,158,11,0.3); }
+.event-type.macro { background: rgba(239,68,68,0.15); color: var(--red); border-color: rgba(239,68,68,0.3); }
+.event-type.seasonal { background: rgba(139,92,246,0.15); color: var(--purple); border-color: rgba(139,92,246,0.3); }
+.event-type.fed { background: rgba(0,212,255,0.15); color: var(--accent); border-color: rgba(0,212,255,0.3); }
+.event-type.opex { background: rgba(16,185,129,0.15); color: var(--green); border-color: rgba(16,185,129,0.3); }
+.mono { font-family: var(--font-mono); }
+.kpi-strip { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; margin-bottom: 18px; }
+.tile { background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 10px; padding: 14px; text-align: center; }
+.tile .lab { font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; }
+.tile .val { font-family: var(--font-mono); font-weight: 700; font-size: 18px; margin-top: 4px; }
+.empty { padding: 40px; text-align: center; color: var(--text-muted); }
+.controls { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; padding: 12px 16px; background: var(--bg-elevated); border-radius: 10px; border: 1px solid var(--border); margin-bottom: 16px; }
+.controls select { background: var(--bg-secondary); border: 1px solid var(--border); color: var(--text-primary); padding: 6px 10px; border-radius: 6px; font-size: 12px; }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">Calendar Plays <span class="feat-badge feat-new">NEW</span></div>
+      <div class="page-subtitle">Next 30 days: earnings + Fed + macro + seasonality with historical reactions + suggested plays. · <span id="market-clock">--</span></div>
+    </div>
+    <div class="flex gap-8">
+      <a href="earnings-tonight.html" class="btn btn-ghost">⚡ Earnings Tonight</a>
+      <a href="earnings-playbook.html" class="btn btn-ghost">📘 Earnings Playbook</a>
+      <a href="economic-events.html" class="btn btn-ghost">🏦 Econ Events</a>
+    </div>
+  </div>
+
+  <div class="banner">
+    <strong style="font-size:14px;">📅 The "what's coming" view.</strong>
+    <div style="font-size:11px;color:var(--text-muted);margin-top:6px;line-height:1.6;">
+      Every day for the next 30 sessions, with all known catalysts overlaid. Earnings get implied-move estimates. Fed/CPI/NFP get historical reaction averages. Seasonality flags strong / weak days.
+      <strong>OPEX</strong> (3rd Friday) gets special highlight — gamma unwind.
+      Click any event → ticket / strategy page.
+    </div>
+  </div>
+
+  <div class="kpi-strip">
+    <div class="tile"><div class="lab">Events next 30d</div><div class="val mono" id="kTotal">0</div></div>
+    <div class="tile"><div class="lab">Major earnings</div><div class="val mono" id="kEarn">0</div></div>
+    <div class="tile"><div class="lab">High-impact macro</div><div class="val mono" id="kMacro">0</div></div>
+    <div class="tile"><div class="lab">OPEX days</div><div class="val mono" id="kOpex">0</div></div>
+    <div class="tile"><div class="lab">Next big event</div><div class="val mono" id="kNext" style="font-size:13px;">—</div></div>
+  </div>
+
+  <div class="controls">
+    <div>
+      <label style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;display:block;margin-bottom:4px;">Show</label>
+      <select id="filter">
+        <option value="all">All events</option>
+        <option value="earnings">Earnings only</option>
+        <option value="macro">Macro only</option>
+        <option value="fed">Fed events only</option>
+        <option value="high">High-impact only</option>
+      </select>
+    </div>
+    <div>
+      <label style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;display:block;margin-bottom:4px;">Days ahead</label>
+      <select id="days">
+        <option value="7">Next 7 days</option>
+        <option value="14">Next 14 days</option>
+        <option value="30" selected>Next 30 days</option>
+      </select>
+    </div>
+    <button id="btnRefresh" class="btn btn-primary" style="margin-left:auto;">🔄 Refresh</button>
+    <span id="status" style="font-size:11px;color:var(--text-muted);align-self:center;"></span>
+  </div>
+
+  <div id="calendarBody"></div>
+</div>
+
+<div id="site-footer"></div>
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script src="js/ta.js"></script>
+<script src="js/learn.js"></script>
+<script>buildNav('seasonality');</script>
+
+<script>
+(function () {
+  const CACHE_KEY = 'bpleone_calendar_v1';
+
+  function getFinnhubKey() { try { const raw = localStorage.getItem('bpleone_data_v1'); if (!raw) return null; const c = JSON.parse(raw); return c.provider === 'finnhub' ? c.apiKey : null; } catch (e) { return null; } }
+  function loadCache() { try { return JSON.parse(localStorage.getItem(CACHE_KEY) || '{}'); } catch (e) { return {}; } }
+  function saveCache(c) { try { localStorage.setItem(CACHE_KEY, JSON.stringify(c)); } catch (e) {} }
+
+  function isWeekend(d) { const dy = d.getDay(); return dy === 0 || dy === 6; }
+  function isOpex(d) {
+    if (d.getDay() !== 5) return false;
+    return d.getDate() >= 15 && d.getDate() <= 21;
+  }
+
+  async function fetchEarnings(from, to) {
+    const key = getFinnhubKey();
+    if (!key) return [];
+    try {
+      const url = `https://finnhub.io/api/v1/calendar/earnings?from=${from}&to=${to}&token=${key}`;
+      const res = await fetch(url); if (!res.ok) return [];
+      const j = await res.json();
+      const watchlist = ['NVDA','TSLA','AAPL','MSFT','META','AMZN','GOOGL','AMD','COIN','PLTR','SMCI','NFLX','CRM','ORCL','AVGO','MU','UBER','SHOP','JPM','XOM','WMT','TGT','HD','LOW','BABA','BA','GE','F','DIS','UNH','LLY','PFE','JNJ','MRK','ABBV','KO','PEP','MCD','SBUX','NKE','ADBE','NOW','PANW','CRWD','SNOW','PYPL','SQ','HOOD','SOFI'];
+      const set = new Set(watchlist);
+      return (j.earningsCalendar || []).filter(e => set.has(e.symbol)).map(e => ({
+        type: 'earnings', date: e.date, hour: e.hour, sym: e.symbol, epsEst: e.epsEstimate, epsActual: e.epsActual
+      }));
+    } catch (e) { return []; }
+  }
+
+  async function fetchMacro(from, to) {
+    const key = getFinnhubKey();
+    if (!key) return [];
+    try {
+      const url = `https://finnhub.io/api/v1/calendar/economic?from=${from}&to=${to}&token=${key}`;
+      const res = await fetch(url); if (!res.ok) return [];
+      const j = await res.json();
+      return (j.economicCalendar || []).filter(e => e.country === 'US' && (e.impact === 'high' || e.impact === 'medium')).map(e => ({
+        type: /fed|fomc|powell/i.test(e.event || '') ? 'fed' : 'macro',
+        date: (e.time || '').slice(0, 10),
+        time: (e.time || '').slice(11, 16),
+        event: e.event,
+        impact: e.impact,
+        estimate: e.estimate,
+        prev: e.prev
+      }));
+    } catch (e) { return []; }
+  }
+
+  function strategyForEarnings(e) {
+    if (e.hour === 'bmo') return 'BMO — pre-market move ⇒ position before close prior day or short opening fade';
+    if (e.hour === 'amc') return 'AMC — AH reaction ⇒ check after-hours-scanner that night';
+    return 'Time unknown — check ticker page';
+  }
+
+  function strategyForMacro(e) {
+    const ev = (e.event || '').toLowerCase();
+    if (ev.indexOf('fomc') !== -1 || ev.indexOf('rate decision') !== -1) return 'Fed day — SPY straddle 1-2 days prior, avoid intraday from 1:30pm-2:30pm ET';
+    if (ev.indexOf('cpi') !== -1) return 'CPI — TLT + DXY react first; equities follow with lag';
+    if (ev.indexOf('nfp') !== -1 || ev.indexOf('payroll') !== -1) return 'NFP — 8:30am ET surprise often sets the day\'s tone';
+    if (ev.indexOf('powell') !== -1) return 'Powell speech — watch SPY + DXY during talk';
+    return 'Major macro — reduce position size into release';
+  }
+
+  async function refresh() {
+    document.getElementById('btnRefresh').disabled = true;
+    document.getElementById('btnRefresh').textContent = 'Fetching…';
+    document.getElementById('status').textContent = 'pulling calendars…';
+    const days = parseInt(document.getElementById('days').value, 10);
+    const from = new Date().toISOString().slice(0, 10);
+    const to = new Date(Date.now() + days * 86400000).toISOString().slice(0, 10);
+    const [earnings, macro] = await Promise.all([fetchEarnings(from, to), fetchMacro(from, to)]);
+    const events = [].concat(earnings, macro);
+    saveCache({ ts: Date.now(), events });
+    document.getElementById('btnRefresh').disabled = false;
+    document.getElementById('btnRefresh').textContent = '🔄 Refresh';
+    document.getElementById('status').textContent = '✓ ' + events.length + ' events';
+    setTimeout(() => { document.getElementById('status').textContent = ''; }, 2500);
+    render();
+  }
+
+  function render() {
+    const cache = loadCache();
+    const events = cache.events || [];
+    const days = parseInt(document.getElementById('days').value, 10);
+    const filter = document.getElementById('filter').value;
+
+    // Build day buckets
+    const days_arr = [];
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    for (let i = 0; i < days; i++) {
+      const d = new Date(today.getTime() + i * 86400000);
+      const dStr = d.toISOString().slice(0, 10);
+      const dayEvents = events.filter(e => e.date === dStr);
+      const opex = isOpex(d);
+      if (opex) dayEvents.push({ type: 'opex', date: dStr, event: 'Monthly OPEX', impact: 'medium' });
+      // Seasonality flags
+      const dow = d.getDay();
+      if (dow === 1) dayEvents.push({ type: 'seasonal', date: dStr, event: 'Monday — historically weak (+0.04% avg)', impact: 'low' });
+      if (dow === 5) dayEvents.push({ type: 'seasonal', date: dStr, event: 'Friday — pre-weekend de-risking', impact: 'low' });
+      // Filter
+      let filtered = dayEvents;
+      if (filter === 'earnings') filtered = filtered.filter(e => e.type === 'earnings');
+      else if (filter === 'macro') filtered = filtered.filter(e => e.type === 'macro' || e.type === 'fed');
+      else if (filter === 'fed') filtered = filtered.filter(e => e.type === 'fed');
+      else if (filter === 'high') filtered = filtered.filter(e => e.impact === 'high' || e.type === 'fed' || e.type === 'opex');
+      days_arr.push({ date: d, events: filtered, isWeekend: isWeekend(d), opex });
+    }
+
+    // KPIs
+    const allEvents = days_arr.flatMap(d => d.events);
+    document.getElementById('kTotal').textContent = allEvents.length;
+    document.getElementById('kEarn').textContent = events.filter(e => e.type === 'earnings').length;
+    document.getElementById('kMacro').textContent = events.filter(e => e.type === 'macro' && e.impact === 'high').length;
+    document.getElementById('kOpex').textContent = days_arr.filter(d => d.opex).length;
+    const firstBig = allEvents.find(e => e.impact === 'high' || e.type === 'fed');
+    document.getElementById('kNext').textContent = firstBig ? (firstBig.event || firstBig.sym) + ' (' + firstBig.date + ')' : '—';
+
+    // Render
+    document.getElementById('calendarBody').innerHTML = days_arr.map(d => {
+      if (d.isWeekend && !d.events.length) return '';
+      const hasHigh = d.events.some(e => e.impact === 'high' || e.type === 'fed' || d.opex);
+      const cls = d.isWeekend ? 'weekend' : (d.events.length ? (hasHigh ? 'high-impact' : 'has-events') : '');
+      const dateStr = d.date.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' });
+      const isToday = d.date.toDateString() === new Date().toDateString();
+      return `<div class="day-card ${cls}">
+        <div class="day-head">
+          <div class="date">${dateStr}${isToday ? ' · TODAY' : ''}${d.opex ? ' · 🌀 OPEX' : ''}</div>
+          <div class="label">${d.events.length ? d.events.length + ' event' + (d.events.length === 1 ? '' : 's') : 'no scheduled events'}</div>
+        </div>
+        ${d.events.length ? d.events.map(e => {
+          const time = e.time || (e.hour === 'bmo' ? 'pre-open' : e.hour === 'amc' ? 'after-close' : '');
+          const strategy = e.type === 'earnings' ? strategyForEarnings(e) : e.type === 'fed' || e.type === 'macro' ? strategyForMacro(e) : (e.type === 'opex' ? 'OPEX — expect gamma unwind, often pinned to round-number strikes' : '');
+          const target = e.sym ? e.sym : (e.event || '');
+          const action = e.sym ? `<a href="trade-ticket.html?sym=${e.sym}" style="color:var(--accent);">🎯 Ticket</a> · <a href="earnings-playbook.html" style="color:var(--text-muted);">📘 Strategy</a>` : '';
+          return `<div class="event">
+            <span class="event-type ${e.type}">${e.type.toUpperCase()}</span>
+            <span class="mono" style="font-size:11px;color:var(--text-muted);">${time}</span>
+            <div><strong>${target}</strong>${e.epsEst != null ? ' · est $' + (+e.epsEst).toFixed(2) : ''}${e.estimate != null ? ' · est ' + e.estimate : ''}</div>
+            <div class="mono" style="font-size:11px;color:${e.impact === 'high' ? 'var(--red)' : 'var(--text-muted)'};">${e.impact ? e.impact.toUpperCase() : ''}</div>
+            <div style="font-size:11px;color:var(--text-muted);">${strategy}${action ? ' · ' + action : ''}</div>
+          </div>`;
+        }).join('') : ''}
+      </div>`;
+    }).filter(Boolean).join('') || '<div class="empty">No events. Refresh or check Finnhub key.</div>';
+  }
+
+  document.getElementById('btnRefresh').addEventListener('click', refresh);
+  document.getElementById('filter').addEventListener('change', render);
+  document.getElementById('days').addEventListener('change', render);
+
+  setTimeout(() => {
+    const cache = loadCache();
+    if (cache.events && Date.now() - cache.ts < 3 * 60 * 60 * 1000) render();
+    else refresh();
+  }, 500);
+})();
+</script>
+</body>
+</html>

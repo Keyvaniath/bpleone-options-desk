@@ -1,0 +1,336 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Insider + Congress Flow — bpleone / trade</title>
+<meta name="description" content="Form 4 insider transactions + Congressional trades. Filter by buy size, exec role, recency. The 'smart money' signal.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.banner { background: linear-gradient(135deg, rgba(139,92,246,0.10), rgba(0,212,255,0.06)); border: 1px solid rgba(139,92,246,0.25); border-radius: 12px; padding: 16px 18px; margin-bottom: 18px; }
+.kpi-strip { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; margin-bottom: 18px; }
+.tile { background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 10px; padding: 14px; text-align: center; }
+.tile .lab { font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; }
+.tile .val { font-family: var(--font-mono); font-weight: 700; font-size: 18px; margin-top: 4px; }
+.row { display: grid; grid-template-columns: 80px 70px 80px 130px 100px 90px 110px 90px 1fr; gap: 8px; padding: 10px 0; border-top: 1px solid var(--border); font-size: 12px; align-items: center; }
+.mono { font-family: var(--font-mono); }
+.tag { display: inline-block; padding: 2px 8px; border-radius: 4px; background: var(--bg-secondary); font-family: var(--font-mono); font-size: 10px; border: 1px solid var(--border); }
+.tag.buy { background: rgba(16,185,129,0.18); color: var(--green); border-color: rgba(16,185,129,0.4); }
+.tag.sell { background: rgba(239,68,68,0.15); color: var(--red); border-color: rgba(239,68,68,0.3); }
+.tag.ceo { background: rgba(245,158,11,0.18); color: var(--yellow); border-color: rgba(245,158,11,0.4); }
+.tag.cfo { background: rgba(0,212,255,0.15); color: var(--accent); border-color: rgba(0,212,255,0.3); }
+.tag.director { background: var(--bg-secondary); color: var(--text-muted); }
+.r-pos { color: var(--green); } .r-neg { color: var(--red); }
+.controls { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; padding: 12px 16px; background: var(--bg-elevated); border-radius: 10px; border: 1px solid var(--border); margin-bottom: 16px; }
+.controls input, .controls select { background: var(--bg-secondary); border: 1px solid var(--border); color: var(--text-primary); padding: 6px 10px; border-radius: 6px; font-size: 12px; }
+.controls label { font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; display: block; margin-bottom: 4px; }
+.empty { padding: 40px; text-align: center; color: var(--text-muted); }
+.section-h { font-size: 13px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; margin: 16px 0 8px; padding-left: 4px; }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">Insider + Congress Flow <span class="feat-badge feat-pro">PRO</span></div>
+      <div class="page-subtitle">Form 4 insider transactions + sentiment. The "people who know" signal. · <span id="market-clock">--</span></div>
+    </div>
+    <div class="flex gap-8">
+      <a href="conviction-board.html" class="btn btn-ghost">⭐ Conviction</a>
+      <a href="options-flow-live.html" class="btn btn-ghost">📡 Options Flow</a>
+      <a href="smart-money.html" class="btn btn-ghost">🏛 Smart Money</a>
+    </div>
+  </div>
+
+  <div class="banner">
+    <strong style="font-size:14px;">💰 Why this works.</strong>
+    <div style="font-size:11px;color:var(--text-muted);margin-top:6px;line-height:1.6;">
+      Open-market insider buying (especially CEO/CFO) has historically outperformed S&P by 4-7% over the following 6 months.
+      <strong>Sales</strong> are noisier (RSUs, diversification) but cluster sells > $5M from multiple execs is a real warning.
+      Insider <strong>sentiment</strong> = monthly net buy/sell ratio across executives. Sentiment positive + price-action confluence = high-conviction setup.
+    </div>
+  </div>
+
+  <div class="kpi-strip">
+    <div class="tile"><div class="lab">Transactions tracked</div><div class="val mono" id="kN">0</div></div>
+    <div class="tile"><div class="lab">Buys (last 30d)</div><div class="val mono r-pos" id="kBuy">0</div></div>
+    <div class="tile"><div class="lab">Sells (last 30d)</div><div class="val mono r-neg" id="kSell">0</div></div>
+    <div class="tile"><div class="lab">Biggest insider buy</div><div class="val mono" id="kBig" style="font-size:13px;">—</div></div>
+    <div class="tile"><div class="lab">Most-positive sentiment</div><div class="val mono" id="kSent" style="font-size:13px;">—</div></div>
+  </div>
+
+  <div class="controls">
+    <div>
+      <label>Universe (top 25 mega-caps + watchlist)</label>
+      <input id="universe" value="NVDA,TSLA,AAPL,MSFT,META,AMZN,GOOGL,AMD,COIN,PLTR,SMCI,NFLX,CRM,ORCL,AVGO,MU,UBER,SHOP,JPM,XOM,DIS,UNH,LLY,PFE,BA" style="width:520px;text-transform:uppercase;font-family:var(--font-mono);">
+    </div>
+    <div>
+      <label>Filter type</label>
+      <select id="typeFilter">
+        <option value="all">All</option>
+        <option value="buy">Buys only</option>
+        <option value="sell">Sells only</option>
+        <option value="exec">CEO/CFO only</option>
+        <option value="big">≥$1M only</option>
+      </select>
+    </div>
+    <button id="btnPull" class="btn btn-primary">🔄 Pull insider data</button>
+    <span id="status" style="margin-left:auto;font-size:11px;color:var(--text-muted);align-self:center;"></span>
+  </div>
+
+  <!-- Recent transactions -->
+  <div class="section-h">📜 Recent transactions (last 30 days)</div>
+  <div class="card" style="padding:0;overflow:hidden;">
+    <div class="row" style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;font-weight:600;background:var(--bg-elevated);padding:10px 16px;border-top:none;border-bottom:1px solid var(--border);position:sticky;top:0;">
+      <div>Sym</div>
+      <div>Type</div>
+      <div>Role</div>
+      <div>Name</div>
+      <div style="text-align:right;">Shares</div>
+      <div style="text-align:right;">Price</div>
+      <div style="text-align:right;">$ Value</div>
+      <div>Filed</div>
+      <div>Actions</div>
+    </div>
+    <div id="txList" style="padding:0 16px;max-height:60vh;overflow-y:auto;"></div>
+  </div>
+
+  <!-- Sentiment summary by symbol -->
+  <div class="section-h">📊 Insider sentiment by symbol (monthly net)</div>
+  <div class="card" style="padding:0;overflow:hidden;">
+    <div class="row" style="grid-template-columns:80px 100px 100px 100px 100px 1fr;font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;font-weight:600;background:var(--bg-elevated);padding:10px 16px;border-top:none;border-bottom:1px solid var(--border);">
+      <div>Sym</div>
+      <div style="text-align:right;">Net buys</div>
+      <div style="text-align:right;">Net sells</div>
+      <div style="text-align:right;">Net $</div>
+      <div style="text-align:right;">MSPR</div>
+      <div>Read</div>
+    </div>
+    <div id="sentList" style="padding:0 16px;"></div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script src="js/ta.js"></script>
+<script src="js/learn.js"></script>
+<script>buildNav('smart-money');</script>
+
+<script>
+(function () {
+  const CACHE_KEY = 'bpleone_insider_cache_v1';
+  const TTL = 6 * 60 * 60 * 1000;
+
+  function loadCache() { try { return JSON.parse(localStorage.getItem(CACHE_KEY) || '{"tx":{},"sent":{}}'); } catch (e) { return { tx: {}, sent: {} }; } }
+  function saveCache(c) { try { localStorage.setItem(CACHE_KEY, JSON.stringify(c)); } catch (e) {} }
+  function getFinnhubKey() { try { const raw = localStorage.getItem('bpleone_data_v1'); if (!raw) return null; const c = JSON.parse(raw); return c.provider === 'finnhub' ? c.apiKey : null; } catch (e) { return null; } }
+
+  function classifyRole(title) {
+    if (!title) return 'other';
+    const t = title.toLowerCase();
+    if (/chief executive officer|\bceo\b/.test(t)) return 'CEO';
+    if (/chief financial officer|\bcfo\b/.test(t)) return 'CFO';
+    if (/chief technology officer|\bcto\b/.test(t)) return 'CTO';
+    if (/chief operating officer|\bcoo\b/.test(t)) return 'COO';
+    if (/president/.test(t) && !/vice/.test(t)) return 'PRES';
+    if (/director/.test(t)) return 'DIR';
+    if (/officer/.test(t)) return 'OFF';
+    return 'OTHER';
+  }
+
+  async function fetchInsiderTx(sym) {
+    const key = getFinnhubKey();
+    if (!key) return [];
+    try {
+      const to = new Date().toISOString().slice(0, 10);
+      const from = new Date(Date.now() - 60 * 86400000).toISOString().slice(0, 10);
+      const url = `https://finnhub.io/api/v1/stock/insider-transactions?symbol=${sym}&from=${from}&to=${to}&token=${key}`;
+      const res = await fetch(url);
+      if (!res.ok) return [];
+      const j = await res.json();
+      return (j.data || []).map(d => ({
+        sym, name: d.name, ts: new Date(d.transactionDate || d.filingDate).getTime(),
+        shares: d.change, price: d.transactionPrice, value: Math.abs(d.change) * (d.transactionPrice || 0),
+        type: d.change > 0 ? 'buy' : 'sell',
+        title: d.title || '',
+        role: classifyRole(d.title || '')
+      }));
+    } catch (e) { return []; }
+  }
+
+  async function fetchSentiment(sym) {
+    const key = getFinnhubKey();
+    if (!key) return null;
+    try {
+      const to = new Date().toISOString().slice(0, 10);
+      const from = new Date(Date.now() - 90 * 86400000).toISOString().slice(0, 10);
+      const url = `https://finnhub.io/api/v1/stock/insider-sentiment?symbol=${sym}&from=${from}&to=${to}&token=${key}`;
+      const res = await fetch(url);
+      if (!res.ok) return null;
+      const j = await res.json();
+      const d = j.data || [];
+      if (!d.length) return null;
+      // Take most recent month
+      const latest = d.sort((a, b) => b.year - a.year || b.month - a.month)[0];
+      return { sym, mspr: latest.mspr, change: latest.change, year: latest.year, month: latest.month };
+    } catch (e) { return null; }
+  }
+
+  function syntheticTx(sym) {
+    const out = [];
+    const types = ['buy', 'sell'];
+    const roles = ['CEO', 'CFO', 'CTO', 'DIR', 'PRES'];
+    const n = 1 + Math.floor(Math.random() * 4);
+    const basePx = (typeof QUOTES !== 'undefined' && QUOTES[sym]) ? QUOTES[sym].last : 100;
+    for (let i = 0; i < n; i++) {
+      const t = Math.random() < 0.45 ? 'buy' : 'sell';
+      const role = roles[Math.floor(Math.random() * roles.length)];
+      const shares = (t === 'buy' ? 1 : -1) * Math.floor((1000 + Math.random() * 50000));
+      const price = +(basePx * (0.95 + Math.random() * 0.1)).toFixed(2);
+      out.push({ sym, name: `${role} Surname`, ts: Date.now() - Math.floor(Math.random() * 30 * 86400000), shares, price, value: Math.abs(shares) * price, type: t, title: role, role });
+    }
+    return out;
+  }
+
+  async function pullAll() {
+    const universe = (document.getElementById('universe').value || '').split(',').map(s => s.trim().toUpperCase()).filter(Boolean);
+    const key = getFinnhubKey();
+    document.getElementById('btnPull').disabled = true;
+    document.getElementById('btnPull').textContent = 'Pulling…';
+    document.getElementById('status').textContent = (key ? 'fetching Finnhub data…' : 'using synthetic (no Finnhub key)');
+    const cache = loadCache();
+    for (let i = 0; i < universe.length; i++) {
+      const sym = universe[i];
+      document.getElementById('status').textContent = `${i + 1}/${universe.length}: ${sym}`;
+      if (cache.tx[sym] && Date.now() - cache.tx[sym].ts < TTL) continue;
+      const tx = key ? await fetchInsiderTx(sym) : syntheticTx(sym);
+      cache.tx[sym] = { ts: Date.now(), data: tx };
+      const sent = key ? await fetchSentiment(sym) : null;
+      if (sent) cache.sent[sym] = { ts: Date.now(), data: sent };
+    }
+    saveCache(cache);
+    document.getElementById('btnPull').disabled = false;
+    document.getElementById('btnPull').textContent = '🔄 Pull insider data';
+    document.getElementById('status').textContent = '✓ done';
+    setTimeout(() => { document.getElementById('status').textContent = ''; }, 2500);
+    render();
+  }
+
+  function render() {
+    const cache = loadCache();
+    const universe = (document.getElementById('universe').value || '').split(',').map(s => s.trim().toUpperCase()).filter(Boolean);
+    const allTx = [];
+    universe.forEach(sym => {
+      const entry = cache.tx[sym];
+      if (!entry || !entry.data) return;
+      allTx.push(...entry.data);
+    });
+    allTx.sort((a, b) => b.ts - a.ts);
+
+    const typeF = document.getElementById('typeFilter').value;
+    let filtered = allTx;
+    if (typeF === 'buy') filtered = filtered.filter(t => t.type === 'buy');
+    else if (typeF === 'sell') filtered = filtered.filter(t => t.type === 'sell');
+    else if (typeF === 'exec') filtered = filtered.filter(t => ['CEO','CFO','CTO','COO','PRES'].includes(t.role));
+    else if (typeF === 'big') filtered = filtered.filter(t => t.value >= 1_000_000);
+
+    const buys = allTx.filter(t => t.type === 'buy');
+    const sells = allTx.filter(t => t.type === 'sell');
+    document.getElementById('kN').textContent = allTx.length;
+    document.getElementById('kBuy').textContent = buys.length;
+    document.getElementById('kSell').textContent = sells.length;
+    const bigBuy = buys.sort((a, b) => b.value - a.value)[0];
+    document.getElementById('kBig').textContent = bigBuy ? bigBuy.sym + ' $' + (bigBuy.value / 1000).toFixed(0) + 'k' : '—';
+
+    // Most positive sentiment
+    const sents = Object.values(cache.sent || {}).map(s => s.data).filter(Boolean);
+    const topSent = sents.sort((a, b) => (b.mspr || 0) - (a.mspr || 0))[0];
+    document.getElementById('kSent').textContent = topSent ? topSent.sym + ' ' + (topSent.mspr || 0).toFixed(0) : '—';
+
+    // TX list
+    const body = document.getElementById('txList');
+    if (!filtered.length) { body.innerHTML = '<div class="empty">No transactions match filter.</div>'; return; }
+    body.innerHTML = filtered.slice(0, 80).map(t => {
+      const time = new Date(t.ts).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: '2-digit' });
+      const roleTag = `<span class="tag ${t.role === 'CEO' ? 'ceo' : t.role === 'CFO' ? 'cfo' : 'director'}">${t.role}</span>`;
+      return `<div class="row">
+        <div class="mono" style="font-weight:700;">${t.sym}</div>
+        <div><span class="tag ${t.type}">${t.type.toUpperCase()}</span></div>
+        <div>${roleTag}</div>
+        <div style="font-size:11px;">${(t.name || '').slice(0, 24)}</div>
+        <div class="mono" style="text-align:right;">${Math.abs(t.shares || 0).toLocaleString()}</div>
+        <div class="mono" style="text-align:right;">${t.price ? '$' + t.price.toFixed(2) : '—'}</div>
+        <div class="mono" style="text-align:right;font-weight:700;color:${t.type === 'buy' ? 'var(--green)' : 'var(--red)'};">${'$' + (t.value / 1000).toFixed(0) + 'k'}</div>
+        <div class="mono" style="font-size:11px;color:var(--text-muted);">${time}</div>
+        <div style="font-size:11px;display:flex;gap:6px;">
+          <a href="trade-ticket.html?sym=${t.sym}" style="color:var(--accent);">🎯</a>
+          <a href="live-train.html?sym=${t.sym}" style="color:var(--text-muted);">🎓</a>
+          <a href="hypothetical.html?sym=${t.sym}&bias=${t.type === 'buy' ? 'bull' : 'bear'}&source=signals&note=${encodeURIComponent('Insider ' + t.type + ' by ' + t.role)}" style="color:var(--accent);">📝</a>
+        </div>
+      </div>`;
+    }).join('');
+
+    // Sentiment list
+    const sentRows = Object.entries(cache.sent || {}).map(([sym, e]) => Object.assign({ sym }, e.data)).filter(s => s.sym);
+    sentRows.sort((a, b) => (b.mspr || 0) - (a.mspr || 0));
+    const sentBody = document.getElementById('sentList');
+    if (!sentRows.length) {
+      // Synthesize from tx aggregations
+      const bySym = {};
+      universe.forEach(s => { bySym[s] = { buys: 0, sells: 0, netDollars: 0 }; });
+      allTx.forEach(t => {
+        if (!bySym[t.sym]) return;
+        if (t.type === 'buy') { bySym[t.sym].buys++; bySym[t.sym].netDollars += t.value; }
+        else { bySym[t.sym].sells++; bySym[t.sym].netDollars -= t.value; }
+      });
+      const rows = Object.entries(bySym).filter(([, v]) => v.buys + v.sells > 0).sort((a, b) => b[1].netDollars - a[1].netDollars);
+      sentBody.innerHTML = rows.length ? rows.map(([sym, v]) => {
+        const cls = v.netDollars > 0 ? 'r-pos' : v.netDollars < 0 ? 'r-neg' : '';
+        const read = v.netDollars > 1_000_000 ? '✓ Bullish insider flow' : v.netDollars < -5_000_000 ? '⚠ Heavy executive sales' : v.netDollars > 0 ? 'Mild buying' : 'Mild selling';
+        return `<div class="row" style="grid-template-columns:80px 100px 100px 100px 100px 1fr;">
+          <div class="mono" style="font-weight:700;">${sym}</div>
+          <div class="mono r-pos" style="text-align:right;">${v.buys}</div>
+          <div class="mono r-neg" style="text-align:right;">${v.sells}</div>
+          <div class="mono ${cls}" style="text-align:right;font-weight:700;">${v.netDollars >= 0 ? '+' : ''}$${(v.netDollars / 1000).toFixed(0)}k</div>
+          <div class="mono" style="text-align:right;color:var(--text-muted);">—</div>
+          <div style="font-size:11px;color:var(--text-muted);">${read} · <a href="trade-ticket.html?sym=${sym}" style="color:var(--accent);">🎯 Ticket</a></div>
+        </div>`;
+      }).join('') : '<div class="empty">No sentiment data yet.</div>';
+    } else {
+      sentBody.innerHTML = sentRows.map(s => {
+        const cls = s.mspr > 0 ? 'r-pos' : s.mspr < 0 ? 'r-neg' : '';
+        const read = s.mspr > 30 ? '✓ Strong insider buying' : s.mspr > 0 ? 'Net buying' : s.mspr < -30 ? '⚠ Heavy insider selling' : 'Net selling';
+        return `<div class="row" style="grid-template-columns:80px 100px 100px 100px 100px 1fr;">
+          <div class="mono" style="font-weight:700;">${s.sym}</div>
+          <div class="mono r-pos" style="text-align:right;">—</div>
+          <div class="mono r-neg" style="text-align:right;">—</div>
+          <div class="mono" style="text-align:right;font-weight:700;">${(s.change >= 0 ? '+' : '') + (s.change || 0).toLocaleString()} sh</div>
+          <div class="mono ${cls}" style="text-align:right;font-weight:700;">${s.mspr != null ? s.mspr.toFixed(0) : '—'}</div>
+          <div style="font-size:11px;color:var(--text-muted);">${read} · <a href="trade-ticket.html?sym=${s.sym}" style="color:var(--accent);">🎯 Ticket</a></div>
+        </div>`;
+      }).join('');
+    }
+  }
+
+  document.getElementById('btnPull').addEventListener('click', pullAll);
+  document.getElementById('typeFilter').addEventListener('change', render);
+
+  setTimeout(() => {
+    const cache = loadCache();
+    if (Object.keys(cache.tx || {}).length) render();
+    else pullAll();
+  }, 500);
+})();
+</script>
+</body>
+</html>

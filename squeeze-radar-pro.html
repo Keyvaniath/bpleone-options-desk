@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Squeeze Radar PRO — bpleone / trade</title>
+<meta name="description" content="Short squeeze candidates ranked by composite score: short interest %, days-to-cover, borrow rate, momentum, volume. Real Finnhub data.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.banner { background: linear-gradient(135deg, rgba(239,68,68,0.10), rgba(245,158,11,0.06)); border: 1px solid rgba(239,68,68,0.25); border-radius: 12px; padding: 16px 18px; margin-bottom: 18px; }
+.kpi-strip { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; margin-bottom: 18px; }
+.tile { background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 10px; padding: 14px; text-align: center; }
+.tile .lab { font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; }
+.tile .val { font-family: var(--font-mono); font-weight: 700; font-size: 18px; margin-top: 4px; }
+.row { display: grid; grid-template-columns: 80px 80px 80px 80px 70px 70px 80px 80px 1fr; gap: 8px; padding: 10px 0; border-top: 1px solid var(--border); font-size: 12px; align-items: center; }
+.mono { font-family: var(--font-mono); }
+.tag { display: inline-block; padding: 2px 8px; border-radius: 4px; background: var(--bg-secondary); font-family: var(--font-mono); font-size: 10px; border: 1px solid var(--border); }
+.tag.extreme { background: rgba(239,68,68,0.20); color: var(--red); border-color: rgba(239,68,68,0.5); }
+.tag.high { background: rgba(245,158,11,0.18); color: var(--yellow); border-color: rgba(245,158,11,0.4); }
+.tag.elevated { background: rgba(0,212,255,0.12); color: var(--accent); border-color: rgba(0,212,255,0.3); }
+.tag.bull { background: rgba(16,185,129,0.15); color: var(--green); border-color: rgba(16,185,129,0.3); }
+.r-pos { color: var(--green); } .r-neg { color: var(--red); }
+.controls { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; padding: 12px 16px; background: var(--bg-elevated); border-radius: 10px; border: 1px solid var(--border); margin-bottom: 16px; }
+.controls input, .controls select { background: var(--bg-secondary); border: 1px solid var(--border); color: var(--text-primary); padding: 6px 10px; border-radius: 6px; font-size: 12px; }
+.empty { padding: 40px; text-align: center; color: var(--text-muted); }
+.score-bar { width: 60px; height: 6px; background: var(--bg-secondary); border-radius: 3px; overflow: hidden; display: inline-block; }
+.score-bar .fill { height: 100%; background: linear-gradient(to right, var(--yellow), var(--red)); }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">Squeeze Radar PRO <span class="feat-badge feat-pro">PRO</span></div>
+      <div class="page-subtitle">Short squeeze candidates · composite score from float / SI / DTC / momentum. · <span id="market-clock">--</span></div>
+    </div>
+    <div class="flex gap-8">
+      <a href="conviction-board.html" class="btn btn-ghost">⭐ Conviction</a>
+      <a href="trade-ticket.html" class="btn btn-ghost">🎯 Ticket</a>
+      <a href="short-interest.html" class="btn btn-ghost">🩳 Short Interest</a>
+    </div>
+  </div>
+
+  <div class="banner">
+    <strong style="font-size:14px;">🔥 What makes a squeeze.</strong>
+    <div style="font-size:11px;color:var(--text-muted);margin-top:6px;line-height:1.6;">
+      <strong>4 ingredients:</strong> high short interest (>20% of float), tight float (&lt;100M shares), high days-to-cover (>5), AND bullish momentum (positive 5d/20d change + above 50EMA).
+      The <em>composite score</em> blends all four. <strong>≥80 = extreme</strong> (think GME, AMC). <strong>60-79 = high probability.</strong>
+      Real Finnhub data when key configured; otherwise synthetic for demo.
+    </div>
+  </div>
+
+  <div class="kpi-strip">
+    <div class="tile"><div class="lab">Tracked</div><div class="val mono" id="kN">0</div></div>
+    <div class="tile"><div class="lab">Extreme (≥80)</div><div class="val mono r-neg" id="kExtreme">0</div></div>
+    <div class="tile"><div class="lab">High (60-79)</div><div class="val mono" id="kHigh" style="color:var(--yellow);">0</div></div>
+    <div class="tile"><div class="lab">Highest SI</div><div class="val mono" id="kSi" style="font-size:13px;">—</div></div>
+    <div class="tile"><div class="lab">Highest DTC</div><div class="val mono" id="kDtc" style="font-size:13px;">—</div></div>
+  </div>
+
+  <div class="controls">
+    <div>
+      <label style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;display:block;margin-bottom:4px;">Universe</label>
+      <input id="universe" value="SMCI,PLTR,COIN,MARA,RIOT,RIVN,LCID,GME,AMC,BBBY,HOOD,SOFI,UPST,CVNA,WBA,BYND,DKNG,PENN,SPCE,LMND,AFRM,FUBO,WISH,CLOV,SNAP" style="width:520px;text-transform:uppercase;font-family:var(--font-mono);">
+    </div>
+    <div>
+      <label style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;display:block;margin-bottom:4px;">Min score</label>
+      <input id="minScore" type="number" value="40" step="5" style="width:80px;">
+    </div>
+    <button id="btnPull" class="btn btn-primary">🔄 Pull SI data</button>
+    <span id="status" style="margin-left:auto;font-size:11px;color:var(--text-muted);align-self:center;"></span>
+  </div>
+
+  <div class="card" style="padding:0;overflow:hidden;">
+    <div class="row" style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;font-weight:600;background:var(--bg-elevated);padding:10px 16px;border-top:none;border-bottom:1px solid var(--border);position:sticky;top:0;">
+      <div>Sym</div>
+      <div style="text-align:right;">Last</div>
+      <div style="text-align:right;">5d %</div>
+      <div style="text-align:right;">SI %</div>
+      <div style="text-align:right;">DTC</div>
+      <div style="text-align:right;">Float (M)</div>
+      <div style="text-align:right;">RSI</div>
+      <div>Score</div>
+      <div>Setup + Action</div>
+    </div>
+    <div id="bodyList" style="padding:0 16px;"></div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script src="js/ta.js"></script>
+<script src="js/learn.js"></script>
+<script>buildNav('flow');</script>
+
+<script>
+(function () {
+  const KEY = 'bpleone_squeeze_cache_v1';
+  const CACHE_TTL = 6 * 60 * 60 * 1000;
+
+  function loadCache() { try { return JSON.parse(localStorage.getItem(KEY) || '{}'); } catch (e) { return {}; } }
+  function saveCache(c) { try { localStorage.setItem(KEY, JSON.stringify(c)); } catch (e) {} }
+
+  function getFinnhubKey() {
+    try { const raw = localStorage.getItem('bpleone_data_v1'); if (!raw) return null; const c = JSON.parse(raw); return c.provider === 'finnhub' ? c.apiKey : null; } catch (e) { return null; }
+  }
+
+  async function fetchSIData(sym) {
+    const key = getFinnhubKey();
+    if (!key) {
+      // Synthetic plausible data for demo
+      const sf = 50 + Math.random() * 400; // float in millions
+      const si = 5 + Math.random() * 35;     // SI as % of float
+      const dtc = 1 + Math.random() * 10;
+      return { sym, floatM: sf, siPct: si, dtc, source: 'synthetic' };
+    }
+    try {
+      const profileRes = await fetch(`https://finnhub.io/api/v1/stock/profile2?symbol=${sym}&token=${key}`);
+      const profile = await profileRes.json();
+      const floatM = profile.shareOutstanding;  // in millions
+      const metricsRes = await fetch(`https://finnhub.io/api/v1/stock/metric?symbol=${sym}&metric=all&token=${key}`);
+      const metrics = await metricsRes.json();
+      const m = metrics.metric || {};
+      // Finnhub doesn't always expose SI directly; use shortRatio and proxy
+      const siPct = m['shortInterestSharePercent'] || m['shortInterest'] || null;
+      const dtc = m['daysOutstandingShortFloat'] || m['shortRatio'] || null;
+      return { sym, floatM, siPct, dtc, source: 'finnhub' };
+    } catch (e) {
+      return { sym, source: 'error' };
+    }
+  }
+
+  function compositeScore(d) {
+    let score = 0;
+    if (d.siPct != null) {
+      if (d.siPct >= 30) score += 30;
+      else if (d.siPct >= 20) score += 22;
+      else if (d.siPct >= 10) score += 12;
+      else score += d.siPct / 2;
+    }
+    if (d.dtc != null) {
+      if (d.dtc >= 10) score += 20;
+      else if (d.dtc >= 5) score += 14;
+      else score += d.dtc;
+    }
+    if (d.floatM != null) {
+      if (d.floatM < 25) score += 15;
+      else if (d.floatM < 100) score += 10;
+      else if (d.floatM < 250) score += 5;
+    }
+    if (d.r5 != null) {
+      if (d.r5 > 15) score += 20;
+      else if (d.r5 > 5) score += 12;
+      else if (d.r5 > 0) score += 5;
+    }
+    if (d.rsi != null && d.rsi > 60 && d.rsi < 80) score += 10;
+    if (d.rvol != null && d.rvol > 2) score += 5;
+    return Math.min(100, Math.round(score));
+  }
+
+  function severity(score) {
+    if (score >= 80) return 'extreme';
+    if (score >= 60) return 'high';
+    if (score >= 40) return 'elevated';
+    return '';
+  }
+
+  async function refresh() {
+    const symbols = (document.getElementById('universe').value || '').split(',').map(s => s.trim().toUpperCase()).filter(Boolean);
+    document.getElementById('btnPull').disabled = true;
+    document.getElementById('btnPull').textContent = 'Pulling…';
+    document.getElementById('status').textContent = 'fetching SI data…';
+    const cache = loadCache();
+    const out = [];
+    for (let i = 0; i < symbols.length; i++) {
+      const sym = symbols[i];
+      document.getElementById('status').textContent = `${i + 1}/${symbols.length}: ${sym}`;
+      let entry = cache[sym];
+      if (!entry || Date.now() - entry.ts > CACHE_TTL) {
+        entry = Object.assign({ ts: Date.now() }, await fetchSIData(sym));
+        cache[sym] = entry;
+      }
+      out.push(entry);
+    }
+    saveCache(cache);
+    document.getElementById('btnPull').disabled = false;
+    document.getElementById('btnPull').textContent = '🔄 Pull SI data';
+    document.getElementById('status').textContent = '✓ ' + out.length + ' symbols';
+    setTimeout(() => { document.getElementById('status').textContent = ''; }, 3000);
+    render(out);
+  }
+
+  function render(siList) {
+    const minScore = parseInt(document.getElementById('minScore').value, 10) || 0;
+    const rows = (siList || []).map(d => {
+      const q = (typeof QUOTES !== 'undefined') ? QUOTES[d.sym] : null;
+      const snap = (typeof TA !== 'undefined') ? TA.snapshot(d.sym) : null;
+      const r5 = q && q.prevClose ? ((q.last - q.prevClose) / q.prevClose) * 100 : null; // approx using daily chg as proxy for 5d
+      return Object.assign({}, d, {
+        last: q ? q.last : null,
+        chg: q ? q.changePct : null,
+        r5: r5,
+        rsi: snap ? snap.rsi : null,
+        rvol: snap ? snap.rvol : null,
+        score: 0
+      });
+    });
+    rows.forEach(r => { r.score = compositeScore(r); });
+    const filtered = rows.filter(r => r.score >= minScore).sort((a, b) => b.score - a.score);
+
+    document.getElementById('kN').textContent = rows.length;
+    document.getElementById('kExtreme').textContent = rows.filter(r => r.score >= 80).length;
+    document.getElementById('kHigh').textContent = rows.filter(r => r.score >= 60 && r.score < 80).length;
+    const topSi = rows.slice().sort((a, b) => (b.siPct || 0) - (a.siPct || 0))[0];
+    document.getElementById('kSi').textContent = topSi && topSi.siPct ? topSi.sym + ' ' + topSi.siPct.toFixed(1) + '%' : '—';
+    const topDtc = rows.slice().sort((a, b) => (b.dtc || 0) - (a.dtc || 0))[0];
+    document.getElementById('kDtc').textContent = topDtc && topDtc.dtc ? topDtc.sym + ' ' + topDtc.dtc.toFixed(1) + 'd' : '—';
+
+    const body = document.getElementById('bodyList');
+    if (!filtered.length) { body.innerHTML = '<div class="empty">No symbols meet min-score threshold. Lower min score or check your universe.</div>'; return; }
+    body.innerHTML = filtered.map(r => {
+      const sev = severity(r.score);
+      const sevTag = sev ? `<span class="tag ${sev}">${sev.toUpperCase()}</span>` : '';
+      const chgCls = (r.chg || 0) > 0 ? 'r-pos' : (r.chg || 0) < 0 ? 'r-neg' : '';
+      const setupHint = r.score >= 70 && (r.r5 || 0) > 0 ? 'BREAKOUT-PRIMED' : r.score >= 60 ? 'WATCH FOR CATALYST' : 'monitoring';
+      return `<div class="row">
+        <div class="mono" style="font-weight:700;">${r.sym}</div>
+        <div class="mono" style="text-align:right;">${r.last != null ? '$' + r.last.toFixed(2) : '—'}</div>
+        <div class="mono ${chgCls}" style="text-align:right;">${r.chg != null ? (r.chg >= 0 ? '+' : '') + r.chg.toFixed(2) + '%' : '—'}</div>
+        <div class="mono" style="text-align:right;color:${r.siPct >= 20 ? 'var(--red)' : r.siPct >= 10 ? 'var(--yellow)' : 'var(--text-muted)'};font-weight:700;">${r.siPct != null ? r.siPct.toFixed(1) + '%' : '—'}</div>
+        <div class="mono" style="text-align:right;">${r.dtc != null ? r.dtc.toFixed(1) : '—'}</div>
+        <div class="mono" style="text-align:right;color:${r.floatM != null && r.floatM < 100 ? 'var(--yellow)' : 'var(--text-muted)'};">${r.floatM != null ? r.floatM.toFixed(0) : '—'}</div>
+        <div class="mono" style="text-align:right;color:${r.rsi > 70 ? 'var(--red)' : r.rsi < 30 ? 'var(--green)' : 'var(--text-primary)'};">${r.rsi != null ? r.rsi.toFixed(0) : '—'}</div>
+        <div style="display:flex;align-items:center;gap:6px;">${sevTag}<span class="score-bar"><span class="fill" style="width:${Math.min(100, r.score)}%"></span></span><span class="mono" style="font-weight:700;">${r.score}</span></div>
+        <div style="font-size:11px;color:var(--text-muted);display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+          <span>${setupHint}</span>
+          <a href="trade-ticket.html?sym=${r.sym}" style="color:var(--accent);">🎯 Ticket</a> ·
+          <a href="live-train.html?sym=${r.sym}" style="color:var(--text-muted);">🎓 Train</a> ·
+          <a href="ai-cotrader.html?sym=${r.sym}" style="color:var(--text-muted);">🤖 Co-trade</a>
+        </div>
+      </div>`;
+    }).join('');
+  }
+
+  document.getElementById('btnPull').addEventListener('click', refresh);
+  document.getElementById('minScore').addEventListener('change', () => {
+    const cache = loadCache();
+    const symbols = (document.getElementById('universe').value || '').split(',').map(s => s.trim().toUpperCase()).filter(Boolean);
+    render(symbols.map(s => cache[s]).filter(Boolean));
+  });
+
+  setTimeout(() => {
+    const cache = loadCache();
+    const symbols = (document.getElementById('universe').value || '').split(',').map(s => s.trim().toUpperCase()).filter(Boolean);
+    const cached = symbols.map(s => cache[s]).filter(Boolean);
+    if (cached.length === symbols.length) render(cached);
+    else refresh();
+  }, 500);
+})();
+</script>
+</body>
+</html>
