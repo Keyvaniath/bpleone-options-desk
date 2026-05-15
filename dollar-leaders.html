@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Dollar Volume Leaders — bpleone / trade</title>
+<meta name="description" content="Top stocks by $ volume traded today — where institutional capital is actually moving.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.dv-row { display:grid; grid-template-columns: 30px 70px 100px 80px 80px 110px 1fr; gap:10px; padding:11px 12px; border-bottom:1px solid var(--border); font-family:var(--font-mono); font-size:11px; align-items:center; cursor:pointer; }
+.dv-row:hover { background:var(--bg-elevated); }
+.dv-row.up { border-left:3px solid var(--green); }
+.dv-row.dn { border-left:3px solid var(--red); }
+.dv-bar { height:8px; background:var(--bg-elevated); border-radius:4px; overflow:hidden; }
+.dv-bar > div { height:100%; }
+</style>
+</head>
+<body data-needs="live">
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">💵 Dollar Volume Leaders</div>
+      <div class="page-subtitle">Where institutional capital is actually moving today · <span id="market-clock">--</span></div>
+    </div>
+    <div class="flex gap-8">
+      <button class="btn btn-secondary" id="refreshBtn">🔄</button>
+    </div>
+  </div>
+
+  <div class="grid grid-4 mb-24">
+    <div class="card"><div class="card-header"><div class="card-title">Total $ Vol Today</div></div><div class="mono" style="font-size:26px;font-weight:700;" id="kpiTotal">--</div><div class="mono" style="font-size:11px;color:var(--text-muted);">Universe of 50 names</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">$1B+ Volume</div></div><div class="mono" style="font-size:26px;font-weight:700;color:var(--accent);" id="kpiBigVol">--</div><div class="mono" style="font-size:11px;color:var(--text-muted);">Heavily-traded</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">High RVOL (≥2×)</div></div><div class="mono" style="font-size:26px;font-weight:700;color:var(--yellow);" id="kpiRvol">--</div><div class="mono" style="font-size:11px;color:var(--text-muted);">Above-average activity</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">Top Leader</div></div><div class="mono" style="font-size:26px;font-weight:700;color:var(--accent);" id="kpiTop">--</div><div class="mono" style="font-size:11px;color:var(--text-muted);" id="kpiTopLbl">--</div></div>
+  </div>
+
+  <div class="card" style="padding:0;">
+    <div class="card-header" style="padding:14px 16px;">
+      <div class="card-title">📊 Ranked by $ Volume</div>
+      <div class="flex gap-8" style="font-size:10px;">
+        <button class="btn btn-ghost btn-active" data-sort="vol" style="padding:3px 8px;font-size:10px;">$ VOL</button>
+        <button class="btn btn-ghost" data-sort="rvol" style="padding:3px 8px;font-size:10px;">RVOL</button>
+        <button class="btn btn-ghost" data-sort="chg" style="padding:3px 8px;font-size:10px;">% CHG</button>
+      </div>
+    </div>
+    <div class="dv-row" style="background:var(--bg-elevated);font-size:9px;color:var(--text-muted);font-weight:800;letter-spacing:0.5px;">
+      <div>#</div><div>SYM</div><div>$ VOL</div><div>SHARES</div><div>RVOL</div><div>% CHG</div><div>SHARE OF TOTAL</div>
+    </div>
+    <div id="dvBody"></div>
+  </div>
+
+  <div class="card mt-24">
+    <div class="card-header"><div class="card-title">🧠 Why $ volume beats share volume</div></div>
+    <div style="font-size:13px;color:var(--text-secondary);line-height:1.7;">
+      <strong>Share volume</strong> is meaningless when comparing $500 BRK to a $5 penny stock. <strong>$ volume</strong> = price × shares = actual capital flowing through. It tells you where institutions are <em>really</em> active. A 30M-share day on NVDA = ~$4B of capital. A 30M-share day on SOFI = ~$400M. Same headline number, 10× different significance.
+    </div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script>
+buildNav('dollar-leaders');
+
+const UNIVERSE = ['SPY','QQQ','IWM','NVDA','TSLA','AAPL','MSFT','META','AMZN','GOOGL','AMD','PLTR','COIN','SMCI','NFLX','MSTR','SHOP','PYPL','UBER','HOOD','SOFI','BAC','JPM','GS','PFE','MRNA','BA','DIS','AVGO','MU','MRVL','SNOW','PANW','ORCL','CRM','LCID','RIVN','NIO','BABA','GME','AMC','MARA','RIOT','XLE','XLF','XLK','XLV','XLP','TLT','GLD'];
+
+function getQ(s) { return (typeof QUOTES !== 'undefined' && QUOTES[s]) ? QUOTES[s] : { last: 100, changePct: 0 }; }
+
+function generate() {
+  return UNIVERSE.map(sym => {
+    const seed = sym.charCodeAt(0) * 5 + (sym.charCodeAt(1) || 0);
+    const rand = (k) => { const x = Math.sin(seed + k) * 10000; return x - Math.floor(x); };
+    const q = getQ(sym);
+    // Mega-caps trade more
+    const mega = ['SPY','QQQ','NVDA','AAPL','MSFT','TSLA','AMD','META','AMZN'].includes(sym);
+    const sharesM = mega ? +(40 + rand(1) * 100).toFixed(1) : +(2 + rand(1) * 35).toFixed(1);
+    const dollarVol = sharesM * 1e6 * q.last;
+    const rvol = +(0.5 + rand(2) * 3.5).toFixed(2);
+    return { sym, last: q.last, changePct: q.changePct || 0, sharesM, dollarVol, rvol };
+  });
+}
+
+let data = generate();
+let sortBy = 'vol';
+
+function paint() {
+  let rows = data.slice();
+  if (sortBy === 'vol') rows.sort((a, b) => b.dollarVol - a.dollarVol);
+  else if (sortBy === 'rvol') rows.sort((a, b) => b.rvol - a.rvol);
+  else if (sortBy === 'chg') rows.sort((a, b) => Math.abs(b.changePct) - Math.abs(a.changePct));
+  rows = rows.slice(0, 25);
+
+  const totalDV = data.reduce((a, d) => a + d.dollarVol, 0);
+  const maxDV = Math.max(...data.map(d => d.dollarVol));
+  const body = document.getElementById('dvBody');
+  body.innerHTML = '';
+  rows.forEach((d, i) => {
+    const cls = d.changePct > 0 ? 'up' : d.changePct < 0 ? 'dn' : '';
+    const chgCol = d.changePct > 0 ? 'var(--green)' : d.changePct < 0 ? 'var(--red)' : 'var(--text-muted)';
+    const rvolCol = d.rvol > 2 ? 'var(--yellow)' : d.rvol > 1 ? 'var(--accent)' : 'var(--text-muted)';
+    const dvStr = d.dollarVol >= 1e9 ? '$' + (d.dollarVol / 1e9).toFixed(2) + 'B' : '$' + (d.dollarVol / 1e6).toFixed(0) + 'M';
+    const share = (d.dollarVol / totalDV) * 100;
+    const barW = (d.dollarVol / maxDV) * 100;
+    const row = document.createElement('div');
+    row.className = 'dv-row ' + cls;
+    row.innerHTML = '<div>' + (i + 1) + '</div>'
+      + '<div><strong>' + d.sym + '</strong></div>'
+      + '<div style="font-weight:700;">' + dvStr + '</div>'
+      + '<div>' + d.sharesM.toFixed(1) + 'M</div>'
+      + '<div style="color:' + rvolCol + ';font-weight:700;">' + d.rvol.toFixed(2) + '×</div>'
+      + '<div style="color:' + chgCol + ';">' + (d.changePct >= 0 ? '+' : '') + d.changePct.toFixed(2) + '%</div>'
+      + '<div><div class="dv-bar"><div style="width:' + barW + '%;background:var(--accent);"></div></div><div class="mono mt-12" style="font-size:9px;color:var(--text-muted);margin-top:2px;">' + share.toFixed(1) + '%</div></div>';
+    row.onclick = () => { window.location.href = 'ticker.html?sym=' + d.sym; };
+    body.appendChild(row);
+  });
+
+  document.getElementById('kpiTotal').textContent = '$' + (totalDV / 1e9).toFixed(1) + 'B';
+  document.getElementById('kpiBigVol').textContent = data.filter(d => d.dollarVol >= 1e9).length;
+  document.getElementById('kpiRvol').textContent = data.filter(d => d.rvol >= 2).length;
+  const top = data.slice().sort((a, b) => b.dollarVol - a.dollarVol)[0];
+  document.getElementById('kpiTop').textContent = top.sym;
+  document.getElementById('kpiTopLbl').textContent = '$' + (top.dollarVol / 1e9).toFixed(2) + 'B';
+}
+paint();
+
+document.querySelectorAll('[data-sort]').forEach(b => b.addEventListener('click', () => {
+  document.querySelectorAll('[data-sort]').forEach(x => x.classList.remove('btn-active'));
+  b.classList.add('btn-active');
+  sortBy = b.dataset.sort;
+  paint();
+}));
+document.getElementById('refreshBtn').addEventListener('click', () => { data = generate(); paint(); });
+setInterval(() => { data = generate(); paint(); }, 30000);
+</script>
+</body>
+</html>

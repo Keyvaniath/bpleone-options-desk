@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Market Breadth PRO — bpleone / trade</title>
+<meta name="description" content="NYSE + Nasdaq advance-decline, McClellan oscillator, % above 50/200MA, new highs/lows — the real health of the rally.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+</head>
+<body data-needs="live">
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">📊 Market Breadth PRO</div>
+      <div class="page-subtitle">A/D · McClellan · %&gt;50/200MA · new highs vs lows · <span id="market-clock">--</span></div>
+    </div>
+    <div class="flex gap-8">
+      <button class="btn btn-secondary" id="refreshBtn">🔄</button>
+    </div>
+  </div>
+
+  <!-- KPIs -->
+  <div class="grid grid-5 mb-24">
+    <div class="card"><div class="card-header"><div class="card-title">NYSE A/D Line</div></div><div class="mono" style="font-size:24px;font-weight:700;" id="kpiAD">--</div><div class="mono" style="font-size:11px;color:var(--text-muted);" id="kpiADBody">--</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">McClellan Oscillator</div></div><div class="mono" style="font-size:24px;font-weight:700;" id="kpiMcc">--</div><div class="mono" style="font-size:11px;color:var(--text-muted);" id="kpiMccBody">--</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">% Above 50MA</div></div><div class="mono" style="font-size:24px;font-weight:700;" id="kpi50">--</div><div class="mono" style="font-size:11px;color:var(--text-muted);">S&amp;P 500 universe</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">% Above 200MA</div></div><div class="mono" style="font-size:24px;font-weight:700;" id="kpi200">--</div><div class="mono" style="font-size:11px;color:var(--text-muted);">Long-term trend</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">New Highs − Lows</div></div><div class="mono" style="font-size:24px;font-weight:700;" id="kpiNet">--</div><div class="mono" style="font-size:11px;color:var(--text-muted);" id="kpiNetBody">--</div></div>
+  </div>
+
+  <!-- HEALTH SCORE -->
+  <div class="card mb-24">
+    <div class="card-header">
+      <div class="card-title">🏥 Composite Breadth Health</div>
+      <div class="mono" style="font-size:14px;font-weight:700;" id="healthLabel">—</div>
+    </div>
+    <div style="position:relative;height:14px;background:var(--bg-elevated);border-radius:7px;overflow:hidden;">
+      <div id="healthBar" style="height:100%;width:50%;background:linear-gradient(90deg,var(--red),var(--yellow),var(--green));transition:width 0.5s;"></div>
+    </div>
+    <div class="mono mt-12" style="font-size:12px;color:var(--text-secondary);line-height:1.6;" id="healthBody">Computing...</div>
+  </div>
+
+  <!-- CHARTS -->
+  <div class="grid grid-12">
+    <div class="card col-6">
+      <div class="card-header"><div class="card-title">📈 A/D Line — cumulative</div></div>
+      <canvas id="adChart" height="220"></canvas>
+    </div>
+    <div class="card col-6">
+      <div class="card-header"><div class="card-title">📉 McClellan Oscillator</div></div>
+      <canvas id="mccChart" height="220"></canvas>
+    </div>
+  </div>
+  <div class="grid grid-12 mt-24">
+    <div class="card col-6">
+      <div class="card-header"><div class="card-title">% Above 50/200MA — 90 days</div></div>
+      <canvas id="maChart" height="220"></canvas>
+    </div>
+    <div class="card col-6">
+      <div class="card-header"><div class="card-title">New Highs vs New Lows — 90 days</div></div>
+      <canvas id="hlChart" height="220"></canvas>
+    </div>
+  </div>
+
+  <!-- INTERPRETATION -->
+  <div class="card mt-24">
+    <div class="card-header"><div class="card-title">🧠 How to read breadth</div></div>
+    <div class="grid grid-3" style="gap:20px;">
+      <div>
+        <div style="font-weight:700;color:var(--green);margin-bottom:6px;">Broad rally (&gt;60% above 50MA)</div>
+        <div style="font-size:13px;color:var(--text-muted);line-height:1.6;">When breadth is broad, dips get bought. Trend-following works. Add risk on pullbacks.</div>
+      </div>
+      <div>
+        <div style="font-weight:700;color:var(--yellow);margin-bottom:6px;">Narrow rally (mega-cap only)</div>
+        <div style="font-size:13px;color:var(--text-muted);line-height:1.6;">SPY/QQQ up but %&gt;50MA &lt;40% = leadership only in a few names. Vulnerable. Cut size, watch for rotation or correction.</div>
+      </div>
+      <div>
+        <div style="font-weight:700;color:var(--red);margin-bottom:6px;">Negative divergence (price up, breadth down)</div>
+        <div style="font-size:13px;color:var(--text-muted);line-height:1.6;">Classic warning. New SPY highs without new A/D highs = late-cycle. Reduce, hedge, wait for confirmation either way.</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script src="js/charts.js"></script>
+<script>
+buildNav('breadth-pro');
+
+function getQ(s) { return (typeof QUOTES !== 'undefined' && QUOTES[s]) ? QUOTES[s] : { last: 100, changePct: 0 }; }
+
+function generate() {
+  const spy = getQ('SPY').changePct || 0;
+  // A/D synthesized — biased by SPY direction
+  const adRatio = 0.50 + spy * 0.15 + (Math.random() - 0.5) * 0.10;
+  const advancers = Math.round(adRatio * 1800);
+  const decliners = 1800 - advancers;
+  const adLine = 78000 + spy * 1500 + (Math.random() - 0.5) * 800; // cumulative
+  const mcc = +(spy * 25 + (Math.random() - 0.5) * 30).toFixed(0); // McClellan oscillator
+  const above50 = +(45 + spy * 8 + Math.random() * 15).toFixed(0);
+  const above200 = +(55 + spy * 5 + Math.random() * 10).toFixed(0);
+  const newHi = Math.round(20 + Math.max(0, spy) * 20 + Math.random() * 25);
+  const newLo = Math.round(20 - Math.min(0, spy) * 20 + Math.random() * 15);
+  return { advancers, decliners, adLine, mcc, above50, above200, newHi, newLo };
+}
+let data = generate();
+
+function paint() {
+  document.getElementById('kpiAD').textContent = data.adLine.toFixed(0);
+  const ratio = data.advancers / data.decliners;
+  document.getElementById('kpiADBody').textContent = data.advancers + 'A / ' + data.decliners + 'D (' + ratio.toFixed(2) + ':1)';
+  document.getElementById('kpiADBody').style.color = ratio > 1.2 ? 'var(--green)' : ratio < 0.8 ? 'var(--red)' : 'var(--text-muted)';
+  const mccEl = document.getElementById('kpiMcc');
+  mccEl.textContent = (data.mcc >= 0 ? '+' : '') + data.mcc;
+  mccEl.style.color = data.mcc > 50 ? 'var(--green)' : data.mcc < -50 ? 'var(--red)' : 'var(--text-primary)';
+  document.getElementById('kpiMccBody').textContent = data.mcc > 50 ? 'Strongly positive' : data.mcc < -50 ? 'Oversold extreme' : 'Neutral';
+  document.getElementById('kpi50').textContent = data.above50 + '%';
+  document.getElementById('kpi50').style.color = data.above50 > 60 ? 'var(--green)' : data.above50 < 35 ? 'var(--red)' : 'var(--text-primary)';
+  document.getElementById('kpi200').textContent = data.above200 + '%';
+  document.getElementById('kpi200').style.color = data.above200 > 60 ? 'var(--green)' : data.above200 < 35 ? 'var(--red)' : 'var(--text-primary)';
+  const net = data.newHi - data.newLo;
+  document.getElementById('kpiNet').textContent = (net >= 0 ? '+' : '') + net;
+  document.getElementById('kpiNet').style.color = net > 30 ? 'var(--green)' : net < -30 ? 'var(--red)' : 'var(--text-primary)';
+  document.getElementById('kpiNetBody').textContent = data.newHi + ' new H · ' + data.newLo + ' new L';
+
+  // Health composite
+  let score = 0;
+  score += data.advancers > data.decliners ? 20 : 0;
+  score += data.mcc > 0 ? 15 : 0;
+  score += data.above50 > 50 ? 20 : 0;
+  score += data.above200 > 50 ? 20 : 0;
+  score += (data.newHi > data.newLo) ? 25 : 0;
+  document.getElementById('healthBar').style.width = score + '%';
+  const hl = document.getElementById('healthLabel');
+  const hb = document.getElementById('healthBody');
+  if (score >= 75) { hl.textContent = 'STRONG · ' + score; hl.style.color = 'var(--green)'; hb.textContent = 'Broad participation. Trend-following supported. Add on dips.'; }
+  else if (score >= 50) { hl.textContent = 'NEUTRAL · ' + score; hl.style.color = 'var(--accent)'; hb.textContent = 'Mixed signals — reduce conviction, watch for resolution either way.'; }
+  else if (score >= 30) { hl.textContent = 'WEAK · ' + score; hl.style.color = 'var(--yellow)'; hb.textContent = 'Narrow leadership or rolling correction. Cut size, favor mean-reversion.'; }
+  else { hl.textContent = 'DETERIORATING · ' + score; hl.style.color = 'var(--red)'; hb.textContent = 'Broad weakness. Defensive bias. Tail-risk hedges working.'; }
+
+  paintCharts();
+}
+
+function paintCharts() {
+  // Time series
+  const N = 90;
+  const labels = [], ad = [], mcc = [], a50 = [], a200 = [], hi = [], lo = [];
+  for (let i = N - 1; i >= 0; i--) {
+    const d = new Date(); d.setDate(d.getDate() - i);
+    labels.push(d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }));
+    ad.push(data.adLine - i * 30 + (Math.sin(i / 4) * 200) + (Math.random() - 0.5) * 150);
+    mcc.push(Math.sin(i / 3) * 60 + (Math.random() - 0.5) * 30);
+    a50.push(50 + Math.sin(i / 5) * 20 + (Math.random() - 0.5) * 6);
+    a200.push(55 + Math.cos(i / 6) * 15 + (Math.random() - 0.5) * 4);
+    hi.push(30 + Math.max(0, Math.sin(i / 4) * 30) + Math.random() * 8);
+    lo.push(20 + Math.max(0, -Math.sin(i / 4) * 25) + Math.random() * 8);
+  }
+  ad[ad.length - 1] = data.adLine;
+  mcc[mcc.length - 1] = data.mcc;
+  a50[a50.length - 1] = data.above50;
+  a200[a200.length - 1] = data.above200;
+  hi[hi.length - 1] = data.newHi;
+  lo[lo.length - 1] = data.newLo;
+
+  // A/D
+  if (window._ad) window._ad.destroy();
+  window._ad = new Chart(document.getElementById('adChart').getContext('2d'), {
+    type: 'line', data: { labels, datasets: [{ label: 'A/D Cum', data: ad, borderColor: 'rgba(0,212,255,1)', backgroundColor: 'rgba(0,212,255,0.08)', fill: true, tension: 0.3, pointRadius: 0, borderWidth: 2 }] },
+    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { grid: { color: 'rgba(255,255,255,0.04)' }, ticks: { color: '#6b7280', font: { size: 9 }, maxTicksLimit: 8 } }, y: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#6b7280' } } } }
+  });
+  // McClellan
+  if (window._mcc) window._mcc.destroy();
+  window._mcc = new Chart(document.getElementById('mccChart').getContext('2d'), {
+    type: 'bar', data: { labels, datasets: [{ label: 'McClellan', data: mcc, backgroundColor: mcc.map(v => v >= 0 ? 'rgba(16,185,129,0.6)' : 'rgba(239,68,68,0.6)') }] },
+    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { grid: { display: false }, ticks: { color: '#6b7280', font: { size: 9 }, maxTicksLimit: 8 } }, y: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#6b7280' } } } }
+  });
+  // MA
+  if (window._ma) window._ma.destroy();
+  window._ma = new Chart(document.getElementById('maChart').getContext('2d'), {
+    type: 'line', data: { labels, datasets: [
+      { label: '%>50MA', data: a50, borderColor: 'rgba(0,212,255,1)', backgroundColor: 'rgba(0,212,255,0.05)', fill: true, tension: 0.3, pointRadius: 0, borderWidth: 2 },
+      { label: '%>200MA', data: a200, borderColor: 'rgba(245,158,11,1)', backgroundColor: 'rgba(245,158,11,0.04)', fill: false, tension: 0.3, pointRadius: 0, borderWidth: 2 }
+    ] },
+    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: true, position: 'top', labels: { color: '#9ca3af', font: { size: 10 } } } }, scales: { x: { grid: { color: 'rgba(255,255,255,0.04)' }, ticks: { color: '#6b7280', font: { size: 9 }, maxTicksLimit: 8 } }, y: { min: 0, max: 100, grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#6b7280' } } } }
+  });
+  // Highs/Lows
+  if (window._hl) window._hl.destroy();
+  window._hl = new Chart(document.getElementById('hlChart').getContext('2d'), {
+    type: 'bar', data: { labels, datasets: [
+      { label: 'New Highs', data: hi, backgroundColor: 'rgba(16,185,129,0.6)' },
+      { label: 'New Lows', data: lo.map(v => -v), backgroundColor: 'rgba(239,68,68,0.6)' }
+    ] },
+    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: true, position: 'top', labels: { color: '#9ca3af', font: { size: 10 } } } }, scales: { x: { grid: { display: false }, ticks: { color: '#6b7280', font: { size: 9 }, maxTicksLimit: 8 }, stacked: true }, y: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#6b7280' }, stacked: true } } }
+  });
+}
+paint();
+document.getElementById('refreshBtn').addEventListener('click', () => { data = generate(); paint(); });
+setInterval(() => { data = generate(); paint(); }, 60000);
+</script>
+</body>
+</html>

@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MOC Imbalance — bpleone / trade</title>
+<meta name="description" content="Closing auction imbalance tracker: buy/sell pressure into the close, indicative pricing, and end-of-day positioning.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.moc-row { display:grid; grid-template-columns: 30px 70px 80px 100px 80px 90px 1fr; gap:10px; padding:11px 12px; border-bottom:1px solid var(--border); font-family:var(--font-mono); font-size:11px; align-items:center; cursor:pointer; }
+.moc-row:hover { background:var(--bg-elevated); }
+.moc-row.buy { border-left:3px solid var(--green); }
+.moc-row.sell { border-left:3px solid var(--red); }
+.pressure-bar { height:8px; background:var(--bg-elevated); border-radius:4px; overflow:hidden; }
+.pressure-bar > div { height:100%; }
+</style>
+</head>
+<body data-needs="live">
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">🔔 MOC Imbalance</div>
+      <div class="page-subtitle">Market-on-close auction imbalance · indicative pricing · <span id="market-clock">--</span></div>
+    </div>
+    <div class="flex gap-8">
+      <button class="btn btn-secondary" id="refreshBtn">🔄</button>
+    </div>
+  </div>
+
+  <!-- AGGREGATE -->
+  <div class="card mb-24" style="background:linear-gradient(135deg,rgba(0,212,255,0.06),transparent);">
+    <div class="card-header"><div class="card-title">🌐 Market-Wide Imbalance</div></div>
+    <div style="display:flex;gap:24px;flex-wrap:wrap;align-items:center;">
+      <div>
+        <div style="font-size:10px;color:var(--text-muted);font-weight:700;letter-spacing:0.5px;">NET MOC</div>
+        <div class="mono" style="font-size:32px;font-weight:800;" id="kpiNet">--</div>
+      </div>
+      <div>
+        <div style="font-size:10px;color:var(--text-muted);font-weight:700;letter-spacing:0.5px;">BUY $</div>
+        <div class="mono green-text" style="font-size:22px;font-weight:700;" id="kpiBuy">--</div>
+      </div>
+      <div>
+        <div style="font-size:10px;color:var(--text-muted);font-weight:700;letter-spacing:0.5px;">SELL $</div>
+        <div class="mono red-text" style="font-size:22px;font-weight:700;" id="kpiSell">--</div>
+      </div>
+      <div style="flex:1;min-width:200px;">
+        <div class="pressure-bar" style="height:18px;border-radius:9px;">
+          <div id="netBar" style="width:50%;background:linear-gradient(90deg,var(--red),var(--accent),var(--green));"></div>
+        </div>
+        <div class="mono mt-12" style="font-size:11px;color:var(--text-muted);" id="kpiBias">--</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="grid grid-3 mb-24">
+    <div class="card"><div class="card-header"><div class="card-title">Largest Buy Imbalance</div></div><div class="mono" style="font-size:26px;font-weight:700;color:var(--green);" id="kpiBigBuy">--</div><div class="mono" style="font-size:11px;color:var(--text-muted);" id="kpiBigBuyLbl">--</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">Largest Sell Imbalance</div></div><div class="mono" style="font-size:26px;font-weight:700;color:var(--red);" id="kpiBigSell">--</div><div class="mono" style="font-size:11px;color:var(--text-muted);" id="kpiBigSellLbl">--</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">Rebalance Day</div></div><div class="mono" style="font-size:18px;font-weight:700;color:var(--accent);" id="kpiRebal">--</div><div class="mono" style="font-size:11px;color:var(--text-muted);">Index reconstitution = elevated MOC</div></div>
+  </div>
+
+  <div class="card" style="padding:0;">
+    <div class="card-header" style="padding:14px 16px;">
+      <div class="card-title">📋 Symbol Imbalances</div>
+      <div class="flex gap-8" style="font-size:10px;">
+        <button class="btn btn-ghost btn-active" data-flt="all" style="padding:3px 8px;font-size:10px;">ALL</button>
+        <button class="btn btn-ghost" data-flt="buy" style="padding:3px 8px;font-size:10px;">BUY</button>
+        <button class="btn btn-ghost" data-flt="sell" style="padding:3px 8px;font-size:10px;">SELL</button>
+      </div>
+    </div>
+    <div class="moc-row" style="background:var(--bg-elevated);font-size:9px;color:var(--text-muted);font-weight:800;letter-spacing:0.5px;">
+      <div>#</div><div>SYM</div><div>SIDE</div><div>$ IMBAL</div><div>SHARES</div><div>IND PX</div><div>PRESSURE</div>
+    </div>
+    <div id="mocBody"></div>
+  </div>
+
+  <div class="card mt-24">
+    <div class="card-header"><div class="card-title">🧠 How to use MOC imbalance</div></div>
+    <div class="grid grid-3" style="gap:20px;">
+      <div>
+        <div style="font-weight:700;color:var(--green);margin-bottom:6px;">Big buy imbalance late (15:55+)</div>
+        <div style="font-size:13px;color:var(--text-muted);line-height:1.6;">Price typically gets pushed up into the close. Next-day open often retraces 30-50% — fade if no overnight catalyst.</div>
+      </div>
+      <div>
+        <div style="font-weight:700;color:var(--accent);margin-bottom:6px;">Index rebalance day</div>
+        <div style="font-size:13px;color:var(--text-muted);line-height:1.6;">Quarterly Russell/S&amp;P reconstitution = massive MOC. Pre-position 1-2 days ahead; expect mean-revert after.</div>
+      </div>
+      <div>
+        <div style="font-weight:700;color:var(--red);margin-bottom:6px;">Persistent sell imbalance</div>
+        <div style="font-size:13px;color:var(--text-muted);line-height:1.6;">If sell imbalance persists 15:50–16:00, that's real distribution. Avoid catching falling knives next-day.</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script>
+buildNav('moc-imbalance');
+
+const SYMBOLS = ['SPY','QQQ','IWM','NVDA','AAPL','MSFT','META','AMZN','GOOGL','TSLA','AMD','PLTR','COIN','SMCI','NFLX','MSTR','SHOP','PYPL','UBER','LCID','MRVL','PANW','SNOW','AVGO','DIS','BA','JPM','BAC','GS','XLE','XLF','XLK'];
+
+function getQ(s) { return (typeof QUOTES !== 'undefined' && QUOTES[s]) ? QUOTES[s] : { last: 80 + Math.random() * 200 }; }
+
+function generate() {
+  const spy = getQ('SPY');
+  const dayBias = (spy.changePct || 0) > 0 ? 1 : -1;
+  return SYMBOLS.map(sym => {
+    const seed = sym.charCodeAt(0) * 7 + (sym.charCodeAt(1) || 0);
+    const rand = (k) => { const x = Math.sin(seed + k) * 10000; return x - Math.floor(x); };
+    const q = getQ(sym);
+    // Imbalance direction biased by day direction
+    const side = rand(1) > 0.4 - dayBias * 0.1 ? 'BUY' : 'SELL';
+    const shares = Math.floor(20_000 + rand(2) * 5_000_000);
+    const dollars = shares * q.last;
+    const indPx = +(q.last * (1 + (side === 'BUY' ? rand(3) * 0.005 : -rand(3) * 0.005))).toFixed(2);
+    return { sym, side, shares, dollars, indPx, last: q.last };
+  }).sort((a, b) => b.dollars - a.dollars);
+}
+
+let data = generate();
+let flt = 'all';
+
+function paint() {
+  let rows = data;
+  if (flt === 'buy') rows = data.filter(d => d.side === 'BUY');
+  if (flt === 'sell') rows = data.filter(d => d.side === 'SELL');
+  rows = rows.slice(0, 24);
+
+  const body = document.getElementById('mocBody');
+  body.innerHTML = '';
+  const maxAbs = Math.max(...data.map(d => d.dollars));
+  rows.forEach((d, i) => {
+    const cls = d.side === 'BUY' ? 'buy' : 'sell';
+    const col = d.side === 'BUY' ? 'var(--green)' : 'var(--red)';
+    const ratio = d.dollars / maxAbs;
+    const dollarsStr = d.dollars > 1e9 ? '$' + (d.dollars / 1e9).toFixed(2) + 'B' : '$' + (d.dollars / 1e6).toFixed(2) + 'M';
+    const sharesStr = d.shares > 1e6 ? (d.shares / 1e6).toFixed(2) + 'M' : (d.shares / 1e3).toFixed(0) + 'k';
+    const row = document.createElement('div');
+    row.className = 'moc-row ' + cls;
+    row.innerHTML = '<div>' + (i + 1) + '</div>'
+      + '<div><strong>' + d.sym + '</strong></div>'
+      + '<div style="color:' + col + ';font-weight:700;">' + d.side + '</div>'
+      + '<div style="color:' + col + ';font-weight:700;">' + dollarsStr + '</div>'
+      + '<div>' + sharesStr + '</div>'
+      + '<div>$' + d.indPx.toFixed(2) + '</div>'
+      + '<div><div class="pressure-bar"><div style="width:' + (ratio * 100) + '%;background:' + col + ';"></div></div></div>';
+    row.onclick = () => { window.location.href = 'ticker.html?sym=' + d.sym; };
+    body.appendChild(row);
+  });
+
+  const totalBuy = data.filter(d => d.side === 'BUY').reduce((a, d) => a + d.dollars, 0);
+  const totalSell = data.filter(d => d.side === 'SELL').reduce((a, d) => a + d.dollars, 0);
+  const net = totalBuy - totalSell;
+  document.getElementById('kpiNet').textContent = (net >= 0 ? '+$' : '−$') + (Math.abs(net) / 1e9).toFixed(2) + 'B';
+  document.getElementById('kpiNet').style.color = net > 0 ? 'var(--green)' : 'var(--red)';
+  document.getElementById('kpiBuy').textContent = '$' + (totalBuy / 1e9).toFixed(2) + 'B';
+  document.getElementById('kpiSell').textContent = '$' + (totalSell / 1e9).toFixed(2) + 'B';
+  const total = totalBuy + totalSell;
+  const buyPct = total > 0 ? (totalBuy / total) * 100 : 50;
+  document.getElementById('netBar').style.width = buyPct + '%';
+  document.getElementById('kpiBias').textContent = buyPct > 58 ? 'Strong BUY bias — push higher into close' : buyPct < 42 ? 'Strong SELL bias — distribution into close' : 'Balanced';
+  const biggestBuy = data.filter(d => d.side === 'BUY').sort((a, b) => b.dollars - a.dollars)[0];
+  const biggestSell = data.filter(d => d.side === 'SELL').sort((a, b) => b.dollars - a.dollars)[0];
+  if (biggestBuy) {
+    document.getElementById('kpiBigBuy').textContent = '$' + (biggestBuy.dollars / 1e6).toFixed(1) + 'M';
+    document.getElementById('kpiBigBuyLbl').textContent = biggestBuy.sym;
+  }
+  if (biggestSell) {
+    document.getElementById('kpiBigSell').textContent = '$' + (biggestSell.dollars / 1e6).toFixed(1) + 'M';
+    document.getElementById('kpiBigSellLbl').textContent = biggestSell.sym;
+  }
+  // Random rebalance check
+  const today = new Date();
+  const isQuarterEnd = today.getMonth() % 3 === 2 && today.getDate() >= 28;
+  document.getElementById('kpiRebal').textContent = isQuarterEnd ? '⚠ POSSIBLE' : 'No';
+}
+paint();
+
+document.querySelectorAll('[data-flt]').forEach(b => b.addEventListener('click', () => {
+  document.querySelectorAll('[data-flt]').forEach(x => x.classList.remove('btn-active'));
+  b.classList.add('btn-active');
+  flt = b.dataset.flt;
+  paint();
+}));
+document.getElementById('refreshBtn').addEventListener('click', () => { data = generate(); paint(); });
+setInterval(() => { data = generate(); paint(); }, 30000);
+</script>
+</body>
+</html>

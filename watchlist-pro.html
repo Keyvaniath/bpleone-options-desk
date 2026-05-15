@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Watchlist PRO — bpleone / trade</title>
+<meta name="description" content="Multi-watchlist tracker with live prices, brain conviction scores, and inline trade-coach links.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.wl-row { display:grid; grid-template-columns: 30px 70px 80px 80px 80px 70px 90px 1fr; gap:10px; padding:11px 12px; border-bottom:1px solid var(--border); font-family:var(--font-mono); font-size:11px; align-items:center; cursor:pointer; }
+.wl-row:hover { background:var(--bg-elevated); }
+.wl-row.up { border-left:3px solid var(--green); }
+.wl-row.dn { border-left:3px solid var(--red); }
+.tab { padding:8px 14px; border-radius:6px; background:var(--bg-elevated); border:1px solid var(--border); cursor:pointer; font-size:12px; font-weight:600; }
+.tab.active { background:rgba(0,212,255,0.12); border-color:var(--accent); color:var(--accent); }
+.score-badge { display:inline-flex; align-items:center; gap:4px; padding:2px 6px; border-radius:4px; font-size:10px; font-weight:700; font-family:var(--font-mono); }
+</style>
+</head>
+<body data-needs="live">
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">⭐ Watchlist PRO</div>
+      <div class="page-subtitle">Multi-watchlist · live · brain-scored · click-through to trade coach · <span id="market-clock">--</span></div>
+    </div>
+    <div class="flex gap-8">
+      <button class="btn btn-secondary" id="newListBtn">+ New List</button>
+      <button class="btn btn-secondary" id="addSymBtn">+ Add Symbol</button>
+    </div>
+  </div>
+
+  <!-- TABS -->
+  <div class="card mb-24" style="padding:14px;">
+    <div id="tabs" style="display:flex;gap:8px;flex-wrap:wrap;"></div>
+  </div>
+
+  <!-- KPIs -->
+  <div class="grid grid-4 mb-24">
+    <div class="card"><div class="card-header"><div class="card-title">List Size</div></div><div class="mono" style="font-size:26px;font-weight:700;" id="kpiSize">--</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">Net %</div></div><div class="mono" style="font-size:26px;font-weight:700;" id="kpiNet">--</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">Brain Signals</div></div><div class="mono" style="font-size:26px;font-weight:700;color:var(--accent);" id="kpiSig">--</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">High Conviction</div></div><div class="mono" style="font-size:26px;font-weight:700;color:var(--green);" id="kpiHigh">--</div></div>
+  </div>
+
+  <!-- TABLE -->
+  <div class="card" style="padding:0;">
+    <div class="wl-row" style="background:var(--bg-elevated);font-size:9px;color:var(--text-muted);font-weight:800;letter-spacing:0.5px;">
+      <div>#</div><div>SYM</div><div>LAST</div><div>% CHG</div><div>BRAIN W</div><div>SIGNALS</div><div>SCORE</div><div>QUICK</div>
+    </div>
+    <div id="wlBody"></div>
+  </div>
+
+  <!-- HOW TO USE -->
+  <div class="card mt-24">
+    <div class="card-header"><div class="card-title">💡 Tips</div></div>
+    <div style="font-size:13px;color:var(--text-secondary);line-height:1.7;">
+      Symbols saved here persist in localStorage across sessions. The brain still scans them in the background — when a setup fires, the row lights up with a signal count + score. Click any row to jump straight to Trade Coach with the levels pre-filled. Press <strong>D</strong> on a focused row to remove.
+    </div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script>
+buildNav('watchlist-pro');
+
+const KEY = 'bpleone_watchlist_pro_v1';
+const DEFAULT_LISTS = [
+  { name: 'Core', syms: ['SPY','QQQ','IWM','NVDA','AAPL','MSFT','TSLA','META','AMZN','GOOGL'] },
+  { name: 'High Beta', syms: ['SMCI','PLTR','COIN','MSTR','MARA','RIOT','HOOD','SOFI','UPST'] },
+  { name: 'Megacaps', syms: ['AAPL','MSFT','NVDA','GOOGL','META','AMZN','TSLA','AVGO','BRK.B','LLY'] },
+  { name: 'Crypto', syms: ['BTC','ETH','COIN','MSTR','MARA','RIOT','HUT','HIVE'] }
+];
+
+function loadLists() {
+  try {
+    const v = JSON.parse(localStorage.getItem(KEY) || 'null');
+    if (v && Array.isArray(v) && v.length > 0) return v;
+  } catch (e) {}
+  return DEFAULT_LISTS;
+}
+function saveLists(l) { try { localStorage.setItem(KEY, JSON.stringify(l)); } catch (e) {} }
+function getQ(s) { return (typeof QUOTES !== 'undefined' && QUOTES[s]) ? QUOTES[s] : { last: 100, changePct: 0 }; }
+function loadFindings() { try { return JSON.parse(localStorage.getItem('bpleone_brain_findings_v1') || '{"items":[]}').items; } catch (e) { return []; } }
+function loadLearn() { try { return JSON.parse(localStorage.getItem('bpleone_learn_v1') || '{}'); } catch (e) { return {}; } }
+
+let lists = loadLists();
+let activeIdx = 0;
+
+function renderTabs() {
+  const tabs = document.getElementById('tabs');
+  tabs.innerHTML = '';
+  lists.forEach((l, i) => {
+    const t = document.createElement('div');
+    t.className = 'tab' + (i === activeIdx ? ' active' : '');
+    t.textContent = l.name + ' (' + l.syms.length + ')';
+    t.onclick = () => { activeIdx = i; renderAll(); };
+    tabs.appendChild(t);
+  });
+}
+
+function renderRows() {
+  const list = lists[activeIdx];
+  if (!list) return;
+  const body = document.getElementById('wlBody');
+  body.innerHTML = '';
+  const findings = loadFindings().filter(f => (Date.now() - f.ts) < 8 * 60 * 60 * 1000);
+  const learn = loadLearn();
+
+  let totalChg = 0, totalSig = 0, totalHigh = 0;
+  list.syms.forEach((sym, i) => {
+    const q = getQ(sym);
+    const chg = q.changePct || 0;
+    totalChg += chg;
+    const symFindings = findings.filter(f => f.meta && f.meta.sym === sym);
+    totalSig += symFindings.length;
+    const w = (learn.symbols && learn.symbols[sym] && learn.symbols[sym].w) || 1.0;
+    const score = Math.min(100, Math.round(symFindings.reduce((a, f) => a + (f.severity || 1) * 10 * w, 0)));
+    if (score >= 60) totalHigh++;
+    const cls = chg > 0 ? 'up' : chg < 0 ? 'dn' : '';
+    const chgCol = chg > 0 ? 'var(--green)' : chg < 0 ? 'var(--red)' : 'var(--text-muted)';
+    const scoreCol = score >= 70 ? 'var(--green)' : score >= 50 ? 'var(--accent)' : score >= 30 ? 'var(--yellow)' : 'var(--text-muted)';
+    const wCol = w > 1.05 ? 'var(--green)' : w < 0.95 ? 'var(--red)' : 'var(--text-muted)';
+    const row = document.createElement('div');
+    row.className = 'wl-row ' + cls;
+    row.innerHTML = '<div>' + (i + 1) + '</div>'
+      + '<div><strong>' + sym + '</strong></div>'
+      + '<div>$' + (q.last || 0).toFixed(2) + '</div>'
+      + '<div style="color:' + chgCol + ';">' + (chg >= 0 ? '+' : '') + chg.toFixed(2) + '%</div>'
+      + '<div style="color:' + wCol + ';">' + w.toFixed(2) + '×</div>'
+      + '<div><span class="score-badge" style="background:rgba(0,212,255,0.12);color:var(--accent);">' + symFindings.length + ' sig</span></div>'
+      + '<div style="font-weight:700;color:' + scoreCol + ';font-size:14px;">' + score + '</div>'
+      + '<div><a href="trade-coach.html?sym=' + sym + '" class="btn btn-ghost" style="padding:4px 10px;font-size:10px;">Plan</a> <a href="ticker.html?sym=' + sym + '" class="btn btn-ghost" style="padding:4px 10px;font-size:10px;">Focus</a> <span class="rm-btn" data-sym="' + sym + '" style="cursor:pointer;color:var(--red);font-size:14px;margin-left:6px;">×</span></div>';
+    row.onclick = (e) => { if (!e.target.classList.contains('rm-btn') && e.target.tagName !== 'A') window.location.href = 'trade-coach.html?sym=' + sym; };
+    body.appendChild(row);
+  });
+
+  document.getElementById('kpiSize').textContent = list.syms.length;
+  document.getElementById('kpiNet').textContent = (list.syms.length > 0 ? (totalChg / list.syms.length).toFixed(2) : '0.00') + '%';
+  document.getElementById('kpiNet').style.color = totalChg > 0 ? 'var(--green)' : totalChg < 0 ? 'var(--red)' : 'var(--text-primary)';
+  document.getElementById('kpiSig').textContent = totalSig;
+  document.getElementById('kpiHigh').textContent = totalHigh;
+
+  // Bind remove
+  document.querySelectorAll('.rm-btn').forEach(b => b.addEventListener('click', e => {
+    e.stopPropagation();
+    const s = b.dataset.sym;
+    list.syms = list.syms.filter(x => x !== s);
+    saveLists(lists);
+    renderAll();
+  }));
+}
+
+function renderAll() { renderTabs(); renderRows(); }
+renderAll();
+
+document.getElementById('newListBtn').addEventListener('click', () => {
+  const n = prompt('New list name?');
+  if (n) {
+    lists.push({ name: n, syms: [] });
+    activeIdx = lists.length - 1;
+    saveLists(lists);
+    renderAll();
+  }
+});
+document.getElementById('addSymBtn').addEventListener('click', () => {
+  const s = prompt('Symbol to add?');
+  if (s) {
+    const sym = s.toUpperCase().trim();
+    if (!lists[activeIdx].syms.includes(sym)) {
+      lists[activeIdx].syms.push(sym);
+      saveLists(lists);
+      renderAll();
+    }
+  }
+});
+
+setInterval(renderRows, 10000);
+</script>
+</body>
+</html>
