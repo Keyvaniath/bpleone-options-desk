@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Earnings Preview — bpleone / trade</title>
-<meta name="description" content="Deep per-symbol earnings preview: implied move, IV crush projection, historical beat rate, post-earnings drift, options structure recommendations.">
+<meta name="description" content="Real per-symbol earnings preview: live EPS consensus + revenue est + analyst sentiment, all from Finnhub.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="css/style.css">
@@ -16,17 +16,18 @@
 .kbig .lab { font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.6px; }
 .kbig .val { font-family: var(--font-mono); font-size: 24px; font-weight: 700; margin-top: 4px; }
 .kbig .sub { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
-.hist-row td { padding: 10px 12px; font-family: var(--font-mono); font-size: 12px; }
-.strategy-card { padding: 14px 16px; background: var(--bg-elevated); border-radius: 10px; border-left: 4px solid var(--accent); }
-.strategy-card .head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
-.strategy-card h4 { margin: 0; font-size: 15px; }
-.strategy-card .tag { padding: 2px 10px; border-radius: 999px; font-size: 11px; font-weight: 700; }
-.tag-long { background: var(--green-bg); color: var(--green); }
-.tag-short { background: rgba(245,158,11,0.15); color: var(--yellow); }
-.tag-neutral { background: rgba(100,116,139,0.15); color: var(--text-muted); }
 .metric-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 14px; }
 .metric-grid .k { color: var(--text-muted); font-size: 12px; }
 .metric-grid .v { color: var(--text-primary); font-family: var(--font-mono); font-size: 12px; font-weight: 600; text-align: right; }
+.empty-card { padding: 50px 20px; text-align: center; color: var(--text-muted); }
+.empty-card .icon { font-size: 40px; margin-bottom: 10px; }
+.sym-quick { display: flex; gap: 4px; flex-wrap: wrap; margin-bottom: 16px; }
+.sym-quick button { padding: 5px 11px; border-radius: 999px; background: var(--bg-elevated); border: 1px solid var(--border); color: var(--text-secondary); cursor: pointer; font-size: 12px; font-family: var(--font-mono); }
+.sym-quick button:hover, .sym-quick button.active { border-color: var(--accent); color: var(--accent); }
+.strategy-card { padding: 14px 16px; background: var(--bg-elevated); border-radius: 10px; border-left: 4px solid var(--accent); }
+.strategy-card h4 { margin: 0 0 6px; font-size: 14px; color: var(--accent); }
+.strategy-card .sub { font-size: 11px; color: var(--text-muted); margin-bottom: 8px; }
+.strategy-card .body { font-size: 12px; color: var(--text-secondary); line-height: 1.6; }
 </style>
 </head>
 <body>
@@ -35,115 +36,64 @@
 <div class="container">
   <div class="page-header">
     <div>
-      <div class="page-title">
-        Earnings Preview · <span id="sym" class="mono">NVDA</span>
-        <span class="feat-badge feat-new">NEW</span>
-      </div>
-      <div class="page-subtitle">Implied move · IV crush · beat rate · post-earnings drift · structure recs · <span id="market-clock">--</span></div>
+      <div class="page-title">Earnings Preview · <span id="sym" class="mono">—</span> <span class="feat-badge feat-live">REAL</span></div>
+      <div class="page-subtitle">Live EPS estimates · analyst recs · price history · IV crush math · <span id="market-clock">--</span></div>
     </div>
     <div class="flex gap-8">
-      <select id="symSel" style="background:var(--bg-elevated);border:1px solid var(--border);border-radius:8px;padding:6px 12px;color:var(--text-primary);font-size:13px;font-family:var(--font-mono);">
-        <option value="NVDA">NVDA</option><option value="AAPL">AAPL</option><option value="MSFT">MSFT</option>
-        <option value="META">META</option><option value="AMZN">AMZN</option><option value="GOOGL">GOOGL</option>
-        <option value="TSLA">TSLA</option><option value="AMD">AMD</option><option value="PLTR">PLTR</option>
-        <option value="SMCI">SMCI</option><option value="COIN">COIN</option>
-      </select>
+      <input id="symInput" placeholder="Symbol…" value="NVDA" autocomplete="off" style="background:var(--bg-elevated);border:1px solid var(--border);border-radius:8px;padding:7px 12px;color:var(--text-primary);font-size:13px;font-family:var(--font-mono);width:120px;text-transform:uppercase;">
+      <button class="btn btn-primary" id="loadBtn">Load</button>
     </div>
   </div>
+
+  <div class="sym-quick" id="symQuick"></div>
 
   <!-- KPI -->
   <div class="grid grid-4 mb-24">
-    <div class="kbig"><div class="lab">Reports</div><div class="val mono" id="reportDate">—</div><div class="sub" id="reportTime">—</div></div>
-    <div class="kbig"><div class="lab">Implied Move (straddle)</div><div class="val mono yellow-text" id="impMove">—</div><div class="sub" id="impMoveDollars">—</div></div>
-    <div class="kbig"><div class="lab">8Q Beat Rate</div><div class="val mono green-text" id="beatRate">—</div><div class="sub" id="beatSub">Last 8 quarters</div></div>
-    <div class="kbig"><div class="lab">Avg Realized Move</div><div class="val mono" id="realMove">—</div><div class="sub">Same-day post-EPS</div></div>
+    <div class="kbig"><div class="lab">Next Report</div><div class="val mono" id="kDate">—</div><div class="sub" id="kHour">—</div></div>
+    <div class="kbig"><div class="lab">EPS Estimate</div><div class="val mono yellow-text" id="kEps">—</div><div class="sub" id="kEpsPrior">—</div></div>
+    <div class="kbig"><div class="lab">Revenue Estimate</div><div class="val mono" id="kRev">—</div><div class="sub" id="kRevPrior">—</div></div>
+    <div class="kbig"><div class="lab">Implied Move (synthetic)</div><div class="val mono yellow-text" id="kMove">—</div><div class="sub" id="kMoveD">±$ —</div></div>
   </div>
 
-  <!-- Expectations -->
+  <!-- Detail + analyst recs -->
   <div class="grid grid-12">
-    <div class="card col-6">
-      <div class="card-header"><div class="card-title">📊 Expectations</div></div>
-      <div class="metric-grid">
-        <div class="k">EPS consensus</div><div class="v" id="epsCons">—</div>
-        <div class="k">EPS whisper</div><div class="v" id="epsWhsp">—</div>
-        <div class="k">Whisper vs consensus</div><div class="v" id="whspDelta">—</div>
-        <div class="k">Revenue consensus</div><div class="v" id="revCons">—</div>
-        <div class="k">YoY EPS growth (cons.)</div><div class="v" id="epsYoy">—</div>
-        <div class="k">YoY revenue growth (cons.)</div><div class="v" id="revYoy">—</div>
-        <div class="k">Forward guidance focus</div><div class="v" id="guideFoc">—</div>
-        <div class="k">Pre-print sell-side rev.</div><div class="v" id="ssrev">—</div>
-      </div>
-    </div>
-
-    <div class="card col-6">
-      <div class="card-header"><div class="card-title">🌪 IV Crush Setup</div></div>
-      <div class="metric-grid">
-        <div class="k">Front IV (pre)</div><div class="v" id="frontIv">—</div>
-        <div class="k">IV rank (90d)</div><div class="v" id="ivRank">—</div>
-        <div class="k">Back IV (45d)</div><div class="v" id="backIv">—</div>
-        <div class="k">Term structure</div><div class="v" id="termStr">—</div>
-        <div class="k">Expected IV crush</div><div class="v red-text" id="ivCrush">—</div>
-        <div class="k">Front IV (post-est)</div><div class="v" id="frontIvPost">—</div>
-        <div class="k">Skew (25Δ put − call)</div><div class="v" id="skew">—</div>
-        <div class="k">Dealer positioning</div><div class="v" id="dealer">—</div>
-      </div>
-      <div style="margin-top:12px;padding:10px 12px;background:var(--bg-secondary);border-radius:8px;font-size:11px;color:var(--text-muted);line-height:1.6;">
-        IV crush math: front-month options typically lose <strong>~30–50% of their vol</strong> after the print resolves. Premium sellers (calendars, iron condors) profit if realized move &lt; implied move; premium buyers (straddles, strangles) need a move &gt; implied to overcome the crush.
-      </div>
-    </div>
-  </div>
-
-  <!-- History + chart -->
-  <div class="grid grid-12 mt-24">
     <div class="card col-7">
-      <div class="card-header"><div class="card-title">📋 Last 8 Earnings — Realized vs Implied Move</div></div>
-      <div class="table-wrap">
-        <table>
-          <thead><tr><th>Date</th><th>Implied</th><th>Realized</th><th>Beat/Miss</th><th>EPS Δ</th><th>5d drift</th><th>30d drift</th></tr></thead>
-          <tbody id="histBody"></tbody>
-        </table>
+      <div class="card-header"><div class="card-title">📋 Next Earnings Detail</div></div>
+      <div class="metric-grid" id="detailBox"><div class="k" style="grid-column:1/-1;text-align:center;color:var(--text-muted);padding:20px;">Loading…</div></div>
+      <div style="margin-top:14px;padding:12px 14px;background:var(--bg-secondary);border-radius:8px;font-size:11px;color:var(--text-muted);line-height:1.5;">
+        Implied move is computed from a synthetic 30-day IV approximation. With Polygon Options data, this becomes the actual front-month straddle / spot — the textbook "implied move" the market is pricing in.
       </div>
     </div>
 
     <div class="card col-5">
-      <div class="card-header"><div class="card-title">Implied vs Realized (last 8)</div></div>
-      <canvas id="histChart" height="240"></canvas>
+      <div class="card-header"><div class="card-title">🎯 Analyst Recommendations</div></div>
+      <div id="recBox"><div style="padding:20px;text-align:center;color:var(--text-muted);">Loading…</div></div>
     </div>
   </div>
 
-  <!-- Strategy recs -->
+  <!-- Strategy ideas -->
   <div class="card mt-24">
     <div class="card-header"><div class="card-title">🎯 Strategy Recommendations</div></div>
-    <div class="grid grid-3" style="gap:14px;" id="stratGrid"></div>
+    <div class="grid grid-3" style="gap:14px;" id="strats"></div>
   </div>
 
-  <!-- Risk note -->
+  <!-- Education -->
   <div class="card mt-24">
-    <div class="card-header"><div class="card-title">⚠ Earnings-Trade Risk Notes</div></div>
+    <div class="card-header"><div class="card-title">🧠 How to play earnings</div></div>
     <div class="grid grid-3" style="gap:20px;">
-      <div>
-        <div style="font-weight:700;color:var(--red);margin-bottom:6px;">Gamma risk is asymmetric</div>
-        <div style="font-size:13px;color:var(--text-muted);line-height:1.6;">A pre-earnings short straddle can lose 3–5× the max gain if the stock outruns the implied move. Always use defined-risk structures (iron condors, fly spreads) unless you can hedge dynamically.</div>
-      </div>
-      <div>
-        <div style="font-weight:700;color:var(--yellow);margin-bottom:6px;">Liquidity gaps</div>
-        <div style="font-size:13px;color:var(--text-muted);line-height:1.6;">Spreads in the after-hours session widen massively. If you trade the print, use limit orders only. Never use market orders into the close before earnings.</div>
-      </div>
-      <div>
-        <div style="font-weight:700;color:var(--accent);margin-bottom:6px;">The post-earnings drift edge</div>
-        <div style="font-size:13px;color:var(--text-muted);line-height:1.6;">Names that beat and gap up often continue drifting for 5–20 days as analyst PT hikes flow in. Conversely, gaps-down on miss continue. Position day 1 after the print is often better than playing the print itself.</div>
-      </div>
+      <div><div style="font-weight:700;color:var(--accent);margin-bottom:6px;">Implied vs Realized</div><div style="font-size:13px;color:var(--text-muted);line-height:1.6;">Compare straddle-implied move to typical realized move. If implied &gt; realized historically, sell premium (iron condor / calendar). If implied &lt; realized, buy premium (long strangle).</div></div>
+      <div><div style="font-weight:700;color:var(--yellow);margin-bottom:6px;">IV Crush</div><div style="font-size:13px;color:var(--text-muted);line-height:1.6;">Front-month IV typically drops 30-50% after the print regardless of direction. Premium sellers profit; premium buyers need a move larger than implied to overcome the crush.</div></div>
+      <div><div style="font-weight:700;color:var(--red);margin-bottom:6px;">Catalyst Risk</div><div style="font-size:13px;color:var(--text-muted);line-height:1.6;">After-hours liquidity is thin. Spreads widen. Never use market orders into earnings. If your structure is naked, max loss can multiply 3-5× the max gain.</div></div>
     </div>
   </div>
 
   <div class="related-bar mt-24">
     <span class="lbl">Related →</span>
-    <a href="earnings-calendar.html">📅 Earnings Calendar</a>
-    <a href="vol-surface.html">🌐 Vol Surface</a>
-    <a href="options-chain.html">⛓ Options Chain</a>
+    <a href="earnings-calendar.html">📅 Full Calendar</a>
+    <a href="ticker.html" id="tickerLink">🔍 Ticker Focus</a>
     <a href="multi-leg-builder.html">🔧 Build Structure</a>
-    <a href="ticker.html">🔍 Ticker Focus</a>
-    <a href="ai-scout.html">🤖 AI Scout</a>
+    <a href="fundamentals.html" id="fundLink">📊 Fundamentals</a>
+    <a href="news.html" id="newsLink">📰 News</a>
   </div>
 </div>
 
@@ -156,145 +106,155 @@
 <script src="js/live.js"></script>
 <script>
 buildNav('earnings-preview');
+const $ = id => document.getElementById(id);
+const POPULAR = ['NVDA','AAPL','MSFT','META','GOOGL','AMZN','TSLA','AMD','PLTR','COIN','SMCI','SHOP','CRM','BABA'];
 
-function seedRand(seed) { let s = seed; return () => { s = (s * 9301 + 49297) % 233280; return s / 233280; }; }
+function renderQuick(active) {
+  $('symQuick').innerHTML = POPULAR.map(s => `<button class="${s === active ? 'active' : ''}" data-sym="${s}">${s}</button>`).join('');
+  $('symQuick').querySelectorAll('button').forEach(b => b.addEventListener('click', () => { $('symInput').value = b.dataset.sym; load(); }));
+}
 
-function update() {
-  const sym = document.getElementById('symSel').value;
-  document.getElementById('sym').textContent = sym;
-  document.title = sym + ' Earnings Preview — bpleone / trade';
-  const rng = seedRand(sym.charCodeAt(0) * 89 + sym.length * 13);
-  const q = (typeof QUOTES !== 'undefined' && QUOTES[sym]) ? QUOTES[sym] : null;
-  const spot = q ? q.last : 100;
+function fmt$(v, dp=2) { return v == null || !isFinite(v) ? '—' : '$' + Number(v).toFixed(dp); }
+function fmtBig(v) {
+  if (v == null || !isFinite(v)) return '—';
+  if (Math.abs(v) >= 1e12) return '$' + (v/1e12).toFixed(2) + 'T';
+  if (Math.abs(v) >= 1e9) return '$' + (v/1e9).toFixed(2) + 'B';
+  if (Math.abs(v) >= 1e6) return '$' + (v/1e6).toFixed(0) + 'M';
+  return '$' + v.toFixed(0);
+}
+function pct(v, dp=2) { return v == null || !isFinite(v) ? '—' : (v >= 0 ? '+' : '') + Number(v).toFixed(dp) + '%'; }
+function escapeHtml(s) { return String(s || '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 
-  // Top KPIs
-  const days = 7 + Math.floor(rng() * 21);
-  const reportDate = new Date(Date.now() + days * 86400000);
-  document.getElementById('reportDate').textContent = reportDate.toLocaleDateString('en-US', { month:'short', day:'numeric' });
-  document.getElementById('reportTime').textContent = (days % 2 === 0 ? 'After close' : 'Before open') + ' · ' + reportDate.toLocaleDateString('en-US', { weekday: 'long' });
-  const implied = (6 + rng() * 8).toFixed(1);
-  document.getElementById('impMove').textContent = '±' + implied + '%';
-  document.getElementById('impMoveDollars').textContent = '≈ ±$' + (spot * implied / 100).toFixed(2);
-  const beats = Math.floor(5 + rng() * 4);
-  document.getElementById('beatRate').textContent = beats + '/8';
-  document.getElementById('beatSub').textContent = (beats >= 7 ? 'Consistent beater' : beats >= 5 ? 'Mostly beats' : 'Mixed');
-  const realized = (3 + rng() * 8).toFixed(1);
-  document.getElementById('realMove').textContent = '±' + realized + '%';
+function noKey() {
+  $('detailBox').innerHTML = '<div class="empty-card"><div class="icon">⚠</div><div>Open <a href="settings.html" style="color:var(--accent);">Settings</a> and connect Finnhub.</div></div>';
+}
 
-  // Expectations
-  const eps = (0.5 + rng() * 3).toFixed(2);
-  const whisper = (+eps * (1 + 0.04 + rng() * 0.08)).toFixed(2);
-  document.getElementById('epsCons').textContent = '$' + eps;
-  document.getElementById('epsWhsp').textContent = '$' + whisper;
-  document.getElementById('whspDelta').innerHTML = '+$' + (+whisper - +eps).toFixed(2) + '  <span class="green-text">(' + ((+whisper / +eps - 1) * 100).toFixed(1) + '%)</span>';
-  document.getElementById('revCons').textContent = '$' + (5 + rng() * 28).toFixed(2) + 'B';
-  document.getElementById('epsYoy').textContent = (10 + rng() * 70).toFixed(1) + '%';
-  document.getElementById('revYoy').textContent = (5 + rng() * 50).toFixed(1) + '%';
-  const focs = ['Forward AI capex outlook', 'China demand & FX', 'Cloud growth re-acceleration', 'Margin compression risk', 'Guidance range narrow vs wide'];
-  document.getElementById('guideFoc').textContent = focs[Math.floor(rng() * focs.length)];
-  const ssCount = Math.floor(5 + rng() * 15);
-  document.getElementById('ssrev').textContent = ssCount + ' upgrades · ' + Math.floor(rng() * 4) + ' downgrades';
+async function load() {
+  const sym = ($('symInput').value || '').trim().toUpperCase();
+  if (!sym) return;
+  renderQuick(sym);
+  $('sym').textContent = sym;
+  document.title = sym + ' Earnings Preview — bpleone';
+  $('tickerLink').href = 'ticker.html?sym=' + sym;
+  $('fundLink').href = 'fundamentals.html?sym=' + sym;
+  $('newsLink').href = 'news.html?sym=' + sym;
 
-  // IV crush
-  const frontIv = 25 + rng() * 70;
-  const backIv = frontIv * (0.6 + rng() * 0.15);
-  document.getElementById('frontIv').textContent = frontIv.toFixed(1) + '%';
-  document.getElementById('ivRank').textContent = Math.floor(60 + rng() * 35) + '%';
-  document.getElementById('backIv').textContent = backIv.toFixed(1) + '%';
-  document.getElementById('termStr').textContent = 'Backwardation (' + (frontIv - backIv).toFixed(1) + ' vol)';
-  const crushPct = 30 + rng() * 25;
-  document.getElementById('ivCrush').textContent = '−' + crushPct.toFixed(0) + '% (-' + (frontIv * crushPct / 100).toFixed(1) + ' vol)';
-  document.getElementById('frontIvPost').textContent = (frontIv * (1 - crushPct / 100)).toFixed(1) + '% ≈ ' + backIv.toFixed(1) + '%';
-  const skewVal = (-1 + rng() * 4).toFixed(1);
-  document.getElementById('skew').textContent = '+' + skewVal + ' vol (puts richer)';
-  document.getElementById('dealer').textContent = rng() > 0.5 ? 'Net long calls (sup. rally)' : 'Net short puts (sup. dip)';
-
-  // History
-  const tbody = document.getElementById('histBody');
-  const histImp = [], histReal = [], histLabels = [];
-  tbody.innerHTML = '';
-  for (let i = 8; i >= 1; i--) {
-    const d = new Date(); d.setMonth(d.getMonth() - i * 3);
-    const imp = (4 + rng() * 8).toFixed(1);
-    const real = (2 + rng() * 12).toFixed(1) * (rng() > 0.5 ? 1 : -1);
-    const beat = rng() > 0.18;
-    const epsDelta = (rng() * 0.4 - 0.1).toFixed(2);
-    const d5 = (real >= 0 ? 1 : -1) * (1 + rng() * 4).toFixed(1);
-    const d30 = (real >= 0 ? 1 : -1) * (2 + rng() * 8).toFixed(1);
-    histLabels.push(d.toLocaleDateString('en-US', { month: 'short', year: '2-digit' }));
-    histImp.push(+imp); histReal.push(+real);
-    const realCls = real >= 0 ? 'green-text' : 'red-text';
-    const dCls = d5 >= 0 ? 'green-text' : 'red-text';
-    const d30Cls = d30 >= 0 ? 'green-text' : 'red-text';
-    tbody.innerHTML += `<tr class="hist-row">
-      <td>${d.toLocaleDateString('en-US', { month: 'short', day: '2-digit', year: 'numeric' })}</td>
-      <td>±${imp}%</td>
-      <td class="${realCls}">${real >= 0 ? '+' : ''}${(+real).toFixed(1)}%</td>
-      <td>${beat ? '<span class="green-text">BEAT</span>' : '<span class="red-text">MISS</span>'}</td>
-      <td>${epsDelta > 0 ? '+' : ''}$${epsDelta}</td>
-      <td class="${dCls}">${d5 >= 0 ? '+' : ''}${(+d5).toFixed(1)}%</td>
-      <td class="${d30Cls}">${d30 >= 0 ? '+' : ''}${(+d30).toFixed(1)}%</td>
-    </tr>`;
+  if (typeof DataProvider === 'undefined' || DataProvider.getConfig().provider !== 'finnhub' || !DataProvider.getConfig().apiKey) {
+    noKey(); return;
   }
 
-  if (window._histChart) _histChart.destroy();
-  window._histChart = new Chart(document.getElementById('histChart').getContext('2d'), {
-    type: 'bar',
-    data: { labels: histLabels, datasets: [
-      { label: 'Implied (±)', data: histImp.map(v => Math.abs(v)), backgroundColor: 'rgba(0,212,255,0.55)' },
-      { label: 'Realized (|move|)', data: histReal.map(v => Math.abs(v)), backgroundColor: histReal.map(v => v >= 0 ? 'rgba(16,185,129,0.7)' : 'rgba(239,68,68,0.7)') }
-    ] },
-    options: { responsive: true, maintainAspectRatio: false,
-      plugins: { legend: { labels: { color: '#9ca3af', font: { size: 11 } } } },
-      scales: {
-        x: { grid: { color: 'rgba(255,255,255,0.04)' }, ticks: { color: '#6b7280', font: { size: 9 }, maxRotation: 0 } },
-        y: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#6b7280', font: { size: 10 }, callback: v => v.toFixed(1) + '%' } }
-      }
-    }
-  });
+  $('detailBox').innerHTML = '<div class="k" style="grid-column:1/-1;text-align:center;color:var(--text-muted);padding:20px;">Loading…</div>';
 
-  // Strategy recs
-  const sg = document.getElementById('stratGrid');
-  sg.innerHTML = '';
-  const strats = [
-    { name: 'Long Strangle', tag: 'long', tagCls: 'tag-long',
-      thesis: 'Implied move ' + implied + '% vs avg realized ' + realized + '% — buy through the print only if you believe realized will exceed implied. Use deep-ITM for less time decay or far-OTM for cheap convexity.',
-      params: [['Structure', 'Long Call $' + (spot * 1.05).toFixed(0) + ' / Long Put $' + (spot * 0.95).toFixed(0)],
-              ['DTE', '7d (front)'],
-              ['Debit', '≈ $' + (spot * 0.08).toFixed(2)],
-              ['BE', '±' + (implied) + '%'],
-              ['Max loss', 'Premium paid'],
-              ['Risk', 'IV crush + theta if no move']]
-    },
-    { name: 'Iron Condor', tag: 'short', tagCls: 'tag-short',
-      thesis: 'Sell premium into the elevated IV. Profitable if stock stays inside ±' + (implied * 1.5).toFixed(1) + '% (1.5× implied). Best when historical realized < implied.',
-      params: [['Structure', 'Short ±' + (implied * 1.2).toFixed(1) + '% / Long ±' + (implied * 1.8).toFixed(1) + '%'],
-              ['DTE', '7d (post-print)'],
-              ['Credit', '≈ $' + (spot * 0.04).toFixed(2)],
-              ['POP', '~62%'],
-              ['Max loss', 'Wing width − credit'],
-              ['Risk', 'Move > 1.5× implied']]
-    },
-    { name: 'Calendar Spread', tag: 'neutral', tagCls: 'tag-neutral',
-      thesis: 'Sell rich front-month IV, buy cheaper back-month. Profits from IV crush in the front while keeping vega long via the back leg. Pure vol-arb play.',
-      params: [['Structure', 'Short ATM ' + Math.ceil(days+1) + 'd / Long ATM 45d'],
-              ['Debit', '≈ $' + (spot * 0.018).toFixed(2)],
-              ['Max profit', 'Near strike at front expiry'],
-              ['Skew', '+' + (frontIv - backIv).toFixed(1) + ' vol to harvest'],
-              ['Best regime', 'IV rank > 60'],
-              ['Risk', 'Large move away from strike']]
-    }
-  ];
-  strats.forEach(s => {
-    sg.innerHTML += `<div class="strategy-card">
-      <div class="head"><h4>${s.name}</h4><span class="tag ${s.tagCls}">${s.tag.toUpperCase()}</span></div>
-      <div style="font-size:13px;color:var(--text-secondary);margin-bottom:10px;line-height:1.6;">${s.thesis}</div>
-      <div class="metric-grid">${s.params.map(([k,v]) => `<div class="k">${k}</div><div class="v">${v}</div>`).join('')}</div>
-    </div>`;
-  });
+  try {
+    // Get upcoming earnings (next 120 days) + recs + spot in parallel
+    const [cal, recs, m, q] = await Promise.all([
+      DataProvider.getEarningsCalendar(Date.now(), Date.now() + 120 * 86400000).catch(() => []),
+      DataProvider.getRecommendations(sym).catch(() => []),
+      DataProvider.getBasicFinancials(sym).catch(() => ({})),
+      DataProvider.getQuote(sym).catch(() => ({}))
+    ]);
+
+    // Find this symbol's next earnings entry
+    const events = (cal || []).filter(e => e.symbol === sym).sort((a, b) => (a.date || '').localeCompare(b.date || ''));
+    const next = events[0];
+
+    renderDetail(sym, next, m, q);
+    renderRecs(recs);
+    renderStrats(sym, m, q, next);
+  } catch (e) {
+    $('detailBox').innerHTML = '<div class="empty-card"><div class="icon">⚠</div><div>' + e.message + '</div></div>';
+  }
 }
-document.getElementById('symSel').addEventListener('change', update);
-update();
+
+function renderDetail(sym, next, m, q) {
+  if (!next) {
+    $('detailBox').innerHTML = '<div class="empty-card"><div class="icon">📭</div><div>No upcoming earnings scheduled in the next 120 days for ' + sym + '.</div></div>';
+    $('kDate').textContent = '—'; $('kHour').textContent = '—'; $('kEps').textContent = '—'; $('kRev').textContent = '—'; $('kMove').textContent = '—';
+    return;
+  }
+  $('kDate').textContent = next.date || '—';
+  $('kHour').textContent = (next.hour || 'DMH').toUpperCase() + (next.year ? ' · Q' + next.quarter + ' ' + next.year : '');
+  $('kEps').textContent = next.epsEstimate != null ? '$' + (+next.epsEstimate).toFixed(2) : '—';
+  $('kEpsPrior').textContent = next.epsActual != null ? 'Prior actual: $' + (+next.epsActual).toFixed(2) : (next.year ? 'Q' + next.quarter + ' ' + next.year : '');
+  $('kRev').textContent = next.revenueEstimate != null ? fmtBig(next.revenueEstimate) : '—';
+  $('kRevPrior').textContent = next.revenueActual != null ? 'Prior actual: ' + fmtBig(next.revenueActual) : '—';
+
+  // Implied move (synthetic 30d IV approximation)
+  const spot = (q && q.c) || (typeof QUOTES !== 'undefined' && QUOTES[sym] ? QUOTES[sym].last : null);
+  let impliedPct = null;
+  if (spot && m.beta) {
+    // Quick proxy: beta-adjusted historical realized
+    const baseVol = 0.30 + (m.beta - 1) * 0.10;
+    impliedPct = baseVol * Math.sqrt(7/365) * 100;
+  } else if (spot) {
+    impliedPct = 5.0; // default placeholder
+  }
+  if (impliedPct) {
+    $('kMove').textContent = '±' + impliedPct.toFixed(1) + '%';
+    if (spot) $('kMoveD').textContent = '±' + fmt$(spot * impliedPct / 100);
+  }
+
+  $('detailBox').innerHTML = `
+    <div class="k">Symbol</div><div class="v">${sym}</div>
+    <div class="k">Report date</div><div class="v">${next.date || '—'}</div>
+    <div class="k">Hour</div><div class="v">${(next.hour || 'DMH').toUpperCase()}</div>
+    <div class="k">Fiscal Quarter</div><div class="v">${next.year ? 'Q' + next.quarter + ' ' + next.year : '—'}</div>
+    <div class="k">EPS Estimate</div><div class="v">${next.epsEstimate != null ? '$' + (+next.epsEstimate).toFixed(2) : '—'}</div>
+    <div class="k">Revenue Estimate</div><div class="v">${next.revenueEstimate != null ? fmtBig(next.revenueEstimate) : '—'}</div>
+    <div class="k">Beta</div><div class="v">${m.beta ? (+m.beta).toFixed(2) : '—'}</div>
+    <div class="k">Current Price</div><div class="v">${spot ? '$' + spot.toFixed(2) : '—'}</div>
+    <div class="k">Avg Daily Volume</div><div class="v">${m['10DayAverageTradingVolume'] ? (+m['10DayAverageTradingVolume']).toFixed(2) + 'M' : '—'}</div>
+    <div class="k">52w High / Low</div><div class="v">${m['52WeekHigh'] ? '$' + (+m['52WeekHigh']).toFixed(2) + ' / $' + (+m['52WeekLow']).toFixed(2) : '—'}</div>
+  `;
+}
+
+function renderRecs(recs) {
+  if (!recs || !recs.length) { $('recBox').innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-muted);">No analyst recs.</div>'; return; }
+  recs.sort((a, b) => (b.period || '').localeCompare(a.period || ''));
+  const latest = recs[0];
+  const total = (latest.strongBuy||0)+(latest.buy||0)+(latest.hold||0)+(latest.sell||0)+(latest.strongSell||0);
+  $('recBox').innerHTML = `
+    <div style="font-size:11px;color:var(--text-muted);margin-bottom:8px;">As of ${latest.period} · ${total} analysts</div>
+    <div style="display:flex;gap:2px;height:22px;border-radius:4px;overflow:hidden;">
+      ${latest.strongBuy ? `<div style="flex:${latest.strongBuy};background:#059669;display:flex;align-items:center;justify-content:center;color:white;font-size:10px;font-weight:700;">${latest.strongBuy}</div>` : ''}
+      ${latest.buy ? `<div style="flex:${latest.buy};background:#10b981;display:flex;align-items:center;justify-content:center;color:white;font-size:10px;font-weight:700;">${latest.buy}</div>` : ''}
+      ${latest.hold ? `<div style="flex:${latest.hold};background:#6b7280;display:flex;align-items:center;justify-content:center;color:white;font-size:10px;font-weight:700;">${latest.hold}</div>` : ''}
+      ${latest.sell ? `<div style="flex:${latest.sell};background:#f87171;display:flex;align-items:center;justify-content:center;color:white;font-size:10px;font-weight:700;">${latest.sell}</div>` : ''}
+      ${latest.strongSell ? `<div style="flex:${latest.strongSell};background:#dc2626;display:flex;align-items:center;justify-content:center;color:white;font-size:10px;font-weight:700;">${latest.strongSell}</div>` : ''}
+    </div>
+    <div style="margin-top:14px;display:grid;grid-template-columns:repeat(5,1fr);gap:6px;text-align:center;font-size:10px;">
+      <div><div class="mono" style="color:#059669;font-weight:700;font-size:14px;">${latest.strongBuy||0}</div><div style="color:var(--text-muted);">Strong Buy</div></div>
+      <div><div class="mono" style="color:#10b981;font-weight:700;font-size:14px;">${latest.buy||0}</div><div style="color:var(--text-muted);">Buy</div></div>
+      <div><div class="mono" style="color:#6b7280;font-weight:700;font-size:14px;">${latest.hold||0}</div><div style="color:var(--text-muted);">Hold</div></div>
+      <div><div class="mono" style="color:#f87171;font-weight:700;font-size:14px;">${latest.sell||0}</div><div style="color:var(--text-muted);">Sell</div></div>
+      <div><div class="mono" style="color:#dc2626;font-weight:700;font-size:14px;">${latest.strongSell||0}</div><div style="color:var(--text-muted);">Strong Sell</div></div>
+    </div>
+    ${recs.length > 1 ? '<div style="margin-top:14px;font-size:11px;color:var(--text-muted);">' + recs.length + ' periods of history</div>' : ''}
+  `;
+}
+
+function renderStrats(sym, m, q, next) {
+  const spot = (q && q.c) || (typeof QUOTES !== 'undefined' && QUOTES[sym] ? QUOTES[sym].last : 100);
+  const impliedPct = (0.30 + (m.beta ? (m.beta - 1) * 0.10 : 0)) * Math.sqrt(7/365) * 100;
+  const moveAbs = (spot * impliedPct / 100);
+  const strats = [
+    { name: 'Long Strangle', kind: 'long premium',
+      thesis: 'If you think the move > ' + impliedPct.toFixed(1) + '% implied. Buy ' + Math.round(spot * 1.04) + ' Call + ' + Math.round(spot * 0.96) + ' Put. Wins on either direction, loses on IV crush if no move.' },
+    { name: 'Iron Condor', kind: 'short premium',
+      thesis: 'If you think the move stays inside ' + (impliedPct * 1.5).toFixed(1) + '% (1.5× implied). Sell ' + Math.round(spot * (1 + impliedPct/100)) + 'C / Buy ' + Math.round(spot * (1 + impliedPct/100 + 0.04)) + 'C and mirror on puts. Collect premium, lose if either wing tested.' },
+    { name: 'Calendar Spread', kind: 'vol arb',
+      thesis: 'Sell rich front-week IV, buy cheaper back-month. Profits from front-month IV crush regardless of small move. Defined risk = net debit. Best when IV rank > 60.' }
+  ];
+  $('strats').innerHTML = strats.map(s => `<div class="strategy-card">
+    <h4>${s.name}</h4>
+    <div class="sub">${s.kind}</div>
+    <div class="body">${s.thesis}</div>
+  </div>`).join('');
+}
+
+$('loadBtn').addEventListener('click', load);
+$('symInput').addEventListener('keydown', e => { if (e.key === 'Enter') load(); });
+load();
 </script>
 </body>
 </html>

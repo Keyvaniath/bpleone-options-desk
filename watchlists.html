@@ -4,11 +4,21 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Watchlists — bpleone / trade</title>
+<meta name="description" content="Custom watchlists with live ticker prices, change %, and quick-jump to ticker focus.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="css/style.css">
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.list-tab { padding: 6px 12px; border-radius: 8px; background: var(--bg-elevated); border: 1px solid var(--border); color: var(--text-secondary); cursor: pointer; font-size: 12px; }
+.list-tab:hover { border-color: var(--accent); color: var(--accent); }
+.list-tab.active { background: var(--accent); color: #0a0e17; border-color: var(--accent); font-weight: 700; }
+.wl-row td { padding: 9px 12px; }
+.wl-row:hover { background: var(--bg-elevated); cursor: pointer; }
+.wl-row .rm-btn { background: transparent; border: 1px solid var(--border); color: var(--text-muted); padding: 3px 8px; border-radius: 4px; cursor: pointer; font-size: 11px; }
+.wl-row .rm-btn:hover { color: var(--red); border-color: var(--red); }
+</style>
 </head>
 <body>
 <div id="site-nav"></div>
@@ -16,166 +26,220 @@
 <div class="container">
   <div class="page-header">
     <div>
-      <div class="page-title">Watchlists</div>
-      <div class="page-subtitle">Build, save, and stream price action across your custom lists · <span id="market-clock">--</span></div>
+      <div class="page-title">Watchlists <span class="feat-badge feat-live">LIVE</span></div>
+      <div class="page-subtitle">Live prices on your saved symbols · <span id="market-clock">--</span></div>
     </div>
     <div class="flex gap-8">
-      <input id="newWlName" class="search-input" placeholder="New watchlist name..." style="width:200px;">
-      <button class="btn btn-primary" id="newWlBtn">+ Create</button>
+      <input id="symInput" placeholder="Add symbol…" autocomplete="off" style="background:var(--bg-elevated);border:1px solid var(--border);border-radius:8px;padding:7px 12px;color:var(--text-primary);font-size:13px;font-family:var(--font-mono);width:140px;text-transform:uppercase;">
+      <button class="btn btn-primary" id="addBtn">+ Add</button>
     </div>
   </div>
 
-  <div class="grid grid-12">
-    <!-- Sidebar with lists -->
-    <div class="card col-3" style="height:fit-content;">
-      <div class="card-header"><div class="card-title">📁 My Watchlists</div></div>
-      <div id="wlList"></div>
-      <div style="margin-top:14px;padding-top:14px;border-top:1px solid var(--border);">
-        <div class="section-label">Quick add to active list</div>
-        <div style="display:flex;gap:6px;margin-top:8px;">
-          <input id="quickSym" class="search-input" placeholder="SYMBOL" style="width:auto;flex:1;text-transform:uppercase;">
-          <button class="btn btn-secondary" id="quickAdd" style="padding:8px 12px;">Add</button>
-        </div>
+  <!-- Lists -->
+  <div class="card mb-24">
+    <div class="card-header">
+      <div class="card-title">📋 My Lists</div>
+      <div class="flex gap-8">
+        <input id="newListName" placeholder="New list name…" style="background:var(--bg-elevated);border:1px solid var(--border);border-radius:6px;padding:5px 10px;color:var(--text-primary);font-size:12px;width:160px;">
+        <button class="btn btn-ghost" id="newListBtn">+ New List</button>
       </div>
     </div>
+    <div class="flex gap-8" id="listTabs" style="flex-wrap:wrap;"></div>
+  </div>
 
-    <!-- Main panel: active watchlist -->
-    <div class="card col-9">
-      <div class="card-header">
-        <div class="card-title">⭐ <span id="activeName">—</span></div>
-        <div class="filter-group">
-          <button class="filter-btn active">Compact</button>
-          <button class="filter-btn">Detailed</button>
-        </div>
-      </div>
-      <div class="table-wrap">
-        <table>
-          <thead><tr><th>Symbol</th><th>Last</th><th>Chg $</th><th>Chg %</th><th>Bid</th><th>Ask</th><th>Spread</th><th></th></tr></thead>
-          <tbody id="wlRows"></tbody>
-        </table>
-      </div>
-      <div id="wlEmpty" style="display:none;text-align:center;padding:48px;color:var(--text-muted);font-size:14px;">
-        No symbols in this list yet. Use the "Quick add" box on the left to add tickers.
-      </div>
+  <!-- KPI -->
+  <div class="grid grid-4 mb-24">
+    <div class="card"><div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;">Symbols in list</div><div class="mono" style="font-size:24px;font-weight:700;margin-top:4px;" id="kCount">0</div><div style="font-size:12px;color:var(--text-muted);" id="kListName">—</div></div>
+    <div class="card"><div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;">Average % Change</div><div class="mono" style="font-size:24px;font-weight:700;margin-top:4px;" id="kAvg">—</div><div style="font-size:12px;color:var(--text-muted);">Today, equal-weighted</div></div>
+    <div class="card"><div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;">Top Gainer</div><div class="mono green-text" style="font-size:24px;font-weight:700;margin-top:4px;" id="kUp">—</div><div style="font-size:12px;color:var(--text-muted);" id="kUpSub">—</div></div>
+    <div class="card"><div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;">Top Loser</div><div class="mono red-text" style="font-size:24px;font-weight:700;margin-top:4px;" id="kDn">—</div><div style="font-size:12px;color:var(--text-muted);" id="kDnSub">—</div></div>
+  </div>
+
+  <!-- Table -->
+  <div class="card">
+    <div class="card-header">
+      <div class="card-title">⭐ <span id="listTitle">—</span></div>
+      <button class="btn btn-ghost" id="deleteListBtn" style="font-size:11px;color:var(--red);">Delete this list</button>
     </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr>
+          <th>Symbol</th><th>Last</th><th>Change</th><th>Change %</th><th>Bid / Ask</th><th>Day Range</th><th>Volume</th><th>Source</th><th></th>
+        </tr></thead>
+        <tbody id="tbody"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="related-bar mt-24">
+    <span class="lbl">Related →</span>
+    <a href="hot-movers.html">🔥 Hot Movers</a>
+    <a href="momentum.html">🚀 Momentum</a>
+    <a href="alerts.html">🔔 Alerts</a>
+    <a href="ticker.html">🔍 Ticker Focus</a>
   </div>
 </div>
 
 <div id="site-footer"></div>
 
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
 <script src="js/app.js"></script>
 <script src="js/notify.js"></script>
 <script src="js/live.js"></script>
 <script>
 buildNav('watchlists');
+const $ = id => document.getElementById(id);
+const KEY = 'bpleone_watchlists_v2';
 
-const STORE = 'bpleone_watchlists_v1';
-function loadAll() {
-  try { return JSON.parse(localStorage.getItem(STORE)) || defaults(); }
-  catch (e) { return defaults(); }
-}
-function saveAll(data) { try { localStorage.setItem(STORE, JSON.stringify(data)); } catch (e) {} }
-function defaults() {
+function loadState() {
+  try {
+    const s = JSON.parse(localStorage.getItem(KEY) || 'null');
+    if (s && s.lists) return s;
+  } catch (e) {}
   return {
-    active: 'Mega Cap Tech',
     lists: {
-      'Mega Cap Tech':    ['AAPL','MSFT','NVDA','GOOGL','META','AMZN'],
-      'High Beta Movers': ['SMCI','PLTR','COIN','TSLA','AMD','RIVN','MARA'],
-      'Index ETFs':       ['SPY','QQQ','IWM','DIA','VIX'],
-      'Crypto Adjacent':  ['COIN','MARA','MSTR','RIOT'],
-      'My Trades':        ['NVDA','META','AMD']
-    }
+      'Core Indices': ['SPY','QQQ','IWM','DIA','VIX'],
+      'Mag 7': ['AAPL','MSFT','NVDA','GOOGL','AMZN','META','TSLA'],
+      'High Beta': ['NVDA','AMD','SMCI','PLTR','COIN','TSLA','MARA','SHOP']
+    },
+    active: 'Core Indices'
   };
 }
+function save(s) { try { localStorage.setItem(KEY, JSON.stringify(s)); } catch (e) {} }
+let state = loadState();
 
-function renderSidebar() {
-  const data = loadAll();
-  const el = document.getElementById('wlList');
-  el.innerHTML = Object.keys(data.lists).map(name => {
-    const isActive = name === data.active;
-    const count = data.lists[name].length;
-    return `<div data-wl="${name}" style="display:flex;justify-content:space-between;align-items:center;padding:8px 10px;border-radius:6px;cursor:pointer;margin-bottom:4px;background:${isActive?'rgba(0,212,255,0.1)':'transparent'};color:${isActive?'var(--accent)':'var(--text-secondary)'};font-weight:${isActive?600:500};">
-      <span>${name}</span><span style="font-family:var(--font-mono);font-size:11px;color:var(--text-muted);">${count}</span>
-    </div>`;
-  }).join('');
-  el.querySelectorAll('[data-wl]').forEach(d => d.addEventListener('click', () => {
-    const data = loadAll();
-    data.active = d.dataset.wl;
-    saveAll(data);
-    renderAll();
+function fmt$(v) { return v == null || !isFinite(v) ? '—' : '$' + Number(v).toFixed(2); }
+function pct(v) { return v == null || !isFinite(v) ? '—' : (v >= 0 ? '+' : '') + Number(v).toFixed(2) + '%'; }
+
+function renderTabs() {
+  $('listTabs').innerHTML = Object.keys(state.lists).map(name => `<button class="list-tab ${name === state.active ? 'active' : ''}" data-list="${name}">${name} (${state.lists[name].length})</button>`).join('');
+  $('listTabs').querySelectorAll('button').forEach(b => b.addEventListener('click', () => {
+    state.active = b.dataset.list;
+    save(state);
+    render();
   }));
 }
 
-function renderActive() {
-  const data = loadAll();
-  document.getElementById('activeName').textContent = data.active;
-  const syms = data.lists[data.active] || [];
-  const tbody = document.getElementById('wlRows');
-  const empty = document.getElementById('wlEmpty');
-  if (syms.length === 0) {
-    tbody.innerHTML = '';
-    empty.style.display = '';
+function ensureLiveSymbol(sym) {
+  // Best-effort: REST-fetch the symbol from Finnhub so it appears with live data
+  if (typeof DataProvider === 'undefined' || DataProvider.getConfig().provider !== 'finnhub' || !DataProvider.getConfig().apiKey) return;
+  if (!QUOTES[sym]) {
+    QUOTES[sym] = { symbol: sym, last: 0, prevClose: 0, change: 0, changePct: 0, volume: 0, bid: 0, ask: 0, fresh: false };
+  }
+  DataProvider.getQuote(sym).then(j => {
+    if (j && j.c && QUOTES[sym]) {
+      QUOTES[sym].last = j.c;
+      QUOTES[sym].prevClose = j.pc || j.c;
+      QUOTES[sym].change = j.c - (j.pc || j.c);
+      QUOTES[sym].changePct = j.pc ? ((j.c / j.pc - 1) * 100) : 0;
+      QUOTES[sym].dayHigh = j.h; QUOTES[sym].dayLow = j.l; QUOTES[sym].dayOpen = j.o;
+      QUOTES[sym].fresh = true;
+      QUOTES[sym].source = 'finnhub';
+      QUOTES[sym].bid = +(j.c - 0.01).toFixed(2);
+      QUOTES[sym].ask = +(j.c + 0.01).toFixed(2);
+      if (typeof Feed !== 'undefined') Feed.publish(sym, QUOTES[sym]);
+      render();
+    }
+  }).catch(() => {});
+}
+
+function render() {
+  renderTabs();
+  const list = state.lists[state.active] || [];
+  $('listTitle').textContent = state.active;
+  $('kListName').textContent = state.active;
+  $('kCount').textContent = list.length;
+
+  // Auto-fetch any unknown symbols
+  list.forEach(s => { if (!QUOTES[s] || !QUOTES[s].fresh) ensureLiveSymbol(s); });
+
+  let sum = 0, n = 0, up = null, dn = null;
+  const rows = list.map(sym => {
+    const q = QUOTES[sym];
+    if (q && q.fresh && isFinite(q.changePct)) {
+      sum += q.changePct; n++;
+      if (!up || q.changePct > up.cp) up = { sym, cp: q.changePct, last: q.last };
+      if (!dn || q.changePct < dn.cp) dn = { sym, cp: q.changePct, last: q.last };
+    }
+    return { sym, q };
+  });
+
+  if (n) {
+    const avg = sum / n;
+    $('kAvg').textContent = pct(avg);
+    $('kAvg').className = 'mono ' + (avg >= 0 ? 'green-text' : 'red-text');
+  } else {
+    $('kAvg').textContent = '—';
+  }
+  if (up) { $('kUp').textContent = up.sym; $('kUpSub').textContent = pct(up.cp) + ' · ' + fmt$(up.last); }
+  else { $('kUp').textContent = '—'; $('kUpSub').textContent = '—'; }
+  if (dn) { $('kDn').textContent = dn.sym; $('kDnSub').textContent = pct(dn.cp) + ' · ' + fmt$(dn.last); }
+  else { $('kDn').textContent = '—'; $('kDnSub').textContent = '—'; }
+
+  const tbody = $('tbody');
+  if (!list.length) {
+    tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;color:var(--text-muted);padding:40px;">No symbols. Add some above.</td></tr>';
     return;
   }
-  empty.style.display = 'none';
-  tbody.innerHTML = syms.map(s => {
-    const q = (typeof QUOTES !== 'undefined' && QUOTES[s]) ? QUOTES[s] : null;
-    if (!q) {
-      return `<tr><td class="symbol">${s}</td><td colspan="6" style="color:var(--text-muted);">No live feed for ${s} — try a major symbol</td>
-        <td><button class="btn btn-ghost" style="padding:2px 6px;font-size:11px;" data-rm="${s}">✕</button></td></tr>`;
+  tbody.innerHTML = rows.map(({ sym, q }) => {
+    if (!q || !q.fresh) {
+      return `<tr class="wl-row" onclick="location.href='ticker.html?sym=${sym}'">
+        <td class="mono"><strong>${sym}</strong></td>
+        <td colspan="7" style="color:var(--text-muted);font-size:12px;">Loading from Finnhub…</td>
+        <td><button class="rm-btn" onclick="event.stopPropagation();removeSym('${sym}')">×</button></td>
+      </tr>`;
     }
-    const spread = (q.ask - q.bid).toFixed(2);
-    return `<tr>
-      <td class="symbol">${s}</td>
-      <td class="mono" data-live="${s}:last">$${q.last.toFixed(2)}</td>
-      <td class="mono" data-live="${s}:change">${q.change>=0?'+':''}${q.change.toFixed(2)}</td>
-      <td class="mono" data-live="${s}:changePct">${q.changePct>=0?'+':''}${q.changePct.toFixed(2)}%</td>
-      <td class="mono">$${q.bid.toFixed(2)}</td>
-      <td class="mono">$${q.ask.toFixed(2)}</td>
-      <td class="mono" style="color:var(--text-muted);">$${spread}</td>
-      <td><button class="btn btn-ghost" style="padding:2px 6px;font-size:11px;" data-rm="${s}">✕</button></td>
+    const cls = q.changePct >= 0 ? 'green-text' : 'red-text';
+    return `<tr class="wl-row" onclick="location.href='ticker.html?sym=${sym}'">
+      <td class="mono"><strong>${sym}</strong></td>
+      <td class="mono">${fmt$(q.last)}</td>
+      <td class="mono ${cls}">${(q.change >= 0 ? '+' : '') + q.change.toFixed(2)}</td>
+      <td class="mono ${cls}" style="font-weight:700;">${pct(q.changePct)}</td>
+      <td class="mono" style="font-size:11px;">${fmt$(q.bid)} / ${fmt$(q.ask)}</td>
+      <td class="mono" style="font-size:11px;">${q.dayLow ? fmt$(q.dayLow) + ' – ' + fmt$(q.dayHigh) : '—'}</td>
+      <td class="mono" style="font-size:11px;">${q.volume ? (q.volume/1e6).toFixed(1) + 'M' : '—'}</td>
+      <td style="font-size:10px;color:var(--text-muted);">${q.source || (q.fresh ? 'live' : 'cached')}</td>
+      <td><button class="rm-btn" onclick="event.stopPropagation();removeSym('${sym}')">×</button></td>
     </tr>`;
   }).join('');
-  // Wire remove buttons
-  tbody.querySelectorAll('[data-rm]').forEach(b => b.addEventListener('click', () => {
-    const data = loadAll();
-    data.lists[data.active] = data.lists[data.active].filter(x => x !== b.dataset.rm);
-    saveAll(data);
-    renderAll();
-  }));
-  // Re-bind live data on the new elements
-  if (typeof bindLive === 'function') bindLive();
 }
 
-function renderAll() {
-  renderSidebar();
-  renderActive();
-}
+window.removeSym = function(sym) {
+  state.lists[state.active] = state.lists[state.active].filter(s => s !== sym);
+  save(state); render();
+};
 
-document.addEventListener('DOMContentLoaded', () => {
-  renderAll();
-  document.getElementById('newWlBtn').addEventListener('click', () => {
-    const name = document.getElementById('newWlName').value.trim();
-    if (!name) return;
-    const data = loadAll();
-    if (data.lists[name]) return alert('That list already exists');
-    data.lists[name] = [];
-    data.active = name;
-    saveAll(data);
-    document.getElementById('newWlName').value = '';
-    renderAll();
-  });
-  document.getElementById('quickAdd').addEventListener('click', () => {
-    const sym = (document.getElementById('quickSym').value || '').trim().toUpperCase();
-    if (!sym) return;
-    const data = loadAll();
-    if (data.lists[data.active].includes(sym)) return;
-    data.lists[data.active].push(sym);
-    saveAll(data);
-    document.getElementById('quickSym').value = '';
-    renderActive();
-  });
+$('addBtn').addEventListener('click', () => {
+  const sym = ($('symInput').value || '').trim().toUpperCase();
+  if (!sym) return;
+  if (!state.lists[state.active]) state.lists[state.active] = [];
+  if (!state.lists[state.active].includes(sym)) state.lists[state.active].push(sym);
+  $('symInput').value = '';
+  save(state); render();
 });
+$('symInput').addEventListener('keydown', e => { if (e.key === 'Enter') $('addBtn').click(); });
+
+$('newListBtn').addEventListener('click', () => {
+  const name = ($('newListName').value || '').trim();
+  if (!name) return;
+  if (state.lists[name]) { alert('List already exists.'); return; }
+  state.lists[name] = [];
+  state.active = name;
+  $('newListName').value = '';
+  save(state); render();
+});
+
+$('deleteListBtn').addEventListener('click', () => {
+  if (Object.keys(state.lists).length <= 1) { alert('Keep at least one list.'); return; }
+  if (!confirm('Delete list "' + state.active + '"?')) return;
+  delete state.lists[state.active];
+  state.active = Object.keys(state.lists)[0];
+  save(state); render();
+});
+
+render();
+if (typeof Feed !== 'undefined') Feed.subscribe('*', () => render());
 </script>
 </body>
 </html>
