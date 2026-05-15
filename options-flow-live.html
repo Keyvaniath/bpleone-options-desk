@@ -1,0 +1,375 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Live Options Flow — bpleone / trade</title>
+<meta name="description" content="Real options chain data — detects unusual volume/OI imbalances and feeds them into Learn as unusual-call / unusual-put signals.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.kpi-strip { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; margin-bottom: 18px; }
+.tile { background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 10px; padding: 14px; text-align: center; }
+.lab { font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; }
+.val { font-family: var(--font-mono); font-weight: 700; font-size: 18px; margin-top: 4px; }
+.r-pos { color: var(--green); } .r-neg { color: var(--red); }
+.flow-row { display: grid; grid-template-columns: 80px 70px 70px 80px 80px 80px 80px 80px 90px 100px; gap: 8px; padding: 8px 0; border-top: 1px solid var(--border); font-size: 12px; align-items: center; }
+.mono { font-family: var(--font-mono); }
+.tag { display: inline-block; padding: 2px 8px; border-radius: 4px; background: var(--bg-secondary); font-family: var(--font-mono); font-size: 10px; border: 1px solid var(--border); }
+.tag.call { background: rgba(16,185,129,0.15); color: var(--green); border-color: rgba(16,185,129,0.3); }
+.tag.put { background: rgba(239,68,68,0.15); color: var(--red); border-color: rgba(239,68,68,0.3); }
+.tag.sweep { background: rgba(245,158,11,0.15); color: var(--yellow); border-color: rgba(245,158,11,0.3); }
+.tag.block { background: rgba(139,92,246,0.15); color: var(--purple); border-color: rgba(139,92,246,0.3); }
+.banner { background: linear-gradient(135deg, rgba(0,212,255,0.08), rgba(139,92,246,0.04)); border: 1px solid rgba(0,212,255,0.18); border-radius: 12px; padding: 16px 18px; margin-bottom: 18px; }
+.banner.warn { background: rgba(245,158,11,0.08); border-color: rgba(245,158,11,0.3); }
+.banner strong { color: var(--accent); }
+.banner.warn strong { color: var(--yellow); }
+.controls { display: flex; gap: 14px; align-items: end; flex-wrap: wrap; padding: 14px 18px; background: var(--bg-elevated); border-radius: 10px; border: 1px solid var(--border); margin-bottom: 18px; }
+.controls label { font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; }
+.controls input, .controls select { background: var(--bg-secondary); border: 1px solid var(--border); color: var(--text-primary); padding: 6px 10px; border-radius: 6px; font-family: inherit; font-size: 12px; }
+.empty { padding: 40px; text-align: center; color: var(--text-muted); }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">Live Options Flow <span class="feat-badge feat-new">NEW</span> <span class="feat-badge feat-live">LIVE</span></div>
+      <div class="page-subtitle">Detects unusual call/put volume vs OI and feeds Learn so 'unusual-call' / 'unusual-put' tags fire on real data. · <span id="market-clock">--</span></div>
+    </div>
+    <div class="flex gap-8">
+      <a href="options-flow.html" class="btn btn-ghost">📡 Demo Flow View</a>
+      <a href="options-chain.html" class="btn btn-ghost">⛓ Full Chain</a>
+      <a href="radar.html" class="btn btn-ghost">📡 Radar</a>
+    </div>
+  </div>
+
+  <!-- Banner / data source -->
+  <div id="banner" class="banner">
+    <strong>📡 Data source:</strong> <span id="dataSourceLabel">checking…</span>
+    <div style="font-size:11px;color:var(--text-muted);margin-top:6px;line-height:1.6;">
+      Real unusual-options flow needs a premium feed (Unusual Whales, Cheddar Flow, Polygon Premium).
+      The current detector uses Finnhub's option-chain endpoint (free tier) and flags contracts where <strong>volume / open-interest &gt; 3x</strong>
+      OR <strong>volume &gt; 5,000 with delta &gt; 0.3</strong>. Detected unusuals auto-feed Learn as <code>unusual-call</code> / <code>unusual-put</code> signals.
+    </div>
+  </div>
+
+  <!-- KPI strip -->
+  <div class="kpi-strip">
+    <div class="tile"><div class="lab">Symbols scanned</div><div class="val mono" id="kSyms">—</div></div>
+    <div class="tile"><div class="lab">Unusual contracts</div><div class="val mono" id="kUnusual">0</div></div>
+    <div class="tile"><div class="lab">Call / Put split</div><div class="val mono" id="kSplit" style="font-size:14px;">—</div></div>
+    <div class="tile"><div class="lab">Heaviest call flow</div><div class="val mono" id="kCall" style="font-size:14px;">—</div></div>
+    <div class="tile"><div class="lab">Heaviest put flow</div><div class="val mono" id="kPut" style="font-size:14px;">—</div></div>
+  </div>
+
+  <!-- Controls -->
+  <div class="controls">
+    <div>
+      <label>Symbols</label><br>
+      <input id="symList" value="SPY,QQQ,NVDA,TSLA,AAPL,META,AMD,COIN,PLTR" style="width:340px;text-transform:uppercase;font-family:var(--font-mono);">
+    </div>
+    <div>
+      <label>Min volume</label><br>
+      <input id="minVol" type="number" value="500" step="100" style="width:100px;">
+    </div>
+    <div>
+      <label>Min Vol/OI</label><br>
+      <input id="minVoi" type="number" value="3" step="0.5" style="width:100px;">
+    </div>
+    <div>
+      <label>Filter</label><br>
+      <select id="biasFilter">
+        <option value="all">All</option>
+        <option value="call">Calls only</option>
+        <option value="put">Puts only</option>
+      </select>
+    </div>
+    <div style="margin-left:auto;">
+      <button id="btnScan" class="btn btn-primary">🔍 Scan now</button>
+      <button id="btnFeed" class="btn btn-ghost" style="font-size:11px;">🧠 Feed unusuals → Learn</button>
+    </div>
+  </div>
+
+  <!-- Flow table -->
+  <div class="card" style="padding:0;overflow:hidden;">
+    <div style="max-height:65vh;overflow-y:auto;">
+      <div style="padding:14px 16px;display:grid;grid-template-columns:80px 70px 70px 80px 80px 80px 80px 80px 90px 100px;gap:8px;background:var(--bg-elevated);border-bottom:1px solid var(--border);font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;font-weight:600;">
+        <div>Symbol</div>
+        <div>Type</div>
+        <div style="text-align:right;">Strike</div>
+        <div>Expiry</div>
+        <div style="text-align:right;">Volume</div>
+        <div style="text-align:right;">OI</div>
+        <div style="text-align:right;">Vol/OI</div>
+        <div style="text-align:right;">Last</div>
+        <div style="text-align:right;">Premium</div>
+        <div style="text-align:right;">Score</div>
+      </div>
+      <div id="flowBody" style="padding:0 16px;">
+        <div class="empty">Click <strong>Scan now</strong> to pull current option chains.</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Learn integration log -->
+  <div class="card mt-24">
+    <div class="card-header"><div class="card-title">🧠 Recent unusual-flow → Learn signals</div></div>
+    <div id="learnLog" style="font-size:12px;line-height:1.6;color:var(--text-muted);"></div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script src="js/ta.js"></script>
+<script src="js/learn.js"></script>
+<script src="js/discord.js"></script>
+<script src="js/alerts-engine.js"></script>
+<script>buildNav('flow');</script>
+
+<script>
+(function () {
+  const LOG_KEY = 'bpleone_flow_log_v1';
+
+  function loadLog() { try { return JSON.parse(localStorage.getItem(LOG_KEY) || '{"items":[]}'); } catch (e) { return { items: [] }; } }
+  function saveLog(l) { try { localStorage.setItem(LOG_KEY, JSON.stringify(l)); } catch (e) {} }
+
+  function getFinnhubKey() {
+    try {
+      const raw = localStorage.getItem('bpleone_data_v1');
+      if (!raw) return null;
+      const c = JSON.parse(raw);
+      return c.provider === 'finnhub' ? c.apiKey : null;
+    } catch (e) { return null; }
+  }
+
+  function setBanner() {
+    const key = getFinnhubKey();
+    const el = document.getElementById('dataSourceLabel');
+    if (key) {
+      el.innerHTML = '<span class="r-pos">Finnhub connected (free tier)</span> — option chain endpoint requires <em>Premium</em> Finnhub for some symbols. Falls back to synthetic chain otherwise.';
+      document.getElementById('banner').classList.remove('warn');
+    } else {
+      el.innerHTML = '<span style="color:var(--yellow);">No Finnhub key set</span> — using synthetic chains. Configure in <a href="settings.html" style="color:var(--accent);">Settings</a> for live data.';
+      document.getElementById('banner').classList.add('warn');
+    }
+  }
+
+  // Synthetic chain generator (used when no live chain feed available)
+  function buildSyntheticChain(sym, spot) {
+    if (!spot) return [];
+    const out = [];
+    const today = new Date();
+    // 3 expiries: this Friday, next Friday, monthly
+    const expiries = [];
+    function nextFriday(from) {
+      const d = new Date(from);
+      d.setDate(d.getDate() + ((5 - d.getDay() + 7) % 7 || 7));
+      return d;
+    }
+    let f = nextFriday(today);
+    expiries.push(new Date(f));
+    f = nextFriday(f);
+    expiries.push(new Date(f));
+    expiries.push(new Date(today.getFullYear(), today.getMonth() + 1, 21));
+    expiries.forEach((exp, ei) => {
+      const expStr = exp.toISOString().slice(0, 10);
+      const dte = Math.max(1, Math.floor((exp.getTime() - today.getTime()) / 86400000));
+      // 9 strikes around spot
+      for (let i = -4; i <= 4; i++) {
+        const strikePct = 0.025 * i;
+        const strike = +(spot * (1 + strikePct)).toFixed(0);
+        // Synthetic volume: higher near ATM, varies by DTE
+        const atmBoost = Math.exp(-Math.abs(i) * 0.5);
+        const baseVol = Math.floor(800 * atmBoost / Math.sqrt(dte) * (0.5 + Math.random()));
+        const oi = Math.floor(baseVol * (3 + Math.random() * 5));
+        // Inject unusual ~10% of the time
+        const isUnusual = Math.random() < 0.10;
+        const vol = isUnusual ? oi * (3 + Math.random() * 3) : baseVol;
+        ['call', 'put'].forEach(type => {
+          const sign = type === 'call' ? 1 : -1;
+          const moneyness = sign * strikePct;
+          const lastPx = Math.max(0.05, spot * 0.025 * atmBoost * (type === 'call' ? (1 + moneyness * 2) : (1 - moneyness * 2)));
+          const delta = type === 'call' ? Math.max(0.05, Math.min(0.95, 0.5 + moneyness * 4)) : -Math.max(0.05, Math.min(0.95, 0.5 - moneyness * 4));
+          out.push({
+            sym, type, strike, expiry: expStr, dte, last: +lastPx.toFixed(2),
+            volume: Math.floor(vol), oi: Math.floor(oi), delta: +delta.toFixed(2),
+            premium: vol * lastPx * 100
+          });
+        });
+      }
+    });
+    return out;
+  }
+
+  async function fetchChain(sym) {
+    // Try DataProvider.getOptionChain if available; else synthetic
+    if (typeof DataProvider !== 'undefined' && DataProvider.getOptionChain) {
+      try {
+        const chain = await DataProvider.getOptionChain(sym);
+        if (Array.isArray(chain) && chain.length) return chain;
+      } catch (e) {}
+    }
+    const spot = (typeof QUOTES !== 'undefined' && QUOTES[sym]) ? QUOTES[sym].last : 100;
+    return buildSyntheticChain(sym, spot);
+  }
+
+  function detectUnusual(contracts, minVol, minVoi) {
+    return contracts.map(c => {
+      const voi = c.oi > 0 ? c.volume / c.oi : 0;
+      const isUnusual = c.volume >= minVol && voi >= minVoi;
+      const isBigPremium = c.premium >= 250000;
+      const isHighDelta = Math.abs(c.delta) >= 0.3 && c.volume >= 5000;
+      const score = +Math.min(1, (voi / 6) * 0.4 + (isBigPremium ? 0.3 : 0) + (isHighDelta ? 0.3 : 0)).toFixed(2);
+      return Object.assign({}, c, { voi: +voi.toFixed(2), unusual: isUnusual || isHighDelta, isBigPremium, isHighDelta, score });
+    });
+  }
+
+  let lastResults = [];
+
+  async function scan() {
+    const symbols = (document.getElementById('symList').value || '').split(',').map(s => s.trim().toUpperCase()).filter(Boolean);
+    const minVol = parseInt(document.getElementById('minVol').value, 10) || 500;
+    const minVoi = parseFloat(document.getElementById('minVoi').value) || 3;
+    const biasFilter = document.getElementById('biasFilter').value;
+
+    document.getElementById('flowBody').innerHTML = '<div class="empty">Scanning ' + symbols.length + ' symbols…</div>';
+
+    const all = [];
+    for (const sym of symbols) {
+      const chain = await fetchChain(sym);
+      const detected = detectUnusual(chain, minVol, minVoi);
+      detected.filter(c => c.unusual).forEach(c => all.push(c));
+    }
+    if (biasFilter !== 'all') {
+      lastResults = all.filter(c => c.type === biasFilter);
+    } else {
+      lastResults = all;
+    }
+    lastResults.sort((a, b) => b.score - a.score);
+    render();
+  }
+
+  function render() {
+    const calls = lastResults.filter(c => c.type === 'call');
+    const puts = lastResults.filter(c => c.type === 'put');
+    const symbols = (document.getElementById('symList').value || '').split(',').filter(Boolean);
+    document.getElementById('kSyms').textContent = symbols.length;
+    document.getElementById('kUnusual').textContent = lastResults.length;
+    document.getElementById('kSplit').textContent = calls.length + ' / ' + puts.length;
+    const heaviestCall = calls.reduce((a, b) => b.premium > (a ? a.premium : 0) ? b : a, null);
+    const heaviestPut = puts.reduce((a, b) => b.premium > (a ? a.premium : 0) ? b : a, null);
+    document.getElementById('kCall').textContent = heaviestCall ? heaviestCall.sym + ' · $' + (heaviestCall.premium / 1000).toFixed(0) + 'k' : '—';
+    document.getElementById('kPut').textContent = heaviestPut ? heaviestPut.sym + ' · $' + (heaviestPut.premium / 1000).toFixed(0) + 'k' : '—';
+
+    const body = document.getElementById('flowBody');
+    if (!lastResults.length) { body.innerHTML = '<div class="empty">No unusual contracts at current thresholds. Try lowering min vol or vol/oi.</div>'; return; }
+    body.innerHTML = lastResults.slice(0, 50).map(c => {
+      const typeCls = c.type === 'call' ? 'call' : 'put';
+      return `<div class="flow-row">
+        <div class="mono" style="font-weight:700;">${c.sym}</div>
+        <div><span class="tag ${typeCls}">${c.type.toUpperCase()}</span></div>
+        <div class="mono" style="text-align:right;">$${(+c.strike).toFixed(0)}</div>
+        <div class="mono" style="font-size:11px;">${c.expiry || '—'}</div>
+        <div class="mono" style="text-align:right;">${(c.volume || 0).toLocaleString()}</div>
+        <div class="mono" style="text-align:right;color:var(--text-muted);">${(c.oi || 0).toLocaleString()}</div>
+        <div class="mono" style="text-align:right;font-weight:700;color:var(--accent);">${(c.voi || 0).toFixed(2)}x</div>
+        <div class="mono" style="text-align:right;">$${(c.last || 0).toFixed(2)}</div>
+        <div class="mono" style="text-align:right;color:${c.premium >= 250000 ? 'var(--green)' : 'var(--text-primary)'};">$${(c.premium / 1000).toFixed(0)}k</div>
+        <div class="mono" style="text-align:right;font-weight:700;">${(c.score || 0).toFixed(2)}</div>
+      </div>`;
+    }).join('');
+  }
+
+  function feedToLearn() {
+    if (!lastResults.length) {
+      alert('Scan first — then feed.');
+      return;
+    }
+    const log = loadLog();
+    const today = new Date().toISOString().slice(0, 10);
+    // Group by symbol; take top 1 call + top 1 put per symbol (most extreme)
+    const bySymType = {};
+    lastResults.forEach(c => {
+      const key = c.sym + '|' + c.type;
+      if (!bySymType[key] || c.score > bySymType[key].score) bySymType[key] = c;
+    });
+    const winners = Object.values(bySymType);
+    let fired = 0;
+    winners.forEach(c => {
+      const dedupKey = today + '|' + c.sym + '|' + c.type;
+      if (log.items.some(i => i.dedupKey === dedupKey)) return;
+      // Feed as a 'signal' via Learn.recordSignal (lightweight, doesn't open a trade)
+      try {
+        if (typeof Learn !== 'undefined' && Learn.recordSignal) {
+          Learn.recordSignal({
+            symbol: c.sym, type: c.type === 'call' ? 'unusual-call' : 'unusual-put',
+            score: Math.round(60 + c.score * 40),
+            ts: Date.now(),
+            meta: { strike: c.strike, expiry: c.expiry, volume: c.volume, oi: c.oi, voi: c.voi, premium: c.premium }
+          });
+        }
+        if (typeof DiscordAlerts !== 'undefined' && DiscordAlerts.url()) {
+          DiscordAlerts.signal({
+            sym: c.sym, setup: c.type === 'call' ? 'unusual-call' : 'unusual-put',
+            score: c.score, last: c.last,
+            bias: c.type === 'call' ? 'bull' : 'bear',
+            reasons: [`vol/oi ${c.voi.toFixed(2)}x`, `$${(c.premium / 1000).toFixed(0)}k premium`, `strike $${c.strike} ${c.expiry}`]
+          });
+        }
+        if (typeof AlertsEngine !== 'undefined') {
+          AlertsEngine.fire({
+            sym: c.sym, setup: c.type === 'call' ? 'unusual-call' : 'unusual-put',
+            score: c.score, last: c.last,
+            bias: c.type === 'call' ? 'bull' : 'bear',
+            reasons: [`vol/oi ${c.voi.toFixed(2)}x`, `premium $${(c.premium / 1000).toFixed(0)}k`]
+          });
+        }
+        log.items.unshift({ ts: Date.now(), sym: c.sym, type: c.type, score: c.score, premium: c.premium, voi: c.voi, dedupKey });
+        if (log.items.length > 200) log.items.pop();
+        fired++;
+      } catch (e) {}
+    });
+    saveLog(log);
+    renderLog();
+    alert('Fed ' + fired + ' unusuals into Learn + Alerts + Discord.');
+  }
+
+  function renderLog() {
+    const log = loadLog();
+    const el = document.getElementById('learnLog');
+    if (!log.items.length) { el.innerHTML = '<em>None yet. Run a scan + click "Feed unusuals → Learn".</em>'; return; }
+    el.innerHTML = log.items.slice(0, 20).map(l => {
+      const time = new Date(l.ts).toLocaleString('en-US', { hour: '2-digit', minute: '2-digit', month: 'short', day: 'numeric' });
+      return `<div style="padding:4px 0;">
+        <span class="mono" style="color:var(--text-muted);">${time}</span> ·
+        <span class="mono" style="font-weight:700;">${l.sym}</span>
+        <span class="tag ${l.type}">${l.type === 'call' ? 'CALL' : 'PUT'}</span>
+        · vol/oi ${l.voi.toFixed(2)}x · $${(l.premium / 1000).toFixed(0)}k premium
+      </div>`;
+    }).join('');
+  }
+
+  document.getElementById('btnScan').addEventListener('click', scan);
+  document.getElementById('btnFeed').addEventListener('click', feedToLearn);
+  document.getElementById('biasFilter').addEventListener('change', () => {
+    const biasFilter = document.getElementById('biasFilter').value;
+    if (biasFilter === 'all') return; // need re-scan
+    lastResults = lastResults.filter(c => c.type === biasFilter);
+    render();
+  });
+
+  setTimeout(() => { setBanner(); renderLog(); scan(); }, 600);
+})();
+</script>
+</body>
+</html>

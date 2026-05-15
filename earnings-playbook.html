@@ -1,0 +1,358 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Earnings Playbook — bpleone / trade</title>
+<meta name="description" content="For every upcoming earnings, the brain pulls historical post-earnings moves vs implied vol and proposes a strategy.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.banner { background: linear-gradient(135deg, rgba(0,212,255,0.08), rgba(139,92,246,0.04)); border: 1px solid rgba(0,212,255,0.18); border-radius: 12px; padding: 16px 18px; margin-bottom: 18px; }
+.earn-card { background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 12px; padding: 16px; }
+.earn-card.strat-long-vol { border-left: 4px solid var(--green); }
+.earn-card.strat-iv-crush { border-left: 4px solid var(--purple); }
+.earn-card.strat-directional-long { border-left: 4px solid var(--green); }
+.earn-card.strat-directional-short { border-left: 4px solid var(--red); }
+.earn-card.strat-skip { border-left: 4px solid var(--text-muted); opacity: 0.85; }
+.earn-card .head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 10px; }
+.earn-card .sym { font-family: var(--font-mono); font-weight: 700; font-size: 18px; }
+.earn-card .date { font-family: var(--font-mono); font-size: 12px; color: var(--text-muted); }
+.strat-pill { display: inline-block; padding: 4px 12px; border-radius: 999px; font-family: var(--font-mono); font-size: 11px; font-weight: 600; margin-bottom: 8px; }
+.strat-pill.long-vol { background: rgba(16,185,129,0.15); color: var(--green); }
+.strat-pill.iv-crush { background: rgba(139,92,246,0.15); color: var(--purple); }
+.strat-pill.directional-long { background: rgba(16,185,129,0.15); color: var(--green); }
+.strat-pill.directional-short { background: rgba(239,68,68,0.15); color: var(--red); }
+.strat-pill.skip { background: var(--bg-secondary); color: var(--text-muted); }
+.metrics { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin: 10px 0; }
+.metric { background: var(--bg-secondary); border-radius: 6px; padding: 8px; text-align: center; }
+.metric .lab { font-size: 9px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; }
+.metric .val { font-family: var(--font-mono); font-weight: 700; font-size: 13px; margin-top: 2px; }
+.thesis { background: var(--bg-secondary); border-radius: 6px; padding: 10px; font-size: 12px; line-height: 1.6; margin-top: 8px; }
+.past-moves { display: flex; gap: 6px; margin-top: 8px; flex-wrap: wrap; }
+.past-move { padding: 3px 8px; border-radius: 4px; font-family: var(--font-mono); font-size: 10px; font-weight: 700; }
+.kpi-strip { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 18px; }
+.tile-k { background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 10px; padding: 14px; text-align: center; }
+.tile-k .lab { font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; }
+.tile-k .val { font-family: var(--font-mono); font-weight: 700; font-size: 18px; margin-top: 4px; }
+.r-pos { color: var(--green); } .r-neg { color: var(--red); }
+.btn-row { margin-top: 10px; display: flex; gap: 6px; }
+.btn-row a { font-size: 11px; padding: 4px 10px; }
+.controls { display: flex; gap: 14px; align-items: end; flex-wrap: wrap; padding: 14px 18px; background: var(--bg-elevated); border-radius: 10px; border: 1px solid var(--border); margin-bottom: 18px; }
+.controls label { font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; }
+.controls input, .controls select { background: var(--bg-secondary); border: 1px solid var(--border); color: var(--text-primary); padding: 6px 10px; border-radius: 6px; font-family: inherit; font-size: 12px; }
+.empty { padding: 40px; text-align: center; color: var(--text-muted); }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">Earnings Playbook <span class="feat-badge feat-new">NEW</span></div>
+      <div class="page-subtitle">Every upcoming earnings, ranked by edge. Brain pulls past 4 reactions, compares to IV, proposes a strategy. · <span id="market-clock">--</span></div>
+    </div>
+    <div class="flex gap-8">
+      <a href="earnings-calendar.html" class="btn btn-ghost">📅 Calendar</a>
+      <a href="earnings-preview.html" class="btn btn-ghost">🔬 Preview</a>
+      <a href="vol-cone.html" class="btn btn-ghost">🌗 Vol Cone</a>
+    </div>
+  </div>
+
+  <!-- Banner -->
+  <div class="banner">
+    <strong style="font-size:14px;">📐 How the strategies are picked.</strong>
+    <div style="font-size:11px;color:var(--text-muted);margin-top:6px;line-height:1.6;">
+      <strong>Long-vol (straddle/strangle):</strong> past avg-abs-move &gt; IV-implied move by 30%+. Market is under-pricing volatility — buy it.
+      <br><strong>IV-crush (short-vol / iron condor):</strong> IV-implied move &gt; past avg-abs-move by 30%+. Market over-priced vol — sell premium.
+      <br><strong>Directional long/short:</strong> past 4 reactions same-side AND avg &gt; 3% AND consistent (low stdev).
+      <br><strong>Skip:</strong> noisy history, no clear edge.
+    </div>
+  </div>
+
+  <!-- KPI strip -->
+  <div class="kpi-strip">
+    <div class="tile-k"><div class="lab">Earnings in window</div><div class="val mono" id="kCount">—</div></div>
+    <div class="tile-k"><div class="lab">Long-vol picks</div><div class="val mono r-pos" id="kLongVol">0</div></div>
+    <div class="tile-k"><div class="lab">IV-crush picks</div><div class="val mono" id="kIvCrush" style="color:var(--purple);">0</div></div>
+    <div class="tile-k"><div class="lab">Directional picks</div><div class="val mono" id="kDir">0</div></div>
+  </div>
+
+  <!-- Controls -->
+  <div class="controls">
+    <div>
+      <label>Date range</label><br>
+      <select id="rangeSelect">
+        <option value="3">Next 3 days</option>
+        <option value="7" selected>Next 7 days</option>
+        <option value="14">Next 14 days</option>
+        <option value="30">Next 30 days</option>
+      </select>
+    </div>
+    <div>
+      <label>Strategy filter</label><br>
+      <select id="stratFilter">
+        <option value="all">All strategies</option>
+        <option value="long-vol">Long-vol only</option>
+        <option value="iv-crush">IV-crush only</option>
+        <option value="directional-long">Directional long</option>
+        <option value="directional-short">Directional short</option>
+        <option value="skip">Skip only</option>
+      </select>
+    </div>
+    <div>
+      <label>Symbols</label><br>
+      <input id="symList" value="NVDA,TSLA,AAPL,MSFT,META,AMZN,GOOGL,AMD,NFLX,CRM,ORCL,COIN,PLTR,SMCI" style="width:300px;font-family:var(--font-mono);text-transform:uppercase;">
+    </div>
+    <div style="margin-left:auto;">
+      <button id="btnRefresh" class="btn btn-primary">🔄 Pull earnings + analyze</button>
+      <span id="status" style="font-size:11px;color:var(--text-muted);"></span>
+    </div>
+  </div>
+
+  <!-- Playbook grid -->
+  <div id="playbookGrid" class="grid grid-2">
+    <div class="empty" style="grid-column:1/-1;">Click <strong>Pull earnings + analyze</strong> above to load upcoming earnings and compute each playbook.</div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script src="js/ta.js"></script>
+<script src="js/learn.js"></script>
+<script>buildNav('earnings');</script>
+
+<script>
+(function () {
+  const KEY = 'bpleone_earnings_playbook_v1';
+
+  function getFinnhubKey() {
+    try {
+      const raw = localStorage.getItem('bpleone_data_v1');
+      if (!raw) return null;
+      const c = JSON.parse(raw);
+      return c.provider === 'finnhub' ? c.apiKey : null;
+    } catch (e) { return null; }
+  }
+
+  async function fetchEarningsCalendar(fromDate, toDate) {
+    const key = getFinnhubKey();
+    if (!key) return null;
+    try {
+      const url = `https://finnhub.io/api/v1/calendar/earnings?from=${fromDate}&to=${toDate}&token=${encodeURIComponent(key)}`;
+      const res = await fetch(url);
+      if (!res.ok) return null;
+      const j = await res.json();
+      return j.earningsCalendar || [];
+    } catch (e) { return null; }
+  }
+
+  async function fetchHistoricalEarnings(sym) {
+    const key = getFinnhubKey();
+    if (!key) return null;
+    try {
+      const url = `https://finnhub.io/api/v1/stock/earnings?symbol=${encodeURIComponent(sym)}&token=${encodeURIComponent(key)}`;
+      const res = await fetch(url);
+      if (!res.ok) return null;
+      return await res.json();
+    } catch (e) { return null; }
+  }
+
+  async function fetchDailyBars(sym, fromMs, toMs) {
+    if (typeof DataProvider !== 'undefined' && DataProvider.getHistorical) {
+      try {
+        const bars = await DataProvider.getHistorical(sym, 'D', fromMs, toMs);
+        return Array.isArray(bars) ? bars : null;
+      } catch (e) { return null; }
+    }
+    return null;
+  }
+
+  function pickStrategy(analysis) {
+    const { pastMoves, avgAbsMove, impliedMove, biasScore, biasConsistency, n } = analysis;
+    if (n < 2) return { tag: 'skip', label: 'Skip (not enough history)' };
+    if (impliedMove == null) {
+      // No IV data — fall back to directional only
+      if (Math.abs(biasScore) > 3 && biasConsistency > 0.7) {
+        return { tag: biasScore > 0 ? 'directional-long' : 'directional-short', label: biasScore > 0 ? 'Directional long' : 'Directional short' };
+      }
+      return { tag: 'skip', label: 'Skip (no IV data, no directional edge)' };
+    }
+    const ratio = avgAbsMove / impliedMove;
+    if (ratio >= 1.3) return { tag: 'long-vol', label: 'Long-vol (straddle/strangle)' };
+    if (ratio <= 0.7) return { tag: 'iv-crush', label: 'IV-crush (short premium / iron condor)' };
+    if (Math.abs(biasScore) > 3 && biasConsistency > 0.7) {
+      return { tag: biasScore > 0 ? 'directional-long' : 'directional-short', label: biasScore > 0 ? 'Directional long' : 'Directional short' };
+    }
+    return { tag: 'skip', label: 'Skip (mixed signals)' };
+  }
+
+  function buildThesis(analysis, strat) {
+    const { avgAbsMove, impliedMove, biasScore, biasConsistency, n } = analysis;
+    const movesTxt = analysis.pastMoves.map(m => (m >= 0 ? '+' : '') + m.toFixed(1) + '%').join(', ');
+    if (strat.tag === 'long-vol') {
+      return `Past ${n} earnings averaged ${avgAbsMove.toFixed(1)}% absolute move. Market implies only ${impliedMove ? impliedMove.toFixed(1) + '%' : '?'} for this print. Buy a straddle or strangle ~1-2 days pre-earnings, close immediately after the announcement before IV crush kills both legs.`;
+    }
+    if (strat.tag === 'iv-crush') {
+      return `Past ${n} earnings averaged only ${avgAbsMove.toFixed(1)}% move. Market implies ${impliedMove.toFixed(1)}% — significantly over-priced vol. Consider selling a short iron condor or short strangle covering the implied range. Let IV crush + theta work.`;
+    }
+    if (strat.tag.indexOf('directional') !== -1) {
+      const dir = strat.tag === 'directional-long' ? 'up' : 'down';
+      return `Past 4 earnings reactions: ${movesTxt}. Average ${dir === 'up' ? '+' : '-'}${Math.abs(biasScore).toFixed(1)}% with ${(biasConsistency * 100).toFixed(0)}% same-direction. Strong directional edge. Consider ${dir === 'up' ? 'long calls (slightly ITM, 2-4 weeks DTE)' : 'long puts'} sized to risk only 1× the implied move on the trade.`;
+    }
+    return `Past ${n} moves were noisy or mixed (${movesTxt}). No clear edge. Stand aside unless you have a strong fundamental thesis.`;
+  }
+
+  function analyzeSymbol(sym, earningsDate, historicalEarnings, recentBars) {
+    // Find past EPS surprise data (last 4)
+    const past4 = (historicalEarnings || []).slice(0, 4);
+    // Approximate past post-earnings moves: find the bar at/after each past report date
+    const pastMoves = [];
+    past4.forEach(e => {
+      const reportDate = new Date(e.period).getTime();
+      if (!recentBars) return;
+      // Find day-of-report bar and next-day close
+      const idx = recentBars.findIndex(b => {
+        const t = (b.t * 1000 || b.t);
+        return Math.abs(t - reportDate) < 86400000 * 2;
+      });
+      if (idx === -1 || idx + 1 >= recentBars.length) return;
+      const before = recentBars[idx].o;
+      const after = recentBars[idx + 1].c;
+      if (before && after) {
+        const move = ((after - before) / before) * 100;
+        pastMoves.push(+move.toFixed(2));
+      }
+    });
+    const n = pastMoves.length;
+    const avgAbsMove = n ? pastMoves.reduce((a, x) => a + Math.abs(x), 0) / n : null;
+    const biasScore = n ? pastMoves.reduce((a, x) => a + x, 0) / n : 0;
+    const biasConsistency = n ? pastMoves.filter(x => Math.sign(x) === Math.sign(biasScore)).length / n : 0;
+    // Implied move: approximate from ATM IV. Without real chain data, use ATR% × √(DTE)
+    const q = (typeof QUOTES !== 'undefined') ? QUOTES[sym] : null;
+    const dte = Math.max(1, (new Date(earningsDate).getTime() - Date.now()) / 86400000);
+    const snap = typeof TA !== 'undefined' ? TA.snapshot(sym) : null;
+    let impliedMove = null;
+    if (snap && snap.atrPct) {
+      // Earnings IV typically ~1.5-2× normal ATR; assume implied = 1.7 × atrPct
+      impliedMove = +(snap.atrPct * 1.7).toFixed(2);
+    }
+    return { pastMoves, n, avgAbsMove, biasScore: +biasScore.toFixed(2), biasConsistency, impliedMove, dte: +dte.toFixed(1), last: q ? q.last : null };
+  }
+
+  async function runAnalysis() {
+    document.getElementById('status').textContent = 'pulling earnings calendar…';
+    const days = parseInt(document.getElementById('rangeSelect').value, 10);
+    const today = new Date();
+    const fromD = today.toISOString().slice(0, 10);
+    const toD = new Date(today.getTime() + days * 86400000).toISOString().slice(0, 10);
+    let calendar = await fetchEarningsCalendar(fromD, toD);
+    const universe = (document.getElementById('symList').value || '').split(',').map(s => s.trim().toUpperCase()).filter(Boolean);
+
+    // Filter calendar to universe
+    if (!calendar) {
+      // No live calendar — synthesize from universe (use a fake +5d date)
+      calendar = universe.map(sym => ({ symbol: sym, date: new Date(Date.now() + 5 * 86400000).toISOString().slice(0, 10), hour: 'amc', epsEstimate: null, revenueEstimate: null }));
+      document.getElementById('status').textContent = 'no live calendar — using synthetic';
+    } else {
+      calendar = calendar.filter(e => universe.indexOf(e.symbol) !== -1);
+    }
+    calendar = calendar.sort((a, b) => a.date.localeCompare(b.date));
+
+    document.getElementById('status').textContent = 'analyzing ' + calendar.length + ' symbols…';
+    const results = [];
+    for (const e of calendar) {
+      try {
+        // Pull TA warmup + last 220 days of bars
+        if (typeof TA !== 'undefined') await TA.warmup(e.symbol);
+        const to = Date.now();
+        const from = to - 400 * 86400000;
+        const bars = await fetchDailyBars(e.symbol, from, to);
+        const hist = await fetchHistoricalEarnings(e.symbol);
+        const analysis = analyzeSymbol(e.symbol, e.date, hist, bars);
+        const strat = pickStrategy(analysis);
+        const thesis = buildThesis(analysis, strat);
+        results.push({ symbol: e.symbol, date: e.date, hour: e.hour, epsEst: e.epsEstimate, analysis, strat, thesis });
+      } catch (err) { console.warn('analyze', e.symbol, err); }
+    }
+    document.getElementById('status').textContent = '';
+    saveResults(results);
+    renderResults(results);
+  }
+
+  function loadResults() {
+    try { return JSON.parse(localStorage.getItem(KEY) || '{"results":[]}'); }
+    catch (e) { return { results: [] }; }
+  }
+  function saveResults(r) {
+    try { localStorage.setItem(KEY, JSON.stringify({ results: r, ts: Date.now() })); } catch (e) {}
+  }
+
+  function renderResults(results) {
+    if (!results || !results.length) {
+      document.getElementById('playbookGrid').innerHTML = '<div class="empty" style="grid-column:1/-1;">No upcoming earnings in window for your symbol list.</div>';
+      document.getElementById('kCount').textContent = '0';
+      return;
+    }
+    const filter = document.getElementById('stratFilter').value;
+    const filtered = filter === 'all' ? results : results.filter(r => r.strat.tag === filter);
+    document.getElementById('kCount').textContent = results.length;
+    document.getElementById('kLongVol').textContent = results.filter(r => r.strat.tag === 'long-vol').length;
+    document.getElementById('kIvCrush').textContent = results.filter(r => r.strat.tag === 'iv-crush').length;
+    document.getElementById('kDir').textContent = results.filter(r => r.strat.tag.indexOf('directional') !== -1).length;
+
+    document.getElementById('playbookGrid').innerHTML = filtered.length ? filtered.map(r => {
+      const a = r.analysis;
+      const stratCls = 'strat-' + r.strat.tag;
+      const stratPillCls = r.strat.tag;
+      const pastHtml = a.pastMoves.length ? a.pastMoves.map(m => `<span class="past-move" style="background:${m >= 0 ? 'rgba(16,185,129,0.15)' : 'rgba(239,68,68,0.15)'};color:${m >= 0 ? 'var(--green)' : 'var(--red)'};">${m >= 0 ? '+' : ''}${m.toFixed(1)}%</span>`).join('') : '<em style="color:var(--text-muted);font-size:11px;">no history</em>';
+      return `<div class="earn-card ${stratCls}">
+        <div class="head">
+          <div>
+            <span class="sym">${r.symbol}</span>
+            <span class="date" style="margin-left:8px;">${r.date}${r.hour ? ' · ' + (r.hour === 'bmo' ? 'pre-open' : 'after-close') : ''}</span>
+          </div>
+          <div style="font-family:var(--font-mono);font-size:13px;color:var(--text-muted);">in ${a.dte.toFixed(0)}d</div>
+        </div>
+        <div><span class="strat-pill ${stratPillCls}">${r.strat.label}</span></div>
+        <div class="metrics">
+          <div class="metric"><div class="lab">Past avg-abs</div><div class="val">${a.avgAbsMove != null ? a.avgAbsMove.toFixed(1) + '%' : '—'}</div></div>
+          <div class="metric"><div class="lab">Implied (est.)</div><div class="val">${a.impliedMove != null ? a.impliedMove.toFixed(1) + '%' : '—'}</div></div>
+          <div class="metric"><div class="lab">Bias</div><div class="val ${a.biasScore > 0 ? 'r-pos' : a.biasScore < 0 ? 'r-neg' : ''}">${a.biasScore >= 0 ? '+' : ''}${a.biasScore.toFixed(1)}%</div></div>
+          <div class="metric"><div class="lab">Same-dir</div><div class="val">${a.n ? (a.biasConsistency * 100).toFixed(0) + '%' : '—'}</div></div>
+        </div>
+        <div style="font-size:11px;color:var(--text-muted);margin-top:4px;">Past 4 reactions: ${pastHtml}</div>
+        <div class="thesis">${r.thesis}</div>
+        <div class="btn-row">
+          <a href="ticker.html?sym=${r.symbol}" class="btn btn-ghost">🔍 Ticker</a>
+          <a href="hypothetical.html?sym=${r.symbol}&source=signals&note=Earnings:${encodeURIComponent(r.strat.label)}" class="btn btn-ghost">📝 Track</a>
+          <a href="options-chain.html?sym=${r.symbol}" class="btn btn-ghost">⛓ Chain</a>
+          <a href="vol-cone.html?sym=${r.symbol}" class="btn btn-ghost">🌗 Vol cone</a>
+        </div>
+      </div>`;
+    }).join('') : '<div class="empty" style="grid-column:1/-1;">No earnings match the current strategy filter.</div>';
+  }
+
+  document.getElementById('btnRefresh').addEventListener('click', runAnalysis);
+  document.getElementById('stratFilter').addEventListener('change', () => renderResults(loadResults().results));
+
+  // Load cached on first paint
+  setTimeout(() => {
+    const cached = loadResults();
+    if (cached.results && cached.results.length && cached.ts && Date.now() - cached.ts < 6 * 3600 * 1000) {
+      renderResults(cached.results);
+      document.getElementById('status').textContent = '(showing cached — click refresh for live)';
+    }
+  }, 400);
+})();
+</script>
+</body>
+</html>

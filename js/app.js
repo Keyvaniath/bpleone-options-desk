@@ -86,7 +86,7 @@ function buildNav(activePage) {
   activePage = activePage || '';
   const playsGrp = ['totd','plays','signals','earnings','earnings-preview','pre-market','zero-dte','setup-wizard','paper-trade','game-plan','hot-movers','squeeze-radar','trade-plan'];
   const tradeGrp = ['flow','chain','ta','momentum','market-internals','smart-money','heatmap','watchlists','vol-surface','gex','tape','sectors','pairs','calendar-analyzer','vol-cone','dark-pool','short-interest','etf-flows','volume-profile','order-flow','ticker','multi-leg-builder','bracket-builder','spread-scanner','wheel','correlation'];
-  const toolsGrp = ['risk','fundamentals','backtester','edge','learn','learn-engine-explained','crypto','journal','alerts','macro','news','screener','anomalies','assistant','ai-scout','portfolio-builder','position-sizing','execution','strategies','api','seasonality','economic-events','settings','mindset','changelog','friday-summary','replay','live-positions','risk-attribution','edge-scanner','hypothetical','account','setup-combos','kelly-sizer','potd-backtest','news-reactions','live-train','radar','ai-cotrader','train-history','alerts-dashboard','weight-heatmap'];
+  const toolsGrp = ['risk','fundamentals','backtester','edge','learn','learn-engine-explained','crypto','journal','alerts','macro','news','screener','anomalies','assistant','ai-scout','portfolio-builder','position-sizing','execution','strategies','api','seasonality','economic-events','settings','mindset','changelog','friday-summary','replay','live-positions','risk-attribution','edge-scanner','hypothetical','account','setup-combos','kelly-sizer','potd-backtest','news-reactions','live-train','radar','ai-cotrader','train-history','alerts-dashboard','weight-heatmap','sector-rotation','options-flow-live','earnings-playbook','daily-debrief'];
   const isTrade = tradeGrp.indexOf(activePage) !== -1;
   const isPlays = playsGrp.indexOf(activePage) !== -1;
   const isTools = toolsGrp.indexOf(activePage) !== -1;
@@ -164,6 +164,10 @@ function buildNav(activePage) {
     + '<a href="radar.html">📡 Multi-Symbol Radar <span class="feat-badge feat-live" style="font-size:8px;padding:0 5px;">LIVE</span></a>'
     + '<a href="alerts-dashboard.html">🔔 Alerts Dashboard <span class="feat-badge feat-new" style="font-size:8px;padding:0 5px;">NEW</span></a>'
     + '<a href="weight-heatmap.html">🌡 Weight Heatmap <span class="feat-badge feat-new" style="font-size:8px;padding:0 5px;">NEW</span></a>'
+    + '<a href="sector-rotation.html">🔄 Sector Rotation <span class="feat-badge feat-live" style="font-size:8px;padding:0 5px;">LIVE</span></a>'
+    + '<a href="options-flow-live.html">📡 Live Options Flow <span class="feat-badge feat-new" style="font-size:8px;padding:0 5px;">NEW</span></a>'
+    + '<a href="earnings-playbook.html">📘 Earnings Playbook <span class="feat-badge feat-new" style="font-size:8px;padding:0 5px;">NEW</span></a>'
+    + '<a href="daily-debrief.html">📊 Daily AI Debrief <span class="feat-badge feat-new" style="font-size:8px;padding:0 5px;">NEW</span></a>'
     + '<a href="edge-scanner.html">🛰 Live Edge Scanner <span class="feat-badge feat-live" style="font-size:8px;padding:0 5px;">LIVE</span></a>'
     + '<a href="hypothetical.html">📝 Hypothetical Trades <span class="feat-badge feat-new" style="font-size:8px;padding:0 5px;">NEW</span></a>'
     + '<a href="setup-combos.html">🔗 Setup Combos <span class="feat-badge feat-new" style="font-size:8px;padding:0 5px;">NEW</span></a>'
@@ -385,6 +389,10 @@ function buildFooter() {
     + '<li><a href="radar.html">Multi-Symbol Radar</a></li>'
     + '<li><a href="alerts-dashboard.html">Alerts Dashboard</a></li>'
     + '<li><a href="weight-heatmap.html">Weight Heatmap</a></li>'
+    + '<li><a href="sector-rotation.html">Sector Rotation</a></li>'
+    + '<li><a href="options-flow-live.html">Live Options Flow</a></li>'
+    + '<li><a href="earnings-playbook.html">Earnings Playbook</a></li>'
+    + '<li><a href="daily-debrief.html">Daily AI Debrief</a></li>'
     + '<li><a href="edge-scanner.html">Edge Scanner</a></li>'
     + '<li><a href="hypothetical.html">Hypothetical Trades</a></li>'
     + '<li><a href="setup-combos.html">Setup Combos</a></li>'
