@@ -38,16 +38,111 @@ const Learn = (function () {
   }
 
   // ---- Public API ----
+  // Capture market context at entry (called automatically by recordTrade).
+  // Returns { spyChg, vixLevel, vixRegime, breadthPct, tod, dayOfMonth, dowChord }
+  function captureMarketContext() {
+    const ctx = { capturedAt: Date.now() };
+    try {
+      if (typeof QUOTES !== 'undefined') {
+        if (QUOTES.SPY) ctx.spyChg = +(QUOTES.SPY.changePct || 0).toFixed(2);
+        if (QUOTES.QQQ) ctx.qqqChg = +(QUOTES.QQQ.changePct || 0).toFixed(2);
+        if (QUOTES.VIX) ctx.vixLevel = +(QUOTES.VIX.last || 0).toFixed(2);
+        if (QUOTES.BTC) ctx.btcChg = +(QUOTES.BTC.changePct || 0).toFixed(2);
+        if (QUOTES.TLT) ctx.tltChg = +(QUOTES.TLT.changePct || 0).toFixed(2);
+        const arr = Object.values(QUOTES).filter(q => q.fresh && isFinite(q.changePct) && q.symbol !== 'VIX');
+        if (arr.length) {
+          const adv = arr.filter(q => q.changePct > 0).length;
+          ctx.breadthPct = +((adv / arr.length) * 100).toFixed(1);
+        }
+      }
+      ctx.vixRegime = ctx.vixLevel == null ? 'unknown' : (ctx.vixLevel < 14 ? 'low' : ctx.vixLevel < 20 ? 'normal' : ctx.vixLevel < 30 ? 'elevated' : 'panic');
+      const now = new Date();
+      const et = new Date(now.toLocaleString('en-US', { timeZone: 'America/New_York' }));
+      const h = et.getHours(), m = et.getMinutes();
+      const minSinceOpen = (h - 9) * 60 + (m - 30);
+      if (minSinceOpen < 0) ctx.tod = 'pre-market';
+      else if (minSinceOpen < 30) ctx.tod = 'open';                  // first 30 min
+      else if (minSinceOpen < 180) ctx.tod = 'morning';               // 10-12 ET
+      else if (minSinceOpen < 270) ctx.tod = 'mid-day';               // 12-2 ET
+      else if (minSinceOpen < 360) ctx.tod = 'afternoon';             // 2-3:30 ET
+      else if (minSinceOpen < 390) ctx.tod = 'close';                 // last 30 min
+      else ctx.tod = 'after-hours';
+      ctx.dow = et.toLocaleDateString('en-US', { weekday: 'short' });
+      ctx.dayOfMonth = et.getDate();
+    } catch (e) {}
+    return ctx;
+  }
+
+  // Auto-tag a setup type from observable features at entry.
+  // Returns the best-matching setup label given price/volume/RSI/MACD context.
+  // ctx = { last, prevClose, dayHigh, dayLow, volume, avgVolume?, rsi?, macd?, ma50?, ma200?, ivRank?, unusual? }
+  function autoTagSetup(ctx) {
+    const reasons = [];
+    const pct = ctx.last && ctx.prevClose ? (ctx.last / ctx.prevClose - 1) * 100 : 0;
+    const rvol = ctx.avgVolume && ctx.volume ? ctx.volume / ctx.avgVolume : null;
+    const above50 = ctx.ma50 ? ctx.last >= ctx.ma50 : null;
+    const above200 = ctx.ma200 ? ctx.last >= ctx.ma200 : null;
+    const rsi = ctx.rsi;
+    const macd = ctx.macd;
+
+    // Sort heuristics by specificity (strongest patterns first)
+    if (rvol && rvol > 2.5 && pct > 3) { reasons.push('rvol>2.5x', 'pct>3%'); return { tag: 'volume-breakout', score: 0.92, reasons }; }
+    if (rvol && rvol > 2 && pct < -3) { reasons.push('rvol>2x', 'pct<-3%'); return { tag: 'flush-on-volume', score: 0.85, reasons }; }
+    if (ctx.unusual === 'call' && pct > 0) { reasons.push('unusual call flow'); return { tag: 'unusual-call', score: 0.80, reasons }; }
+    if (ctx.unusual === 'put' && pct < 0) { reasons.push('unusual put flow'); return { tag: 'unusual-put', score: 0.78, reasons }; }
+    if (above50 === true && ctx.ma50 && Math.abs(ctx.last - ctx.ma50) / ctx.ma50 < 0.005 && macd != null && macd > 0) {
+      reasons.push('within 0.5% of 50DMA', 'MACD>0');
+      return { tag: '50ma-reclaim', score: 0.82, reasons };
+    }
+    if (macd != null && macd > 0 && rsi != null && rsi > 50 && rsi < 70 && pct > 0) { reasons.push('MACD>0', 'RSI 50-70'); return { tag: 'macd-cross', score: 0.78, reasons }; }
+    if (rsi != null && rsi > 70 && pct > 1) { reasons.push('RSI>70', 'pct>1%'); return { tag: 'momentum-extension', score: 0.72, reasons }; }
+    if (rsi != null && rsi < 30 && pct < -1) { reasons.push('RSI<30', 'pct<-1%'); return { tag: 'oversold-mean-revert', score: 0.65, reasons }; }
+    if (above200 === true && above50 === false && pct > 0) { reasons.push('above 200DMA', 'below 50DMA', 'reclaim setup'); return { tag: 'cup-handle', score: 0.70, reasons }; }
+    if (pct > 1 && rvol && rvol > 1.3) { reasons.push('momentum + above-avg volume'); return { tag: 'bull-flag', score: 0.70, reasons }; }
+    if (pct < -1 && rvol && rvol > 1.3) { reasons.push('momentum down + volume'); return { tag: 'bear-flag', score: 0.68, reasons }; }
+    if (pct > 0.5) return { tag: 'continuation-bull', score: 0.55, reasons: ['weak-signal upward'] };
+    if (pct < -0.5) return { tag: 'continuation-bear', score: 0.55, reasons: ['weak-signal downward'] };
+    return { tag: 'consolidation', score: 0.30, reasons: ['no strong feature'] };
+  }
+
   function recordTrade(t) {
     const state = load();
     const trade = Object.assign({
       id: 't_' + Date.now() + '_' + Math.random().toString(36).slice(2,7),
       ts: Date.now(),
-      result: null, R: null
+      result: null, R: null,
+      mfe: null, mae: null,                  // max favorable / adverse excursion (price)
+      mfeR: null, maeR: null,                // same in R-multiples
+      marketCtx: captureMarketContext()      // SPY/VIX/breadth/tod at entry
     }, t);
+    // If caller didn't specify setup, try auto-tagging from t.entryFeatures
+    if (!trade.setup && t.entryFeatures) {
+      const auto = autoTagSetup(t.entryFeatures);
+      trade.setup = auto.tag;
+      trade.autoTagged = true;
+      trade.autoTagReasons = auto.reasons;
+    }
     state.trades.push(trade);
     save(state);
     return trade;
+  }
+
+  // Update MFE / MAE while a trade is open. Call this on every tick that matters.
+  function updateExcursion(id, currentPrice) {
+    const state = load();
+    const t = state.trades.find(x => x.id === id);
+    if (!t || t.result) return;
+    const stopDist = t.bias === 'bull' ? (t.entry - t.stop) : (t.stop - t.entry);
+    const moveIn = t.bias === 'bull' ? (currentPrice - t.entry) : (t.entry - currentPrice);
+    if (t.mfe == null || moveIn > t.mfe) {
+      t.mfe = +moveIn.toFixed(4);
+      t.mfeR = stopDist ? +(moveIn / Math.abs(stopDist)).toFixed(2) : 0;
+    }
+    if (t.mae == null || moveIn < t.mae) {
+      t.mae = +moveIn.toFixed(4);
+      t.maeR = stopDist ? +(moveIn / Math.abs(stopDist)).toFixed(2) : 0;
+    }
+    save(state);
   }
 
   function closeTrade(id, exit, reasonTag) {
@@ -63,27 +158,59 @@ const Learn = (function () {
     trade.pnl = pnl;
     trade.R = stopDist ? +(pnl / Math.abs(stopDist)).toFixed(2) : 0;
     trade.result = trade.R >= 0 ? 'win' : 'loss';
+    // Final-update MFE/MAE with exit price in case it's the extreme
+    updateExcursion(id, exit);
+    // Efficiency: how much of MFE did we capture?
+    if (trade.mfeR != null && trade.mfeR > 0) {
+      trade.efficiency = +Math.max(0, Math.min(1, trade.R / trade.mfeR)).toFixed(2);
+    }
     save(state);
     rebalanceWeights();
     return trade;
   }
 
   // Re-weight signal types based on rolling realized expectancy
+  // Two upgrades on top of the simple avg:
+  //   1) DRIFT DECAY: trades > 90 days old get exponentially less weight
+  //   2) CONFIDENCE SHRINKAGE: weights with low n shrink toward 1.0 (Bayesian-ish)
   function rebalanceWeights() {
     const state = load();
+    const HALF_LIFE_DAYS = 90;
+    const now = Date.now();
     const byType = {};
     state.trades.forEach(t => {
       if (t.result == null) return;
       if (!byType[t.setup]) byType[t.setup] = [];
-      byType[t.setup].push(t.R || 0);
+      // age in days, recency weight = 0.5^(age / half-life)
+      const ageDays = Math.max(0, (now - (t.closedTs || t.ts)) / 86400000);
+      const w = Math.pow(0.5, ageDays / HALF_LIFE_DAYS);
+      byType[t.setup].push({ R: t.R || 0, w });
     });
     Object.keys(state.weights).forEach(type => {
-      const rs = byType[type] || [];
-      if (rs.length < 3) return;
-      const expectancy = rs.reduce((a, b) => a + b, 0) / rs.length;
-      // squash to [0.5, 1.6] so weight can amplify/dampen without flipping
-      const w = Math.max(0.5, Math.min(1.6, 1 + expectancy * 0.3));
+      const arr = byType[type] || [];
+      if (arr.length < 3) {
+        // Discovered setup but not enough samples — let auto-tag types still get registered
+        if (arr.length === 0 && state.weights[type] !== 1.0) state.weights[type] = 1.0;
+        return;
+      }
+      // Weighted expectancy
+      const totalW = arr.reduce((a, x) => a + x.w, 0);
+      const wSum = arr.reduce((a, x) => a + x.R * x.w, 0);
+      const expectancy = totalW > 0 ? wSum / totalW : 0;
+      // Confidence shrinkage: blend toward 1.0 based on effective sample size
+      // ess = totalW (recency-weighted n). At ess=3 we blend 50/50, at ess>=20 we trust it fully.
+      const ess = totalW;
+      const trust = Math.min(1, (ess - 1) / 19);   // 0 at ess=1, 1 at ess=20
+      const raw = 1 + expectancy * 0.3;
+      const blended = trust * raw + (1 - trust) * 1.0;
+      const w = Math.max(0.5, Math.min(1.6, blended));
       state.weights[type] = +w.toFixed(3);
+    });
+    // Also register any auto-discovered setup types not in the seed list
+    Object.keys(byType).forEach(type => {
+      if (!(type in state.weights)) {
+        state.weights[type] = 1.0;  // start neutral, will rebalance next cycle
+      }
     });
     save(state);
     return state.weights;
@@ -369,6 +496,8 @@ const Learn = (function () {
     rebalanceWeights, reset, load,
     // new conditional API
     rebalanceConditional, adjustedScoreCtx, explain, insights, tagRegime,
+    // feature extraction / auto-tagging / MFE-MAE
+    captureMarketContext, autoTagSetup, updateExcursion,
     // helpers
     bucketVixRegime, currentVix
   };

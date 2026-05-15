@@ -1,0 +1,290 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Friday AI Review — bpleone / trade</title>
+<meta name="description" content="Weekly Claude-powered review of your trades. What worked, what didn't, what to adjust. Reinforcement-learning loop with you in it.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.review-card { padding: 22px 26px; background: var(--bg-elevated); border-radius: 14px; }
+.review-card.green { border-left: 4px solid var(--green); }
+.review-card.yellow { border-left: 4px solid var(--yellow); }
+.review-card.red { border-left: 4px solid var(--red); }
+.review-card h3 { margin: 0 0 10px; font-size: 17px; }
+.kbig { padding: 14px 16px; background: var(--bg-elevated); border-radius: 10px; text-align: center; }
+.kbig .lab { font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; }
+.kbig .val { font-family: var(--font-mono); font-size: 26px; font-weight: 700; margin-top: 4px; }
+.kbig .sub { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
+.ai-output { background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 12px; padding: 22px 26px; font-size: 14px; line-height: 1.75; color: var(--text-primary); }
+.ai-output h2 { font-size: 18px; color: var(--accent); margin: 18px 0 8px; }
+.ai-output h2:first-child { margin-top: 0; }
+.ai-output ul { padding-left: 22px; margin: 6px 0 12px; }
+.ai-output strong { color: var(--accent); }
+.ai-output code { background: var(--bg-secondary); padding: 2px 6px; border-radius: 3px; font-family: var(--font-mono); font-size: 12px; }
+.spinner { width: 32px; height: 32px; border: 3px solid var(--bg-tertiary); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.8s linear infinite; margin: 0 auto; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.session-pill { display: inline-flex; align-items: center; gap: 6px; padding: 4px 12px; border-radius: 999px; font-size: 11px; font-weight: 700; }
+.no-key-card { padding: 30px; background: var(--bg-elevated); border-radius: 12px; text-align: center; }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">Friday AI Review <span class="feat-badge feat-new">NEW</span> <span class="feat-badge feat-pro">CLAUDE</span></div>
+      <div class="page-subtitle">Weekly trade review by your Claude assistant · <span id="market-clock">--</span></div>
+    </div>
+    <div class="flex gap-8">
+      <select id="weekSel" style="background:var(--bg-elevated);border:1px solid var(--border);border-radius:8px;padding:6px 12px;color:var(--text-primary);font-size:13px;">
+        <option value="7">Last 7 days</option>
+        <option value="14">Last 14 days</option>
+        <option value="30">Last 30 days</option>
+      </select>
+      <button class="btn btn-primary" id="reviewBtn">🤖 Generate Review</button>
+    </div>
+  </div>
+
+  <div class="live-banner">
+    <span class="icon">📅</span>
+    <div>Every Friday at close (or any time you click <strong>Generate Review</strong>), Claude reads your closed trades for the week, your conditional weights, and your mindset check-ins, then writes a structured review. The loop: <strong>trade → log → review → adjust → trade better.</strong></div>
+  </div>
+
+  <!-- KPIs (rendered before review) -->
+  <div class="grid grid-4 mb-24">
+    <div class="kbig"><div class="lab">Closed Trades</div><div class="val mono" id="kTrades">—</div><div class="sub" id="kRange">—</div></div>
+    <div class="kbig"><div class="lab">Win Rate</div><div class="val mono" id="kWin">—</div><div class="sub" id="kWinSub">—</div></div>
+    <div class="kbig"><div class="lab">Total R</div><div class="val mono" id="kTotalR">—</div><div class="sub" id="kAvgR">—</div></div>
+    <div class="kbig"><div class="lab">Expectancy / Trade</div><div class="val mono yellow-text" id="kExp">—</div><div class="sub" id="kExpSub">—</div></div>
+  </div>
+
+  <!-- Sparkline of weekly performance -->
+  <div class="card mb-24">
+    <div class="card-header"><div class="card-title">📊 R-Multiple Trail</div></div>
+    <canvas id="rChart" height="180"></canvas>
+  </div>
+
+  <!-- AI output -->
+  <div class="card">
+    <div class="card-header">
+      <div class="card-title">🤖 Claude's Review</div>
+      <span id="aiBadge" class="session-pill" style="background:rgba(100,116,139,0.15);color:var(--text-muted);">— Status —</span>
+    </div>
+    <div id="aiOutput">
+      <div style="padding:40px;text-align:center;color:var(--text-muted);">Click <strong>Generate Review</strong> above to have Claude analyze your week's closed trades.</div>
+    </div>
+  </div>
+
+  <div class="related-bar mt-24">
+    <span class="lbl">Related →</span>
+    <a href="journal.html">📓 Trade Journal</a>
+    <a href="learn-dashboard.html">🧠 Learn Dashboard</a>
+    <a href="mindset.html">🧘 Mindset Tracker</a>
+    <a href="learn-engine-explained.html">🧬 How it Learns</a>
+    <a href="ai-scout.html">🤖 AI Scout</a>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script src="js/learn.js"></script>
+<script>
+buildNav('friday-summary');
+const $ = id => document.getElementById(id);
+
+function refreshAiBadge() {
+  const s = AIClient.getStatus();
+  const el = $('aiBadge');
+  if (s.enabled) {
+    el.style.background = 'var(--green-bg)'; el.style.color = 'var(--green)';
+    el.textContent = 'CLAUDE · ' + (s.model || '').replace('claude-','').toUpperCase();
+  } else {
+    el.style.background = 'rgba(100,116,139,0.15)'; el.style.color = 'var(--text-muted)';
+    el.textContent = 'AI OFF — using heuristic review';
+  }
+}
+AIClient.onStatus(refreshAiBadge);
+refreshAiBadge();
+
+function fmtR(v) { return (v >= 0 ? '+' : '') + v.toFixed(2) + 'R'; }
+function fmtPct(v) { return (v * 100).toFixed(1) + '%'; }
+
+let rChart;
+function getRange() {
+  const days = +$('weekSel').value || 7;
+  const cutoff = Date.now() - days * 86400000;
+  const trades = Learn.load().trades.filter(t => t.result && (t.closedTs || t.ts) >= cutoff);
+  return { trades, days, cutoff };
+}
+
+function renderKpis() {
+  const { trades, days } = getRange();
+  $('kTrades').textContent = trades.length;
+  $('kRange').textContent = trades.length ? 'Last ' + days + ' days' : 'No closed trades';
+  if (!trades.length) {
+    ['kWin','kTotalR','kExp'].forEach(id => $(id).textContent = '—');
+    ['kWinSub','kAvgR','kExpSub'].forEach(id => $(id).textContent = '—');
+    return;
+  }
+  const wins = trades.filter(t => t.result === 'win');
+  const wr = wins.length / trades.length;
+  const totalR = trades.reduce((a, t) => a + (t.R || 0), 0);
+  const avgR = totalR / trades.length;
+  const avgWin = wins.length ? wins.reduce((a, t) => a + t.R, 0) / wins.length : 0;
+  const losses = trades.filter(t => t.result === 'loss');
+  const avgLoss = losses.length ? losses.reduce((a, t) => a + t.R, 0) / losses.length : 0;
+  const expectancy = wr * avgWin + (1 - wr) * avgLoss;
+
+  $('kWin').textContent = fmtPct(wr);
+  $('kWin').className = 'val mono ' + (wr >= 0.55 ? 'green-text' : wr >= 0.45 ? 'yellow-text' : 'red-text');
+  $('kWinSub').textContent = wins.length + 'W / ' + losses.length + 'L';
+  $('kTotalR').textContent = fmtR(totalR);
+  $('kTotalR').className = 'val mono ' + (totalR >= 0 ? 'green-text' : 'red-text');
+  $('kAvgR').textContent = 'Avg ' + fmtR(avgR);
+  $('kExp').textContent = fmtR(expectancy);
+  $('kExpSub').textContent = avgWin.toFixed(2) + 'R win · ' + avgLoss.toFixed(2) + 'R loss';
+
+  renderRChart(trades);
+}
+
+function renderRChart(trades) {
+  const sorted = trades.slice().sort((a, b) => (a.closedTs || a.ts) - (b.closedTs || b.ts));
+  let cum = 0;
+  const cumData = sorted.map(t => { cum += (t.R || 0); return cum; });
+  const labels = sorted.map((_, i) => 'Trade ' + (i+1));
+  if (rChart) rChart.destroy();
+  rChart = new Chart($('rChart').getContext('2d'), {
+    type: 'line',
+    data: { labels, datasets: [
+      { label: 'Cumulative R', data: cumData, borderColor: cum >= 0 ? 'rgba(16,185,129,1)' : 'rgba(239,68,68,1)', backgroundColor: cum >= 0 ? 'rgba(16,185,129,0.10)' : 'rgba(239,68,68,0.10)', tension: 0.25, pointRadius: 3, fill: true },
+      { label: 'Per-trade R', data: sorted.map(t => t.R || 0), type: 'bar', backgroundColor: sorted.map(t => (t.R || 0) >= 0 ? 'rgba(16,185,129,0.5)' : 'rgba(239,68,68,0.5)'), yAxisID: 'y1' }
+    ] },
+    options: { responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { labels: { color: '#9ca3af', font: { size: 11 } } } },
+      scales: {
+        x: { grid: { color: 'rgba(255,255,255,0.04)' }, ticks: { color: '#6b7280', font: { size: 9 }, autoSkip: true, maxTicksLimit: 10 } },
+        y: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#6b7280', font: { size: 10 }, callback: v => v.toFixed(1) + 'R' } },
+        y1: { position: 'right', grid: { display: false }, ticks: { color: '#6b7280', font: { size: 10 }, callback: v => v.toFixed(1) + 'R' } }
+      }
+    }
+  });
+}
+
+function buildPrompt(trades) {
+  const summary = trades.map((t, i) => {
+    const ctx = t.marketCtx || {};
+    return `${i+1}. ${t.symbol} ${t.setup} ${t.bias} · entry $${(+t.entry).toFixed(2)} · stop $${(+t.stop).toFixed(2)} · exit $${(+t.exit).toFixed(2)} · R=${(+t.R).toFixed(2)} · ${t.result.toUpperCase()} · hold ${(+t.holdDays).toFixed(1)}d · close=${t.closeReason}${t.mfeR != null ? ' · MFE ' + t.mfeR + 'R' : ''}${t.efficiency != null ? ' · eff ' + (t.efficiency * 100).toFixed(0) + '%' : ''}${ctx.spyChg != null ? ' · spy ' + (ctx.spyChg >= 0 ? '+' : '') + ctx.spyChg.toFixed(2) + '%' : ''}${ctx.vixLevel != null ? ' · vix ' + ctx.vixLevel.toFixed(1) : ''}`;
+  }).join('\n');
+  const weights = Learn.getWeights();
+  const notableW = Object.entries(weights).filter(([_, w]) => Math.abs(w - 1) > 0.1).slice(0, 8).map(([k, w]) => k + ' ' + w.toFixed(2) + '×').join(', ');
+  const insights = Learn.insights(5).map(i => i.sentence).join('; ');
+  return `Review my closed trades from the last ${$('weekSel').value} days. Be specific, terse, and tough but fair. Don't sugarcoat. Use markdown with H2 sections.
+
+CLOSED TRADES (${trades.length}):
+${summary || '(none)'}
+
+NOTABLE LEARNED WEIGHTS (≠1.0):
+${notableW || '(none yet)'}
+
+CONDITIONAL INSIGHTS:
+${insights || '(none yet)'}
+
+Required sections (use H2):
+1. **The Verdict** — one-paragraph headline assessment
+2. **What Worked** — 2-4 bullets, specific to actual trades
+3. **What Didn't** — 2-4 bullets, identify the mistake category (revenge / FOMO / poor stop / too small / etc.)
+4. **The Pattern** — is there a recurring strength or weakness?
+5. **Next Week Adjustments** — 3 concrete actions (e.g. "size up macd-cross in Tech", "stop trading bull-flags on Fridays", "tighten stops on ER plays")
+6. **One Thing to Do Now** — single most important action before next Monday open
+
+Be concrete with numbers. Don't say "be more disciplined" — say "stop after 2 consecutive losses" or "size 50% smaller on Tuesday momentum trades." 250 words max.`;
+}
+
+async function generateReview() {
+  const { trades } = getRange();
+  if (!trades.length) {
+    $('aiOutput').innerHTML = '<div style="padding:40px;text-align:center;color:var(--text-muted);">No closed trades in this range. Trade some via <a href="paper-trade.html" style="color:var(--accent);">Paper Trade</a> or log via <a href="journal.html" style="color:var(--accent);">Journal</a> first.</div>';
+    return;
+  }
+  $('aiOutput').innerHTML = '<div style="padding:40px;text-align:center;"><div class="spinner"></div><div style="margin-top:16px;color:var(--text-muted);font-size:13px;">Claude is reading your ' + trades.length + ' trades and your learned weights…</div></div>';
+
+  if (!AIClient.isReady()) {
+    setTimeout(() => $('aiOutput').innerHTML = renderHeuristicReview(trades), 500);
+    return;
+  }
+
+  try {
+    const prompt = buildPrompt(trades);
+    const r = await AIClient.chat([{ role: 'user', content: prompt }], { maxTokens: 1400 });
+    const html = mdToHtml(r.text || '');
+    $('aiOutput').innerHTML = '<div class="ai-output">' + html + '</div>';
+  } catch (e) {
+    $('aiOutput').innerHTML = '<div class="ai-output" style="border-color:rgba(239,68,68,0.3);"><strong style="color:var(--red);">Claude API error:</strong> ' + e.message + '<br><br>Falling back to heuristic review:</div>' + renderHeuristicReview(trades);
+  }
+}
+
+function mdToHtml(md) {
+  return md
+    .replace(/^## (.+)$/gm, '<h2>$1</h2>')
+    .replace(/^# (.+)$/gm, '<h2>$1</h2>')
+    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+    .replace(/`([^`]+)`/g, '<code>$1</code>')
+    .replace(/^\* (.+)$/gm, '<li>$1</li>')
+    .replace(/^- (.+)$/gm, '<li>$1</li>')
+    .replace(/(<li>[\s\S]*?<\/li>(\s*<li>[\s\S]*?<\/li>)*)/g, '<ul>$1</ul>')
+    .replace(/\n\n+/g, '</p><p>')
+    .replace(/^([^<].+)$/gm, '<p>$1</p>')
+    .replace(/<p>\s*<\/p>/g, '');
+}
+
+function renderHeuristicReview(trades) {
+  const wins = trades.filter(t => t.result === 'win');
+  const losses = trades.filter(t => t.result === 'loss');
+  const wr = trades.length ? wins.length / trades.length : 0;
+  const totalR = trades.reduce((a, t) => a + (t.R || 0), 0);
+  const bySetup = {};
+  trades.forEach(t => { if (!bySetup[t.setup]) bySetup[t.setup] = { n:0, sumR:0, wins:0 }; bySetup[t.setup].n++; bySetup[t.setup].sumR += t.R||0; if (t.result==='win') bySetup[t.setup].wins++; });
+  const setups = Object.entries(bySetup).sort((a,b) => (b[1].sumR/b[1].n) - (a[1].sumR/a[1].n));
+  const best = setups[0]; const worst = setups[setups.length-1];
+
+  return `<div class="ai-output">
+    <h2>The Verdict (heuristic)</h2>
+    <p>${trades.length} closed trades · ${(wr*100).toFixed(1)}% win rate · ${totalR >= 0 ? '+' : ''}${totalR.toFixed(2)}R total. ${totalR >= 0 ? '<strong>Net positive week.</strong>' : '<strong>Net negative week — review losses below.</strong>'}</p>
+    <h2>What Worked</h2>
+    <ul>${best ? '<li><strong>' + best[0] + '</strong>: ' + best[1].wins + 'W of ' + best[1].n + ' (' + (best[1].sumR/best[1].n).toFixed(2) + 'R avg) — your strongest setup this period</li>' : '<li>Not enough setup variety to identify a winner</li>'}
+    ${wins.length ? '<li>Avg winner held ' + (wins.reduce((a,t)=>a+(t.holdDays||0),0)/wins.length).toFixed(1) + ' days — discipline on exits</li>' : ''}</ul>
+    <h2>What Didn't</h2>
+    <ul>${worst && worst !== best ? '<li><strong>' + worst[0] + '</strong>: ' + (worst[1].n - worst[1].wins) + 'L of ' + worst[1].n + ' (' + (worst[1].sumR/worst[1].n).toFixed(2) + 'R avg) — fade this setup or refine entry</li>' : ''}
+    ${losses.length ? '<li>Avg loser size: ' + (losses.reduce((a,t)=>a+(t.R||0),0)/losses.length).toFixed(2) + 'R — ' + (losses.reduce((a,t)=>a+(t.R||0),0)/losses.length < -1 ? '<strong>stops too wide</strong>, tighten' : 'stops behaved') + '</li>' : ''}</ul>
+    <h2>The Pattern</h2>
+    <p>${wr >= 0.6 ? 'High win rate — you\'re identifying setups well.' : wr <= 0.4 ? 'Low win rate — re-examine setup selection or entry timing.' : 'Win rate in normal range — focus on R-multiple, not hit rate.'} ${totalR > 0 && wr < 0.5 ? 'Profitable despite low win rate = good R management.' : ''}</p>
+    <h2>Next Week Adjustments</h2>
+    <ul>
+      <li>${best ? 'Size up your ' + best[0] + ' setups by 25%' : 'Try one new setup type to broaden the sample'}</li>
+      <li>${worst && worst[1].sumR/worst[1].n < -0.5 ? 'Cut ' + worst[0] + ' from your rotation for 2 weeks' : 'Stick with current rotation, accumulate more samples'}</li>
+      <li>${totalR < 0 ? 'Reduce position size 25% until expectancy turns positive' : 'Maintain current sizing'}</li>
+    </ul>
+    <h2>One Thing To Do Now</h2>
+    <p>${totalR < 0 ? '<strong>Walk away.</strong> Don\'t trade Monday until you\'ve journaled your top loser and identified the mistake.' : best ? '<strong>Memorize ' + best[0] + ' criteria.</strong> Practice spotting it on hot-movers.html so you can size up next time it appears.' : '<strong>Open mindset.html</strong> and do your weekend check-in.'}</p>
+    <p style="font-size:12px;color:var(--text-muted);margin-top:14px;">— Heuristic review · for a deeper analysis, add an Anthropic key in <a href="settings.html" style="color:var(--accent);">Settings</a></p>
+  </div>`;
+}
+
+$('reviewBtn').addEventListener('click', generateReview);
+$('weekSel').addEventListener('change', renderKpis);
+renderKpis();
+</script>
+</body>
+</html>

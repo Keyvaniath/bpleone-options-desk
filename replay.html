@@ -1,0 +1,344 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Replay Mode — bpleone / trade</title>
+<meta name="description" content="Rewind any historical day. Stream frozen bars from Finnhub at adjustable speed. Paper-trade against real history.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.player-row { display: flex; align-items: center; gap: 14px; padding: 18px 22px; background: var(--bg-elevated); border-radius: 12px; flex-wrap: wrap; }
+.player-ctrl { display: flex; gap: 6px; align-items: center; }
+.player-ctrl button { background: var(--bg-secondary); border: 1px solid var(--border); color: var(--text-primary); padding: 6px 14px; border-radius: 6px; cursor: pointer; font-family: var(--font-mono); font-size: 13px; }
+.player-ctrl button:hover { border-color: var(--accent); }
+.player-ctrl button.primary { background: var(--accent); color: #0a0e17; border-color: var(--accent); font-weight: 700; }
+.player-ctrl button.danger { background: var(--red); color: #fff; border-color: var(--red); }
+.scrubber { flex: 1; min-width: 240px; appearance: none; height: 6px; background: var(--bg-tertiary); border-radius: 3px; outline: none; }
+.scrubber::-webkit-slider-thumb { appearance: none; width: 18px; height: 18px; background: var(--accent); border-radius: 50%; cursor: pointer; }
+.scrubber::-moz-range-thumb { width: 18px; height: 18px; background: var(--accent); border-radius: 50%; cursor: pointer; border: none; }
+.kbig { padding: 14px 16px; background: var(--bg-elevated); border-radius: 10px; }
+.kbig .lab { font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; }
+.kbig .val { font-family: var(--font-mono); font-size: 22px; font-weight: 700; margin-top: 4px; }
+.kbig .sub { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
+.sym-quick { display: flex; gap: 4px; flex-wrap: wrap; }
+.sym-quick button { padding: 4px 10px; border-radius: 999px; background: var(--bg-elevated); border: 1px solid var(--border); color: var(--text-secondary); cursor: pointer; font-size: 12px; font-family: var(--font-mono); }
+.sym-quick button:hover, .sym-quick button.active { border-color: var(--accent); color: var(--accent); }
+.bar-table td { padding: 4px 8px; font-family: var(--font-mono); font-size: 11px; }
+.bar-table tr.current { background: rgba(0,212,255,0.10); font-weight: 700; }
+.speed-pill { padding: 3px 10px; border-radius: 999px; background: var(--bg-secondary); border: 1px solid var(--border); color: var(--text-muted); font-size: 11px; font-family: var(--font-mono); cursor: pointer; }
+.speed-pill.active { background: var(--accent); color: #0a0e17; border-color: var(--accent); font-weight: 700; }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">Replay Mode <span class="feat-badge feat-new">NEW</span> <span class="feat-badge feat-pro">TRAINING</span></div>
+      <div class="page-subtitle">Rewind any historical day · stream Finnhub minute bars at adjustable speed · paper-trade against real history · <span id="market-clock">--</span></div>
+    </div>
+    <div class="flex gap-8">
+      <input id="dateSel" type="date" style="background:var(--bg-elevated);border:1px solid var(--border);border-radius:8px;padding:6px 12px;color:var(--text-primary);font-size:13px;font-family:var(--font-mono);">
+      <select id="resSel" style="background:var(--bg-elevated);border:1px solid var(--border);border-radius:8px;padding:6px 12px;color:var(--text-primary);font-size:13px;">
+        <option value="1m">1-min bars</option>
+        <option value="5m" selected>5-min bars</option>
+        <option value="15m">15-min bars</option>
+        <option value="1h">1-hour bars</option>
+      </select>
+      <button class="btn btn-primary" id="loadBtn">⏬ Load Day</button>
+    </div>
+  </div>
+
+  <div class="live-banner">
+    <span class="icon">🎬</span>
+    <div>Pick a date, a symbol, and a bar resolution. We fetch historical bars from Finnhub and stream them through your live <code>QUOTES</code> + <code>Feed</code> pipeline. <strong>Every page on the site reacts as if it's that moment in time</strong> — open <a href="signals.html">signals</a>, <a href="hot-movers.html">hot movers</a>, or <a href="paper-trade.html">paper trade</a> in another tab while replay runs.</div>
+  </div>
+
+  <!-- Symbol picker -->
+  <div class="sym-quick mb-24" id="symQuick"></div>
+
+  <!-- Player + clock -->
+  <div class="player-row mb-24">
+    <div class="player-ctrl">
+      <button id="prevBar" title="Step back one bar">⏪</button>
+      <button id="playBtn" class="primary">▶ Play</button>
+      <button id="nextBar" title="Step forward one bar">⏩</button>
+      <button id="resetBtn">↻ Reset</button>
+    </div>
+    <div style="display:flex;gap:6px;align-items:center;">
+      <span style="font-size:11px;color:var(--text-muted);">Speed:</span>
+      <span class="speed-pill" data-speed="1">1×</span>
+      <span class="speed-pill" data-speed="5">5×</span>
+      <span class="speed-pill active" data-speed="10">10×</span>
+      <span class="speed-pill" data-speed="30">30×</span>
+      <span class="speed-pill" data-speed="60">60×</span>
+      <span class="speed-pill" data-speed="120">120×</span>
+    </div>
+    <input type="range" class="scrubber" id="scrubber" min="0" max="0" value="0" step="1">
+    <div style="display:flex;gap:14px;font-family:var(--font-mono);font-size:12px;">
+      <span><span style="color:var(--text-muted);">Bar:</span> <span id="barIdx">— / —</span></span>
+      <span><span style="color:var(--text-muted);">Time:</span> <span id="barTime">—</span></span>
+    </div>
+  </div>
+
+  <!-- KPI -->
+  <div class="grid grid-4 mb-24">
+    <div class="kbig"><div class="lab">Symbol</div><div class="val mono" id="kSym">SPY</div><div class="sub" id="kDate">—</div></div>
+    <div class="kbig"><div class="lab">Last (Replay Price)</div><div class="val mono" id="kLast">—</div><div class="sub" id="kChg">—</div></div>
+    <div class="kbig"><div class="lab">Day Range (so far)</div><div class="val mono" id="kRange">—</div><div class="sub" id="kVol">—</div></div>
+    <div class="kbig"><div class="lab">Bars Loaded</div><div class="val mono" id="kBars">—</div><div class="sub" id="kBarStatus">—</div></div>
+  </div>
+
+  <!-- Chart + bar table -->
+  <div class="grid grid-12">
+    <div class="card col-8">
+      <div class="card-header"><div class="card-title">📈 Price Replay · <span id="chartTitle">—</span></div></div>
+      <canvas id="chart" height="240"></canvas>
+    </div>
+    <div class="card col-4">
+      <div class="card-header"><div class="card-title">📋 Bar Log</div></div>
+      <div style="max-height:380px;overflow-y:auto;">
+        <table class="bar-table">
+          <thead><tr style="position:sticky;top:0;background:var(--bg-secondary);"><th>Time</th><th>O</th><th>H</th><th>L</th><th>C</th><th>V</th></tr></thead>
+          <tbody id="barBody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <div class="card mt-24">
+    <div class="card-header"><div class="card-title">🧠 Training Workflow</div></div>
+    <div class="grid grid-3" style="gap:18px;">
+      <div><div style="font-weight:700;color:var(--accent);margin-bottom:6px;">1. Pick a day with a known move</div><div style="font-size:13px;color:var(--text-muted);line-height:1.6;">Pick an FOMC day, a CPI day, or a stock-specific earnings day. Symbols that gapped hard are best for practice.</div></div>
+      <div><div style="font-weight:700;color:var(--green);margin-bottom:6px;">2. Run replay alongside paper trade</div><div style="font-size:13px;color:var(--text-muted);line-height:1.6;">Open <a href="paper-trade.html" style="color:var(--accent);">paper-trade.html</a> in another tab. Replay drives the QUOTES; your paper trade fills against those prices.</div></div>
+      <div><div style="font-weight:700;color:var(--yellow);margin-bottom:6px;">3. Honest journal</div><div style="font-size:13px;color:var(--text-muted);line-height:1.6;">Tag the trade as setup=replay-practice in <a href="journal.html" style="color:var(--accent);">journal</a>. Replay trades shouldn't poison your real-money weights — keep them separate.</div></div>
+    </div>
+  </div>
+
+  <div class="related-bar mt-24">
+    <span class="lbl">Run replay alongside →</span>
+    <a href="paper-trade.html" target="_blank">🎮 Paper Trade</a>
+    <a href="signals.html" target="_blank">⚡ Signals</a>
+    <a href="hot-movers.html" target="_blank">🔥 Hot Movers</a>
+    <a href="ticker.html" target="_blank">🔍 Ticker</a>
+    <a href="learn-engine-explained.html">🧠 How it Learns</a>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script>
+buildNav('replay');
+
+const $ = id => document.getElementById(id);
+const POPULAR = ['SPY','QQQ','IWM','NVDA','AAPL','MSFT','META','TSLA','AMD','PLTR','COIN','SMCI','BTC','ETH'];
+
+let bars = [];
+let idx = 0;
+let symbol = 'SPY';
+let res = '5m';
+let timer = null;
+let speed = 10;     // bars per real-second
+let chart;
+
+function renderQuick(active) {
+  $('symQuick').innerHTML = POPULAR.map(s => `<button class="${s === active ? 'active' : ''}" data-sym="${s}">${s}</button>`).join('');
+  $('symQuick').querySelectorAll('button').forEach(b => b.addEventListener('click', () => {
+    symbol = b.dataset.sym; renderQuick(symbol); load();
+  }));
+}
+
+function fmt$(v) { return v == null || !isFinite(v) ? '—' : '$' + Number(v).toFixed(2); }
+
+async function load() {
+  pause();
+  bars = []; idx = 0;
+  const date = $('dateSel').value;
+  res = $('resSel').value;
+  if (!date) { alert('Pick a date.'); return; }
+  $('kSym').textContent = symbol;
+  $('kDate').textContent = date;
+  $('chartTitle').textContent = symbol + ' · ' + date + ' · ' + res;
+  $('kBarStatus').textContent = 'Loading…';
+  $('barBody').innerHTML = '<tr><td colspan="6" style="color:var(--text-muted);padding:20px;text-align:center;">Loading…</td></tr>';
+
+  if (typeof DataProvider === 'undefined' || DataProvider.getConfig().provider !== 'finnhub' || !DataProvider.getConfig().apiKey) {
+    $('kBarStatus').textContent = 'Need Finnhub key';
+    $('barBody').innerHTML = '<tr><td colspan="6" style="text-align:center;padding:20px;"><a href="settings.html" style="color:var(--accent);">Connect Finnhub →</a></td></tr>';
+    return;
+  }
+
+  const fromMs = new Date(date + 'T00:00:00').getTime();
+  const toMs = fromMs + 86400000;
+  try {
+    bars = await DataProvider.getHistorical(symbol, res, fromMs, toMs);
+    if (!bars || !bars.length) {
+      $('kBarStatus').textContent = 'No bars (weekend / pre-listing / Finnhub free tier limit)';
+      $('barBody').innerHTML = '<tr><td colspan="6" style="text-align:center;padding:20px;color:var(--text-muted);">No bars for this date. Finnhub free tier covers ~1 year intraday for most US stocks.</td></tr>';
+      return;
+    }
+    $('kBars').textContent = bars.length;
+    $('kBarStatus').textContent = 'Ready — press Play';
+    $('scrubber').max = bars.length - 1;
+    $('scrubber').value = 0;
+    renderBarTable();
+    applyBar(0);
+    initChart();
+  } catch (e) {
+    $('kBarStatus').textContent = 'Error';
+    $('barBody').innerHTML = '<tr><td colspan="6" style="text-align:center;padding:20px;color:var(--red);">' + e.message + '</td></tr>';
+  }
+}
+
+function renderBarTable() {
+  const body = $('barBody');
+  body.innerHTML = bars.map((b, i) => `<tr id="brow_${i}" class="${i === idx ? 'current' : ''}">
+    <td>${new Date(b.t).toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit' })}</td>
+    <td>${b.o.toFixed(2)}</td>
+    <td>${b.h.toFixed(2)}</td>
+    <td>${b.l.toFixed(2)}</td>
+    <td>${b.c.toFixed(2)}</td>
+    <td>${b.v ? (b.v/1000).toFixed(1) + 'k' : '—'}</td>
+  </tr>`).join('');
+}
+
+function applyBar(i) {
+  if (i < 0 || i >= bars.length) return;
+  idx = i;
+  const b = bars[i];
+  // Push into QUOTES so every page that listens to Feed sees this as if it's live
+  if (typeof QUOTES !== 'undefined' && QUOTES[symbol]) {
+    QUOTES[symbol].last = b.c;
+    QUOTES[symbol].dayOpen = bars[0].o;
+    QUOTES[symbol].dayHigh = Math.max(...bars.slice(0, i+1).map(x => x.h));
+    QUOTES[symbol].dayLow = Math.min(...bars.slice(0, i+1).map(x => x.l));
+    QUOTES[symbol].volume = bars.slice(0, i+1).reduce((a, x) => a + (x.v || 0), 0);
+    // PrevClose = first bar's open (approximation; real prev close would need yesterday's data)
+    if (!QUOTES[symbol].prevClose || QUOTES[symbol].prevClose === 0) QUOTES[symbol].prevClose = bars[0].o;
+    QUOTES[symbol].change = b.c - QUOTES[symbol].prevClose;
+    QUOTES[symbol].changePct = (QUOTES[symbol].change / QUOTES[symbol].prevClose) * 100;
+    QUOTES[symbol].ts = b.t;
+    QUOTES[symbol].fresh = true;
+    QUOTES[symbol].source = 'replay';
+    if (typeof Feed !== 'undefined') {
+      Feed.publish(symbol, QUOTES[symbol]);
+      Feed.publish('*', QUOTES);
+    }
+  }
+
+  // UI
+  $('kLast').textContent = fmt$(b.c);
+  const chgPct = QUOTES[symbol] ? QUOTES[symbol].changePct : 0;
+  const chg = QUOTES[symbol] ? QUOTES[symbol].change : 0;
+  const chgEl = $('kChg');
+  chgEl.className = 'sub mono ' + (chgPct >= 0 ? 'green-text' : 'red-text');
+  chgEl.textContent = (chg >= 0 ? '+' : '') + chg.toFixed(2) + ' (' + (chgPct >= 0 ? '+' : '') + chgPct.toFixed(2) + '%)';
+  $('kRange').textContent = QUOTES[symbol] ? fmt$(QUOTES[symbol].dayLow) + ' – ' + fmt$(QUOTES[symbol].dayHigh) : '—';
+  $('kVol').textContent = QUOTES[symbol] && QUOTES[symbol].volume ? (QUOTES[symbol].volume / 1000).toFixed(0) + 'k cumulative' : '—';
+  $('barIdx').textContent = (i + 1) + ' / ' + bars.length;
+  $('barTime').textContent = new Date(b.t).toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit' });
+  $('scrubber').value = i;
+
+  // Highlight current row in bar table
+  document.querySelectorAll('.bar-table tr').forEach(r => r.classList.remove('current'));
+  const row = $('brow_' + i);
+  if (row) { row.classList.add('current'); row.scrollIntoView({ block: 'nearest' }); }
+
+  updateChart();
+}
+
+let chartInstance;
+function initChart() {
+  if (chartInstance) chartInstance.destroy();
+  const ctx = $('chart').getContext('2d');
+  chartInstance = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels: bars.map(b => new Date(b.t).toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit' })),
+      datasets: [{ label: symbol, data: bars.map(b => b.c), borderColor: 'rgba(0,212,255,1)', backgroundColor: 'rgba(0,212,255,0.10)', tension: 0.2, pointRadius: 0, fill: true }]
+    },
+    options: { responsive: true, maintainAspectRatio: false, animation: false,
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { grid: { color: 'rgba(255,255,255,0.04)' }, ticks: { color: '#6b7280', font: { size: 9 }, autoSkip: true, maxTicksLimit: 14, maxRotation: 0 } },
+        y: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#6b7280', font: { size: 10 } } }
+      }
+    },
+    plugins: [{
+      id: 'playhead',
+      afterDraw(c) {
+        if (!bars.length) return;
+        const { ctx, chartArea: a, scales: { x } } = c;
+        const px = x.getPixelForValue(idx);
+        ctx.save();
+        ctx.strokeStyle = 'rgba(245,158,11,0.7)';
+        ctx.lineWidth = 1.5;
+        ctx.setLineDash([4, 3]);
+        ctx.beginPath();
+        ctx.moveTo(px, a.top); ctx.lineTo(px, a.bottom); ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.fillStyle = 'rgba(245,158,11,1)';
+        ctx.beginPath();
+        ctx.arc(px, x.getPixelForValue(idx) ? a.bottom : a.bottom, 4, 0, 2 * Math.PI);
+        ctx.fill();
+        ctx.restore();
+      }
+    }]
+  });
+}
+
+function updateChart() {
+  if (chartInstance) chartInstance.update('none');
+}
+
+function play() {
+  if (timer) return;
+  $('playBtn').textContent = '⏸ Pause';
+  $('playBtn').classList.remove('primary');
+  $('playBtn').classList.add('danger');
+  const interval = Math.max(50, Math.round(1000 / speed));
+  timer = setInterval(() => {
+    if (idx >= bars.length - 1) { pause(); return; }
+    applyBar(idx + 1);
+  }, interval);
+}
+function pause() {
+  if (!timer) return;
+  clearInterval(timer); timer = null;
+  $('playBtn').textContent = '▶ Play';
+  $('playBtn').classList.remove('danger');
+  $('playBtn').classList.add('primary');
+}
+
+$('playBtn').addEventListener('click', () => { if (timer) pause(); else play(); });
+$('prevBar').addEventListener('click', () => { pause(); applyBar(Math.max(0, idx - 1)); });
+$('nextBar').addEventListener('click', () => { pause(); applyBar(Math.min(bars.length - 1, idx + 1)); });
+$('resetBtn').addEventListener('click', () => { pause(); applyBar(0); });
+$('scrubber').addEventListener('input', e => { pause(); applyBar(+e.target.value); });
+$('loadBtn').addEventListener('click', load);
+
+document.querySelectorAll('.speed-pill').forEach(p => p.addEventListener('click', () => {
+  document.querySelectorAll('.speed-pill').forEach(x => x.classList.remove('active'));
+  p.classList.add('active');
+  speed = +p.dataset.speed;
+  if (timer) { pause(); play(); }
+}));
+
+// Default date: yesterday (markets closed today scenario)
+const d = new Date(); d.setDate(d.getDate() - 1);
+$('dateSel').value = d.toISOString().slice(0, 10);
+renderQuick(symbol);
+</script>
+</body>
+</html>
