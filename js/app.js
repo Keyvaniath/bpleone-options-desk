@@ -38,55 +38,68 @@
 
 const TICKER_SYMBOLS = ['SPY','QQQ','IWM','DIA','AAPL','NVDA','TSLA','MSFT','META','AMZN','GOOGL','AMD','BTC','ETH','VIX','GLD','TLT','USO','SMCI','PLTR','COIN'];
 
+let _tickerSubscribed = false;
 function buildTicker() {
   const tape = document.getElementById('ticker-content');
   if (!tape) return;
   const src = (typeof QUOTES !== 'undefined') ? QUOTES : null;
   const list = TICKER_SYMBOLS.map(s => {
-    if (src && src[s]) return { sym: s, px: src[s].last, chg: src[s].changePct };
+    if (src && src[s] && src[s].last != null) return { sym: s, px: src[s].last, chg: src[s].changePct || 0, fresh: !!src[s].fresh };
     return null;
   }).filter(Boolean);
+  // If QUOTES not ready yet, retry shortly. Don't use stale hardcoded fallback.
   if (list.length === 0) {
-    const fallback = [
-      { sym:'SPY', px:562.18, chg:0.84 },{ sym:'QQQ', px:487.32, chg:1.12 },{ sym:'NVDA', px:138.27, chg:3.21 },
-      { sym:'AAPL', px:218.94, chg:1.84 },{ sym:'TSLA', px:248.61, chg:-2.18 },{ sym:'META', px:587.42, chg:1.67 }
-    ];
-    list.push(...fallback);
+    tape.innerHTML = '<span class="ticker-item" style="opacity:0.5;">loading market data…</span>';
+    setTimeout(buildTicker, 500);
+    return;
   }
   const html = [...list, ...list].map(t => {
     const dir = t.chg >= 0 ? 'up' : 'down';
     const arrow = t.chg >= 0 ? '▲' : '▼';
-    return '<span class="ticker-item" data-ticker-sym="' + t.sym + '">'
+    const staleMarker = t.fresh === false ? ' style="opacity:0.6;"' : '';
+    return '<span class="ticker-item" data-ticker-sym="' + t.sym + '"' + staleMarker + '>'
       + '<span class="ticker-symbol">' + t.sym + '</span>'
       + '<span class="ticker-price">$' + t.px.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2}) + '</span>'
       + '<span class="ticker-change ' + dir + '">' + arrow + ' ' + Math.abs(t.chg).toFixed(2) + '%</span>'
       + '</span>';
   }).join('');
   tape.innerHTML = html;
-  if (typeof Feed !== 'undefined') {
+  // Subscribe ONCE — Feed callbacks update existing DOM nodes by data-ticker-sym
+  if (typeof Feed !== 'undefined' && !_tickerSubscribed) {
+    _tickerSubscribed = true;
     TICKER_SYMBOLS.forEach(s => {
-      Feed.subscribe(s, q => {
-        document.querySelectorAll('[data-ticker-sym="' + s + '"]').forEach(el => {
-          const priceEl = el.querySelector('.ticker-price');
-          const chgEl = el.querySelector('.ticker-change');
-          if (priceEl) priceEl.textContent = '$' + q.last.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2});
-          if (chgEl) {
-            const arrow = q.changePct >= 0 ? '▲' : '▼';
-            chgEl.textContent = arrow + ' ' + Math.abs(q.changePct).toFixed(2) + '%';
-            chgEl.classList.toggle('up', q.changePct >= 0);
-            chgEl.classList.toggle('down', q.changePct < 0);
-          }
-        });
+      Feed.subscribe(s, q => updateTickerItem(s, q));
+    });
+    // Wildcard fires on bootstrap-complete and major refreshes — force full re-render
+    Feed.subscribe('*', () => {
+      TICKER_SYMBOLS.forEach(s => {
+        if (typeof QUOTES !== 'undefined' && QUOTES[s]) updateTickerItem(s, QUOTES[s]);
       });
     });
   }
+}
+
+function updateTickerItem(sym, q) {
+  if (!q || q.last == null) return;
+  document.querySelectorAll('[data-ticker-sym="' + sym + '"]').forEach(el => {
+    const priceEl = el.querySelector('.ticker-price');
+    const chgEl = el.querySelector('.ticker-change');
+    if (priceEl) priceEl.textContent = '$' + q.last.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    if (chgEl) {
+      const arrow = (q.changePct || 0) >= 0 ? '▲' : '▼';
+      chgEl.textContent = arrow + ' ' + Math.abs(q.changePct || 0).toFixed(2) + '%';
+      chgEl.classList.toggle('up', (q.changePct || 0) >= 0);
+      chgEl.classList.toggle('down', (q.changePct || 0) < 0);
+    }
+    if (q.fresh) el.style.opacity = '1';
+  });
 }
 
 function buildNav(activePage) {
   activePage = activePage || '';
   const playsGrp = ['totd','plays','signals','earnings','earnings-preview','pre-market','zero-dte','setup-wizard','paper-trade','game-plan','hot-movers','squeeze-radar','trade-plan'];
   const tradeGrp = ['flow','chain','ta','momentum','market-internals','smart-money','heatmap','watchlists','vol-surface','gex','tape','sectors','pairs','calendar-analyzer','vol-cone','dark-pool','short-interest','etf-flows','volume-profile','order-flow','ticker','multi-leg-builder','bracket-builder','spread-scanner','wheel','correlation'];
-  const toolsGrp = ['risk','fundamentals','backtester','edge','learn','learn-engine-explained','crypto','journal','alerts','macro','news','screener','anomalies','assistant','ai-scout','portfolio-builder','position-sizing','execution','strategies','api','seasonality','economic-events','settings','mindset','changelog','friday-summary','replay','live-positions','risk-attribution','edge-scanner','hypothetical','account','setup-combos','kelly-sizer','potd-backtest','news-reactions','live-train','radar','ai-cotrader','train-history','alerts-dashboard','weight-heatmap','sector-rotation','options-flow-live','earnings-playbook','daily-debrief','multi-backtest','pre-market-scanner','position-stacking','crypto-commodities','after-hours-scanner','tomorrow-playbook','earnings-tonight','global-markets','cross-asset-correlations','trade-ticket','trade-blotter','conviction-board','squeeze-radar-pro','insider-congress-flow','calendar-plays','pair-trades','iv-skew','crypto-basis','desk-split'];
+  const toolsGrp = ['risk','fundamentals','backtester','edge','learn','learn-engine-explained','crypto','journal','alerts','macro','news','screener','anomalies','assistant','ai-scout','portfolio-builder','position-sizing','execution','strategies','api','seasonality','economic-events','settings','mindset','changelog','friday-summary','replay','live-positions','risk-attribution','edge-scanner','hypothetical','account','setup-combos','kelly-sizer','potd-backtest','news-reactions','live-train','radar','ai-cotrader','train-history','alerts-dashboard','weight-heatmap','sector-rotation','options-flow-live','earnings-playbook','daily-debrief','multi-backtest','pre-market-scanner','position-stacking','crypto-commodities','after-hours-scanner','tomorrow-playbook','earnings-tonight','global-markets','cross-asset-correlations','trade-ticket','trade-blotter','conviction-board','squeeze-radar-pro','insider-congress-flow','calendar-plays','pair-trades','iv-skew','crypto-basis','desk-split','confluence-scanner','live-pnl-heatmap','time-of-day-pnl'];
   const isTrade = tradeGrp.indexOf(activePage) !== -1;
   const isPlays = playsGrp.indexOf(activePage) !== -1;
   const isTools = toolsGrp.indexOf(activePage) !== -1;
@@ -185,6 +198,9 @@ function buildNav(activePage) {
     + '<a href="iv-skew.html">📈 IV Skew + Surface <span class="feat-badge feat-pro" style="font-size:8px;padding:0 5px;">PRO</span></a>'
     + '<a href="crypto-basis.html">⚡ Crypto Basis + Funding <span class="feat-badge feat-new" style="font-size:8px;padding:0 5px;">NEW</span></a>'
     + '<a href="desk-split.html">⊞ Split Desk <span class="feat-badge feat-pro" style="font-size:8px;padding:0 5px;">PRO</span></a>'
+    + '<a href="confluence-scanner.html">🎯 Confluence Scanner <span class="feat-badge feat-pro" style="font-size:8px;padding:0 5px;">PRO</span></a>'
+    + '<a href="live-pnl-heatmap.html">🌡 Live P&amp;L Heatmap <span class="feat-badge feat-pro" style="font-size:8px;padding:0 5px;">PRO</span></a>'
+    + '<a href="time-of-day-pnl.html">⏰ Time-of-Day P&amp;L <span class="feat-badge feat-pro" style="font-size:8px;padding:0 5px;">PRO</span></a>'
     + '<a href="position-stacking.html">🛡 Position Stacking <span class="feat-badge feat-new" style="font-size:8px;padding:0 5px;">NEW</span></a>'
     + '<a href="crypto-commodities.html">🌍 Crypto + Commodities <span class="feat-badge feat-live" style="font-size:8px;padding:0 5px;">LIVE</span></a>'
     + '<a href="edge-scanner.html">🛰 Live Edge Scanner <span class="feat-badge feat-live" style="font-size:8px;padding:0 5px;">LIVE</span></a>'
@@ -216,6 +232,7 @@ function buildNav(activePage) {
     + '<a id="dataStatusPill" href="settings.html" title="Data feed status — click to configure" class="data-pill data-pill-mock"><span class="data-pill-dot"></span><span class="data-pill-label">MOCK</span></a>'
     + '<form id="navSearchForm" class="nav-search" style="display:flex;align-items:center;gap:4px;background:var(--bg-elevated);border:1px solid var(--border);border-radius:8px;padding:3px 4px 3px 10px;"><span style="font-size:12px;color:var(--text-muted);">🔍</span><input id="navSearch" placeholder="Search symbol or page…" autocomplete="off" style="background:transparent;border:none;outline:none;color:var(--text-primary);font-size:12px;width:160px;font-family:inherit;text-transform:uppercase;"></form>'
     + '<button id="cmdkBtn" title="Search & navigate (⌘K)" class="btn btn-ghost" style="padding:6px 10px;font-size:11px;font-family:var(--font-mono);">⌘K</button>'
+    + '<button id="refreshDataBtn" title="Refresh all market data" class="btn btn-ghost" style="padding:6px 10px;color:var(--accent);">🔄</button>'
     + '<button id="themeBtn" title="Toggle theme" class="btn btn-ghost" style="padding:6px 10px;">🌓</button>'
     + '<button id="notifyBtn" title="Enable signal alerts" class="btn btn-ghost" style="padding:6px 10px;">🔔</button>'
     + '<span class="feat-badge feat-new" style="font-size:10px;padding:3px 10px;">🎉 FREE BETA</span>'
@@ -239,6 +256,29 @@ function buildNav(activePage) {
         location.href = 'ticker.html?sym=' + v;
       } else {
         if (window.CmdPalette) { CmdPalette.open(); setTimeout(() => { const i = document.querySelector('.cmdk-input'); if (i) { i.value = v; i.dispatchEvent(new Event('input', { bubbles: true })); } }, 50); }
+      }
+    });
+  }
+  const refreshBtn = document.getElementById('refreshDataBtn');
+  if (refreshBtn) {
+    refreshBtn.addEventListener('click', async () => {
+      const orig = refreshBtn.textContent;
+      refreshBtn.textContent = '⏳';
+      refreshBtn.disabled = true;
+      let count = 0;
+      try {
+        if (typeof DataProvider !== 'undefined' && DataProvider.refreshAll) {
+          const updated = await DataProvider.refreshAll();
+          count = updated ? updated.length : 0;
+        }
+        if (window.Toast) Toast.show(count ? '✓ Refreshed ' + count + ' symbols' : 'Refresh fired', { kind: 'success' });
+        // Force ticker re-render
+        if (typeof Feed !== 'undefined' && typeof QUOTES !== 'undefined') Feed.publish('*', QUOTES);
+      } catch (e) {
+        if (window.Toast) Toast.show('Refresh failed: ' + e.message, { kind: 'error' });
+      } finally {
+        refreshBtn.textContent = orig;
+        refreshBtn.disabled = false;
       }
     });
   }
@@ -429,6 +469,9 @@ function buildFooter() {
     + '<li><a href="iv-skew.html">IV Skew + Surface</a></li>'
     + '<li><a href="crypto-basis.html">Crypto Basis + Funding</a></li>'
     + '<li><a href="desk-split.html">Split Desk</a></li>'
+    + '<li><a href="confluence-scanner.html">Confluence Scanner</a></li>'
+    + '<li><a href="live-pnl-heatmap.html">Live P&amp;L Heatmap</a></li>'
+    + '<li><a href="time-of-day-pnl.html">Time-of-Day P&amp;L</a></li>'
     + '<li><a href="position-stacking.html">Position Stacking</a></li>'
     + '<li><a href="crypto-commodities.html">Crypto + Commodities</a></li>'
     + '<li><a href="edge-scanner.html">Edge Scanner</a></li>'

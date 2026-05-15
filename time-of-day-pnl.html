@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Time-of-Day P&L — bpleone / trade</title>
+<meta name="description" content="When are you most profitable? Hour-by-hour and day-of-week P&L heatmap from your closed trades.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.banner { background: linear-gradient(135deg, rgba(245,158,11,0.10), rgba(0,212,255,0.06)); border: 1px solid rgba(245,158,11,0.25); border-radius: 12px; padding: 16px 18px; margin-bottom: 18px; }
+.kpi-strip { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; margin-bottom: 18px; }
+.tile { background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 10px; padding: 14px; text-align: center; }
+.tile .lab { font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; }
+.tile .val { font-family: var(--font-mono); font-weight: 700; font-size: 18px; margin-top: 4px; }
+.r-pos { color: var(--green); } .r-neg { color: var(--red); }
+.chart-card { background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 10px; padding: 16px; margin-bottom: 16px; }
+.section-h { font-size: 13px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; margin: 16px 0 8px; padding-left: 4px; }
+.heatmap-grid { display: grid; gap: 3px; padding: 14px; background: var(--bg-elevated); border-radius: 10px; border: 1px solid var(--border); margin-bottom: 16px; overflow-x: auto; }
+.cell { padding: 6px 4px; text-align: center; font-family: var(--font-mono); font-size: 11px; border-radius: 3px; cursor: help; }
+.cell:hover { transform: scale(1.1); z-index: 5; box-shadow: 0 2px 6px rgba(0,0,0,0.3); }
+.cell .n { font-size: 9px; opacity: 0.6; margin-top: 1px; }
+.label { padding: 6px 8px; font-family: var(--font-mono); font-size: 11px; color: var(--text-muted); display: flex; align-items: center; }
+.insight { font-size: 12px; line-height: 1.6; padding: 8px 0; }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">Time-of-Day P&L <span class="feat-badge feat-pro">PRO</span></div>
+      <div class="page-subtitle">When you actually make money. Hour × day heatmap from your closed trades. · <span id="market-clock">--</span></div>
+    </div>
+    <div class="flex gap-8">
+      <a href="risk-attribution.html" class="btn btn-ghost">🎯 Attribution</a>
+      <a href="trade-blotter.html" class="btn btn-ghost">📋 Blotter</a>
+      <a href="friday-summary.html" class="btn btn-ghost">📅 Friday Review</a>
+    </div>
+  </div>
+
+  <div class="banner">
+    <strong style="font-size:14px;">⏰ Find your hours.</strong>
+    <div style="font-size:11px;color:var(--text-muted);margin-top:6px;line-height:1.6;">
+      Most traders are bad at <strong>some hours</strong> of the day (revenge trading at noon, FOMO at 3:30) and good at others.
+      This page shows your closed trades plotted by entry hour × day-of-week. Bigger green = better R/trade for that slot. Red = avoid.
+      <strong>One actionable insight:</strong> identify your worst slot, refuse to trade during it for one week, measure the difference.
+    </div>
+  </div>
+
+  <div class="kpi-strip">
+    <div class="tile"><div class="lab">Closed trades</div><div class="val mono" id="kN">0</div></div>
+    <div class="tile"><div class="lab">Best hour</div><div class="val mono r-pos" id="kBestHour" style="font-size:13px;">—</div></div>
+    <div class="tile"><div class="lab">Worst hour</div><div class="val mono r-neg" id="kWorstHour" style="font-size:13px;">—</div></div>
+    <div class="tile"><div class="lab">Best day</div><div class="val mono r-pos" id="kBestDay" style="font-size:13px;">—</div></div>
+    <div class="tile"><div class="lab">Worst day</div><div class="val mono r-neg" id="kWorstDay" style="font-size:13px;">—</div></div>
+  </div>
+
+  <div class="section-h">🕐 Hour × Day-of-Week heatmap (avg R per trade)</div>
+  <div id="heatmap" class="heatmap-grid"></div>
+
+  <div class="grid grid-2 mb-24">
+    <div class="chart-card">
+      <div style="font-weight:700;font-size:14px;margin-bottom:8px;">⏰ Avg R by hour-of-day (ET)</div>
+      <div style="height:260px;"><canvas id="hourChart"></canvas></div>
+    </div>
+    <div class="chart-card">
+      <div style="font-weight:700;font-size:14px;margin-bottom:8px;">📅 Avg R by day-of-week</div>
+      <div style="height:260px;"><canvas id="dowChart"></canvas></div>
+    </div>
+  </div>
+
+  <div class="chart-card">
+    <div style="font-weight:700;font-size:14px;margin-bottom:8px;">📊 Cumulative R by hour bucket</div>
+    <div style="height:200px;"><canvas id="cumChart"></canvas></div>
+  </div>
+
+  <div class="chart-card">
+    <div style="font-weight:700;font-size:14px;margin-bottom:8px;">💡 Insights</div>
+    <div id="insights"></div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script src="js/ta.js"></script>
+<script src="js/learn.js"></script>
+<script>buildNav('learn');</script>
+
+<script>
+(function () {
+  let hourChart = null, dowChart = null, cumChart = null;
+
+  function loadTrades() {
+    try {
+      const raw = localStorage.getItem('bpleone_learn_v1');
+      if (!raw) return [];
+      return (JSON.parse(raw).trades || []).filter(t => t.result && t.R != null);
+    } catch (e) { return []; }
+  }
+
+  function etPartsFromMs(ms) {
+    const d = new Date(ms);
+    const et = new Date(d.toLocaleString('en-US', { timeZone: 'America/New_York' }));
+    return { hour: et.getHours(), dow: et.getDay() };
+  }
+
+  function colorFor(avgR, max) {
+    const t = Math.max(-1, Math.min(1, avgR / Math.max(0.1, max)));
+    if (t >= 0) return `rgba(16,185,129,${0.15 + t * 0.7})`;
+    return `rgba(239,68,68,${0.15 + Math.abs(t) * 0.7})`;
+  }
+
+  function render() {
+    const trades = loadTrades();
+    if (!trades.length) {
+      document.getElementById('heatmap').innerHTML = '<div style="padding:30px;text-align:center;color:var(--text-muted);grid-column:1/-1;">No closed trades yet. <a href="paper-trade.html" style="color:var(--accent);">Open a paper trade →</a></div>';
+      ['kN','kBestHour','kWorstHour','kBestDay','kWorstDay'].forEach(id => document.getElementById(id).textContent = '—');
+      return;
+    }
+    document.getElementById('kN').textContent = trades.length;
+
+    // Build 7×24 buckets (or just hours 4-20 to cover ET trading)
+    const HOURS = [4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20];
+    const DOWS = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+    const buckets = {};
+    trades.forEach(t => {
+      const { hour, dow } = etPartsFromMs(t.ts);
+      const key = dow + '|' + hour;
+      if (!buckets[key]) buckets[key] = [];
+      buckets[key].push(t.R);
+    });
+
+    const byHour = {}, byDow = {};
+    HOURS.forEach(h => byHour[h] = []);
+    DOWS.forEach((d, i) => byDow[i] = []);
+    trades.forEach(t => {
+      const { hour, dow } = etPartsFromMs(t.ts);
+      if (HOURS.indexOf(hour) !== -1) byHour[hour].push(t.R);
+      byDow[dow].push(t.R);
+    });
+
+    // Heatmap
+    const grid = document.getElementById('heatmap');
+    grid.style.gridTemplateColumns = `80px repeat(${HOURS.length}, 1fr)`;
+    let html = '<div class="label">DOW \\ HOUR</div>';
+    HOURS.forEach(h => { html += `<div class="label" style="justify-content:center;">${h}:00</div>`; });
+    let maxAbs = 0;
+    Object.values(buckets).forEach(arr => {
+      if (arr.length >= 2) {
+        const avg = arr.reduce((s, x) => s + x, 0) / arr.length;
+        if (Math.abs(avg) > maxAbs) maxAbs = Math.abs(avg);
+      }
+    });
+    if (maxAbs < 0.1) maxAbs = 0.1;
+    [1, 2, 3, 4, 5].forEach(d => {  // Mon-Fri only for trading
+      html += `<div class="label">${DOWS[d]}</div>`;
+      HOURS.forEach(h => {
+        const arr = buckets[d + '|' + h] || [];
+        const avg = arr.length ? arr.reduce((s, x) => s + x, 0) / arr.length : null;
+        if (avg == null) {
+          html += `<div class="cell" style="background:var(--bg-secondary);color:var(--text-muted);">—</div>`;
+        } else {
+          html += `<div class="cell" style="background:${colorFor(avg, maxAbs)};color:${Math.abs(avg) > maxAbs * 0.5 ? '#fff' : 'var(--text-primary)'};" title="${DOWS[d]} ${h}:00 — ${arr.length} trades, avg ${avg.toFixed(2)}R">${(avg >= 0 ? '+' : '') + avg.toFixed(2)}<div class="n">n=${arr.length}</div></div>`;
+        }
+      });
+    });
+    grid.innerHTML = html;
+
+    // Best/worst
+    const hourAvgs = Object.entries(byHour).map(([h, arr]) => ({ h: parseInt(h), avg: arr.length ? arr.reduce((s, x) => s + x, 0) / arr.length : null, n: arr.length })).filter(x => x.avg != null && x.n >= 2);
+    const dowAvgs = Object.entries(byDow).map(([d, arr]) => ({ d: parseInt(d), avg: arr.length ? arr.reduce((s, x) => s + x, 0) / arr.length : null, n: arr.length })).filter(x => x.avg != null && x.n >= 2);
+    const bestH = hourAvgs.slice().sort((a, b) => b.avg - a.avg)[0];
+    const worstH = hourAvgs.slice().sort((a, b) => a.avg - b.avg)[0];
+    const bestD = dowAvgs.slice().sort((a, b) => b.avg - a.avg)[0];
+    const worstD = dowAvgs.slice().sort((a, b) => a.avg - b.avg)[0];
+    document.getElementById('kBestHour').textContent = bestH ? bestH.h + ':00 (+' + bestH.avg.toFixed(2) + 'R, n=' + bestH.n + ')' : '—';
+    document.getElementById('kWorstHour').textContent = worstH ? worstH.h + ':00 (' + worstH.avg.toFixed(2) + 'R, n=' + worstH.n + ')' : '—';
+    document.getElementById('kBestDay').textContent = bestD ? DOWS[bestD.d] + ' (+' + bestD.avg.toFixed(2) + 'R, n=' + bestD.n + ')' : '—';
+    document.getElementById('kWorstDay').textContent = worstD ? DOWS[worstD.d] + ' (' + worstD.avg.toFixed(2) + 'R, n=' + worstD.n + ')' : '—';
+
+    // Hour chart
+    const ctx1 = document.getElementById('hourChart').getContext('2d');
+    if (hourChart) hourChart.destroy();
+    hourChart = new Chart(ctx1, {
+      type: 'bar',
+      data: {
+        labels: HOURS.map(h => h + ':00'),
+        datasets: [{ data: HOURS.map(h => byHour[h].length ? byHour[h].reduce((s, x) => s + x, 0) / byHour[h].length : 0), backgroundColor: HOURS.map(h => { const a = byHour[h].length ? byHour[h].reduce((s, x) => s + x, 0) / byHour[h].length : 0; return a >= 0 ? 'rgba(16,185,129,0.7)' : 'rgba(239,68,68,0.7)'; }) }]
+      },
+      options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { ticks: { color: '#999', font: { family: 'JetBrains Mono', size: 10 } }, grid: { display: false } }, y: { ticks: { color: '#999', font: { family: 'JetBrains Mono' }, callback: v => v.toFixed(1) + 'R' }, grid: { color: 'rgba(255,255,255,0.05)' } } } }
+    });
+
+    // Dow chart
+    const ctx2 = document.getElementById('dowChart').getContext('2d');
+    if (dowChart) dowChart.destroy();
+    dowChart = new Chart(ctx2, {
+      type: 'bar',
+      data: {
+        labels: [1,2,3,4,5].map(d => DOWS[d]),
+        datasets: [{ data: [1,2,3,4,5].map(d => byDow[d].length ? byDow[d].reduce((s, x) => s + x, 0) / byDow[d].length : 0), backgroundColor: [1,2,3,4,5].map(d => { const a = byDow[d].length ? byDow[d].reduce((s, x) => s + x, 0) / byDow[d].length : 0; return a >= 0 ? 'rgba(16,185,129,0.7)' : 'rgba(239,68,68,0.7)'; }) }]
+      },
+      options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { ticks: { color: '#999', font: { family: 'JetBrains Mono', size: 11 } }, grid: { display: false } }, y: { ticks: { color: '#999', font: { family: 'JetBrains Mono' }, callback: v => v.toFixed(1) + 'R' }, grid: { color: 'rgba(255,255,255,0.05)' } } } }
+    });
+
+    // Cumulative by hour bucket
+    const sorted = trades.slice().sort((a, b) => a.ts - b.ts);
+    let cum = 0;
+    const cumData = sorted.map(t => { cum += t.R; return { x: t.ts, y: +cum.toFixed(2) }; });
+    const ctx3 = document.getElementById('cumChart').getContext('2d');
+    if (cumChart) cumChart.destroy();
+    cumChart = new Chart(ctx3, {
+      type: 'line',
+      data: { datasets: [{ label: 'Cumulative R', data: cumData, borderColor: '#00d4ff', backgroundColor: 'rgba(0,212,255,0.10)', fill: true, tension: 0.2, pointRadius: 0, borderWidth: 1.5 }] },
+      options: { responsive: true, maintainAspectRatio: false, parsing: false, plugins: { legend: { display: false } }, scales: { x: { type: 'linear', ticks: { color: '#666', font: { size: 10 }, callback: v => new Date(v).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) }, grid: { display: false } }, y: { ticks: { color: '#999', font: { family: 'JetBrains Mono' }, callback: v => v.toFixed(1) + 'R' }, grid: { color: 'rgba(255,255,255,0.05)' } } } }
+    });
+
+    // Insights
+    const insights = [];
+    if (bestH && worstH) {
+      insights.push(`<div class="insight">⏰ Your best hour is <strong>${bestH.h}:00 ET</strong> at <strong class="r-pos">+${bestH.avg.toFixed(2)}R</strong>, your worst is <strong>${worstH.h}:00 ET</strong> at <strong class="r-neg">${worstH.avg.toFixed(2)}R</strong>. <em>Try refusing to trade during ${worstH.h}:00 for one week.</em></div>`);
+    }
+    if (bestD && worstD) {
+      insights.push(`<div class="insight">📅 Strongest day: <strong>${DOWS[bestD.d]}</strong> (+${bestD.avg.toFixed(2)}R). Weakest: <strong>${DOWS[worstD.d]}</strong> (${worstD.avg.toFixed(2)}R).</div>`);
+    }
+    const open30 = HOURS.filter(h => h === 9 || h === 10).reduce((s, h) => s + (byHour[h].length ? byHour[h].reduce((a, x) => a + x, 0) : 0), 0);
+    const lunch = HOURS.filter(h => h >= 12 && h < 14).reduce((s, h) => s + (byHour[h].length ? byHour[h].reduce((a, x) => a + x, 0) : 0), 0);
+    if (Math.abs(open30 - lunch) > 1) {
+      insights.push(`<div class="insight">🍕 ${open30 > lunch ? 'Opening hour (9-11 ET) outperforms lunch (12-2 ET) by ' + (open30 - lunch).toFixed(2) + 'R' : 'Lunch is your money zone — open chop is killing you'}</div>`);
+    }
+    document.getElementById('insights').innerHTML = insights.length ? insights.join('') : '<div class="insight" style="color:var(--text-muted);">Need more closed trades for insights.</div>';
+  }
+
+  setTimeout(render, 400);
+  setInterval(render, 30000);
+})();
+</script>
+</body>
+</html>

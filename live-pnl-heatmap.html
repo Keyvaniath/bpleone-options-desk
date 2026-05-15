@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Live P&L Heatmap — bpleone / trade</title>
+<meta name="description" content="Treemap of open positions. Tile size = exposure, color = unrealized P&L. See your book at a glance.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.banner { background: linear-gradient(135deg, rgba(0,212,255,0.08), rgba(139,92,246,0.04)); border: 1px solid rgba(0,212,255,0.18); border-radius: 12px; padding: 16px 18px; margin-bottom: 18px; }
+.kpi-strip { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; margin-bottom: 18px; }
+.tile-k { background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 10px; padding: 14px; text-align: center; }
+.tile-k .lab { font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; }
+.tile-k .val { font-family: var(--font-mono); font-weight: 700; font-size: 20px; margin-top: 4px; }
+.heatmap { display: grid; gap: 4px; height: 480px; background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 12px; padding: 14px; }
+.htile { border-radius: 8px; padding: 10px; display: flex; flex-direction: column; justify-content: center; text-align: center; cursor: pointer; transition: transform .12s; overflow: hidden; }
+.htile:hover { transform: scale(1.02); z-index: 5; box-shadow: 0 4px 14px rgba(0,0,0,0.4); }
+.htile .sym { font-family: var(--font-mono); font-weight: 800; }
+.htile .pnl { font-family: var(--font-mono); font-weight: 700; margin-top: 4px; }
+.htile .meta { font-family: var(--font-mono); font-size: 9px; opacity: 0.7; margin-top: 2px; }
+.r-pos { color: var(--green); } .r-neg { color: var(--red); }
+.mono { font-family: var(--font-mono); }
+.empty { padding: 60px; text-align: center; color: var(--text-muted); }
+.legend { display: flex; align-items: center; gap: 10px; margin: 12px 0; font-family: var(--font-mono); font-size: 11px; color: var(--text-muted); }
+.legend-grad { width: 200px; height: 10px; background: linear-gradient(to right, rgba(239,68,68,0.85), rgba(239,68,68,0.3), var(--bg-secondary), rgba(16,185,129,0.3), rgba(16,185,129,0.85)); border-radius: 5px; }
+.list-card { background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 10px; padding: 16px; margin-top: 18px; }
+.row { display: grid; grid-template-columns: 80px 60px 80px 90px 90px 90px 1fr; gap: 10px; padding: 8px 0; border-top: 1px solid var(--border); font-size: 12px; align-items: center; }
+.tag { display: inline-block; padding: 2px 8px; border-radius: 4px; background: var(--bg-secondary); font-family: var(--font-mono); font-size: 10px; border: 1px solid var(--border); }
+.tag.long { background: rgba(16,185,129,0.15); color: var(--green); border-color: rgba(16,185,129,0.3); }
+.tag.short { background: rgba(239,68,68,0.15); color: var(--red); border-color: rgba(239,68,68,0.3); }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">Live P&L Heatmap <span class="feat-badge feat-pro">PRO</span></div>
+      <div class="page-subtitle">Treemap of your open paper positions. Size = exposure. Color = unrealized P&L. · <span id="market-clock">--</span></div>
+    </div>
+    <div class="flex gap-8">
+      <a href="paper-trade.html" class="btn btn-primary">🎮 Paper Trade</a>
+      <a href="live-positions.html" class="btn btn-ghost">📡 Positions</a>
+      <a href="position-stacking.html" class="btn btn-ghost">🛡 Stacking</a>
+    </div>
+  </div>
+
+  <div class="banner">
+    <strong style="font-size:14px;">🌡 What you see.</strong>
+    <div style="font-size:11px;color:var(--text-muted);margin-top:6px;line-height:1.6;">
+      Treemap layout — each tile is one open paper position.
+      <strong>Tile size</strong> = notional exposure ($ amount in the trade).
+      <strong>Tile color</strong> = unrealized P&L intensity (deep green = +5%+ winner, deep red = -5%+ loser).
+      Click a tile → open Trade Ticket for that symbol.
+    </div>
+  </div>
+
+  <div class="kpi-strip">
+    <div class="tile-k"><div class="lab">Open positions</div><div class="val mono" id="kN">0</div></div>
+    <div class="tile-k"><div class="lab">Total exposure</div><div class="val mono" id="kExp">$0</div></div>
+    <div class="tile-k"><div class="lab">Unrealized P&L</div><div class="val mono" id="kPnl">$0</div></div>
+    <div class="tile-k"><div class="lab">Biggest winner</div><div class="val mono" id="kWin" style="font-size:13px;">—</div></div>
+    <div class="tile-k"><div class="lab">Biggest loser</div><div class="val mono" id="kLoss" style="font-size:13px;">—</div></div>
+  </div>
+
+  <div class="legend">
+    <span>-5% loser</span>
+    <div class="legend-grad"></div>
+    <span>+5% winner</span>
+  </div>
+  <div id="heatmapGrid" class="heatmap"></div>
+
+  <div class="list-card">
+    <div style="font-weight:700;font-size:14px;margin-bottom:10px;">📋 Position detail</div>
+    <div class="row" style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;font-weight:600;">
+      <div>Sym</div>
+      <div>Side</div>
+      <div>Qty</div>
+      <div style="text-align:right;">Entry</div>
+      <div style="text-align:right;">Last</div>
+      <div style="text-align:right;">P&L</div>
+      <div>Actions</div>
+    </div>
+    <div id="posList"></div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script src="js/ta.js"></script>
+<script src="js/learn.js"></script>
+<script>buildNav('learn');</script>
+
+<script>
+(function () {
+  function loadPositions() {
+    try {
+      const raw = localStorage.getItem('bpleone_paper_v1');
+      if (!raw) return [];
+      const s = JSON.parse(raw);
+      return (s.positions || []).map(p => {
+        const q = (typeof QUOTES !== 'undefined') ? QUOTES[p.sym] : null;
+        const last = q ? q.last : p.avgEntry;
+        const pnl = (p.side === 'buy' ? (last - p.avgEntry) : (p.avgEntry - last)) * p.qty;
+        const pnlPct = ((p.side === 'buy' ? (last - p.avgEntry) : (p.avgEntry - last)) / p.avgEntry) * 100;
+        return Object.assign({}, p, { last, pnl, pnlPct, notional: p.qty * p.avgEntry });
+      });
+    } catch (e) { return []; }
+  }
+
+  function colorForPnlPct(pct) {
+    const t = Math.max(-1, Math.min(1, pct / 5));
+    if (t >= 0) {
+      const intensity = Math.abs(t);
+      return `rgba(16,185,129,${0.2 + intensity * 0.6})`;
+    } else {
+      const intensity = Math.abs(t);
+      return `rgba(239,68,68,${0.2 + intensity * 0.6})`;
+    }
+  }
+
+  // Simple treemap: rows of varying widths summing to total area
+  function layoutTreemap(positions, w, h) {
+    const total = positions.reduce((s, p) => s + Math.abs(p.notional), 0);
+    if (!total) return [];
+    const sorted = positions.slice().sort((a, b) => Math.abs(b.notional) - Math.abs(a.notional));
+    // Squarified-ish: greedy rows. Place biggest first.
+    const result = [];
+    let x = 0, y = 0;
+    let rowW = 0, rowH = 0, rowItems = [];
+    const TARGET_ASPECT = 1.4;
+    for (let i = 0; i < sorted.length; i++) {
+      const p = sorted[i];
+      const area = (Math.abs(p.notional) / total) * (w * h);
+      // Try adding to current row
+      const tryRowItems = rowItems.concat({ p, area });
+      const totalArea = tryRowItems.reduce((s, x) => s + x.area, 0);
+      const tryRowH = totalArea / w;
+      const tryWidths = tryRowItems.map(x => x.area / tryRowH);
+      const worstAspect = Math.max(...tryWidths.map(width => Math.max(width / tryRowH, tryRowH / width)));
+      // Calculate worst aspect if we DID add it
+      if (rowItems.length === 0 || worstAspect < TARGET_ASPECT * 1.5) {
+        rowItems = tryRowItems;
+        rowH = tryRowH;
+      } else {
+        // commit current row
+        let cx = x;
+        rowItems.forEach(it => {
+          const width = it.area / rowH;
+          result.push({ p: it.p, x: cx, y, w: width, h: rowH });
+          cx += width;
+        });
+        y += rowH;
+        rowItems = [{ p, area }];
+        rowH = area / w;
+      }
+    }
+    // Commit final row
+    if (rowItems.length) {
+      const totalArea = rowItems.reduce((s, x) => s + x.area, 0);
+      rowH = totalArea / w;
+      let cx = 0;
+      rowItems.forEach(it => {
+        const width = it.area / rowH;
+        result.push({ p: it.p, x: cx, y, w: width, h: rowH });
+        cx += width;
+      });
+    }
+    return result;
+  }
+
+  function render() {
+    const positions = loadPositions();
+    const grid = document.getElementById('heatmapGrid');
+    grid.innerHTML = '';
+    if (!positions.length) {
+      grid.innerHTML = '<div class="empty" style="display:flex;align-items:center;justify-content:center;height:100%;">No open positions. <a href="paper-trade.html" style="color:var(--accent);margin-left:6px;">Open a paper trade →</a></div>';
+      document.getElementById('kN').textContent = '0';
+      document.getElementById('kExp').textContent = '$0';
+      document.getElementById('kPnl').textContent = '$0';
+      document.getElementById('kWin').textContent = '—';
+      document.getElementById('kLoss').textContent = '—';
+      document.getElementById('posList').innerHTML = '<div class="empty" style="padding:20px;">No positions.</div>';
+      return;
+    }
+
+    // KPIs
+    const totalExp = positions.reduce((s, p) => s + p.notional, 0);
+    const totalPnl = positions.reduce((s, p) => s + p.pnl, 0);
+    document.getElementById('kN').textContent = positions.length;
+    document.getElementById('kExp').textContent = '$' + totalExp.toLocaleString(undefined, { maximumFractionDigits: 0 });
+    document.getElementById('kPnl').textContent = (totalPnl >= 0 ? '+$' : '-$') + Math.abs(totalPnl).toLocaleString(undefined, { maximumFractionDigits: 0 });
+    document.getElementById('kPnl').className = 'val mono ' + (totalPnl > 0 ? 'r-pos' : totalPnl < 0 ? 'r-neg' : '');
+    const win = positions.slice().sort((a, b) => b.pnl - a.pnl)[0];
+    const loss = positions.slice().sort((a, b) => a.pnl - b.pnl)[0];
+    document.getElementById('kWin').textContent = win && win.pnl > 0 ? win.sym + ' +$' + win.pnl.toFixed(0) : '—';
+    document.getElementById('kWin').className = 'val mono r-pos';
+    document.getElementById('kLoss').textContent = loss && loss.pnl < 0 ? loss.sym + ' $' + loss.pnl.toFixed(0) : '—';
+    document.getElementById('kLoss').className = 'val mono r-neg';
+
+    // Build heatmap via absolute positioning
+    const rect = grid.getBoundingClientRect();
+    const w = rect.width - 28, h = rect.height - 28;
+    const layout = layoutTreemap(positions, w, h);
+    grid.style.position = 'relative';
+    grid.style.display = 'block';
+    layout.forEach(item => {
+      const el = document.createElement('div');
+      el.className = 'htile';
+      el.style.position = 'absolute';
+      el.style.left = item.x + 'px';
+      el.style.top = item.y + 'px';
+      el.style.width = item.w + 'px';
+      el.style.height = item.h + 'px';
+      el.style.background = colorForPnlPct(item.p.pnlPct);
+      const big = item.w > 90 && item.h > 70;
+      const small = item.w < 60 || item.h < 50;
+      el.innerHTML = `
+        <div class="sym" style="font-size:${big ? 18 : small ? 11 : 14}px;color:${Math.abs(item.p.pnlPct) > 2 ? '#fff' : 'var(--text-primary)'};">${item.p.sym}</div>
+        ${item.h > 60 ? `<div class="pnl" style="font-size:${big ? 13 : 11}px;color:${Math.abs(item.p.pnlPct) > 2 ? '#fff' : item.p.pnl > 0 ? 'var(--green)' : 'var(--red)'};">${item.p.pnl >= 0 ? '+$' : '-$'}${Math.abs(item.p.pnl).toFixed(0)}</div>` : ''}
+        ${item.h > 75 ? `<div class="meta">${item.p.qty} ${item.p.side === 'buy' ? '▲' : '▼'} · ${(item.p.pnlPct >= 0 ? '+' : '') + item.p.pnlPct.toFixed(2)}%</div>` : ''}
+      `;
+      el.onclick = () => location.href = 'trade-ticket.html?sym=' + item.p.sym;
+      grid.appendChild(el);
+    });
+
+    // Position list
+    document.getElementById('posList').innerHTML = positions.sort((a, b) => Math.abs(b.pnl) - Math.abs(a.pnl)).map(p => {
+      const cls = p.pnl > 0 ? 'r-pos' : p.pnl < 0 ? 'r-neg' : '';
+      return `<div class="row">
+        <div class="mono" style="font-weight:700;">${p.sym}</div>
+        <div><span class="tag ${p.side === 'buy' ? 'long' : 'short'}">${p.side === 'buy' ? 'LONG' : 'SHORT'}</span></div>
+        <div class="mono" style="text-align:right;">${p.qty}</div>
+        <div class="mono" style="text-align:right;">$${p.avgEntry.toFixed(2)}</div>
+        <div class="mono" style="text-align:right;">$${p.last.toFixed(2)}</div>
+        <div class="mono ${cls}" style="text-align:right;font-weight:700;">${p.pnl >= 0 ? '+$' : '-$'}${Math.abs(p.pnl).toFixed(0)} (${p.pnlPct >= 0 ? '+' : ''}${p.pnlPct.toFixed(2)}%)</div>
+        <div style="font-size:11px;display:flex;gap:6px;">
+          <a href="trade-ticket.html?sym=${p.sym}" style="color:var(--accent);">🎯 Ticket</a>
+          <a href="live-train.html?sym=${p.sym}" style="color:var(--text-muted);">🎓 Train</a>
+          <a href="ai-cotrader.html?sym=${p.sym}" style="color:var(--text-muted);">🤖</a>
+        </div>
+      </div>`;
+    }).join('');
+  }
+
+  setTimeout(render, 400);
+  setInterval(render, 2000);
+  if (typeof Feed !== 'undefined') {
+    let pending = false;
+    Feed.subscribe('*', () => {
+      if (pending) return;
+      pending = true;
+      requestAnimationFrame(() => { pending = false; render(); });
+    });
+  }
+  window.addEventListener('resize', render);
+})();
+</script>
+</body>
+</html>

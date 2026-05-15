@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Confluence Scanner — bpleone / trade</title>
+<meta name="description" content="Multi-signal stacking scanner. Symbols where TA setup + insider buy + earnings beat + sector strength + sentiment all align. The 6-star trades.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.banner { background: linear-gradient(135deg, rgba(16,185,129,0.10), rgba(0,212,255,0.06)); border: 1px solid rgba(16,185,129,0.25); border-radius: 12px; padding: 16px 18px; margin-bottom: 18px; }
+.conv-card { background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 12px; padding: 18px; margin-bottom: 14px; transition: transform .12s, border-color .15s; cursor: pointer; }
+.conv-card:hover { transform: translateY(-2px); border-color: var(--accent); }
+.conv-card.s-6 { border-left: 5px solid #facc15; background: linear-gradient(90deg, rgba(250,204,21,0.06), var(--bg-elevated) 30%); }
+.conv-card.s-5 { border-left: 5px solid var(--green); }
+.conv-card.s-4 { border-left: 5px solid var(--accent); }
+.conv-card.s-3 { border-left: 5px solid var(--yellow); }
+.head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 12px; }
+.sym { font-family: var(--font-mono); font-weight: 800; font-size: 22px; }
+.px { font-family: var(--font-mono); font-weight: 700; font-size: 16px; }
+.chg { font-family: var(--font-mono); font-size: 12px; }
+.r-pos { color: var(--green); } .r-neg { color: var(--red); } .r-warn { color: var(--yellow); }
+.signal-chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0; }
+.chip { display: inline-flex; align-items: center; gap: 4px; padding: 4px 10px; border-radius: 999px; font-family: var(--font-mono); font-size: 11px; font-weight: 600; border: 1px solid var(--border); background: var(--bg-secondary); color: var(--text-muted); }
+.chip.fired { background: rgba(16,185,129,0.12); color: var(--green); border-color: rgba(16,185,129,0.3); }
+.chip.fired-warn { background: rgba(245,158,11,0.12); color: var(--yellow); border-color: rgba(245,158,11,0.3); }
+.chip.fired-bear { background: rgba(239,68,68,0.12); color: var(--red); border-color: rgba(239,68,68,0.3); }
+.chip .icon { font-size: 13px; }
+.reasoning { font-size: 12px; color: var(--text-muted); margin-top: 8px; line-height: 1.6; font-style: italic; }
+.actions { margin-top: 10px; display: flex; gap: 6px; flex-wrap: wrap; }
+.actions a { color: var(--text-muted); text-decoration: none; padding: 4px 10px; border-radius: 4px; background: var(--bg-secondary); border: 1px solid var(--border); font-size: 11px; }
+.actions a.primary { color: var(--accent); border-color: rgba(0,212,255,0.4); background: rgba(0,212,255,0.06); }
+.kpi-strip { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; margin-bottom: 18px; }
+.tile { background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 10px; padding: 14px; text-align: center; }
+.tile .lab { font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; }
+.tile .val { font-family: var(--font-mono); font-weight: 700; font-size: 18px; margin-top: 4px; }
+.score-bar { display: inline-flex; gap: 3px; vertical-align: middle; margin-left: 10px; }
+.score-bar .dot { width: 12px; height: 12px; border-radius: 50%; background: var(--bg-secondary); border: 1px solid var(--border); }
+.score-bar .dot.lit { background: var(--accent); border-color: var(--accent); }
+.score-bar.s-6 .dot.lit { background: #facc15; border-color: #facc15; box-shadow: 0 0 6px rgba(250,204,21,0.6); }
+.empty { padding: 40px; text-align: center; color: var(--text-muted); }
+.controls { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; padding: 12px 16px; background: var(--bg-elevated); border-radius: 10px; border: 1px solid var(--border); margin-bottom: 16px; }
+.controls select { background: var(--bg-secondary); border: 1px solid var(--border); color: var(--text-primary); padding: 6px 10px; border-radius: 6px; font-size: 12px; }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">Confluence Scanner <span class="feat-badge feat-pro">PRO</span></div>
+      <div class="page-subtitle">Symbols where multiple independent signals stack. The 6-star setups. · <span id="market-clock">--</span></div>
+    </div>
+    <div class="flex gap-8">
+      <a href="conviction-board.html" class="btn btn-ghost">⭐ Conviction Board</a>
+      <a href="trade-ticket.html" class="btn btn-ghost">🎯 Ticket</a>
+      <a href="trade-blotter.html" class="btn btn-ghost">📋 Blotter</a>
+    </div>
+  </div>
+
+  <div class="banner">
+    <strong style="font-size:14px;">🎯 What "confluence" means.</strong>
+    <div style="font-size:11px;color:var(--text-muted);margin-top:6px;line-height:1.6;">
+      A single signal is one data point. <strong>Multiple independent signals stacking is rare and high-conviction.</strong>
+      Each name gets 6 possible stars: <strong>TA setup ≥0.7</strong> · <strong>Trend strength (ADX&gt;25)</strong> · <strong>Volume confirm (rvol&gt;1.3)</strong> · <strong>Sector tailwind</strong> · <strong>Insider buying (30d)</strong> · <strong>Positive sentiment</strong>.
+      <strong>6 stars = ⭐⭐⭐⭐⭐⭐ gold-tier.</strong> 5 = high. 4 = good. 3 = monitor.
+    </div>
+  </div>
+
+  <div class="kpi-strip">
+    <div class="tile"><div class="lab">Symbols scanned</div><div class="val mono" id="kN">0</div></div>
+    <div class="tile"><div class="lab">⭐ Gold (6/6)</div><div class="val mono" id="k6" style="color:#facc15;">0</div></div>
+    <div class="tile"><div class="lab">High (5/6)</div><div class="val mono r-pos" id="k5">0</div></div>
+    <div class="tile"><div class="lab">Good (4/6)</div><div class="val mono" id="k4" style="color:var(--accent);">0</div></div>
+    <div class="tile"><div class="lab">Monitor (3/6)</div><div class="val mono r-warn" id="k3">0</div></div>
+  </div>
+
+  <div class="controls">
+    <div>
+      <label style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;display:block;margin-bottom:4px;">Min stars</label>
+      <select id="minStars">
+        <option value="6">6-star gold only</option>
+        <option value="5">5+ star</option>
+        <option value="4" selected>4+ star (default)</option>
+        <option value="3">3+ star</option>
+      </select>
+    </div>
+    <div>
+      <label style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;display:block;margin-bottom:4px;">Universe</label>
+      <select id="universe">
+        <option value="majors" selected>Majors (20)</option>
+        <option value="megacaps">Mega-cap tech</option>
+        <option value="all">All available</option>
+      </select>
+    </div>
+    <button id="btnRefresh" class="btn btn-primary" style="margin-left:auto;">🔄 Recompute</button>
+    <span id="status" style="font-size:11px;color:var(--text-muted);"></span>
+  </div>
+
+  <div id="boardList"></div>
+</div>
+
+<div id="site-footer"></div>
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script src="js/ta.js"></script>
+<script src="js/learn.js"></script>
+<script>buildNav('plays');</script>
+
+<script>
+(function () {
+  const UNIVERSES = {
+    majors: ['SPY','QQQ','IWM','NVDA','TSLA','AAPL','MSFT','META','AMZN','GOOGL','AMD','COIN','PLTR','SMCI','NFLX','CRM','ORCL','AVGO','MU','UBER'],
+    megacaps: ['AAPL','MSFT','GOOGL','META','AMZN','NVDA','AVGO','TSLA','ORCL','CRM','NFLX'],
+    all: ['SPY','QQQ','IWM','DIA','NVDA','TSLA','AAPL','MSFT','META','AMZN','GOOGL','AMD','COIN','PLTR','SMCI','NFLX','CRM','ORCL','AVGO','MU','UBER','SHOP','BABA','XLK','XLF','XLE','XLV','XLY','BTC','ETH','GLD','SLV']
+  };
+
+  function biasFromTag(tag) {
+    const bull = ['volume-breakout','52w-break','50ma-reclaim','macd-cross','bull-flag','cup-handle','vwap-reclaim','momentum-extension','continuation-bull'];
+    const bear = ['flush-on-volume','breakdown','bear-flag','vwap-rejection','overbought-fade','continuation-bear'];
+    if (bull.indexOf(tag) !== -1) return 'long';
+    if (bear.indexOf(tag) !== -1) return 'short';
+    if (tag === 'oversold-mean-revert') return 'long';
+    return 'neutral';
+  }
+
+  function sectorOf(sym) {
+    if (['AAPL','MSFT','GOOGL','META','AMZN','NVDA','AMD','SMCI','AVGO','MU','CRM','ORCL','NFLX'].includes(sym)) return 'XLK';
+    if (['JPM','BAC','GS','MS','C','WFC'].includes(sym)) return 'XLF';
+    if (['XOM','CVX','COP','EOG','OXY','USO'].includes(sym)) return 'XLE';
+    if (['UNH','LLY','PFE','JNJ','MRK','ABBV'].includes(sym)) return 'XLV';
+    if (['TSLA','AMZN','HD','LOW','NKE','MCD','SBUX'].includes(sym)) return 'XLY';
+    return null;
+  }
+
+  function loadInsiderCache() {
+    try { return JSON.parse(localStorage.getItem('bpleone_insider_cache_v1') || '{"tx":{}}'); }
+    catch (e) { return { tx: {} }; }
+  }
+
+  function loadSentimentCache() {
+    try { return JSON.parse(localStorage.getItem('bpleone_sentiment_cache_v1') || '{}'); }
+    catch (e) { return {}; }
+  }
+
+  function scoreSymbol(sym) {
+    const q = (typeof QUOTES !== 'undefined') ? QUOTES[sym] : null;
+    if (!q || !q.last) return null;
+    const snap = (typeof TA !== 'undefined') ? TA.snapshot(sym) : null;
+    const features = {
+      last: q.last, prevClose: q.prevClose, dayHigh: q.dayHigh, dayLow: q.dayLow,
+      volume: q.volume, avgVolume: q.avgVolume,
+      rsi: snap ? snap.rsi : null, macdHist: snap ? snap.hist : null,
+      atrPct: snap ? snap.atrPct : null, adx: snap ? snap.adx : null,
+      bbPct: snap ? snap.bbPct : null, vwapDist: snap ? snap.vwapDist : null,
+      trend: snap ? snap.trend : null, regime: snap ? snap.regime : null,
+      donchUp: snap ? snap.donchUp : null, donchDn: snap ? snap.donchDn : null
+    };
+    const tag = (typeof Learn !== 'undefined') ? Learn.autoTagSetup(features, { symbol: sym }) : null;
+    if (!tag) return null;
+    const weight = (Learn.weightFor) ? Learn.weightFor(tag.tag, { symbol: sym }) : 1.0;
+    const adj = tag.score * weight;
+    const bias = biasFromTag(tag.tag);
+
+    // 6 signal channels
+    const signals = {
+      ta: { fired: adj >= 0.7, why: `Setup adj-score ${adj.toFixed(2)} (${tag.tag})`, icon: '📊' },
+      trend: { fired: snap && snap.adx >= 25, why: snap && snap.adx ? `ADX ${snap.adx.toFixed(0)} (strong trend)` : 'No ADX data', icon: '💪' },
+      volume: { fired: snap && snap.rvol > 1.3, why: snap && snap.rvol ? `Rvol ${snap.rvol.toFixed(2)}x` : 'No rvol data', icon: '📈' },
+      sector: (function () {
+        const sec = sectorOf(sym);
+        if (!sec) return { fired: false, why: 'No sector mapping', icon: '🏢' };
+        const sq = (typeof QUOTES !== 'undefined') ? QUOTES[sec] : null;
+        const sectorChg = sq ? (sq.changePct || 0) : 0;
+        const tailwind = bias === 'long' ? sectorChg > 0.2 : sectorChg < -0.2;
+        return { fired: tailwind, why: `${sec} ${sectorChg >= 0 ? '+' : ''}${sectorChg.toFixed(2)}%${tailwind ? ' (tailwind)' : ' (no tailwind)'}`, icon: '🏢' };
+      })(),
+      insider: (function () {
+        const ic = loadInsiderCache();
+        const tx = (ic.tx[sym] && ic.tx[sym].data) || [];
+        const cutoff = Date.now() - 30 * 86400000;
+        const recentBuys = tx.filter(t => t.type === 'buy' && t.ts > cutoff);
+        const recentSells = tx.filter(t => t.type === 'sell' && t.ts > cutoff);
+        const netDollars = recentBuys.reduce((s, t) => s + t.value, 0) - recentSells.reduce((s, t) => s + t.value, 0);
+        return {
+          fired: bias === 'long' ? netDollars > 250000 : netDollars < -1000000,
+          why: tx.length ? `${recentBuys.length} buys / ${recentSells.length} sells (net ${netDollars >= 0 ? '+' : ''}$${(netDollars / 1000).toFixed(0)}k)` : 'No insider data',
+          icon: '🏛'
+        };
+      })(),
+      sentiment: (function () {
+        const sc = loadSentimentCache();
+        const e = sc[sym];
+        if (!e || !e.data) return { fired: false, why: 'No sentiment data', icon: '💬' };
+        const score = e.data.composite || 0;
+        return {
+          fired: bias === 'long' ? score > 0.15 : score < -0.15,
+          why: `Sentiment ${score >= 0 ? '+' : ''}${score.toFixed(2)}`,
+          icon: '💬'
+        };
+      })()
+    };
+
+    const firedCount = Object.values(signals).filter(s => s.fired).length;
+    return { sym, q, snap, tag, weight, adj, bias, signals, stars: firedCount };
+  }
+
+  function render() {
+    const universe = UNIVERSES[document.getElementById('universe').value] || UNIVERSES.majors;
+    const all = universe.map(scoreSymbol).filter(Boolean);
+    const minStars = parseInt(document.getElementById('minStars').value, 10);
+    const filtered = all.filter(d => d.stars >= minStars && d.bias !== 'neutral').sort((a, b) => b.stars - a.stars || b.adj - a.adj);
+
+    document.getElementById('kN').textContent = all.length;
+    document.getElementById('k6').textContent = all.filter(d => d.stars === 6).length;
+    document.getElementById('k5').textContent = all.filter(d => d.stars === 5).length;
+    document.getElementById('k4').textContent = all.filter(d => d.stars === 4).length;
+    document.getElementById('k3').textContent = all.filter(d => d.stars === 3).length;
+
+    const body = document.getElementById('boardList');
+    if (!filtered.length) { body.innerHTML = '<div class="empty">No setups meet ' + minStars + '+ stars. Run scans on insider-congress-flow.html + radar.html to populate caches.</div>'; return; }
+    body.innerHTML = filtered.map(d => {
+      const q = d.q;
+      const cls = 's-' + d.stars;
+      const dots = (() => { let s = ''; for (let i = 1; i <= 6; i++) s += `<span class="dot ${i <= d.stars ? 'lit' : ''}"></span>`; return s; })();
+      const chips = Object.entries(d.signals).map(([k, s]) => {
+        const ic = s.fired ? 'fired' : '';
+        return `<span class="chip ${ic}"><span class="icon">${s.icon}</span> ${k.toUpperCase()}${s.fired ? ' ✓' : ''} <span style="opacity:0.7;font-weight:400;">${s.why}</span></span>`;
+      }).join('');
+      const reasoning = `${d.stars}/6 signals fired · primary setup "${d.tag.tag}" adj-score ${d.adj.toFixed(2)} · ${d.bias.toUpperCase()}`;
+      return `<div class="conv-card ${cls}" onclick="if(!event.target.closest('a'))location.href='trade-ticket.html?sym=${d.sym}';">
+        <div class="head">
+          <div>
+            <span class="sym">${d.sym}</span>
+            <span class="score-bar ${cls}">${dots}</span>
+            <span style="margin-left:10px;font-family:var(--font-mono);font-size:11px;color:${d.bias === 'long' ? 'var(--green)' : 'var(--red)'};font-weight:700;">${d.bias === 'long' ? '▲ LONG' : '▼ SHORT'}</span>
+          </div>
+          <div style="text-align:right;">
+            <div class="px">$${q.last.toFixed(2)}</div>
+            <div class="chg ${q.changePct >= 0 ? 'r-pos' : 'r-neg'}">${q.changePct >= 0 ? '+' : ''}${(q.changePct || 0).toFixed(2)}%</div>
+          </div>
+        </div>
+        <div class="signal-chips">${chips}</div>
+        <div class="reasoning">${reasoning}</div>
+        <div class="actions">
+          <a href="trade-ticket.html?sym=${d.sym}" class="primary">🎯 Full Trade Ticket →</a>
+          <a href="ai-cotrader.html?sym=${d.sym}">🤖 Co-trade</a>
+          <a href="live-train.html?sym=${d.sym}">🎓 Train</a>
+          <a href="kelly-sizer.html?sym=${d.sym}">📐 Size</a>
+        </div>
+      </div>`;
+    }).join('');
+  }
+
+  document.getElementById('btnRefresh').addEventListener('click', () => {
+    document.getElementById('status').textContent = 'recomputing…';
+    setTimeout(() => { render(); document.getElementById('status').textContent = '✓ done'; setTimeout(() => document.getElementById('status').textContent = '', 1500); }, 100);
+  });
+  document.getElementById('minStars').addEventListener('change', render);
+  document.getElementById('universe').addEventListener('change', render);
+
+  setTimeout(() => {
+    const symbols = UNIVERSES[document.getElementById('universe').value] || UNIVERSES.majors;
+    symbols.forEach(s => { if (typeof TA !== 'undefined') TA.warmup(s); });
+    render();
+  }, 500);
+  setInterval(render, 5000);
+})();
+</script>
+</body>
+</html>
