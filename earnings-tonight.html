@@ -1,0 +1,297 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Earnings Tonight — bpleone / trade</title>
+<meta name="description" content="Companies reporting after market close today + BMO tomorrow. Real-time AH reactions, beat/miss, IV-crush opportunities.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.banner { background: linear-gradient(135deg, rgba(245,158,11,0.10), rgba(0,212,255,0.06)); border: 1px solid rgba(245,158,11,0.30); border-radius: 12px; padding: 16px 20px; margin-bottom: 18px; }
+.kpi-strip { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; margin-bottom: 18px; }
+.tile { background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 10px; padding: 14px; text-align: center; }
+.tile .lab { font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; }
+.tile .val { font-family: var(--font-mono); font-weight: 700; font-size: 18px; margin-top: 4px; }
+.r-pos { color: var(--green); } .r-neg { color: var(--red); } .r-warn { color: var(--yellow); }
+.mono { font-family: var(--font-mono); }
+.earn-card { background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 10px; padding: 14px; margin-bottom: 10px; }
+.earn-card.beat { border-left: 4px solid var(--green); }
+.earn-card.miss { border-left: 4px solid var(--red); }
+.earn-card.pending { border-left: 4px solid var(--yellow); }
+.earn-card .head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 8px; }
+.earn-card .sym { font-family: var(--font-mono); font-weight: 800; font-size: 18px; }
+.earn-card .ah { font-family: var(--font-mono); font-weight: 700; font-size: 14px; }
+.tag { display: inline-block; padding: 2px 8px; border-radius: 4px; background: var(--bg-secondary); font-family: var(--font-mono); font-size: 10px; border: 1px solid var(--border); }
+.tag.bull { background: rgba(16,185,129,0.15); color: var(--green); border-color: rgba(16,185,129,0.3); }
+.tag.bear { background: rgba(239,68,68,0.15); color: var(--red); border-color: rgba(239,68,68,0.3); }
+.tag.pending { background: rgba(245,158,11,0.15); color: var(--yellow); border-color: rgba(245,158,11,0.3); }
+.metrics { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin: 10px 0; }
+.metric { background: var(--bg-secondary); border-radius: 6px; padding: 8px; text-align: center; }
+.metric .lab { font-size: 9px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; }
+.metric .val { font-family: var(--font-mono); font-weight: 700; font-size: 12px; margin-top: 2px; }
+.actions { display: flex; gap: 6px; flex-wrap: wrap; font-size: 11px; }
+.actions a { color: var(--text-muted); text-decoration: none; padding: 3px 8px; border-radius: 4px; background: var(--bg-secondary); border: 1px solid var(--border); }
+.actions a:hover { color: var(--accent); border-color: var(--accent); }
+.empty { padding: 40px; text-align: center; color: var(--text-muted); }
+.section-h { font-size: 13px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; margin: 16px 0 10px; padding-left: 4px; }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">Earnings Tonight <span class="feat-badge feat-new">NEW</span> <span class="feat-badge feat-live">LIVE</span></div>
+      <div class="page-subtitle">Companies reporting after market close + BMO tomorrow. Real-time AH reactions tracked. · <span id="market-clock">--</span></div>
+    </div>
+    <div class="flex gap-8">
+      <a href="earnings-playbook.html" class="btn btn-ghost">📘 Earnings Playbook</a>
+      <a href="after-hours-scanner.html" class="btn btn-ghost">🌙 After-Hours</a>
+      <a href="tomorrow-playbook.html" class="btn btn-ghost">📋 Tomorrow's Playbook</a>
+    </div>
+  </div>
+
+  <!-- Banner -->
+  <div class="banner">
+    <strong style="font-size:14px;">🌙 The earnings reaction window.</strong>
+    <div style="font-size:11px;color:var(--text-muted);margin-top:6px;line-height:1.6;">
+      Reports drop after 4 PM ET → AH trading spikes → tomorrow's open inherits the IV crush.
+      We pull tonight's AMC reports + tomorrow's BMO from Finnhub, enrich with live AH price action, suggest plays.
+      <strong>Hit "Pull" to refresh — Brandon's Finnhub key is auto-detected.</strong>
+    </div>
+  </div>
+
+  <!-- KPIs -->
+  <div class="kpi-strip">
+    <div class="tile"><div class="lab">AMC tonight</div><div class="val mono" id="kAmc">0</div></div>
+    <div class="tile"><div class="lab">BMO tomorrow</div><div class="val mono" id="kBmo">0</div></div>
+    <div class="tile"><div class="lab">Beats</div><div class="val mono r-pos" id="kBeats">0</div></div>
+    <div class="tile"><div class="lab">Misses</div><div class="val mono r-neg" id="kMisses">0</div></div>
+    <div class="tile"><div class="lab">Biggest AH move</div><div class="val mono" id="kBig" style="font-size:13px;">—</div></div>
+  </div>
+
+  <!-- Controls -->
+  <div style="display:flex;gap:10px;margin-bottom:14px;">
+    <button id="btnPull" class="btn btn-primary">🔄 Pull latest earnings</button>
+    <button id="btnDiscord" class="btn btn-ghost" style="font-size:11px;">📨 Post to Discord</button>
+    <span id="status" style="margin-left:auto;align-self:center;font-size:11px;color:var(--text-muted);"></span>
+  </div>
+
+  <!-- AMC reports tonight -->
+  <div class="section-h">🌙 Reporting after-close TODAY (AMC)</div>
+  <div id="amcGrid" class="grid grid-2"></div>
+
+  <!-- BMO tomorrow -->
+  <div class="section-h">🌅 Reporting before open TOMORROW (BMO)</div>
+  <div id="bmoGrid" class="grid grid-2"></div>
+</div>
+
+<div id="site-footer"></div>
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script src="js/ta.js"></script>
+<script src="js/learn.js"></script>
+<script src="js/discord.js"></script>
+<script>buildNav('earnings');</script>
+
+<script>
+(function () {
+  const REPORT_KEY = 'bpleone_earntonight_v1';
+  // Broader universe so we catch big-name earnings
+  const UNIVERSE = ['SPY','QQQ','NVDA','TSLA','AAPL','MSFT','META','AMZN','GOOGL','AMD','COIN','PLTR','SMCI','NFLX','CRM','ORCL','AVGO','MU','UBER','SHOP','PG','JPM','XOM','WMT','TGT','HD','LOW','BABA','BA','GE','F','CVNA','ROKU','PYPL','SQ','HOOD','SOFI','RIVN','LCID','MARA','RIOT','BBAI','GME','AMC','SNAP','PINS','SPOT','TXN','QCOM','INTC','CSCO','IBM','DIS','NFLX','UNH','LLY','PFE','JNJ','MRK','ABBV','KO','PEP','MCD','SBUX','NKE','CVS','WBA','ADBE','NOW','PANW','CRWD','ZS','SNOW','DDOG','MDB','TWLO','U','RBLX','FUBO','EXPE','BKNG','ABNB','ETSY','EBAY','CHWY','DASH','LYFT','RIVN','XPEV','LI','NIO'];
+
+  function loadReport() { try { return JSON.parse(localStorage.getItem(REPORT_KEY) || 'null'); } catch (e) { return null; } }
+  function saveReport(r) { try { localStorage.setItem(REPORT_KEY, JSON.stringify(r)); } catch (e) {} }
+
+  function nowET() { return new Date(new Date().toLocaleString('en-US', { timeZone: 'America/New_York' })); }
+
+  function getFinnhubKey() {
+    try {
+      const raw = localStorage.getItem('bpleone_data_v1');
+      if (!raw) return null;
+      const c = JSON.parse(raw);
+      return c.provider === 'finnhub' ? c.apiKey : null;
+    } catch (e) { return null; }
+  }
+
+  async function pullEarnings() {
+    document.getElementById('btnPull').disabled = true;
+    document.getElementById('btnPull').textContent = 'Pulling…';
+    document.getElementById('status').textContent = 'fetching calendar…';
+
+    const key = getFinnhubKey();
+    if (!key) {
+      document.getElementById('status').innerHTML = '⚠ <a href="settings.html" style="color:var(--accent);">Need Finnhub key in Settings</a>';
+      document.getElementById('btnPull').disabled = false;
+      document.getElementById('btnPull').textContent = '🔄 Pull latest earnings';
+      return;
+    }
+
+    const today = nowET();
+    const todayStr = today.toISOString().slice(0, 10);
+    const tomorrow = new Date(today);
+    do { tomorrow.setDate(tomorrow.getDate() + 1); } while (tomorrow.getDay() === 0 || tomorrow.getDay() === 6);
+    const tomorrowStr = tomorrow.toISOString().slice(0, 10);
+
+    let calendar = [];
+    try {
+      const url = `https://finnhub.io/api/v1/calendar/earnings?from=${todayStr}&to=${tomorrowStr}&token=${encodeURIComponent(key)}`;
+      const res = await fetch(url);
+      if (res.ok) {
+        const j = await res.json();
+        calendar = j.earningsCalendar || [];
+      }
+    } catch (e) {
+      document.getElementById('status').textContent = 'fetch failed: ' + e.message;
+      document.getElementById('btnPull').disabled = false;
+      document.getElementById('btnPull').textContent = '🔄 Pull latest earnings';
+      return;
+    }
+
+    // Filter to our broader universe (in-network names)
+    const universeSet = new Set(UNIVERSE);
+    const amc = calendar.filter(e => e.date === todayStr && e.hour === 'amc' && universeSet.has(e.symbol));
+    const bmo = calendar.filter(e => e.date === tomorrowStr && e.hour === 'bmo' && universeSet.has(e.symbol));
+
+    // Enrich with live AH price
+    const enrich = (e) => {
+      const q = typeof QUOTES !== 'undefined' ? QUOTES[e.symbol] : null;
+      const ahChg = q && q.prevClose ? ((q.last - q.prevClose) / q.prevClose) * 100 : null;
+      const beat = (e.epsActual != null && e.epsEstimate != null) ? (e.epsActual > e.epsEstimate ? 'beat' : e.epsActual < e.epsEstimate ? 'miss' : 'inline') : 'pending';
+      const snap = typeof TA !== 'undefined' ? TA.snapshot(e.symbol) : null;
+      const impliedPct = snap && snap.atrPct ? +(snap.atrPct * 1.7).toFixed(2) : null;
+      // Surprise %
+      let surprisePct = null;
+      if (e.epsActual != null && e.epsEstimate != null && e.epsEstimate !== 0) {
+        surprisePct = ((e.epsActual - e.epsEstimate) / Math.abs(e.epsEstimate)) * 100;
+      }
+      return Object.assign({}, e, { last: q ? q.last : null, prevClose: q ? q.prevClose : null, ahChg, beat, impliedPct, surprisePct });
+    };
+
+    const amcEnriched = amc.map(enrich);
+    const bmoEnriched = bmo.map(enrich);
+    const report = { ts: Date.now(), amc: amcEnriched, bmo: bmoEnriched };
+    saveReport(report);
+    document.getElementById('status').textContent = '✓ pulled ' + amc.length + ' AMC, ' + bmo.length + ' BMO';
+    setTimeout(() => { document.getElementById('status').textContent = ''; }, 3000);
+    render(report);
+    document.getElementById('btnPull').disabled = false;
+    document.getElementById('btnPull').textContent = '🔄 Pull latest earnings';
+  }
+
+  function buildCard(e, isBmo) {
+    const cls = e.beat === 'beat' ? 'beat' : e.beat === 'miss' ? 'miss' : 'pending';
+    const ahCls = e.ahChg > 0 ? 'r-pos' : e.ahChg < 0 ? 'r-neg' : 'r-warn';
+    const stratHint = (() => {
+      if (isBmo) {
+        if (e.impliedPct != null && e.impliedPct > 3) return 'High implied move — IV crush short-premium candidate';
+        if (e.impliedPct != null && e.impliedPct < 1.5) return 'Low implied — long-vol straddle/strangle';
+        return 'Standard — wait for reaction';
+      }
+      if (e.beat === 'beat' && e.ahChg != null && e.ahChg < 0) return 'Beat but selling — fade open if continues';
+      if (e.beat === 'beat' && e.ahChg != null && e.ahChg > 5) return 'Big beat — chase carefully or fade pop';
+      if (e.beat === 'miss' && e.ahChg != null && e.ahChg > 0) return 'Miss but rallying — short tomorrow open';
+      if (e.beat === 'miss' && e.ahChg != null && e.ahChg < -5) return 'Big miss — careful covering bounces';
+      return 'Standard — watch for guidance';
+    })();
+    const surpriseTxt = e.surprisePct != null ? (e.surprisePct >= 0 ? '+' : '') + e.surprisePct.toFixed(1) + '%' : '—';
+    return `<div class="earn-card ${cls}">
+      <div class="head">
+        <div>
+          <span class="sym">${e.symbol}</span>
+          <span class="tag ${cls}" style="margin-left:8px;">${e.beat.toUpperCase()}</span>
+          ${isBmo ? '<span class="tag" style="margin-left:4px;">BMO</span>' : '<span class="tag" style="margin-left:4px;">AMC</span>'}
+        </div>
+        <div style="text-align:right;">
+          <div class="ah ${ahCls}">${e.ahChg != null ? (e.ahChg >= 0 ? '+' : '') + e.ahChg.toFixed(2) + '%' : '—'}</div>
+          <div style="font-size:11px;color:var(--text-muted);">AH</div>
+        </div>
+      </div>
+      <div class="metrics">
+        <div class="metric"><div class="lab">EPS actual</div><div class="val">${e.epsActual != null ? '$' + (+e.epsActual).toFixed(2) : '—'}</div></div>
+        <div class="metric"><div class="lab">EPS est</div><div class="val">${e.epsEstimate != null ? '$' + (+e.epsEstimate).toFixed(2) : '—'}</div></div>
+        <div class="metric"><div class="lab">Surprise</div><div class="val ${e.surprisePct > 0 ? 'r-pos' : e.surprisePct < 0 ? 'r-neg' : ''}">${surpriseTxt}</div></div>
+        <div class="metric"><div class="lab">Implied</div><div class="val">${e.impliedPct != null ? '±' + e.impliedPct.toFixed(2) + '%' : '—'}</div></div>
+      </div>
+      <div style="font-size:12px;color:var(--text-muted);margin-bottom:10px;line-height:1.5;"><strong style="color:var(--text-primary);">Strategy:</strong> ${stratHint}</div>
+      <div class="actions">
+        <a href="ticker.html?sym=${e.symbol}">🔍 Ticker</a>
+        <a href="live-train.html?sym=${e.symbol}">🎓 Train</a>
+        <a href="ai-cotrader.html?sym=${e.symbol}">🤖 Co-trade</a>
+        <a href="hypothetical.html?sym=${e.symbol}&source=signals&note=${encodeURIComponent('Earnings ' + (isBmo ? 'BMO' : 'AMC') + ': ' + e.beat)}">📝 Track</a>
+        <a href="kelly-sizer.html?sym=${e.symbol}">📐 Size</a>
+      </div>
+    </div>`;
+  }
+
+  function render(r) {
+    if (!r) return;
+    document.getElementById('kAmc').textContent = r.amc.length;
+    document.getElementById('kBmo').textContent = r.bmo.length;
+    const beats = r.amc.filter(e => e.beat === 'beat').length;
+    const misses = r.amc.filter(e => e.beat === 'miss').length;
+    document.getElementById('kBeats').textContent = beats;
+    document.getElementById('kMisses').textContent = misses;
+    const sortedByMove = r.amc.filter(e => e.ahChg != null).sort((a, b) => Math.abs(b.ahChg) - Math.abs(a.ahChg));
+    const big = sortedByMove[0];
+    document.getElementById('kBig').textContent = big ? big.symbol + ' ' + (big.ahChg >= 0 ? '+' : '') + big.ahChg.toFixed(2) + '%' : '—';
+    document.getElementById('kBig').className = 'val mono ' + (big && big.ahChg > 0 ? 'r-pos' : big && big.ahChg < 0 ? 'r-neg' : '');
+
+    document.getElementById('amcGrid').innerHTML = r.amc.length ? r.amc.map(e => buildCard(e, false)).join('') : '<div class="empty" style="grid-column:1/-1;">No AMC earnings tonight from broad universe.</div>';
+    document.getElementById('bmoGrid').innerHTML = r.bmo.length ? r.bmo.map(e => buildCard(e, true)).join('') : '<div class="empty" style="grid-column:1/-1;">No BMO earnings tomorrow from broad universe.</div>';
+  }
+
+  async function postToDiscord() {
+    const r = loadReport();
+    if (!r) { alert('Pull earnings first.'); return; }
+    if (typeof DiscordAlerts === 'undefined' || !DiscordAlerts.url()) { alert('No Discord webhook in My Desk.'); return; }
+    const amcTxt = r.amc.length ? r.amc.slice(0, 8).map(e => `${e.symbol}: ${e.beat}${e.ahChg != null ? ' ' + (e.ahChg >= 0 ? '+' : '') + e.ahChg.toFixed(1) + '%' : ''}`).join(' · ') : 'none';
+    const bmoTxt = r.bmo.length ? r.bmo.slice(0, 8).map(e => e.symbol).join(', ') : 'none';
+    const head = `🌙 **Earnings update** · ${r.amc.length} AMC tonight · ${r.bmo.length} BMO tomorrow`;
+    const body = `\n**AMC reactions:** ${amcTxt}\n**BMO tomorrow:** ${bmoTxt}`;
+    await DiscordAlerts.fire(head + body, { dedupKey: 'earntonight:' + new Date(r.ts).toLocaleDateString('en-US'), dedupTtl: 3 * 60 * 60 * 1000 });
+    alert('Posted to Discord');
+  }
+
+  document.getElementById('btnPull').addEventListener('click', pullEarnings);
+  document.getElementById('btnDiscord').addEventListener('click', postToDiscord);
+
+  setTimeout(() => {
+    const r = loadReport();
+    if (r && Date.now() - r.ts < 60 * 60 * 1000) render(r);
+    else pullEarnings();
+  }, 500);
+
+  // Auto-refresh every 10 min during AH
+  setInterval(() => {
+    const r = loadReport();
+    if (!r) return;
+    // Re-enrich with live AH price
+    r.amc = r.amc.map(e => {
+      const q = typeof QUOTES !== 'undefined' ? QUOTES[e.symbol] : null;
+      return Object.assign({}, e, {
+        last: q ? q.last : e.last,
+        ahChg: q && q.prevClose ? ((q.last - q.prevClose) / q.prevClose) * 100 : e.ahChg
+      });
+    });
+    r.bmo = r.bmo.map(e => {
+      const q = typeof QUOTES !== 'undefined' ? QUOTES[e.symbol] : null;
+      return Object.assign({}, e, {
+        last: q ? q.last : e.last
+      });
+    });
+    saveReport(r);
+    render(r);
+  }, 30 * 1000);
+})();
+</script>
+</body>
+</html>

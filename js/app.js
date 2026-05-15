@@ -86,7 +86,7 @@ function buildNav(activePage) {
   activePage = activePage || '';
   const playsGrp = ['totd','plays','signals','earnings','earnings-preview','pre-market','zero-dte','setup-wizard','paper-trade','game-plan','hot-movers','squeeze-radar','trade-plan'];
   const tradeGrp = ['flow','chain','ta','momentum','market-internals','smart-money','heatmap','watchlists','vol-surface','gex','tape','sectors','pairs','calendar-analyzer','vol-cone','dark-pool','short-interest','etf-flows','volume-profile','order-flow','ticker','multi-leg-builder','bracket-builder','spread-scanner','wheel','correlation'];
-  const toolsGrp = ['risk','fundamentals','backtester','edge','learn','learn-engine-explained','crypto','journal','alerts','macro','news','screener','anomalies','assistant','ai-scout','portfolio-builder','position-sizing','execution','strategies','api','seasonality','economic-events','settings','mindset','changelog','friday-summary','replay','live-positions','risk-attribution','edge-scanner','hypothetical','account','setup-combos','kelly-sizer','potd-backtest','news-reactions','live-train','radar','ai-cotrader','train-history','alerts-dashboard','weight-heatmap','sector-rotation','options-flow-live','earnings-playbook','daily-debrief','multi-backtest','pre-market-scanner','position-stacking','crypto-commodities'];
+  const toolsGrp = ['risk','fundamentals','backtester','edge','learn','learn-engine-explained','crypto','journal','alerts','macro','news','screener','anomalies','assistant','ai-scout','portfolio-builder','position-sizing','execution','strategies','api','seasonality','economic-events','settings','mindset','changelog','friday-summary','replay','live-positions','risk-attribution','edge-scanner','hypothetical','account','setup-combos','kelly-sizer','potd-backtest','news-reactions','live-train','radar','ai-cotrader','train-history','alerts-dashboard','weight-heatmap','sector-rotation','options-flow-live','earnings-playbook','daily-debrief','multi-backtest','pre-market-scanner','position-stacking','crypto-commodities','after-hours-scanner','tomorrow-playbook','earnings-tonight'];
   const isTrade = tradeGrp.indexOf(activePage) !== -1;
   const isPlays = playsGrp.indexOf(activePage) !== -1;
   const isTools = toolsGrp.indexOf(activePage) !== -1;
@@ -169,7 +169,10 @@ function buildNav(activePage) {
     + '<a href="earnings-playbook.html">📘 Earnings Playbook <span class="feat-badge feat-new" style="font-size:8px;padding:0 5px;">NEW</span></a>'
     + '<a href="daily-debrief.html">📊 Daily AI Debrief <span class="feat-badge feat-new" style="font-size:8px;padding:0 5px;">NEW</span></a>'
     + '<a href="multi-backtest.html">🧪 Multi-Strategy Backtester <span class="feat-badge feat-new" style="font-size:8px;padding:0 5px;">NEW</span></a>'
-    + '<a href="pre-market-scanner.html">🌅 Pre-Market Scanner <span class="feat-badge feat-new" style="font-size:8px;padding:0 5px;">NEW</span></a>'
+    + '<a href="pre-market-scanner.html">🌅 Pre-Market Scanner (8AM) <span class="feat-badge feat-new" style="font-size:8px;padding:0 5px;">NEW</span></a>'
+    + '<a href="after-hours-scanner.html">🌙 After-Hours Scanner <span class="feat-badge feat-live" style="font-size:8px;padding:0 5px;">24/7</span></a>'
+    + '<a href="tomorrow-playbook.html">📋 Tomorrow\'s Playbook <span class="feat-badge feat-new" style="font-size:8px;padding:0 5px;">NEW</span></a>'
+    + '<a href="earnings-tonight.html">⚡ Earnings Tonight <span class="feat-badge feat-live" style="font-size:8px;padding:0 5px;">LIVE</span></a>'
     + '<a href="position-stacking.html">🛡 Position Stacking <span class="feat-badge feat-new" style="font-size:8px;padding:0 5px;">NEW</span></a>'
     + '<a href="crypto-commodities.html">🌍 Crypto + Commodities <span class="feat-badge feat-live" style="font-size:8px;padding:0 5px;">LIVE</span></a>'
     + '<a href="edge-scanner.html">🛰 Live Edge Scanner <span class="feat-badge feat-live" style="font-size:8px;padding:0 5px;">LIVE</span></a>'
@@ -399,6 +402,9 @@ function buildFooter() {
     + '<li><a href="daily-debrief.html">Daily AI Debrief</a></li>'
     + '<li><a href="multi-backtest.html">Multi-Strategy Backtester</a></li>'
     + '<li><a href="pre-market-scanner.html">Pre-Market Scanner</a></li>'
+    + '<li><a href="after-hours-scanner.html">After-Hours Scanner</a></li>'
+    + '<li><a href="tomorrow-playbook.html">Tomorrow\'s Playbook</a></li>'
+    + '<li><a href="earnings-tonight.html">Earnings Tonight</a></li>'
     + '<li><a href="position-stacking.html">Position Stacking</a></li>'
     + '<li><a href="crypto-commodities.html">Crypto + Commodities</a></li>'
     + '<li><a href="edge-scanner.html">Edge Scanner</a></li>'
@@ -432,27 +438,52 @@ function buildFooter() {
     + '</footer>';
 }
 
+function detectSession() {
+  const et = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/New_York' }));
+  const day = et.getDay();
+  const h = et.getHours();
+  const m = et.getMinutes();
+  const isWeekday = day >= 1 && day <= 5;
+  if (!isWeekday) return 'closed';
+  if ((h === 9 && m >= 30) || (h > 9 && h < 16)) return 'open';
+  if (h < 9 || (h === 9 && m < 30)) return 'pre-market';
+  if (h >= 16 && h < 20) return 'after-hours';
+  return 'closed';
+}
+window.detectSession = detectSession;
+
 function startMarketClock() {
   const els = document.querySelectorAll('#market-clock');
   if (!els.length) return;
   const update = () => {
     const now = new Date();
     const et = new Date(now.toLocaleString('en-US', { timeZone: 'America/New_York' }));
-    const day = et.getDay();
-    const h = et.getHours();
-    const m = et.getMinutes();
-    const isWeekday = day >= 1 && day <= 5;
-    const isOpen = isWeekday && ((h === 9 && m >= 30) || (h > 9 && h < 16));
-    const isPre = isWeekday && (h < 9 || (h === 9 && m < 30));
-    const isAfter = isWeekday && h >= 16 && h < 20;
+    const sess = detectSession();
     let status = 'CLOSED', color = 'red';
-    if (isOpen) { status = 'OPEN'; color = 'green'; }
-    else if (isPre) { status = 'PRE-MARKET'; color = 'yellow'; }
-    else if (isAfter) { status = 'AFTER HOURS'; color = 'yellow'; }
+    if (sess === 'open') { status = 'OPEN'; color = 'green'; }
+    else if (sess === 'pre-market') { status = 'PRE-MARKET'; color = 'yellow'; }
+    else if (sess === 'after-hours') { status = 'AFTER HOURS'; color = 'yellow'; }
     const timeStr = et.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
     els.forEach(el => {
       el.innerHTML = '<span class="signal-dot ' + color + '"></span> ' + status + ' · <span class="mono">' + timeStr + ' ET</span>';
     });
+    // Also update the data-pill secondary label if it exists
+    const pill = document.getElementById('dataStatusPill');
+    if (pill && !pill.dataset.sessionPainted) {
+      // First call — append a session sub-label
+      const lab = pill.querySelector('.data-pill-label');
+      if (lab && !pill.querySelector('.data-pill-session')) {
+        const sLab = document.createElement('span');
+        sLab.className = 'data-pill-session';
+        sLab.style.cssText = 'font-size:9px;margin-left:6px;padding:1px 5px;border-radius:3px;background:rgba(255,255,255,0.08);';
+        pill.appendChild(sLab);
+      }
+    }
+    const sLab = pill && pill.querySelector('.data-pill-session');
+    if (sLab) {
+      sLab.textContent = sess === 'open' ? 'OPEN' : sess === 'pre-market' ? 'PRE' : sess === 'after-hours' ? 'AH' : 'CLOSED';
+      sLab.style.color = sess === 'open' ? 'var(--green)' : sess === 'pre-market' || sess === 'after-hours' ? 'var(--yellow)' : 'var(--red)';
+    }
   };
   update();
   setInterval(update, 1000);
