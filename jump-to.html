@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Jump To — bpleone / trade</title>
+<meta name="description" content="Fuzzy-search any of the 250+ pages. Keyboard-first command palette built into the desk.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.search-box { width:100%;padding:18px 20px;background:var(--bg-elevated);border:2px solid var(--border);color:var(--text-primary);border-radius:14px;font-size:18px;font-family:var(--font-mono);font-weight:600; }
+.search-box:focus { outline:none;border-color:var(--accent);box-shadow:0 0 0 4px rgba(0,212,255,0.1); }
+.result { display:flex;justify-content:space-between;align-items:center;padding:14px 18px;border-bottom:1px solid var(--border);cursor:pointer;text-decoration:none;color:var(--text-primary); }
+.result:hover, .result.sel { background:var(--bg-elevated); }
+.result.sel { border-left:3px solid var(--accent); }
+.result .name { font-weight:600;font-size:14px; }
+.result .desc { font-size:11px;color:var(--text-muted);margin-top:2px; }
+.result .badge { font-size:9px;padding:2px 8px;border-radius:10px;background:rgba(0,212,255,0.15);color:var(--accent);font-weight:700;text-transform:uppercase; }
+.tag-chip { display:inline-block;padding:3px 10px;border-radius:10px;background:var(--bg-elevated);color:var(--text-secondary);font-size:10px;font-weight:600;margin-right:6px;cursor:pointer; }
+.tag-chip:hover, .tag-chip.on { background:var(--accent);color:#000; }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">⚡ Jump To</div>
+      <div class="page-subtitle">Fuzzy search · ↑↓ Enter to navigate · 250+ pages indexed · <span id="market-clock">--</span></div>
+    </div>
+  </div>
+
+  <div class="card mb-24">
+    <input type="text" id="q" class="search-box" placeholder="Type to search... e.g. 'morning', 'ml', 'pnl', 'vix'" autofocus>
+  </div>
+
+  <div class="card mb-16" style="padding:14px;">
+    <div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.6px;font-weight:700;margin-bottom:10px;">Filter by category</div>
+    <span class="tag-chip on" data-cat="all">All</span>
+    <span class="tag-chip" data-cat="daily">☀ Daily</span>
+    <span class="tag-chip" data-cat="brain">🧠 Brain / ML</span>
+    <span class="tag-chip" data-cat="trade">💰 Trade & Flow</span>
+    <span class="tag-chip" data-cat="scan">📊 Scanners</span>
+    <span class="tag-chip" data-cat="market">🌐 Markets</span>
+    <span class="tag-chip" data-cat="tool">🛠 Tools</span>
+  </div>
+
+  <div class="card" style="padding:0;">
+    <div id="results"></div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script>
+buildNav('jump-to');
+
+const PAGES = [
+  // Daily
+  { url:'morning-brief.html', name:'☀ Morning Brief', desc:'5:30 AM daily briefing — TL;DR + key levels', cat:'daily', tags:'daily morning brief tldr' },
+  { url:'conviction-stack.html', name:'⭐ Conviction Stack', desc:'A-tier ranked setups, model-scored', cat:'daily', tags:'daily conviction ranking' },
+  { url:'trade-of-the-day.html', name:'🎯 Trade of the Day', desc:'Featured single trade with thesis', cat:'daily', tags:'totd daily featured' },
+  { url:'trade-of-the-day-pro.html', name:'🎯 TOTD PRO (ML)', desc:'Model-selected single highest-conviction', cat:'daily', tags:'totd ml model' },
+  { url:'plays.html', name:'⭐ Plays of the Day', desc:'8 conviction cards', cat:'daily', tags:'plays daily' },
+  { url:'trade-coach.html', name:'🎓 Trade Coach', desc:'Full trade plan with ML confidence', cat:'daily', tags:'coach plan ml' },
+  { url:'pre-market.html', name:'🌅 Pre-Market Brief', desc:'Catalysts, levels, game plan', cat:'daily', tags:'premarket' },
+  { url:'tomorrow-playbook.html', name:'📋 Tomorrow Playbook', desc:'Next-session prep', cat:'daily', tags:'tomorrow playbook' },
+
+  // Brain / ML
+  { url:'brain-hub.html', name:'🧠 Brain Hub', desc:'One-page brain status command center', cat:'brain', tags:'brain hub command center status', badge:'HUB' },
+  { url:'model-results.html', name:'📊 Model Results', desc:'A-F grade, accuracy, sim P&L, equity curve', cat:'brain', tags:'model results grade accuracy pnl' },
+  { url:'brain-grade.html', name:'🎓 Brain Grade', desc:'Daily letter grade with history', cat:'brain', tags:'brain grade daily' },
+  { url:'brain-weekly-report.html', name:'📰 Brain Weekly Report', desc:'Auto-generated weekly summary, share/print', cat:'brain', tags:'weekly report summary share', badge:'NEW' },
+  { url:'brain-live-feed.html', name:'📡 Brain Live Feed', desc:'Twitter-style stream of brain thoughts', cat:'brain', tags:'live feed stream brain', badge:'LIVE' },
+  { url:'brain-monthly-calendar.html', name:'📅 Monthly Calendar', desc:'Calendar heatmap of daily grades', cat:'brain', tags:'monthly calendar heatmap' },
+  { url:'brain-memory.html', name:'🧠 Brain Memory', desc:'Per-symbol weights, setup performance', cat:'brain', tags:'memory weights symbols' },
+  { url:'brain-coach.html', name:'🎙 Brain Coach', desc:'Live narrated trading coach', cat:'brain', tags:'coach narration speech voice' },
+  { url:'brain-diary.html', name:'📓 Brain Diary', desc:'Personal log of insights, lessons', cat:'brain', tags:'diary journal lessons notes', badge:'NEW' },
+  { url:'model-postmortem.html', name:'🔬 Model Postmortem', desc:'Deep analysis of wins/losses', cat:'brain', tags:'postmortem analysis' },
+  { url:'model-economy.html', name:'📊 Model Economy', desc:'Sharpe, Sortino, drawdown', cat:'brain', tags:'sharpe sortino drawdown economy' },
+  { url:'model-pnl.html', name:'💰 Model Sim P&L', desc:'Confidence threshold sweeps', cat:'brain', tags:'pnl sim equity confidence' },
+  { url:'model-symbols-leaderboard.html', name:'🏆 Symbols Leaderboard', desc:'Best/worst symbols for the model', cat:'brain', tags:'leaderboard symbols best worst' },
+  { url:'model-what-if.html', name:'🎛 Model What-If', desc:'Drag feature sliders, see prediction', cat:'brain', tags:'whatif sliders prediction features' },
+  { url:'model-export.html', name:'💾 Model Backup', desc:'Export/import trained brain state', cat:'brain', tags:'export backup restore migration' },
+  { url:'calibration.html', name:'📏 Calibration', desc:'Reliability diagram + Brier + ECE', cat:'brain', tags:'calibration reliability brier ece' },
+  { url:'cohort-analysis.html', name:'🔬 Cohort Analysis', desc:'Slice trades by any attribute', cat:'brain', tags:'cohort slice attribute analysis', badge:'NEW' },
+  { url:'setup-compare.html', name:'⚔ Setup Compare', desc:'Head-to-head setup matchup', cat:'brain', tags:'compare setup matchup vs' },
+  { url:'sentiment-vs-model.html', name:'⚖ Sentiment vs Model', desc:'Crowd vs model scatter', cat:'brain', tags:'sentiment crowd model scatter' },
+  { url:'auto-paper.html', name:'🤖 Autopilot Paper', desc:'Auto paper trader', cat:'brain', tags:'autopilot paper auto bot' },
+  { url:'streak-tracker.html', name:'🔥 Streak Tracker', desc:'Win/loss streaks', cat:'brain', tags:'streak win loss' },
+  { url:'missed-opportunities.html', name:'😢 Missed Opportunities', desc:'High-conf calls you didn\'t trade', cat:'brain', tags:'missed opportunities regret' },
+  { url:'daily-report.html', name:'📋 Daily Report', desc:'4-format copy-pastable summary', cat:'brain', tags:'daily report share' },
+  { url:'risk-sizer-pro.html', name:'📐 Risk Sizer PRO', desc:'Model-weighted Kelly sizing', cat:'brain', tags:'risk sizer kelly' },
+  { url:'broker-prep.html', name:'🔌 Broker Prep', desc:'Alpaca/Tradier/IBKR guide', cat:'brain', tags:'broker prep alpaca tradier ibkr' },
+  { url:'ml-leaderboard.html', name:'🏆 ML Leaderboard', desc:'Model versions ranked by F1', cat:'brain', tags:'ml leaderboard versions f1' },
+  { url:'ml-status.html', name:'🩺 ML Status', desc:'Quick health summary', cat:'brain', tags:'ml status health' },
+  { url:'first-run-tour.html', name:'🎬 First-Run Tour', desc:'5-minute setup walkthrough', cat:'brain', tags:'tour setup onboarding' },
+  { url:'notification-log.html', name:'🔔 Notification Log', desc:'Replay all notifications', cat:'brain', tags:'notification log alerts' },
+  { url:'alert-rules-pro.html', name:'⚡ Alert Rules PRO', desc:'Visual alert builder', cat:'brain', tags:'alert rules builder' },
+  { url:'trade-export.html', name:'📤 Trade Export', desc:'CSV/JSON/TradingView/Markdown', cat:'brain', tags:'export csv tradingview' },
+  { url:'active-learning.html', name:'🎯 Active Learning', desc:'Label most-uncertain first', cat:'brain', tags:'active learning uncertain' },
+  { url:'training-history.html', name:'📜 Training History', desc:'Loss curves over time', cat:'brain', tags:'training history' },
+  { url:'model-trainer.html', name:'🎓 Model Trainer', desc:'Full retrain controls', cat:'brain', tags:'trainer retrain' },
+  { url:'model-explorer.html', name:'🔍 Model Explorer', desc:'Inspect weights, features', cat:'brain', tags:'explorer weights features' },
+  { url:'neural-net.html', name:'🧠 Neural Net (MLP)', desc:'Multi-layer perceptron', cat:'brain', tags:'neural net mlp' },
+
+  // Trade
+  { url:'day-trader-pro.html', name:'📈 Day Trader PRO', desc:'Day trading dashboard', cat:'trade', tags:'day trader pro' },
+  { url:'options-flow.html', name:'📡 Options Flow', desc:'Unusual options activity', cat:'trade', tags:'options flow unusual' },
+  { url:'options-chain.html', name:'⛓ Options Chain', desc:'Full chain w/ Greeks', cat:'trade', tags:'options chain greeks' },
+  { url:'gex.html', name:'🌀 Gamma Exposure', desc:'GEX map, vanna, charm', cat:'trade', tags:'gex gamma vanna charm' },
+  { url:'gex-pro.html', name:'🌀 GEX PRO', desc:'Advanced GEX analytics', cat:'trade', tags:'gex pro advanced' },
+  { url:'vol-surface.html', name:'🌐 Vol Surface', desc:'IV surface grid', cat:'trade', tags:'vol surface iv' },
+  { url:'dark-pool.html', name:'🌑 Dark Pool', desc:'Dark pool prints', cat:'trade', tags:'dark pool prints' },
+  { url:'tape.html', name:'📜 Time & Sales', desc:'Live tape', cat:'trade', tags:'tape time sales' },
+  { url:'watchlist-pro.html', name:'⭐ Watchlist PRO', desc:'Multi-list w/ brain scores', cat:'trade', tags:'watchlist pro' },
+  { url:'mobile-dashboard.html', name:'📱 Mobile Dashboard', desc:'Single-screen mobile view', cat:'trade', tags:'mobile dashboard phone', badge:'MOBILE' },
+
+  // Scanners
+  { url:'hot-movers.html', name:'🔥 Hot Movers', desc:'Top movers live', cat:'scan', tags:'hot movers' },
+  { url:'squeeze-radar.html', name:'⛓ Squeeze Radar', desc:'Short squeeze candidates', cat:'scan', tags:'squeeze radar short' },
+  { url:'algo-signals.html', name:'🤖 Algo Signals', desc:'Algorithmic setup detection', cat:'scan', tags:'algo signals' },
+  { url:'confluence-scanner.html', name:'⚡ Confluence Scanner', desc:'Multi-factor stacking', cat:'scan', tags:'confluence scanner' },
+  { url:'pre-market-scanner.html', name:'🌅 Pre-Market Scanner', desc:'Pre-market movers', cat:'scan', tags:'premarket scanner' },
+  { url:'earnings-tonight.html', name:'📅 Earnings Tonight', desc:'After-hours earnings list', cat:'scan', tags:'earnings tonight' },
+  { url:'screener.html', name:'🔍 Screener', desc:'Multi-factor stock screener', cat:'scan', tags:'screener factor' },
+
+  // Markets
+  { url:'macro.html', name:'🌍 Macro', desc:'Global indices, yields, FX', cat:'market', tags:'macro global indices' },
+  { url:'heatmap.html', name:'🔥 Heatmap', desc:'Sector treemap', cat:'market', tags:'heatmap treemap sector' },
+  { url:'sectors.html', name:'📊 Sectors', desc:'11-sector deep dive', cat:'market', tags:'sectors' },
+  { url:'vix-pulse.html', name:'📊 VIX Pulse', desc:'Volatility regime monitor', cat:'market', tags:'vix volatility' },
+
+  // Tools
+  { url:'settings.html', name:'⚙ Settings', desc:'API keys, data feed, prefs', cat:'tool', tags:'settings api keys data' },
+  { url:'all-tools.html', name:'🗂 All Tools', desc:'Full tool directory', cat:'tool', tags:'all tools directory' },
+  { url:'backtester.html', name:'📊 Backtester', desc:'8 strategies × any asset', cat:'tool', tags:'backtest strategies' },
+  { url:'trade-journal-pro.html', name:'📓 Journal PRO', desc:'Log trades, ML training data', cat:'tool', tags:'journal trades' },
+  { url:'kelly-sizer.html', name:'📐 Kelly Sizer', desc:'Position sizing calculator', cat:'tool', tags:'kelly position sizing' },
+  { url:'pwa-install.html', name:'📱 Install App', desc:'PWA install guide', cat:'tool', tags:'pwa install app' }
+];
+
+let selIdx = 0;
+let activeCat = 'all';
+let filtered = PAGES;
+
+function score(p, q) {
+  if (!q) return 1;
+  const blob = (p.name + ' ' + p.desc + ' ' + p.tags + ' ' + p.url).toLowerCase();
+  const qLow = q.toLowerCase();
+  let s = 0;
+  if (blob.includes(qLow)) s = 100;
+  if (p.name.toLowerCase().includes(qLow)) s += 50;
+  if (p.name.toLowerCase().startsWith(qLow)) s += 100;
+  // Per-word boost
+  qLow.split(/\s+/).forEach(w => { if (blob.includes(w)) s += 5; });
+  return s;
+}
+
+function render() {
+  const q = document.getElementById('q').value.trim();
+  filtered = PAGES.filter(p => activeCat === 'all' || p.cat === activeCat);
+  if (q) filtered = filtered.map(p => ({ p, s: score(p, q) })).filter(x => x.s > 0).sort((a, b) => b.s - a.s).map(x => x.p);
+  filtered = filtered.slice(0, 30);
+  selIdx = Math.min(selIdx, filtered.length - 1);
+  if (selIdx < 0) selIdx = 0;
+
+  const wrap = document.getElementById('results');
+  if (filtered.length === 0) {
+    wrap.innerHTML = '<div style="padding:40px;text-align:center;color:var(--text-muted);font-size:13px;">No matches. Try a different query.</div>';
+    return;
+  }
+  wrap.innerHTML = filtered.map((p, i) =>
+    '<a href="' + p.url + '" class="result' + (i === selIdx ? ' sel' : '') + '" data-i="' + i + '">'
+    + '<div><div class="name">' + p.name + '</div><div class="desc">' + p.desc + '</div></div>'
+    + '<div>' + (p.badge ? '<span class="badge">' + p.badge + '</span>' : '') + '</div>'
+    + '</a>'
+  ).join('');
+}
+
+document.getElementById('q').addEventListener('input', () => { selIdx = 0; render(); });
+document.getElementById('q').addEventListener('keydown', e => {
+  if (e.key === 'ArrowDown') { e.preventDefault(); selIdx = Math.min(filtered.length - 1, selIdx + 1); render(); }
+  if (e.key === 'ArrowUp')   { e.preventDefault(); selIdx = Math.max(0, selIdx - 1); render(); }
+  if (e.key === 'Enter')     { if (filtered[selIdx]) window.location.href = filtered[selIdx].url; }
+});
+
+document.querySelectorAll('.tag-chip').forEach(c => c.addEventListener('click', () => {
+  document.querySelectorAll('.tag-chip').forEach(x => x.classList.remove('on'));
+  c.classList.add('on');
+  activeCat = c.dataset.cat;
+  selIdx = 0;
+  render();
+}));
+
+render();
+</script>
+</body>
+</html>

@@ -1,14 +1,16 @@
 # ⚠️ YOU ARE MID-PROJECT. READ THIS FIRST.
 
-> **Hi Claude. This is a continued session.** Prior Claudes built 60 HTML pages, 11 JS modules — institutional-grade trading platform with real-time data adapters (Finnhub/Polygon/Tradier/Alpaca), real Claude API integration in the assistant + AI Scout (idea generator), settings page for API key config, paper trading, single-symbol focus, volume profile, order flow heatmap, plain-English learn dashboard, squeeze radar, hot movers, multi-leg strategy builder with Greeks aggregator, today's game plan, command palette (⌘K), global hotkeys, toast system, and first-visit onboarding tour. **DO NOT RESTART.** Don't propose to rebuild anything. Read this file fully, then ask the user what specific thing they want next.
+> **Hi Claude. This is a continued session.** Prior Claudes built **247 HTML pages and 17+ JS modules** — a complete institutional-grade trading platform with a **self-learning ML brain** (logistic regression + MLP, online learning, calibration, drift detection, K-fold CV, active learning, SHAP-style explanations), high-conviction push notifications, autopilot paper trading, brain coach (live speech narration), per-symbol leaderboards, weekly auto-reports, what-if scenario tool, backup/restore, mobile dashboard, and 30+ ML-integrated pages. **DO NOT RESTART.** Don't propose to rebuild anything. Read this file, run `python _full_audit.py` to verify state, then continue from where the prior Claude left off.
 >
-> **TL;DR for Brandon (the user):** he's building `options.bpleone.com` as a subdomain of `bpleone.com` (his Squarespace hub site). The Pokémon TCG desk already lives at `pokemon.bpleone.com`. This is the equity / options / TA desk going to `options.bpleone.com`. It's BUILT but NOT DEPLOYED yet.
+> **TL;DR for Brandon (the user):** he's building `options.bpleone.com` as a subdomain of `bpleone.com`. **The site IS LIVE on GitHub Pages.** The Squarespace hub tile that points to it may still need configuration — see `SQUARESPACE-FIX.md`. The Pokémon TCG desk is at `pokemon.bpleone.com`. Brandon's mode is autonomous-build: he says "continue" or "keep building" and expects you to ship without confirmation prompts. He hates being asked permission for routine work.
 >
 > **First-thing-to-do checklist:**
-> 1. Confirm to Brandon you've read this file: "Caught up. 50 pages, 7 JS modules, real data + Claude API plumbed, audit clean, ready to ship to options.bpleone.com."
-> 2. Ask what he wants next (most likely: "keep building", "deploy this", "audit and fix", or "wire it to my live data feed").
-> 3. **Do NOT** ls the project to figure out what exists — the file map below is authoritative.
-> 4. **Do NOT** propose a "fresh start" — everything is already wired together.
+> 1. Run `python _full_audit.py` to confirm clean state (expect "AUDIT CLEAN" with 240+ pages).
+> 2. Check `git log --oneline -10` to see the latest commits — most recent batches added ML pages, weekly reports, mobile dash, live feed, etc.
+> 3. **Default action when Brandon says "continue":** build another batch of 4-6 valuable additions, wire into `js/app.js` nav, add to `sitemap.xml`, audit, commit, push. No questions asked.
+> 4. **Do NOT** ls the project to figure out what exists — the file map below is OUTDATED (lists ~50 pages from an early session). Use `Glob '*.html'` and `git log` to find what's there now.
+> 5. **Do NOT** propose a "fresh start" — everything is wired together.
+> 6. **The ML brain stack:** `js/model.js` (logistic + MLP engine), `js/brain-loop.js` (background brain ticks), `js/learn.js` (legacy weight-learning), `js/notify.js` (push notif w/ log patch). Pages in the `brainGrp` nav array (see `js/app.js`).
 >
 > Now continue reading.
 

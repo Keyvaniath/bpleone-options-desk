@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Cohort Analysis — bpleone / trade</title>
+<meta name="description" content="Slice your trade history by any attribute (sector, time, sym, confidence bucket) and compare hit rates side-by-side.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<style>
+.cohort-row { display:grid;grid-template-columns:200px 60px 80px 80px 80px 80px 80px 1fr;gap:10px;padding:11px 14px;border-bottom:1px solid var(--border);font-family:var(--font-mono);font-size:11px;align-items:center; }
+.cohort-row.hdr { background:var(--bg-elevated);font-size:9px;color:var(--text-muted);font-weight:800;letter-spacing:0.5px; }
+.cohort-row:not(.hdr):hover { background:var(--bg-elevated); }
+.bar { height:8px;background:var(--bg);border-radius:4px;overflow:hidden; }
+.bar > div { height:100%; }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">🔬 Cohort Analysis</div>
+      <div class="page-subtitle">Slice trades by attribute · find your edge · find your bleeding · <span id="market-clock">--</span></div>
+    </div>
+    <div class="flex gap-8">
+      <select id="dim" class="btn btn-secondary" style="background:var(--bg-elevated);border:1px solid var(--border);color:var(--text-primary);padding:8px 14px;">
+        <option value="sym">By Symbol</option>
+        <option value="setup">By Setup</option>
+        <option value="severity">By Severity</option>
+        <option value="hour">By Hour of Day</option>
+        <option value="dow">By Day of Week</option>
+        <option value="conf">By Model Confidence</option>
+        <option value="sector">By Sector</option>
+      </select>
+      <select id="window" class="btn btn-secondary" style="background:var(--bg-elevated);border:1px solid var(--border);color:var(--text-primary);padding:8px 14px;">
+        <option value="7">Last 7 days</option>
+        <option value="30" selected>Last 30 days</option>
+        <option value="90">Last 90 days</option>
+        <option value="all">All time</option>
+      </select>
+    </div>
+  </div>
+
+  <div class="grid grid-4 mb-24">
+    <div class="card"><div class="card-header"><div class="card-title">Total trades</div></div><div class="mono" style="font-size:24px;font-weight:700;" id="kTotal">--</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">Cohorts</div></div><div class="mono" style="font-size:24px;font-weight:700;color:var(--accent);" id="kCoh">--</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">Best cohort</div></div><div class="mono" style="font-size:16px;font-weight:700;color:var(--green);" id="kBest">--</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">Worst cohort</div></div><div class="mono" style="font-size:16px;font-weight:700;color:var(--red);" id="kWorst">--</div></div>
+  </div>
+
+  <div class="grid grid-2 mb-24">
+    <div class="card">
+      <div class="card-header"><div class="card-title">📊 Hit rate by cohort</div></div>
+      <canvas id="hitChart" height="220"></canvas>
+    </div>
+    <div class="card">
+      <div class="card-header"><div class="card-title">💰 Expectancy by cohort (R)</div></div>
+      <canvas id="expChart" height="220"></canvas>
+    </div>
+  </div>
+
+  <div class="card" style="padding:0;">
+    <div class="cohort-row hdr">
+      <div>COHORT</div><div>N</div><div>HIT %</div><div>AVG R</div><div>TOTAL R</div><div>AVG CONF</div><div>EXP</div><div>HIT RATE BAR</div>
+    </div>
+    <div id="cohortBody"></div>
+  </div>
+
+  <div class="card mt-24">
+    <div class="card-header"><div class="card-title">🎯 How to read this</div></div>
+    <div style="font-size:13px;color:var(--text-secondary);line-height:1.7;">
+      Each row is a cohort — a slice of your trade history filtered by the selected dimension.<br>
+      <strong>HIT %</strong>: percentage of wins. Above 55% is good. Below 45% is a leak.<br>
+      <strong>EXP</strong>: expectancy in R. Positive means you make money on average; negative means you bleed.<br>
+      <strong>AVG CONF</strong>: what the model thought of these trades on average. If high conf but low hit rate → the model is wrong here, postmortem time. If low conf but high hit rate → your discretion is beating the model, build training data for this pattern.
+    </div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script src="js/model.js"></script>
+<script>
+buildNav('cohort-analysis');
+
+function loadTrain() { try { return JSON.parse(localStorage.getItem('bpleone_train_v1') || '[]'); } catch(e) { return []; } }
+
+// Simple symbol -> sector lookup
+const SECTORS = {
+  'AAPL':'Tech','MSFT':'Tech','GOOGL':'Tech','META':'Tech','NVDA':'Tech','AMD':'Tech','INTC':'Tech','TSLA':'Auto','AMZN':'Consumer','NFLX':'Consumer',
+  'JPM':'Financial','BAC':'Financial','GS':'Financial','MS':'Financial','XOM':'Energy','CVX':'Energy','JNJ':'Health','PFE':'Health','UNH':'Health',
+  'SPY':'Index','QQQ':'Index','IWM':'Index','DIA':'Index','XLK':'Sector','XLF':'Sector','XLE':'Sector','XLV':'Sector','BTC':'Crypto','ETH':'Crypto','COIN':'Crypto'
+};
+
+function dimKey(t, dim) {
+  if (dim === 'sym') return t.meta?.sym || 'UNK';
+  if (dim === 'setup') return t.meta?.setup || 'unknown';
+  if (dim === 'severity') return t.severity || t.meta?.severity || 'med';
+  if (dim === 'hour') {
+    const h = new Date(t.ts).getHours();
+    if (h < 7) return 'Overnight (<7am)';
+    if (h < 10) return 'Open (7-10am)';
+    if (h < 12) return 'Morning (10-12)';
+    if (h < 14) return 'Midday (12-2pm)';
+    if (h < 16) return 'Close (2-4pm)';
+    return 'After hours';
+  }
+  if (dim === 'dow') {
+    return ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][new Date(t.ts).getDay()];
+  }
+  if (dim === 'conf') {
+    let p = null; try { if (window.predictForFinding) { const r = window.predictForFinding(t); p = r ? r.prob : null; } } catch(e) {}
+    if (p == null) return 'No model';
+    if (p < 0.4) return '0-40%';
+    if (p < 0.5) return '40-50%';
+    if (p < 0.6) return '50-60%';
+    if (p < 0.7) return '60-70%';
+    if (p < 0.8) return '70-80%';
+    if (p < 0.9) return '80-90%';
+    return '90-100%';
+  }
+  if (dim === 'sector') return SECTORS[t.meta?.sym] || 'Other';
+  return 'all';
+}
+
+function compute() {
+  const dim = document.getElementById('dim').value;
+  const winStr = document.getElementById('window').value;
+  const since = winStr === 'all' ? 0 : Date.now() - parseInt(winStr) * 86400000;
+  const train = loadTrain().filter(t => t.ts >= since);
+
+  const cohorts = {};
+  train.forEach(t => {
+    const k = dimKey(t, dim);
+    if (!cohorts[k]) cohorts[k] = { name: k, n: 0, w: 0, r: 0, probSum: 0 };
+    cohorts[k].n++;
+    if (t.y === 1) { cohorts[k].w++; cohorts[k].r += (t.r || 1.5); }
+    else cohorts[k].r -= 1.0;
+    try { if (window.predictForFinding) { const p = window.predictForFinding(t); if (p) cohorts[k].probSum += p.prob; } } catch(e) {}
+  });
+
+  const arr = Object.values(cohorts).map(c => ({
+    ...c,
+    hitRate: c.n > 0 ? c.w / c.n : 0,
+    avgR: c.n > 0 ? c.r / c.n : 0,
+    expectancy: c.n > 0 ? c.r / c.n : 0,
+    avgConf: c.n > 0 ? c.probSum / c.n : 0
+  }));
+  arr.sort((a, b) => b.expectancy - a.expectancy);
+  return { arr, total: train.length };
+}
+
+function render() {
+  const { arr, total } = compute();
+  document.getElementById('kTotal').textContent = total;
+  document.getElementById('kCoh').textContent = arr.length;
+  document.getElementById('kBest').textContent = arr.length > 0 ? arr[0].name + ' (' + (arr[0].expectancy >= 0 ? '+' : '') + arr[0].expectancy.toFixed(2) + 'R)' : '—';
+  const worst = arr[arr.length - 1];
+  document.getElementById('kWorst').textContent = worst ? worst.name + ' (' + (worst.expectancy >= 0 ? '+' : '') + worst.expectancy.toFixed(2) + 'R)' : '—';
+
+  // Table
+  const body = document.getElementById('cohortBody');
+  body.innerHTML = '';
+  arr.forEach(c => {
+    const r = document.createElement('div');
+    r.className = 'cohort-row';
+    const hitCol = c.hitRate >= 0.55 ? 'var(--green)' : c.hitRate >= 0.45 ? 'var(--text-primary)' : 'var(--red)';
+    const expCol = c.expectancy > 0 ? 'var(--green)' : 'var(--red)';
+    const barW = Math.max(2, c.hitRate * 100);
+    const barCol = c.hitRate >= 0.55 ? '#10b981' : c.hitRate >= 0.45 ? '#00d4ff' : '#ef4444';
+    r.innerHTML = '<div style="font-weight:700;">' + c.name + '</div>'
+      + '<div>' + c.n + '</div>'
+      + '<div style="color:' + hitCol + ';">' + (c.hitRate*100).toFixed(0) + '%</div>'
+      + '<div style="color:' + (c.avgR > 0 ? 'var(--green)' : 'var(--red)') + ';">' + (c.avgR >= 0 ? '+' : '') + c.avgR.toFixed(2) + '</div>'
+      + '<div style="color:' + (c.r > 0 ? 'var(--green)' : 'var(--red)') + ';">' + (c.r >= 0 ? '+' : '') + c.r.toFixed(1) + 'R</div>'
+      + '<div style="color:var(--accent);">' + (c.avgConf*100).toFixed(0) + '%</div>'
+      + '<div style="color:' + expCol + ';font-weight:700;">' + (c.expectancy >= 0 ? '+' : '') + c.expectancy.toFixed(2) + 'R</div>'
+      + '<div><div class="bar"><div style="width:' + barW + '%;background:' + barCol + ';"></div></div></div>';
+    body.appendChild(r);
+  });
+
+  // Charts
+  if (window._hitChart) window._hitChart.destroy();
+  window._hitChart = new Chart(document.getElementById('hitChart'), {
+    type: 'bar',
+    data: { labels: arr.map(c => c.name), datasets: [{ data: arr.map(c => c.hitRate * 100), backgroundColor: arr.map(c => c.hitRate >= 0.55 ? '#10b981' : c.hitRate >= 0.45 ? '#00d4ff' : '#ef4444') }] },
+    options: { responsive:true, maintainAspectRatio:false, plugins:{legend:{display:false}}, scales:{x:{ticks:{color:'#888',maxRotation:60,minRotation:30},grid:{display:false}},y:{ticks:{color:'#888',callback:v=>v+'%'},grid:{color:'#222'},max:100}} }
+  });
+
+  if (window._expChart) window._expChart.destroy();
+  window._expChart = new Chart(document.getElementById('expChart'), {
+    type: 'bar',
+    data: { labels: arr.map(c => c.name), datasets: [{ data: arr.map(c => c.expectancy), backgroundColor: arr.map(c => c.expectancy > 0 ? '#10b981' : '#ef4444') }] },
+    options: { responsive:true, maintainAspectRatio:false, plugins:{legend:{display:false}}, scales:{x:{ticks:{color:'#888',maxRotation:60,minRotation:30},grid:{display:false}},y:{ticks:{color:'#888',callback:v=>v+'R'},grid:{color:'#222'}}} }
+  });
+}
+
+document.getElementById('dim').addEventListener('change', render);
+document.getElementById('window').addEventListener('change', render);
+render();
+</script>
+</body>
+</html>
