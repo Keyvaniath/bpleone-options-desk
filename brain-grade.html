@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Brain Grade — bpleone / trade</title>
+<meta name="description" content="Daily letter grade for the brain — A through F based on today's hit rate, learning velocity, and signal quality.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.grade-banner { padding:40px 30px;text-align:center;border-radius:16px;background:linear-gradient(135deg,rgba(0,212,255,0.08),rgba(124,58,237,0.04));border:1px solid rgba(0,212,255,0.2);margin-bottom:24px; }
+.grade-banner .letter { font-family:var(--font-mono);font-size:160px;font-weight:900;letter-spacing:-8px;line-height:1; }
+.sub-grade { padding:16px;background:var(--bg-elevated);border:1px solid var(--border);border-radius:10px; }
+.sub-grade .l { font-size:11px;color:var(--text-muted);font-weight:700;letter-spacing:0.5px; }
+.sub-grade .v { font-family:var(--font-mono);font-size:32px;font-weight:800;margin-top:6px; }
+.sub-grade .s { font-size:11px;color:var(--text-muted);margin-top:4px; }
+.day-block { padding:14px;border-radius:8px;text-align:center;font-family:var(--font-mono); }
+.day-block .day { font-size:10px;color:var(--text-muted);font-weight:700; }
+.day-block .gr { font-size:24px;font-weight:800;margin-top:4px; }
+.day-block .info { font-size:9px;margin-top:2px; }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">🎓 Brain Grade</div>
+      <div class="page-subtitle">Daily report card · <span id="market-clock">--</span></div>
+    </div>
+    <div class="flex gap-8">
+      <a href="model-results.html" class="btn btn-secondary">🎯 Full Results</a>
+    </div>
+  </div>
+
+  <!-- GIANT GRADE -->
+  <div class="grade-banner">
+    <div style="font-size:13px;color:var(--text-muted);font-weight:700;letter-spacing:1.5px;">TODAY'S GRADE</div>
+    <div class="letter" id="bigGrade">—</div>
+    <div style="font-size:24px;font-weight:700;margin-top:14px;" id="verdict">Loading...</div>
+    <div style="font-size:14px;color:var(--text-secondary);margin-top:10px;max-width:600px;margin-left:auto;margin-right:auto;line-height:1.6;" id="summary">—</div>
+  </div>
+
+  <!-- SUB-GRADES -->
+  <div class="grid grid-4 mb-24">
+    <div class="sub-grade"><div class="l">HIT RATE TODAY</div><div class="v" id="kHR">—</div><div class="s" id="kHRBody">—</div></div>
+    <div class="sub-grade"><div class="l">SIGNAL VOLUME</div><div class="v" id="kSignals">—</div><div class="s">findings today</div></div>
+    <div class="sub-grade"><div class="l">HIGH-SEV CALLS</div><div class="v" id="kHigh">—</div><div class="s">3-star setups</div></div>
+    <div class="sub-grade"><div class="l">LEARNING VELOCITY</div><div class="v" id="kVel">—</div><div class="s">samples trained today</div></div>
+  </div>
+
+  <!-- 14-DAY HISTORY -->
+  <div class="card mb-24">
+    <div class="card-header"><div class="card-title">📅 Last 14 Days — Daily Grades</div></div>
+    <div id="weekGrid" style="display:grid;grid-template-columns:repeat(14,1fr);gap:6px;"></div>
+  </div>
+
+  <!-- TREND CHART -->
+  <div class="card mb-24">
+    <div class="card-header"><div class="card-title">📈 Daily Hit Rate Trend</div></div>
+    <canvas id="trendChart" height="200"></canvas>
+  </div>
+
+  <!-- TODAY'S BEST + WORST -->
+  <div class="grid grid-2 mb-24">
+    <div class="card">
+      <div class="card-header"><div class="card-title">🏆 Today's Best Calls</div></div>
+      <div id="bestToday"></div>
+    </div>
+    <div class="card">
+      <div class="card-header"><div class="card-title">❌ Today's Worst Calls</div></div>
+      <div id="worstToday"></div>
+    </div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script src="js/model.js"></script>
+<script src="js/charts.js"></script>
+<script>
+buildNav('brain-grade');
+
+function gradeFromMetrics(hr, n, learning) {
+  // Multi-factor grade: hit rate weight 60%, volume 20%, learning 20%
+  let score = 0;
+  if (n >= 5) score += 0.6 * hr; // up to 0.60
+  if (n >= 5) score += 0.2 * Math.min(1, n / 30); // up to 0.20
+  score += 0.2 * Math.min(1, learning / 20); // up to 0.20
+  if (n < 3) return { grade: '⏳', col: 'var(--text-muted)', verdict: 'COLLECTING' };
+  if (score >= 0.75) return { grade: 'A+', col: 'var(--green)', verdict: 'EXCELLENT' };
+  if (score >= 0.65) return { grade: 'A', col: 'var(--green)', verdict: 'STRONG' };
+  if (score >= 0.55) return { grade: 'B', col: 'var(--accent)', verdict: 'GOOD' };
+  if (score >= 0.45) return { grade: 'C', col: 'var(--yellow)', verdict: 'AVERAGE' };
+  if (score >= 0.35) return { grade: 'D', col: 'var(--red)', verdict: 'WEAK' };
+  return { grade: 'F', col: 'var(--red)', verdict: 'POOR' };
+}
+
+let trendChart;
+function paint() {
+  if (!window.ModelStore) { setTimeout(paint, 500); return; }
+  const findings = (function () { try { return JSON.parse(localStorage.getItem('bpleone_brain_findings_v1') || '{"items":[]}').items; } catch (e) { return []; } })();
+  const model = ModelStore.load();
+
+  // Today
+  const startOfToday = new Date(); startOfToday.setHours(0, 0, 0, 0);
+  const todayFindings = findings.filter(f => f.ts >= startOfToday.getTime());
+  const todayResolved = todayFindings.filter(f => f.outcome === 'hit' || f.outcome === 'miss');
+  const todayHits = todayResolved.filter(f => f.outcome === 'hit').length;
+  const todayHR = todayResolved.length > 0 ? todayHits / todayResolved.length : 0;
+  const todayHighSev = todayFindings.filter(f => (f.severity === 'high' || f.severity === 3)).length;
+
+  // Learning velocity (samples trained today)
+  const todayTrained = (model.lossHistory || []).filter(l => l.ts >= startOfToday.getTime()).length;
+
+  const todayGrade = gradeFromMetrics(todayHR, todayResolved.length, todayTrained);
+  document.getElementById('bigGrade').textContent = todayGrade.grade;
+  document.getElementById('bigGrade').style.color = todayGrade.col;
+  document.getElementById('verdict').textContent = todayGrade.verdict;
+  document.getElementById('verdict').style.color = todayGrade.col;
+  const sm = document.getElementById('summary');
+  if (todayResolved.length < 3) {
+    sm.innerHTML = 'Not enough rated outcomes today to grade (' + todayResolved.length + '). Check back later or visit pages to wake the brain.';
+  } else {
+    sm.innerHTML = todayHits + ' hits / ' + (todayResolved.length - todayHits) + ' misses · ' + todayFindings.length + ' total findings · ' + todayTrained + ' training samples. ' +
+      (todayGrade.grade === 'A+' || todayGrade.grade === 'A' ? '🔥 Brain is firing well — high signal-to-noise today.' :
+       todayGrade.grade === 'B' ? '✓ Solid day. Continue running.' :
+       todayGrade.grade === 'C' ? '~ Average performance. Watch for regime change.' :
+       '⚠ Below average. Consider full retrain or check feature freshness.');
+  }
+
+  document.getElementById('kHR').textContent = todayResolved.length > 0 ? (todayHR * 100).toFixed(0) + '%' : '—';
+  document.getElementById('kHR').style.color = todayHR >= 0.55 ? 'var(--green)' : todayHR >= 0.45 ? 'var(--accent)' : 'var(--red)';
+  document.getElementById('kHRBody').textContent = todayHits + 'W / ' + (todayResolved.length - todayHits) + 'L';
+  document.getElementById('kSignals').textContent = todayFindings.length;
+  document.getElementById('kHigh').textContent = todayHighSev;
+  document.getElementById('kVel').textContent = todayTrained;
+
+  // 14-day history
+  const wg = document.getElementById('weekGrid');
+  wg.innerHTML = '';
+  const dailyHR = [];
+  const dailyLabels = [];
+  for (let d = 13; d >= 0; d--) {
+    const dayStart = new Date(); dayStart.setDate(dayStart.getDate() - d); dayStart.setHours(0, 0, 0, 0);
+    const dayEnd = new Date(dayStart.getTime() + 24 * 3600 * 1000);
+    const dayFindings = findings.filter(f => f.ts >= dayStart.getTime() && f.ts < dayEnd.getTime());
+    const dayResolved = dayFindings.filter(f => f.outcome === 'hit' || f.outcome === 'miss');
+    const dayHits = dayResolved.filter(f => f.outcome === 'hit').length;
+    const dHR = dayResolved.length > 0 ? dayHits / dayResolved.length : 0;
+    const dayTrained = (model.lossHistory || []).filter(l => l.ts >= dayStart.getTime() && l.ts < dayEnd.getTime()).length;
+    const dayGrade = gradeFromMetrics(dHR, dayResolved.length, dayTrained);
+    dailyHR.push(dayResolved.length > 0 ? dHR * 100 : null);
+    dailyLabels.push(dayStart.toLocaleDateString('en-US', { weekday: 'short', day: 'numeric' }));
+    const bg = dayGrade.grade === '⏳' ? 'rgba(100,116,139,0.15)' : dayGrade.grade === 'A+' || dayGrade.grade === 'A' ? 'rgba(16,185,129,0.15)' : dayGrade.grade === 'B' ? 'rgba(0,212,255,0.15)' : dayGrade.grade === 'C' ? 'rgba(245,158,11,0.15)' : 'rgba(239,68,68,0.15)';
+    wg.innerHTML += '<div class="day-block" style="background:' + bg + ';">'
+      + '<div class="day">' + dayStart.toLocaleDateString('en-US', { weekday: 'short' }) + '</div>'
+      + '<div class="gr" style="color:' + dayGrade.col + ';">' + dayGrade.grade + '</div>'
+      + '<div class="info" style="color:var(--text-muted);">' + (dayResolved.length > 0 ? dayResolved.length + ' rated' : '—') + '</div></div>';
+  }
+
+  // Trend chart
+  if (trendChart) trendChart.destroy();
+  trendChart = new Chart(document.getElementById('trendChart').getContext('2d'), {
+    type: 'line',
+    data: { labels: dailyLabels, datasets: [
+      { label: 'Daily hit rate %', data: dailyHR, borderColor: 'rgba(0,212,255,1)', backgroundColor: 'rgba(0,212,255,0.08)', fill: true, borderWidth: 2, pointRadius: 4, tension: 0.2 },
+      { label: 'Random baseline', data: dailyLabels.map(() => 50), borderColor: 'rgba(150,150,150,0.5)', borderDash: [4,4], pointRadius: 0, borderWidth: 1 }
+    ] },
+    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: true, position: 'top', labels: { color: '#9ca3af' } } }, scales: { x: { grid: { color: 'rgba(255,255,255,0.04)' }, ticks: { color: '#6b7280', font: { size: 9 } } }, y: { min: 0, max: 100, grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#6b7280', callback: v => v + '%' } } } }
+  });
+
+  // Today's best/worst
+  const todayCalls = todayResolved.filter(f => typeof f.modelProb === 'number');
+  const todayBest = todayCalls.filter(f => f.outcome === 'hit' && f.modelProb >= 0.6).slice(0, 5);
+  const todayWorst = todayCalls.filter(f => f.outcome === 'miss' && f.modelProb >= 0.6).slice(0, 5);
+  document.getElementById('bestToday').innerHTML = todayBest.length === 0 ? '<div style="padding:14px;color:var(--text-muted);font-size:12px;text-align:center;">No high-conf hits today yet.</div>' :
+    todayBest.map(f => '<div style="padding:10px 14px;border-bottom:1px solid var(--border);"><strong>' + (f.meta && f.meta.sym) + '</strong> · <span style="color:var(--text-muted);font-size:11px;">' + (f.meta && f.meta.setup) + '</span> <span style="float:right;color:var(--green);font-family:var(--font-mono);font-weight:700;">' + (f.modelProb * 100).toFixed(0) + '% → HIT ✓</span></div>').join('');
+  document.getElementById('worstToday').innerHTML = todayWorst.length === 0 ? '<div style="padding:14px;color:var(--text-muted);font-size:12px;text-align:center;">No high-conf misses today (good!).</div>' :
+    todayWorst.map(f => '<div style="padding:10px 14px;border-bottom:1px solid var(--border);"><strong>' + (f.meta && f.meta.sym) + '</strong> · <span style="color:var(--text-muted);font-size:11px;">' + (f.meta && f.meta.setup) + '</span> <span style="float:right;color:var(--red);font-family:var(--font-mono);font-weight:700;">' + (f.modelProb * 100).toFixed(0) + '% → MISS ✗</span></div>').join('');
+}
+
+paint();
+window.addEventListener('bpleone:model-trained', paint);
+window.addEventListener('bpleone:brain-finding', paint);
+setInterval(paint, 30000);
+</script>
+</body>
+</html>

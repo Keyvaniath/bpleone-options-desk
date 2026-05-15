@@ -1,0 +1,369 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Model Results — bpleone / trade</title>
+<meta name="description" content="The one dashboard for ML performance — is the model making money? How accurate? What's it predicting now?">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.hero-banner { padding:32px;border-radius:14px;background:linear-gradient(135deg,rgba(0,212,255,0.10),rgba(124,58,237,0.06));border:1px solid rgba(0,212,255,0.25);margin-bottom:24px;text-align:center; }
+.hero-banner .grade { font-family:var(--font-mono);font-size:96px;font-weight:800;letter-spacing:-4px;line-height:1; }
+.hero-banner .verdict { font-size:18px;font-weight:700;margin-top:14px; }
+.hero-banner .summary { font-size:13px;color:var(--text-muted);margin-top:8px;line-height:1.5; }
+.kpi-big { padding:18px;background:var(--bg-elevated);border:1px solid var(--border);border-radius:12px;text-align:center; }
+.kpi-big .l { font-size:11px;color:var(--text-muted);font-weight:700;letter-spacing:0.5px; }
+.kpi-big .v { font-family:var(--font-mono);font-size:32px;font-weight:800;margin-top:6px; }
+.kpi-big .s { font-size:12px;margin-top:4px; }
+.kpi-big.win { border-left:4px solid var(--green); }
+.kpi-big.loss { border-left:4px solid var(--red); }
+.recent-row { display:grid; grid-template-columns: 80px 70px 100px 100px 100px 1fr; gap:12px; padding:10px 14px; border-bottom:1px solid var(--border); font-family:var(--font-mono); font-size:11px; align-items:center; }
+.recent-row.correct { border-left:3px solid var(--green); }
+.recent-row.wrong { border-left:3px solid var(--red); }
+.recent-row.pending { border-left:3px solid var(--text-muted); opacity:0.7; }
+.cm-cell { padding:24px;text-align:center;font-family:var(--font-mono);font-size:28px;font-weight:800;border-radius:10px; }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">🎯 Model Results</div>
+      <div class="page-subtitle">The one dashboard · is the model making money · how accurate · what now · <span id="market-clock">--</span></div>
+    </div>
+    <div class="flex gap-8">
+      <button class="btn btn-secondary" id="refreshBtn">🔄</button>
+      <a href="ml-status.html" class="btn btn-secondary">🩺 Status</a>
+      <a href="model-trainer.html" class="btn btn-secondary">🎓 Trainer</a>
+    </div>
+  </div>
+
+  <!-- HERO: BIG GRADE -->
+  <div class="hero-banner">
+    <div style="font-size:11px;color:var(--text-muted);font-weight:700;letter-spacing:1.5px;">HOW IS THE MODEL DOING?</div>
+    <div class="grade" id="bigGrade">—</div>
+    <div class="verdict" id="verdictText">Loading...</div>
+    <div class="summary" id="summaryText">—</div>
+  </div>
+
+  <!-- TOP-LEVEL KPIs -->
+  <div class="grid grid-4 mb-24">
+    <div class="kpi-big" id="kpiAccBig"><div class="l">ACCURACY</div><div class="v" id="kAcc">—</div><div class="s" id="kAccBody" style="color:var(--text-muted);">— rated outcomes</div></div>
+    <div class="kpi-big" id="kpiPnlBig"><div class="l">SIMULATED P&L (1R)</div><div class="v" id="kPnl">—</div><div class="s" id="kPnlBody" style="color:var(--text-muted);">If you followed every ≥65% pred</div></div>
+    <div class="kpi-big" id="kpiHrBig"><div class="l">HIGH-CONF HIT RATE</div><div class="v" id="kHR">—</div><div class="s" id="kHRBody" style="color:var(--text-muted);">P(win) ≥ 70% picks only</div></div>
+    <div class="kpi-big" id="kpiTrendBig"><div class="l">TREND (7-DAY)</div><div class="v" id="kTrend">—</div><div class="s" id="kTrendBody" style="color:var(--text-muted);">vs lifetime</div></div>
+  </div>
+
+  <!-- LIVE PREDICTIONS NOW -->
+  <div class="card mb-24">
+    <div class="card-header"><div class="card-title">🔮 What the Model is Predicting RIGHT NOW</div></div>
+    <div id="livePredictions" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:8px;"></div>
+  </div>
+
+  <!-- TWO COLUMNS: CONFUSION + EQUITY CURVE -->
+  <div class="grid grid-12 mb-24">
+    <div class="card col-5">
+      <div class="card-header"><div class="card-title">📊 Recent Confusion Matrix</div></div>
+      <div style="display:grid;grid-template-columns:90px 1fr 1fr;gap:6px;margin-top:14px;">
+        <div></div>
+        <div style="text-align:center;font-weight:700;color:var(--text-muted);font-size:11px;">Pred WIN</div>
+        <div style="text-align:center;font-weight:700;color:var(--text-muted);font-size:11px;">Pred LOSS</div>
+        <div style="display:flex;align-items:center;font-weight:700;color:var(--text-muted);font-size:11px;">Actual HIT</div>
+        <div class="cm-cell" style="color:var(--green);background:rgba(16,185,129,0.15);" id="cmTP">—</div>
+        <div class="cm-cell" style="color:var(--yellow);background:rgba(245,158,11,0.10);" id="cmFN">—</div>
+        <div style="display:flex;align-items:center;font-weight:700;color:var(--text-muted);font-size:11px;">Actual MISS</div>
+        <div class="cm-cell" style="color:var(--red);background:rgba(239,68,68,0.15);" id="cmFP">—</div>
+        <div class="cm-cell" style="color:var(--green);background:rgba(16,185,129,0.06);" id="cmTN">—</div>
+      </div>
+      <div class="mono mt-12" style="font-size:11px;color:var(--text-muted);" id="cmCount">Loading...</div>
+    </div>
+    <div class="card col-7">
+      <div class="card-header"><div class="card-title">📈 Cumulative R (1 per correct call)</div></div>
+      <canvas id="equityChart" height="220"></canvas>
+    </div>
+  </div>
+
+  <!-- TOP WINS / TOP MISSES -->
+  <div class="grid grid-2 mb-24">
+    <div class="card">
+      <div class="card-header"><div class="card-title">🏆 Top Wins (model called it + was right)</div></div>
+      <div id="topWins"></div>
+    </div>
+    <div class="card">
+      <div class="card-header"><div class="card-title">❌ Top Misses (model called it + was wrong)</div></div>
+      <div id="topMisses"></div>
+    </div>
+  </div>
+
+  <!-- BY SYMBOL -->
+  <div class="card mb-24">
+    <div class="card-header"><div class="card-title">📋 Per-Symbol Scoreboard</div></div>
+    <div id="symBoard"></div>
+  </div>
+
+  <!-- RECENT PREDICTIONS -->
+  <div class="card" style="padding:0;">
+    <div class="card-header" style="padding:14px 16px;">
+      <div class="card-title">🎬 Recent Predictions vs Outcomes</div>
+      <div style="font-size:11px;color:var(--text-muted);">Most recent 50</div>
+    </div>
+    <div class="recent-row" style="background:var(--bg-elevated);font-size:9px;color:var(--text-muted);font-weight:800;letter-spacing:0.5px;">
+      <div>TIME</div><div>SYM</div><div>PRED</div><div>OUTCOME</div><div>STATUS</div><div>SETUP</div>
+    </div>
+    <div id="recentBody" style="max-height:520px;overflow-y:auto;"></div>
+  </div>
+
+  <!-- LINK FARM -->
+  <div class="card mt-24" style="background:linear-gradient(135deg,rgba(0,212,255,0.04),transparent);">
+    <div class="card-header"><div class="card-title">🔗 Drill deeper</div></div>
+    <div style="display:flex;flex-wrap:wrap;gap:8px;font-size:12px;">
+      <a href="model-confidence.html" class="btn btn-ghost">🎯 Live predictions per finding</a>
+      <a href="prediction-replay.html" class="btn btn-ghost">🎬 Full prediction history</a>
+      <a href="model-explain.html" class="btn btn-ghost">🔬 Why model said X</a>
+      <a href="model-explorer.html" class="btn btn-ghost">🔍 Feature weights</a>
+      <a href="model-trainer.html" class="btn btn-ghost">🎓 Training UI</a>
+      <a href="cross-validation.html" class="btn btn-ghost">🧪 K-fold CV</a>
+      <a href="active-learning.html" class="btn btn-ghost">🎯 Label uncertain ones</a>
+      <a href="ml-status.html" class="btn btn-ghost">🩺 System health</a>
+    </div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script src="js/model.js"></script>
+<script src="js/charts.js"></script>
+<script>
+buildNav('model-results');
+
+let equityChart;
+
+function paint() {
+  if (!window.ModelStore) { setTimeout(paint, 500); return; }
+
+  const model = ModelStore.load();
+  const findings = (function () { try { return JSON.parse(localStorage.getItem('bpleone_brain_findings_v1') || '{"items":[]}').items; } catch (e) { return []; } })();
+  const predicted = findings.filter(f => typeof f.modelProb === 'number');
+  const resolved = predicted.filter(f => f.outcome === 'hit' || f.outcome === 'miss');
+  const correct = resolved.filter(f => (f.modelProb >= 0.5 ? 'hit' : 'miss') === f.outcome).length;
+  const acc = resolved.length > 0 ? correct / resolved.length : 0;
+
+  // High-confidence (>=70%) calls
+  const highConf = resolved.filter(f => f.modelProb >= 0.70 || f.modelProb <= 0.30);
+  const highConfCorrect = highConf.filter(f => (f.modelProb >= 0.5 ? 'hit' : 'miss') === f.outcome).length;
+  const hcHR = highConf.length > 0 ? highConfCorrect / highConf.length : 0;
+
+  // Simulated P&L: every >=65% pred is a trade; +1R if correct, -1R if wrong
+  const tradeable = resolved.filter(f => f.modelProb >= 0.65 || f.modelProb <= 0.35);
+  let simR = 0;
+  tradeable.forEach(f => {
+    const pred = f.modelProb >= 0.5 ? 'hit' : 'miss';
+    simR += (pred === f.outcome) ? 1 : -1;
+  });
+
+  // 7-day trend vs lifetime
+  const dayAgo7 = Date.now() - 7 * 24 * 3600 * 1000;
+  const recent = resolved.filter(f => f.ts >= dayAgo7);
+  const recentCorrect = recent.filter(f => (f.modelProb >= 0.5 ? 'hit' : 'miss') === f.outcome).length;
+  const recentAcc = recent.length > 0 ? recentCorrect / recent.length : 0;
+  const trend = recent.length >= 5 ? recentAcc - acc : 0;
+
+  // Top KPIs
+  document.getElementById('kAcc').textContent = (acc * 100).toFixed(1) + '%';
+  document.getElementById('kAccBody').textContent = resolved.length + ' rated · ' + correct + ' correct';
+  document.getElementById('kAccBig').classList.toggle('win', acc >= 0.55);
+  document.getElementById('kAccBig').classList.toggle('loss', acc < 0.45 && resolved.length >= 10);
+  document.getElementById('kAcc').style.color = acc >= 0.55 ? 'var(--green)' : acc >= 0.45 ? 'var(--accent)' : 'var(--red)';
+
+  document.getElementById('kPnl').textContent = (simR >= 0 ? '+' : '') + simR.toFixed(1) + 'R';
+  document.getElementById('kPnlBody').textContent = tradeable.length + ' trades · ' + (tradeable.length > 0 ? (simR / tradeable.length).toFixed(2) : '0') + ' avg';
+  document.getElementById('kPnlBig').classList.toggle('win', simR > 0);
+  document.getElementById('kPnlBig').classList.toggle('loss', simR < 0);
+  document.getElementById('kPnl').style.color = simR > 0 ? 'var(--green)' : simR < 0 ? 'var(--red)' : 'var(--text-primary)';
+
+  document.getElementById('kHR').textContent = highConf.length > 0 ? (hcHR * 100).toFixed(1) + '%' : '—';
+  document.getElementById('kHRBody').textContent = highConf.length + ' high-conf preds';
+  document.getElementById('kHrBig').classList.toggle('win', hcHR >= 0.60 && highConf.length >= 5);
+  document.getElementById('kHrBig').classList.toggle('loss', hcHR < 0.50 && highConf.length >= 10);
+  document.getElementById('kHR').style.color = hcHR >= 0.60 ? 'var(--green)' : 'var(--accent)';
+
+  document.getElementById('kTrend').textContent = recent.length >= 5 ? (trend >= 0 ? '+' : '') + (trend * 100).toFixed(1) + '%' : 'n/a';
+  document.getElementById('kTrendBody').textContent = recent.length + ' recent · vs ' + (acc * 100).toFixed(0) + '% lifetime';
+  document.getElementById('kTrendBig').classList.toggle('win', trend > 0.05);
+  document.getElementById('kTrendBig').classList.toggle('loss', trend < -0.05 && recent.length >= 10);
+  document.getElementById('kTrend').style.color = trend > 0.05 ? 'var(--green)' : trend < -0.05 ? 'var(--red)' : 'var(--text-primary)';
+
+  // ---- BIG GRADE ----
+  let grade, verdict, summary;
+  if (resolved.length < 10) {
+    grade = '⏳';
+    verdict = 'COLLECTING DATA';
+    summary = 'Need at least 10 rated outcomes for a grade. Currently: ' + resolved.length + '. Visit the site more, let the brain run, or label uncertain ones on <a href="active-learning.html" style="color:var(--accent);">Active Learning</a>.';
+  } else if (acc >= 0.65 && simR > 5) { grade = 'A+'; verdict = 'EXCELLENT'; summary = 'Model is beating random by a wide margin AND making simulated R. Press the bet.'; }
+  else if (acc >= 0.60 && simR > 2) { grade = 'A'; verdict = 'STRONG'; summary = 'Solidly profitable. Continue using its high-confidence picks as a primary filter.'; }
+  else if (acc >= 0.55 && simR > 0) { grade = 'B'; verdict = 'WORKING'; summary = 'Above random with positive sim P&L. Useful as an additional filter on conviction.'; }
+  else if (acc >= 0.50) { grade = 'C'; verdict = 'NEUTRAL'; summary = 'About random. Either needs more training data or feature set isn\'t capturing the edge.'; }
+  else if (acc >= 0.45) { grade = 'D'; verdict = 'WEAK'; summary = 'Slightly worse than random. Consider snapshot rollback or full retrain.'; }
+  else { grade = 'F'; verdict = 'BROKEN'; summary = 'Worse than random. Roll back to an earlier version or full retrain w/ different params.'; }
+
+  const gradeEl = document.getElementById('bigGrade');
+  gradeEl.textContent = grade;
+  const gradeCol = grade === 'A+' || grade === 'A' ? 'var(--green)' : grade === 'B' ? 'var(--accent)' : grade === 'C' ? 'var(--yellow)' : grade === 'D' || grade === 'F' ? 'var(--red)' : 'var(--text-primary)';
+  gradeEl.style.color = gradeCol;
+  document.getElementById('verdictText').textContent = verdict;
+  document.getElementById('verdictText').style.color = gradeCol;
+  document.getElementById('summaryText').innerHTML = summary;
+
+  // Confusion matrix
+  let tp = 0, fp = 0, tn = 0, fn = 0;
+  resolved.forEach(f => {
+    const pred = f.modelProb >= 0.5 ? 1 : 0;
+    const actual = f.outcome === 'hit' ? 1 : 0;
+    if (pred === 1 && actual === 1) tp++;
+    else if (pred === 1 && actual === 0) fp++;
+    else if (pred === 0 && actual === 0) tn++;
+    else fn++;
+  });
+  document.getElementById('cmTP').textContent = tp;
+  document.getElementById('cmFP').textContent = fp;
+  document.getElementById('cmTN').textContent = tn;
+  document.getElementById('cmFN').textContent = fn;
+  document.getElementById('cmCount').textContent = resolved.length + ' total rated · ' + tp + ' true positives = ' + (tp / Math.max(1, tp + fp) * 100).toFixed(1) + '% precision';
+
+  // Equity curve
+  const sortedRes = resolved.slice().sort((a, b) => a.ts - b.ts);
+  let cumR = 0;
+  const labels = [], cum = [], baseline = [];
+  sortedRes.forEach((f, i) => {
+    const pred = f.modelProb >= 0.5 ? 'hit' : 'miss';
+    cumR += (pred === f.outcome) ? 1 : -1;
+    labels.push(new Date(f.ts).toLocaleDateString());
+    cum.push(cumR);
+    baseline.push(0);
+  });
+  if (equityChart) equityChart.destroy();
+  equityChart = new Chart(document.getElementById('equityChart').getContext('2d'), {
+    type: 'line',
+    data: { labels, datasets: [
+      { label: 'Cumulative R (1 per correct)', data: cum, borderColor: 'rgba(0,212,255,1)', backgroundColor: 'rgba(0,212,255,0.08)', fill: true, borderWidth: 2, pointRadius: 0, tension: 0.2 },
+      { label: 'Baseline (0)', data: baseline, borderColor: 'rgba(150,150,150,0.4)', borderDash: [4,4], pointRadius: 0, borderWidth: 1 }
+    ] },
+    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: true, position: 'top', labels: { color: '#9ca3af', font: { size: 10 } } } }, scales: { x: { display: false }, y: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#6b7280' } } } }
+  });
+
+  // Top wins (high prob predictions that hit)
+  const wins = resolved.filter(f => f.modelProb >= 0.65 && f.outcome === 'hit')
+    .sort((a, b) => b.modelProb - a.modelProb).slice(0, 5);
+  document.getElementById('topWins').innerHTML = wins.length === 0 ? '<div style="padding:14px;color:var(--text-muted);font-size:12px;text-align:center;">No high-confidence wins yet.</div>' :
+    wins.map(f => '<div style="padding:10px 14px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;cursor:pointer;" onclick="window.location.href=\'trade-coach.html?sym=' + (f.meta && f.meta.sym) + '\'">'
+      + '<div><strong>' + (f.meta && f.meta.sym) + '</strong> <span style="color:var(--text-muted);font-size:11px;">' + (f.meta && f.meta.setup || f.type) + '</span></div>'
+      + '<div class="mono" style="color:var(--green);font-weight:700;">' + (f.modelProb * 100).toFixed(0) + '% → HIT ✓</div></div>').join('');
+
+  // Top misses (high prob that missed)
+  const misses = resolved.filter(f => f.modelProb >= 0.65 && f.outcome === 'miss')
+    .sort((a, b) => b.modelProb - a.modelProb).slice(0, 5);
+  document.getElementById('topMisses').innerHTML = misses.length === 0 ? '<div style="padding:14px;color:var(--text-muted);font-size:12px;text-align:center;">No high-confidence misses (model isn\'t getting fooled).</div>' :
+    misses.map(f => '<div style="padding:10px 14px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;cursor:pointer;" onclick="window.location.href=\'trade-coach.html?sym=' + (f.meta && f.meta.sym) + '\'">'
+      + '<div><strong>' + (f.meta && f.meta.sym) + '</strong> <span style="color:var(--text-muted);font-size:11px;">' + (f.meta && f.meta.setup || f.type) + '</span></div>'
+      + '<div class="mono" style="color:var(--red);font-weight:700;">' + (f.modelProb * 100).toFixed(0) + '% → MISS ✗</div></div>').join('');
+
+  // Per-symbol scoreboard
+  const bySym = {};
+  resolved.forEach(f => {
+    const sym = f.meta && f.meta.sym;
+    if (!sym) return;
+    if (!bySym[sym]) bySym[sym] = { sym, n: 0, correct: 0, simR: 0 };
+    bySym[sym].n++;
+    const pred = f.modelProb >= 0.5 ? 'hit' : 'miss';
+    if (pred === f.outcome) bySym[sym].correct++;
+    if (f.modelProb >= 0.65 || f.modelProb <= 0.35) bySym[sym].simR += (pred === f.outcome) ? 1 : -1;
+  });
+  const symList = Object.values(bySym).filter(s => s.n >= 3).sort((a, b) => b.simR - a.simR).slice(0, 12);
+  const sb = document.getElementById('symBoard');
+  if (symList.length === 0) {
+    sb.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-muted);font-size:12px;">Need 3+ predictions per symbol to rank. Keep going.</div>';
+  } else {
+    sb.innerHTML = '<div style="display:grid;grid-template-columns:90px 70px 80px 90px 1fr;gap:10px;padding:10px 14px;background:var(--bg-elevated);font-size:9px;color:var(--text-muted);font-weight:800;letter-spacing:0.5px;">'
+      + '<div>SYMBOL</div><div>N</div><div>HIT %</div><div>SIM R</div><div>BAR</div></div>';
+    const maxAbs = Math.max(...symList.map(s => Math.abs(s.simR)));
+    symList.forEach(s => {
+      const accSym = s.correct / s.n;
+      const col = s.simR > 0 ? 'var(--green)' : s.simR < 0 ? 'var(--red)' : 'var(--text-muted)';
+      const barW = (Math.abs(s.simR) / Math.max(1, maxAbs)) * 100;
+      sb.innerHTML += '<div style="display:grid;grid-template-columns:90px 70px 80px 90px 1fr;gap:10px;padding:9px 14px;border-bottom:1px solid var(--border);font-family:var(--font-mono);font-size:11px;align-items:center;cursor:pointer;" onclick="window.location.href=\'trade-coach.html?sym=' + s.sym + '\'">'
+        + '<div><strong>' + s.sym + '</strong></div>'
+        + '<div>' + s.n + '</div>'
+        + '<div style="color:' + (accSym >= 0.55 ? 'var(--green)' : 'var(--red)') + ';">' + (accSym * 100).toFixed(0) + '%</div>'
+        + '<div style="color:' + col + ';font-weight:700;">' + (s.simR >= 0 ? '+' : '') + s.simR + 'R</div>'
+        + '<div><div style="height:8px;background:var(--bg-elevated);border-radius:4px;overflow:hidden;"><div style="height:100%;width:' + barW + '%;background:' + col + ';"></div></div></div>'
+        + '</div>';
+    });
+  }
+
+  // LIVE PREDICTIONS NOW
+  const livePreds = predicted.filter(f => !f.outcome && (Date.now() - f.ts) < 4 * 3600 * 1000)
+    .sort((a, b) => b.modelProb - a.modelProb).slice(0, 8);
+  const lp = document.getElementById('livePredictions');
+  if (livePreds.length === 0) {
+    lp.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-muted);font-size:12px;grid-column:1/-1;">No live predictions in the last 4h. Brain is scanning.</div>';
+  } else {
+    lp.innerHTML = '';
+    livePreds.forEach(f => {
+      const sym = (f.meta && f.meta.sym) || '—';
+      const col = f.modelProb >= 0.6 ? 'var(--green)' : f.modelProb <= 0.4 ? 'var(--red)' : 'var(--accent)';
+      const tile = document.createElement('div');
+      tile.style.cssText = 'padding:14px;background:var(--bg-elevated);border:1px solid var(--border);border-radius:10px;border-left:3px solid ' + col + ';cursor:pointer;';
+      tile.onclick = () => { window.location.href = 'trade-coach.html?sym=' + sym; };
+      const minsAgo = Math.round((Date.now() - f.ts) / 60000);
+      tile.innerHTML = '<div style="display:flex;justify-content:space-between;align-items:center;"><strong style="font-size:14px;">' + sym + '</strong><span class="mono" style="color:' + col + ';font-weight:800;font-size:18px;">' + (f.modelProb * 100).toFixed(0) + '%</span></div>'
+        + '<div style="font-size:11px;color:var(--text-muted);margin-top:4px;">' + ((f.meta && f.meta.setup) || f.type) + ' · ' + minsAgo + 'm ago</div>';
+      lp.appendChild(tile);
+    });
+  }
+
+  // Recent predictions table
+  const recentBody = document.getElementById('recentBody');
+  recentBody.innerHTML = '';
+  predicted.slice().sort((a, b) => b.ts - a.ts).slice(0, 50).forEach(f => {
+    let cls = 'pending', status = '⏳ pending';
+    if (f.outcome === 'hit' || f.outcome === 'miss') {
+      const correct = (f.modelProb >= 0.5 ? 'hit' : 'miss') === f.outcome;
+      cls = correct ? 'correct' : 'wrong';
+      status = correct ? '✓ correct' : '✗ wrong';
+    }
+    const statusCol = cls === 'correct' ? 'var(--green)' : cls === 'wrong' ? 'var(--red)' : 'var(--text-muted)';
+    const time = new Date(f.ts).toLocaleString();
+    const sym = (f.meta && f.meta.sym) || '—';
+    const pred = f.modelProb >= 0.5 ? 'WIN ' + (f.modelProb * 100).toFixed(0) + '%' : 'LOSS ' + ((1 - f.modelProb) * 100).toFixed(0) + '%';
+    const row = document.createElement('div');
+    row.className = 'recent-row ' + cls;
+    row.innerHTML = '<div style="color:var(--text-muted);font-size:10px;">' + time + '</div>'
+      + '<div><strong>' + sym + '</strong></div>'
+      + '<div>' + pred + '</div>'
+      + '<div style="color:' + (f.outcome === 'hit' ? 'var(--green)' : f.outcome === 'miss' ? 'var(--red)' : 'var(--text-muted)') + ';font-weight:700;">' + (f.outcome ? f.outcome.toUpperCase() : '—') + '</div>'
+      + '<div style="color:' + statusCol + ';font-weight:700;">' + status + '</div>'
+      + '<div style="font-family:Inter;color:var(--text-secondary);font-size:11px;">' + ((f.meta && f.meta.setup) || f.type) + '</div>';
+    recentBody.appendChild(row);
+  });
+}
+
+document.getElementById('refreshBtn').addEventListener('click', paint);
+paint();
+window.addEventListener('bpleone:model-trained', paint);
+window.addEventListener('bpleone:brain-finding', paint);
+setInterval(paint, 30000);
+</script>
+</body>
+</html>

@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Model P&L — bpleone / trade</title>
+<meta name="description" content="Simulated P&L if you followed every model prediction at different confidence thresholds.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.thr-row { display:grid; grid-template-columns: 100px 80px 80px 90px 90px 1fr; gap:12px; padding:11px 14px; border-bottom:1px solid var(--border); font-family:var(--font-mono); font-size:11px; align-items:center; }
+.thr-row.winner { background:rgba(16,185,129,0.06);border-left:3px solid var(--green); }
+.thr-row.profitable { border-left:3px solid var(--accent); }
+.thr-row.unprofitable { border-left:3px solid var(--red); }
+.input-row { display:flex;gap:14px;align-items:center;flex-wrap:wrap; }
+.input-row label { font-size:12px;color:var(--text-muted);font-weight:700; }
+.input-row input { background:var(--bg-elevated);border:1px solid var(--border);border-radius:6px;padding:8px 12px;color:var(--text-primary);font-family:var(--font-mono);width:120px; }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">💰 Model P&L</div>
+      <div class="page-subtitle">If you followed every model call · simulated P&L across confidence thresholds · <span id="market-clock">--</span></div>
+    </div>
+    <div class="flex gap-8">
+      <a href="model-results.html" class="btn btn-secondary">🎯 Results</a>
+    </div>
+  </div>
+
+  <!-- ASSUMPTIONS -->
+  <div class="card mb-24">
+    <div class="card-header"><div class="card-title">⚙ Backtest Assumptions</div></div>
+    <div class="input-row">
+      <label>$ Risk per Trade</label><input type="number" id="riskAmt" value="500">
+      <label>Win R-multiple</label><input type="number" id="winR" value="1.8" step="0.1">
+      <label>Loss R-multiple</label><input type="number" id="lossR" value="1.0" step="0.1">
+      <label>Skip "flat" outcomes</label><select id="skipFlat" style="background:var(--bg-elevated);border:1px solid var(--border);border-radius:6px;padding:8px 12px;color:var(--text-primary);font-family:var(--font-mono);"><option>Yes</option><option>No</option></select>
+      <button class="btn btn-primary" id="recalcBtn">▶ Recalculate</button>
+    </div>
+  </div>
+
+  <!-- HEADLINE -->
+  <div class="grid grid-4 mb-24">
+    <div class="card"><div class="card-header"><div class="card-title">Best Threshold</div></div><div class="mono" style="font-size:26px;font-weight:700;color:var(--accent);" id="kBestThr">--</div><div class="mono" style="font-size:11px;color:var(--text-muted);" id="kBestThrBody">--</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">Best Sim P&L</div></div><div class="mono green-text" style="font-size:26px;font-weight:700;" id="kBestPnl">--</div><div class="mono" style="font-size:11px;color:var(--text-muted);" id="kBestPnlBody">--</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">Trades Generated</div></div><div class="mono" style="font-size:26px;font-weight:700;" id="kTrades">--</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">Expectancy / Trade</div></div><div class="mono" style="font-size:26px;font-weight:700;" id="kExp">--</div><div class="mono" style="font-size:11px;color:var(--text-muted);">$ avg per trade</div></div>
+  </div>
+
+  <!-- THRESHOLD SWEEP -->
+  <div class="card mb-24" style="padding:0;">
+    <div class="card-header" style="padding:14px 16px;"><div class="card-title">📊 P&L by Confidence Threshold</div></div>
+    <div class="thr-row" style="background:var(--bg-elevated);font-size:9px;color:var(--text-muted);font-weight:800;letter-spacing:0.5px;">
+      <div>THRESHOLD</div><div>TRADES</div><div>WIN %</div><div>SIM $ P&L</div><div>AVG / TRADE</div><div>P&L BAR</div>
+    </div>
+    <div id="thrBody"></div>
+  </div>
+
+  <!-- EQUITY CURVE -->
+  <div class="card">
+    <div class="card-header"><div class="card-title">📈 Equity Curve — best threshold</div></div>
+    <canvas id="equityChart" height="240"></canvas>
+  </div>
+
+  <div class="card mt-24">
+    <div class="card-header"><div class="card-title">🧠 How to read this</div></div>
+    <div style="font-size:13px;color:var(--text-secondary);line-height:1.7;">
+      Each row simulates: "if you took a trade every time the model output ≥ X% (or ≤ 1-X%), risking $Y per trade with win-R and loss-R as specified, what would your P&L be?" Higher thresholds = fewer trades, higher win rate but missing setups. Sweet spot is usually around 60-70% — enough confidence to expect a winning hit rate, but not so picky that you miss most signals.
+      <div class="mt-12">If a threshold is unprofitable, the model isn't yet good enough at that confidence level — either needs more training data or that confidence range needs more samples to calibrate.</div>
+    </div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script src="js/model.js"></script>
+<script src="js/charts.js"></script>
+<script>
+buildNav('model-pnl');
+
+let equityChart;
+const THRESHOLDS = [0.50, 0.55, 0.60, 0.65, 0.70, 0.75, 0.80, 0.85];
+
+function paint() {
+  if (!window.ModelStore) { setTimeout(paint, 500); return; }
+  const findings = (function () { try { return JSON.parse(localStorage.getItem('bpleone_brain_findings_v1') || '{"items":[]}').items; } catch (e) { return []; } })();
+  const resolved = findings.filter(f => typeof f.modelProb === 'number' && (f.outcome === 'hit' || f.outcome === 'miss'));
+
+  const riskAmt = +document.getElementById('riskAmt').value || 500;
+  const winR = +document.getElementById('winR').value || 1.5;
+  const lossR = +document.getElementById('lossR').value || 1.0;
+
+  // For each threshold, compute simulated trades
+  const results = THRESHOLDS.map(thr => {
+    const trades = resolved.filter(f => f.modelProb >= thr || f.modelProb <= (1 - thr));
+    let pnl = 0, wins = 0, losses = 0;
+    const eq = [];
+    trades.sort((a, b) => a.ts - b.ts).forEach(f => {
+      const pred = f.modelProb >= 0.5 ? 'hit' : 'miss';
+      const correct = pred === f.outcome;
+      if (correct) { pnl += riskAmt * winR; wins++; }
+      else { pnl -= riskAmt * lossR; losses++; }
+      eq.push({ ts: f.ts, pnl });
+    });
+    return { thr, trades: trades.length, wins, losses, pnl, winRate: trades.length > 0 ? wins / trades.length : 0, eq };
+  });
+
+  // Find best
+  const best = results.slice().sort((a, b) => b.pnl - a.pnl)[0];
+
+  // KPIs
+  document.getElementById('kBestThr').textContent = (best.thr * 100).toFixed(0) + '%';
+  document.getElementById('kBestThrBody').textContent = best.trades + ' trades · ' + (best.winRate * 100).toFixed(0) + '% win';
+  document.getElementById('kBestPnl').textContent = (best.pnl >= 0 ? '+$' : '−$') + Math.abs(best.pnl).toFixed(0);
+  document.getElementById('kBestPnl').style.color = best.pnl > 0 ? 'var(--green)' : 'var(--red)';
+  document.getElementById('kBestPnlBody').textContent = 'At ' + (best.thr * 100).toFixed(0) + '% threshold';
+  document.getElementById('kTrades').textContent = best.trades;
+  document.getElementById('kExp').textContent = best.trades > 0 ? '$' + (best.pnl / best.trades).toFixed(2) : '—';
+  document.getElementById('kExp').style.color = best.pnl / best.trades > 0 ? 'var(--green)' : 'var(--red)';
+
+  // Table
+  const body = document.getElementById('thrBody');
+  body.innerHTML = '';
+  const maxAbs = Math.max(...results.map(r => Math.abs(r.pnl)));
+  results.forEach(r => {
+    const isWinner = r === best;
+    const cls = isWinner ? 'winner' : r.pnl > 0 ? 'profitable' : 'unprofitable';
+    const col = r.pnl > 0 ? 'var(--green)' : 'var(--red)';
+    const barW = (Math.abs(r.pnl) / Math.max(1, maxAbs)) * 100;
+    const row = document.createElement('div');
+    row.className = 'thr-row ' + cls;
+    row.innerHTML = '<div><strong>' + (r.thr * 100).toFixed(0) + '%</strong>' + (isWinner ? ' 🏆' : '') + '</div>'
+      + '<div>' + r.trades + '</div>'
+      + '<div>' + (r.trades > 0 ? (r.winRate * 100).toFixed(0) + '%' : '—') + '</div>'
+      + '<div style="color:' + col + ';font-weight:700;">' + (r.pnl >= 0 ? '+$' : '−$') + Math.abs(r.pnl).toFixed(0) + '</div>'
+      + '<div style="color:' + col + ';">' + (r.trades > 0 ? (r.pnl >= 0 ? '+$' : '−$') + Math.abs(r.pnl / r.trades).toFixed(0) : '—') + '</div>'
+      + '<div><div style="height:8px;background:var(--bg-elevated);border-radius:4px;overflow:hidden;"><div style="height:100%;width:' + barW + '%;background:' + col + ';"></div></div></div>';
+    body.appendChild(row);
+  });
+
+  if (resolved.length < 10) {
+    body.innerHTML += '<div style="padding:30px;text-align:center;color:var(--yellow);font-size:13px;background:rgba(245,158,11,0.04);">⏳ Need at least 10 rated outcomes to compute meaningful P&L. Currently: ' + resolved.length + '. Visit the site more to accumulate, or seed with synthetic data on <a href="model-seed.html" style="color:var(--accent);">Model Seed</a>.</div>';
+  }
+
+  // Equity curve for best
+  if (equityChart) equityChart.destroy();
+  const labels = best.eq.map(p => new Date(p.ts).toLocaleDateString());
+  const cum = best.eq.map(p => p.pnl);
+  equityChart = new Chart(document.getElementById('equityChart').getContext('2d'), {
+    type: 'line',
+    data: { labels, datasets: [
+      { label: 'Equity ($)', data: cum, borderColor: 'rgba(16,185,129,1)', backgroundColor: 'rgba(16,185,129,0.08)', fill: true, borderWidth: 2, pointRadius: 0, tension: 0.2 },
+      { label: 'Breakeven', data: labels.map(() => 0), borderColor: 'rgba(150,150,150,0.5)', borderDash: [4,4], pointRadius: 0, borderWidth: 1 }
+    ] },
+    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: true, position: 'top', labels: { color: '#9ca3af' } } }, scales: { x: { display: false }, y: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#6b7280', callback: v => '$' + v } } } }
+  });
+}
+
+document.getElementById('recalcBtn').addEventListener('click', paint);
+['riskAmt','winR','lossR','skipFlat'].forEach(id => document.getElementById(id).addEventListener('input', paint));
+paint();
+window.addEventListener('bpleone:model-trained', paint);
+setInterval(paint, 30000);
+</script>
+</body>
+</html>
