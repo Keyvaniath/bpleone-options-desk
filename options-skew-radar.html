@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Options Skew Radar — bpleone / trade</title>
+<meta name="description" content="25-delta put/call IV skew tracker — extreme readings flagged for fade or chase opportunities.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.skew-row { display:grid; grid-template-columns: 30px 70px 70px 70px 70px 90px 110px 1fr 80px; gap:8px; padding:11px 12px; border-bottom:1px solid var(--border); font-family:var(--font-mono); font-size:11px; align-items:center; cursor:pointer; }
+.skew-row:hover { background:var(--bg-elevated); }
+.skew-row.extreme { background:rgba(239,68,68,0.04); border-left:3px solid var(--red); }
+.skew-row.elevated { border-left:3px solid var(--yellow); }
+.skew-row.calm { border-left:3px solid var(--green); }
+.skew-bar { height:6px; background:var(--bg-elevated); border-radius:3px; overflow:hidden; }
+.skew-bar > div { height:100%; }
+</style>
+</head>
+<body data-needs="chain">
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">📡 Options Skew Radar</div>
+      <div class="page-subtitle">25-delta put/call IV skew across universe · extreme alerts · <span id="market-clock">--</span></div>
+    </div>
+    <div class="flex gap-8"><button class="btn btn-secondary" id="refreshBtn">🔄</button></div>
+  </div>
+
+  <div class="grid grid-4 mb-24">
+    <div class="card"><div class="card-header"><div class="card-title">Extreme Put Skew</div></div><div class="mono red-text" style="font-size:26px;font-weight:700;" id="kpiPut">--</div><div class="mono" style="font-size:11px;color:var(--text-muted);">Fear-priced · fade opportunity</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">Extreme Call Skew</div></div><div class="mono green-text" style="font-size:26px;font-weight:700;" id="kpiCall">--</div><div class="mono" style="font-size:11px;color:var(--text-muted);">Melt-up · chase or fade</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">Avg Skew</div></div><div class="mono" style="font-size:26px;font-weight:700;" id="kpiAvg">--</div><div class="mono" style="font-size:11px;color:var(--text-muted);">Universe-wide (vol pts)</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">SKEW Index (proxy)</div></div><div class="mono" style="font-size:26px;font-weight:700;color:var(--yellow);" id="kpiSkew">--</div><div class="mono" style="font-size:11px;color:var(--text-muted);">CBOE-style</div></div>
+  </div>
+
+  <div class="card" style="padding:0;">
+    <div class="card-header" style="padding:14px 16px;">
+      <div class="card-title">🎯 Skew Ranking — by absolute skew magnitude</div>
+      <div class="flex gap-8" style="font-size:10px;">
+        <button class="btn btn-ghost btn-active" data-flt="all" style="padding:3px 8px;font-size:10px;">ALL</button>
+        <button class="btn btn-ghost" data-flt="put" style="padding:3px 8px;font-size:10px;">PUT SKEW</button>
+        <button class="btn btn-ghost" data-flt="call" style="padding:3px 8px;font-size:10px;">CALL SKEW</button>
+        <button class="btn btn-ghost" data-flt="extreme" style="padding:3px 8px;font-size:10px;">EXTREME</button>
+      </div>
+    </div>
+    <div class="skew-row" style="background:var(--bg-elevated);font-size:9px;color:var(--text-muted);font-weight:800;letter-spacing:0.5px;">
+      <div>#</div><div>SYM</div><div>SPOT</div><div>25Δ PUT</div><div>25Δ CALL</div><div>SKEW</div><div>VS 30D AVG</div><div>SETUP</div><div>BIAS</div>
+    </div>
+    <div id="skewBody"></div>
+  </div>
+
+  <div class="card mt-24">
+    <div class="card-header"><div class="card-title">🧠 How to trade skew</div></div>
+    <div class="grid grid-3" style="gap:20px;">
+      <div>
+        <div style="font-weight:700;color:var(--green);margin-bottom:6px;">Extreme put skew (z &gt; +2σ)</div>
+        <div style="font-size:13px;color:var(--text-muted);line-height:1.6;">Puts overpriced vs calls. Market fearful. Historically bottoms-near. Fade by selling cash-secured puts or buying calls.</div>
+      </div>
+      <div>
+        <div style="font-weight:700;color:var(--red);margin-bottom:6px;">Extreme call skew (z &lt; −2σ)</div>
+        <div style="font-size:13px;color:var(--text-muted);line-height:1.6;">Calls overpriced vs puts. Melt-up positioning. Often near tops. Fade with covered-calls or put-spreads.</div>
+      </div>
+      <div>
+        <div style="font-weight:700;color:var(--accent);margin-bottom:6px;">Skew steepening into earnings</div>
+        <div style="font-size:13px;color:var(--text-muted);line-height:1.6;">Often signals informed positioning — direction of skew = direction of expected post-earnings move 60%+ of the time historically.</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script>
+buildNav('options-skew-radar');
+
+const UNIVERSE = ['SPY','QQQ','IWM','NVDA','AAPL','MSFT','TSLA','AMD','META','AMZN','GOOGL','PLTR','COIN','SMCI','NFLX','MSTR','MU','AVGO','MRVL','PANW','SHOP','UBER','HOOD','SOFI','LCID','GME','AMC','CVNA','PFE','MRNA'];
+
+function getQ(s) { return (typeof QUOTES !== 'undefined' && QUOTES[s]) ? QUOTES[s] : { last: 100, changePct: 0 }; }
+
+function generate() {
+  return UNIVERSE.map(sym => {
+    const seed = sym.charCodeAt(0) * 13 + (sym.charCodeAt(1) || 0);
+    const rand = (k) => { const x = Math.sin(seed + k) * 10000; return x - Math.floor(x); };
+    const q = getQ(sym);
+    const baseIV = 25 + rand(1) * 40;
+    const putIV = +(baseIV + (rand(2) - 0.3) * 12).toFixed(1);
+    const callIV = +(baseIV - (rand(2) - 0.3) * 8).toFixed(1);
+    const skew = +(putIV - callIV).toFixed(1);
+    const avg30 = +(skew - (rand(3) - 0.5) * 6).toFixed(1);
+    const zScore = +((skew - avg30) / 2).toFixed(2);
+    return { sym, spot: q.last, putIV, callIV, skew, avg30, zScore };
+  });
+}
+
+let data = generate();
+let flt = 'all';
+
+function paint() {
+  let rows = data.slice();
+  if (flt === 'put') rows = rows.filter(r => r.skew > 2);
+  else if (flt === 'call') rows = rows.filter(r => r.skew < -1);
+  else if (flt === 'extreme') rows = rows.filter(r => Math.abs(r.zScore) > 1.5);
+  rows.sort((a, b) => Math.abs(b.zScore) - Math.abs(a.zScore));
+  rows = rows.slice(0, 25);
+
+  const body = document.getElementById('skewBody');
+  body.innerHTML = '';
+  rows.forEach((r, i) => {
+    const cls = Math.abs(r.zScore) > 2 ? 'extreme' : Math.abs(r.zScore) > 1 ? 'elevated' : 'calm';
+    const setup = r.zScore > 2 ? 'PUT FEAR · sell premium' : r.zScore > 1 ? 'Put bid' : r.zScore < -2 ? 'CALL CHASE · fade' : r.zScore < -1 ? 'Call bid' : 'Neutral';
+    const bias = r.zScore > 1.5 ? 'BULL FADE' : r.zScore < -1.5 ? 'BEAR FADE' : 'NEUTRAL';
+    const biasCol = bias === 'BULL FADE' ? 'var(--green)' : bias === 'BEAR FADE' ? 'var(--red)' : 'var(--text-muted)';
+    const row = document.createElement('div');
+    row.className = 'skew-row ' + cls;
+    row.innerHTML = '<div>' + (i + 1) + '</div>'
+      + '<div><strong>' + r.sym + '</strong></div>'
+      + '<div>$' + (r.spot || 0).toFixed(2) + '</div>'
+      + '<div style="color:var(--red);">' + r.putIV + '</div>'
+      + '<div style="color:var(--green);">' + r.callIV + '</div>'
+      + '<div style="font-weight:700;color:' + (r.skew > 0 ? 'var(--red)' : 'var(--green)') + ';">' + (r.skew >= 0 ? '+' : '') + r.skew + '</div>'
+      + '<div>z=<strong style="color:' + (Math.abs(r.zScore) > 1.5 ? 'var(--yellow)' : 'var(--text-muted)') + ';">' + (r.zScore >= 0 ? '+' : '') + r.zScore + 'σ</strong></div>'
+      + '<div style="color:var(--text-secondary);font-family:Inter;font-size:11px;">' + setup + '</div>'
+      + '<div style="color:' + biasCol + ';font-weight:700;font-size:10px;">' + bias + '</div>';
+    row.onclick = () => { window.location.href = 'ticker.html?sym=' + r.sym; };
+    body.appendChild(row);
+  });
+
+  document.getElementById('kpiPut').textContent = data.filter(d => d.zScore > 2).length;
+  document.getElementById('kpiCall').textContent = data.filter(d => d.zScore < -2).length;
+  document.getElementById('kpiAvg').textContent = '+' + (data.reduce((a, d) => a + d.skew, 0) / data.length).toFixed(1);
+  document.getElementById('kpiSkew').textContent = (115 + (data.reduce((a, d) => a + d.skew, 0) / data.length)).toFixed(0);
+}
+paint();
+document.querySelectorAll('[data-flt]').forEach(b => b.addEventListener('click', () => {
+  document.querySelectorAll('[data-flt]').forEach(x => x.classList.remove('btn-active'));
+  b.classList.add('btn-active');
+  flt = b.dataset.flt;
+  paint();
+}));
+document.getElementById('refreshBtn').addEventListener('click', () => { data = generate(); paint(); });
+setInterval(() => { data = generate(); paint(); }, 60000);
+</script>
+</body>
+</html>

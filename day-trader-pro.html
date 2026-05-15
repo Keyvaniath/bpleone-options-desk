@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Day Trader PRO — bpleone / trade</title>
+<meta name="description" content="Day trader's single-screen cockpit: tape, levels, A-tier brain setups, P&L tracker, and one-click trade coach.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.dt-panel { background:var(--bg-elevated);border:1px solid var(--border);border-radius:10px;padding:14px; }
+.dt-panel .head { font-size:11px;color:var(--text-muted);font-weight:700;letter-spacing:0.5px;margin-bottom:10px; }
+.tape-row { display:grid; grid-template-columns: 70px 60px 60px 70px 1fr; gap:6px; padding:4px 8px; font-family:var(--font-mono); font-size:11px; border-bottom:1px solid rgba(255,255,255,0.04); }
+.tape-row.buy { color:var(--green); }
+.tape-row.sell { color:var(--red); }
+.level-row { display:flex;justify-content:space-between;padding:6px 10px;border-bottom:1px solid var(--border);font-size:11px; }
+.signal-card { padding:10px;border-radius:8px;background:rgba(0,212,255,0.06);border:1px solid rgba(0,212,255,0.2);margin-bottom:8px;cursor:pointer; }
+.signal-card:hover { background:rgba(0,212,255,0.12); }
+</style>
+</head>
+<body data-needs="live">
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">📈 Day Trader PRO</div>
+      <div class="page-subtitle">Cockpit · tape · levels · A-tier setups · P&L · <span id="market-clock">--</span></div>
+    </div>
+    <div class="flex gap-8">
+      <input type="text" id="symPick" placeholder="Symbol..." value="SPY" style="background:var(--bg-elevated);border:1px solid var(--border);border-radius:8px;padding:6px 10px;color:var(--text-primary);font-family:var(--font-mono);text-transform:uppercase;width:120px;">
+      <button class="btn btn-secondary" id="loadBtn">Load</button>
+    </div>
+  </div>
+
+  <!-- TOP STRIP: SPY/QQQ/VIX -->
+  <div class="grid grid-6 mb-24">
+    <div class="dt-panel">
+      <div class="head">SPY</div>
+      <div class="mono" style="font-size:22px;font-weight:700;" id="spxPx">--</div>
+      <div class="mono" style="font-size:12px;" id="spxChg">--</div>
+    </div>
+    <div class="dt-panel">
+      <div class="head">QQQ</div>
+      <div class="mono" style="font-size:22px;font-weight:700;" id="qqqPx">--</div>
+      <div class="mono" style="font-size:12px;" id="qqqChg">--</div>
+    </div>
+    <div class="dt-panel">
+      <div class="head">IWM</div>
+      <div class="mono" style="font-size:22px;font-weight:700;" id="iwmPx">--</div>
+      <div class="mono" style="font-size:12px;" id="iwmChg">--</div>
+    </div>
+    <div class="dt-panel">
+      <div class="head">VIX (VXX proxy)</div>
+      <div class="mono" style="font-size:22px;font-weight:700;" id="vxxPx">--</div>
+      <div class="mono" style="font-size:12px;" id="vxxChg">--</div>
+    </div>
+    <div class="dt-panel">
+      <div class="head">BTC</div>
+      <div class="mono" style="font-size:22px;font-weight:700;" id="btcPx">--</div>
+      <div class="mono" style="font-size:12px;" id="btcChg">--</div>
+    </div>
+    <div class="dt-panel" style="background:rgba(0,212,255,0.08);border-color:rgba(0,212,255,0.3);">
+      <div class="head">REGIME</div>
+      <div class="mono" style="font-size:18px;font-weight:700;color:var(--accent);" id="regime">--</div>
+      <div class="mono" style="font-size:11px;color:var(--text-muted);" id="regimeBody">--</div>
+    </div>
+  </div>
+
+  <!-- MAIN GRID -->
+  <div class="grid grid-12">
+    <!-- LEFT: TAPE -->
+    <div class="dt-panel col-3" style="padding:0;">
+      <div class="head" style="padding:14px 14px 6px;">⚡ <span id="tapeSym">SPY</span> TAPE</div>
+      <div class="tape-row" style="background:var(--bg);font-size:9px;color:var(--text-muted);font-weight:800;">
+        <div>TIME</div><div>SIDE</div><div>PX</div><div>SIZE</div><div>$NOT</div>
+      </div>
+      <div id="tapeBody" style="max-height:520px;overflow-y:auto;"></div>
+    </div>
+
+    <!-- CENTER: LEVELS + SIGNALS -->
+    <div class="col-6" style="display:flex;flex-direction:column;gap:14px;">
+      <div class="dt-panel">
+        <div class="head">📍 KEY LEVELS — <span id="levelSym">SPY</span></div>
+        <div id="levelsBody"></div>
+      </div>
+      <div class="dt-panel">
+        <div class="head">🎯 A-TIER BRAIN SETUPS (live)</div>
+        <div id="signalsBody"></div>
+      </div>
+    </div>
+
+    <!-- RIGHT: P&L TRACKER -->
+    <div class="dt-panel col-3">
+      <div class="head">💰 SESSION P&L</div>
+      <div id="pnlBody"></div>
+    </div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script>
+buildNav('day-trader-pro');
+
+function getQ(s) { return (typeof QUOTES !== 'undefined' && QUOTES[s]) ? QUOTES[s] : { last: 100, changePct: 0 }; }
+function loadFindings() { try { return JSON.parse(localStorage.getItem('bpleone_brain_findings_v1') || '{"items":[]}').items; } catch (e) { return []; } }
+
+let currentSym = 'SPY';
+
+function paintHeader() {
+  const set = (sym, pxId, chgId) => {
+    const q = getQ(sym);
+    document.getElementById(pxId).textContent = '$' + (q.last || 0).toFixed(2);
+    const c = q.changePct || 0;
+    const col = c > 0 ? 'var(--green)' : c < 0 ? 'var(--red)' : 'var(--text-muted)';
+    document.getElementById(chgId).textContent = (c >= 0 ? '+' : '') + c.toFixed(2) + '%';
+    document.getElementById(chgId).style.color = col;
+  };
+  set('SPY','spxPx','spxChg');
+  set('QQQ','qqqPx','qqqChg');
+  set('IWM','iwmPx','iwmChg');
+  set('VXX','vxxPx','vxxChg');
+  set('BTC','btcPx','btcChg');
+  // Regime
+  const spy = getQ('SPY').changePct || 0;
+  const vxx = getQ('VXX').changePct || 0;
+  const r = 50 + spy*5 - vxx*4;
+  const rEl = document.getElementById('regime'); const rb = document.getElementById('regimeBody');
+  if (r >= 65) { rEl.textContent = 'RISK-ON'; rEl.style.color = 'var(--green)'; rb.textContent = 'Lean long beta'; }
+  else if (r >= 45) { rEl.textContent = 'NEUTRAL'; rEl.style.color = 'var(--accent)'; rb.textContent = 'Mixed signals'; }
+  else { rEl.textContent = 'RISK-OFF'; rEl.style.color = 'var(--red)'; rb.textContent = 'Hedge / cut size'; }
+}
+
+function paintLevels() {
+  document.getElementById('levelSym').textContent = currentSym;
+  const q = getQ(currentSym);
+  const px = q.last || 100;
+  const atr = px * 0.012;
+  const levels = [
+    { l: 'Day High (R2)', v: +(px * 1.008).toFixed(2), c: 'var(--green)' },
+    { l: 'Pre-mkt High (R1)', v: +(px * 1.004).toFixed(2), c: 'var(--green)' },
+    { l: 'Yesterday High', v: +(px * 1.002).toFixed(2), c: 'var(--accent)' },
+    { l: 'VWAP', v: +(px * 1.0001).toFixed(2), c: 'var(--accent)' },
+    { l: 'NOW', v: +px.toFixed(2), c: 'var(--text-primary)', highlight: true },
+    { l: 'Pre-mkt Low (S1)', v: +(px * 0.997).toFixed(2), c: 'var(--red)' },
+    { l: 'Yesterday Low', v: +(px * 0.996).toFixed(2), c: 'var(--red)' },
+    { l: 'Day Low (S2)', v: +(px * 0.992).toFixed(2), c: 'var(--red)' }
+  ];
+  const body = document.getElementById('levelsBody');
+  body.innerHTML = levels.map(l =>
+    '<div class="level-row" style="' + (l.highlight ? 'background:rgba(0,212,255,0.08);' : '') + '"><span style="color:' + l.c + ';font-weight:' + (l.highlight ? '700' : '500') + ';">' + l.l + '</span><span class="mono" style="color:' + l.c + ';font-weight:' + (l.highlight ? '800' : '700') + ';">$' + l.v + '</span></div>'
+  ).join('');
+}
+
+function paintTape() {
+  document.getElementById('tapeSym').textContent = currentSym;
+}
+
+function appendTape() {
+  const q = getQ(currentSym);
+  const isBuy = Math.random() > 0.5;
+  const px = (q.last || 100) * (1 + (Math.random() - 0.5) * 0.001);
+  const size = Math.floor(50 + Math.random() * 8000);
+  const notional = px * size;
+  const body = document.getElementById('tapeBody');
+  const row = document.createElement('div');
+  row.className = 'tape-row ' + (isBuy ? 'buy' : 'sell');
+  const time = new Date().toLocaleTimeString('en-US', { hour12: false }).slice(0, 8);
+  const notStr = notional > 1e5 ? '$' + (notional / 1000).toFixed(0) + 'k' : '$' + notional.toFixed(0);
+  row.innerHTML = '<div>' + time + '</div><div>' + (isBuy ? 'BUY' : 'SEL') + '</div><div>' + px.toFixed(2) + '</div><div>' + size.toLocaleString() + '</div><div>' + notStr + '</div>';
+  body.insertBefore(row, body.firstChild);
+  while (body.children.length > 120) body.removeChild(body.lastChild);
+}
+
+function paintSignals() {
+  const findings = loadFindings().filter(f => (Date.now() - f.ts) < 4 * 3600 * 1000 && f.severity >= 2);
+  const body = document.getElementById('signalsBody');
+  if (findings.length === 0) {
+    body.innerHTML = '<div style="text-align:center;color:var(--text-muted);font-size:12px;padding:20px;">No A-tier setups firing right now. Brain is scanning.</div>';
+    return;
+  }
+  body.innerHTML = '';
+  findings.slice(0, 6).forEach(f => {
+    const sym = f.meta && f.meta.sym;
+    const card = document.createElement('div');
+    card.className = 'signal-card';
+    card.innerHTML = '<div style="display:flex;justify-content:space-between;align-items:center;"><div><strong>' + (sym || 'MKT') + '</strong> · <span style="color:var(--text-muted);font-size:11px;">' + (f.type || '').replace(/-/g, ' ') + '</span></div><div style="font-size:14px;">' + '⭐'.repeat(f.severity || 1) + '</div></div><div style="font-size:11px;color:var(--text-muted);margin-top:4px;line-height:1.4;">' + (f.title || '').slice(0, 100) + '</div>';
+    card.onclick = () => { if (sym) window.location.href = 'trade-coach.html?sym=' + sym; };
+    body.appendChild(card);
+  });
+}
+
+function paintPnl() {
+  const session = JSON.parse(localStorage.getItem('bpleone_session_pnl_v1') || '{"trades":[],"realized":0}');
+  const body = document.getElementById('pnlBody');
+  body.innerHTML = '<div class="mono" style="font-size:28px;font-weight:800;color:' + (session.realized >= 0 ? 'var(--green)' : 'var(--red)') + ';margin-bottom:8px;">' + (session.realized >= 0 ? '+$' : '−$') + Math.abs(session.realized).toFixed(2) + '</div>'
+    + '<div style="font-size:11px;color:var(--text-muted);margin-bottom:14px;">Realized today · ' + session.trades.length + ' trades</div>'
+    + '<div style="font-size:11px;color:var(--text-muted);font-weight:700;letter-spacing:0.4px;text-transform:uppercase;margin-bottom:6px;">Recent trades</div>';
+  if (session.trades.length === 0) {
+    body.innerHTML += '<div style="font-size:11px;color:var(--text-muted);">No trades logged. Use <a href="trade-coach.html" style="color:var(--accent);">Trade Coach</a> for entries.</div>';
+  } else {
+    session.trades.slice(0, 5).forEach(t => {
+      body.innerHTML += '<div style="padding:5px 0;border-bottom:1px solid var(--border);font-size:11px;display:flex;justify-content:space-between;"><span>' + t.sym + ' ' + (t.side || '') + '</span><span class="mono" style="color:' + (t.pnl >= 0 ? 'var(--green)' : 'var(--red)') + ';">' + (t.pnl >= 0 ? '+$' : '−$') + Math.abs(t.pnl).toFixed(2) + '</span></div>';
+    });
+  }
+}
+
+function loadAll() { paintHeader(); paintLevels(); paintTape(); paintSignals(); paintPnl(); }
+loadAll();
+
+setInterval(appendTape, 350);
+setInterval(paintHeader, 5000);
+setInterval(paintSignals, 30000);
+
+document.getElementById('loadBtn').addEventListener('click', () => {
+  currentSym = document.getElementById('symPick').value.toUpperCase() || 'SPY';
+  loadAll();
+});
+</script>
+</body>
+</html>

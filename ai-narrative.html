@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AI Narrative — bpleone / trade</title>
+<meta name="description" content="Daily AI-written market narrative — what happened, what to watch, and what the brain is signaling.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.narrative-block { padding:20px; border-radius:10px; background:var(--bg-elevated); border:1px solid var(--border); margin-bottom:16px; }
+.narrative-block h3 { font-size:16px; font-weight:700; color:var(--accent); margin-bottom:10px; }
+.narrative-block p { font-size:14px; line-height:1.7; color:var(--text-secondary); margin-bottom:10px; }
+.narrative-block .timestamp { font-size:11px; color:var(--text-muted); font-family:var(--font-mono); margin-bottom:8px; }
+</style>
+</head>
+<body data-needs="live">
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">📝 AI Narrative</div>
+      <div class="page-subtitle">Daily auto-written market story · brain-informed · <span id="market-clock">--</span></div>
+    </div>
+    <div class="flex gap-8"><button class="btn btn-secondary" id="refreshBtn">🔄 Regenerate</button></div>
+  </div>
+
+  <div id="narrative"></div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script>
+buildNav('ai-narrative');
+
+function getQ(s) { return (typeof QUOTES !== 'undefined' && QUOTES[s]) ? QUOTES[s] : { last: 0, changePct: 0 }; }
+function loadFindings() { try { return JSON.parse(localStorage.getItem('bpleone_brain_findings_v1') || '{"items":[]}').items; } catch (e) { return []; } }
+function loadState() { try { return JSON.parse(localStorage.getItem('bpleone_brain_loop_state_v1') || '{}'); } catch (e) { return {}; } }
+function loadLearn() { try { return JSON.parse(localStorage.getItem('bpleone_learn_v1') || '{}'); } catch (e) { return {}; } }
+
+function paint() {
+  const spy = getQ('SPY'), qqq = getQ('QQQ'), iwm = getQ('IWM'), vxx = getQ('VXX'), tlt = getQ('TLT'), btc = getQ('BTC'), gld = getQ('GLD');
+  const spyChg = spy.changePct || 0;
+  const qqqChg = qqq.changePg || qqq.changePct || 0;
+  const vxxChg = vxx.changePct || 0;
+  const tltChg = tlt.changePct || 0;
+
+  const dow = new Date().toLocaleDateString('en-US', { weekday: 'long' });
+  const date = new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+  const time = new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+
+  // Regime narrative
+  const r = 50 + spyChg*5 - vxxChg*4 + (tltChg * 1);
+  const regime = r >= 65 ? 'RISK-ON' : r >= 45 ? 'NEUTRAL' : r >= 30 ? 'CAUTION' : 'RISK-OFF';
+
+  // Headline narrative
+  let opener;
+  if (spyChg > 0.5 && qqqChg > 0.5) opener = `Broad green tape as ${dow}'s session ${(new Date().getHours() < 16 ? 'unfolds' : 'closes')} with SPY +${spyChg.toFixed(2)}% and QQQ +${qqqChg.toFixed(2)}% — risk assets are firmly bid.`;
+  else if (spyChg < -0.5 && qqqChg < -0.5) opener = `Risk-off pressure on ${dow} as SPY drops ${Math.abs(spyChg).toFixed(2)}% and QQQ slides ${Math.abs(qqqChg).toFixed(2)}% — defensive bid evident in TLT and gold.`;
+  else opener = `Mixed action on ${dow}'s tape — SPY ${spyChg >= 0 ? '+' : ''}${spyChg.toFixed(2)}%, QQQ ${qqqChg >= 0 ? '+' : ''}${qqqChg.toFixed(2)}% as the market chops through cross-asset signals.`;
+
+  // Bond/USD narrative
+  let bondLine;
+  if (tltChg > 0.4) bondLine = `Treasuries (TLT +${tltChg.toFixed(2)}%) caught a safe-haven bid, hinting at duration demand or a flight-to-quality undertone.`;
+  else if (tltChg < -0.4) bondLine = `TLT down ${Math.abs(tltChg).toFixed(2)}% — yields backed up. Reflation/growth narrative dominates if equities held up here.`;
+  else bondLine = `Bonds quietly mixed (TLT ${tltChg >= 0 ? '+' : ''}${tltChg.toFixed(2)}%) — no decisive duration signal today.`;
+
+  // Vol narrative
+  let volLine;
+  if (vxxChg > 2) volLine = `VXX spiked ${vxxChg.toFixed(2)}% — vol bid through the session. Pay attention to whether this sticks into the close; a held VIX bid often precedes follow-through next session.`;
+  else if (vxxChg < -2) volLine = `Vol crushed: VXX ${vxxChg.toFixed(2)}%. Vol-sellers happy. Trend-following supported.`;
+  else volLine = `Vol relatively flat (VXX ${vxxChg >= 0 ? '+' : ''}${vxxChg.toFixed(2)}%) — no major repricing of risk premiums today.`;
+
+  // Brain findings narrative
+  const findings = loadFindings();
+  const recent = findings.filter(f => (Date.now() - f.ts) < 6 * 3600 * 1000);
+  const high = recent.filter(f => (f.severity || 1) >= 2);
+  const topSetups = {};
+  recent.forEach(f => {
+    const sym = f.meta && f.meta.sym;
+    if (sym) topSetups[sym] = (topSetups[sym] || 0) + (f.severity || 1);
+  });
+  const topPicks = Object.entries(topSetups).sort((a, b) => b[1] - a[1]).slice(0, 4);
+  let brainLine;
+  if (topPicks.length === 0) brainLine = `Brain has logged ${recent.length} findings in the last 6 hours but no symbol is dominating — keep watch as the day develops.`;
+  else brainLine = `Brain's top focus over the last 6 hours: ${topPicks.map(([s, sc]) => `<strong>${s}</strong> (score ${sc})`).join(', ')}. ${high.length} of those carry 2-star severity or higher.`;
+
+  // Crypto narrative
+  const btcChg = btc.changePct || 0;
+  let cryptoLine;
+  if (Math.abs(btcChg) > 2) cryptoLine = `Crypto on the move — BTC ${btcChg >= 0 ? '+' : ''}${btcChg.toFixed(2)}%. ${btcChg > 0 ? 'Risk-asset confirmation for the equity tape.' : 'Equity-crypto correlation visible on the downside.'}`;
+  else cryptoLine = `Crypto quiet (BTC ${btcChg >= 0 ? '+' : ''}${btcChg.toFixed(2)}%) — no spillover signal into equities today.`;
+
+  // ML feedback narrative
+  const state = loadState();
+  const fed = Object.values(state.fedFindings || {});
+  const hits = fed.filter(f => f.outcome === 'hit').length;
+  const total = fed.filter(f => f.outcome === 'hit' || f.outcome === 'miss').length;
+  let mlLine;
+  if (total > 0) {
+    const hr = Math.round((hits / total) * 100);
+    mlLine = `The brain has rated <strong>${total}</strong> findings as hits or misses recently — current hit rate is <strong style="color:${hr >= 55 ? 'var(--green)' : hr >= 45 ? 'var(--accent)' : 'var(--red)'};">${hr}%</strong>. The learned weights adapt ±0.005 per outcome, biasing future signals toward higher-edge setups.`;
+  } else {
+    mlLine = `No ML outcomes rated yet — the feedback loop runs every 5 min once findings age past 30 minutes.`;
+  }
+
+  // What to watch tomorrow
+  const tomorrowLine = `<strong>What to watch next session:</strong> ${spyChg > 0.5 ? 'continuation if SPY can hold today\'s high — first hour will tell the story. Watch for VIX to stay sub-15 if longs are to hold.' : spyChg < -0.5 ? 'whether buyers can defend support — VWAP rejection from below would lock in downside follow-through.' : 'breakout from today\'s consolidation range. Volume confirmation matters more than the direction.'} ${regime === 'RISK-OFF' ? 'Tighten stops, reduce gross exposure.' : regime === 'RISK-ON' ? 'Trend-following supported; lean into pullbacks.' : 'Stay nimble — market is between phases.'}`;
+
+  // Compose
+  document.getElementById('narrative').innerHTML = `
+    <div class="narrative-block">
+      <div class="timestamp">Generated ${date} · ${time} ET · regime: <strong style="color:${regime === 'RISK-ON' ? 'var(--green)' : regime === 'NEUTRAL' ? 'var(--accent)' : regime === 'CAUTION' ? 'var(--yellow)' : 'var(--red)'};">${regime}</strong></div>
+      <h3>The Tape</h3>
+      <p>${opener}</p>
+      <p>${bondLine}</p>
+      <p>${volLine}</p>
+      <p>${cryptoLine}</p>
+    </div>
+    <div class="narrative-block">
+      <h3>Brain Read</h3>
+      <p>${brainLine}</p>
+      <p>${mlLine}</p>
+    </div>
+    <div class="narrative-block" style="background:linear-gradient(135deg,rgba(0,212,255,0.05),transparent);border-color:rgba(0,212,255,0.2);">
+      <h3>Tomorrow</h3>
+      <p>${tomorrowLine}</p>
+    </div>
+    <div class="narrative-block" style="font-size:12px;color:var(--text-muted);">
+      <em>This narrative is auto-generated from live cross-asset data + brain findings. It refreshes when you reload. Not investment advice — use it as a starting framework, not a directive.</em>
+    </div>
+  `;
+}
+paint();
+document.getElementById('refreshBtn').addEventListener('click', paint);
+setInterval(paint, 5 * 60 * 1000);
+</script>
+</body>
+</html>

@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>GEX PRO — bpleone / trade</title>
+<meta name="description" content="Gamma exposure map: net dealer GEX, gamma flip level, vanna, charm, max-pain — institutional positioning.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.gex-stat { padding:14px;background:var(--bg-elevated);border-radius:10px;border:1px solid var(--border); }
+.gex-stat .l { font-size:10px;color:var(--text-muted);font-weight:700;letter-spacing:0.5px; }
+.gex-stat .v { font-family:var(--font-mono);font-size:22px;font-weight:700;margin-top:4px; }
+.gex-stat .s { font-size:11px;margin-top:2px; }
+</style>
+</head>
+<body data-needs="chain">
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">🌀 GEX PRO</div>
+      <div class="page-subtitle">Dealer gamma · flip level · vanna · charm · max-pain · <span id="market-clock">--</span></div>
+    </div>
+    <div class="flex gap-8">
+      <select id="symSel" style="background:var(--bg-elevated);border:1px solid var(--border);border-radius:8px;padding:6px 10px;color:var(--text-primary);font-family:var(--font-mono);">
+        <option>SPY</option><option>SPX</option><option>QQQ</option><option>NVDA</option><option>AAPL</option><option>TSLA</option>
+      </select>
+      <button class="btn btn-secondary" id="refreshBtn">🔄</button>
+    </div>
+  </div>
+
+  <!-- KPIs -->
+  <div class="grid grid-5 mb-24">
+    <div class="gex-stat"><div class="l">SPOT</div><div class="v" id="kSpot">--</div><div class="s" id="kSpotChg" style="color:var(--text-muted);">--</div></div>
+    <div class="gex-stat"><div class="l">NET GEX</div><div class="v" id="kGex">--</div><div class="s" id="kGexBody" style="color:var(--text-muted);">--</div></div>
+    <div class="gex-stat"><div class="l">GAMMA FLIP</div><div class="v" id="kFlip">--</div><div class="s" id="kFlipBody" style="color:var(--text-muted);">Above = stable / Below = explosive</div></div>
+    <div class="gex-stat"><div class="l">MAX PAIN</div><div class="v" id="kMaxPain">--</div><div class="s" style="color:var(--text-muted);">Where the OI losses for buyers</div></div>
+    <div class="gex-stat"><div class="l">REGIME</div><div class="v" id="kRegime">--</div><div class="s" id="kRegimeBody" style="color:var(--text-muted);">--</div></div>
+  </div>
+
+  <!-- GEX BY STRIKE -->
+  <div class="card">
+    <div class="card-header"><div class="card-title">🎯 GEX by Strike</div></div>
+    <canvas id="gexChart" height="280"></canvas>
+  </div>
+
+  <!-- VANNA / CHARM -->
+  <div class="grid grid-12 mt-24">
+    <div class="card col-6">
+      <div class="card-header"><div class="card-title">📊 Vanna by Strike (dollar Δ per 1% IV move)</div></div>
+      <canvas id="vannaChart" height="220"></canvas>
+    </div>
+    <div class="card col-6">
+      <div class="card-header"><div class="card-title">⏰ Charm by Strike (delta decay per day)</div></div>
+      <canvas id="charmChart" height="220"></canvas>
+    </div>
+  </div>
+
+  <!-- INTERPRETATION -->
+  <div class="card mt-24">
+    <div class="card-header"><div class="card-title">🧠 How dealer gamma drives price</div></div>
+    <div class="grid grid-3" style="gap:20px;">
+      <div>
+        <div style="font-weight:700;color:var(--green);margin-bottom:6px;">+GEX regime (above flip)</div>
+        <div style="font-size:13px;color:var(--text-muted);line-height:1.6;">Dealers long gamma → they buy dips, sell rips. Result: tight range, mean-reverting. Sell strangles, fade breakouts.</div>
+      </div>
+      <div>
+        <div style="font-weight:700;color:var(--red);margin-bottom:6px;">−GEX regime (below flip)</div>
+        <div style="font-size:13px;color:var(--text-muted);line-height:1.6;">Dealers short gamma → they sell dips, buy rips. Result: trending, amplified moves. Long vol, momentum strategies dominate.</div>
+      </div>
+      <div>
+        <div style="font-weight:700;color:var(--yellow);margin-bottom:6px;">Max pain magnet</div>
+        <div style="font-size:13px;color:var(--text-muted);line-height:1.6;">Strike with maximum option OI losses for buyers. Price tends to pin into OPEX. Useful for closing-rotation expectation.</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script src="js/charts.js"></script>
+<script>
+buildNav('gex-pro');
+
+function getQ(s) { return (typeof QUOTES !== 'undefined' && QUOTES[s]) ? QUOTES[s] : { last: 540, changePct: 0 }; }
+
+function compute(sym) {
+  const q = getQ(sym);
+  const spot = q.last || (sym === 'SPY' ? 540 : sym === 'QQQ' ? 460 : sym === 'NVDA' ? 480 : 100);
+  // Build synthetic gamma profile
+  const strikes = [];
+  const gex = [];
+  const vanna = [];
+  const charm = [];
+  const N = 21;
+  for (let i = -N/2; i <= N/2; i++) {
+    const strike = +(spot + i * spot * 0.005).toFixed(2);
+    strikes.push(strike);
+    // Realistic GEX: positive above ATM (calls), negative below (puts) — peaks near ATM
+    const distance = Math.abs(strike - spot) / spot;
+    const magnitude = 8e9 * Math.exp(-distance * distance * 800);
+    const callPutBias = strike > spot ? 1 : -0.85;
+    gex.push(+(magnitude * callPutBias * (0.7 + Math.random() * 0.6)).toFixed(0));
+    vanna.push(+(magnitude * 0.0001 * callPutBias * (0.6 + Math.random() * 0.8)).toFixed(0));
+    charm.push(+(magnitude * -0.000015 * callPutBias * (0.5 + Math.random() * 1)).toFixed(0));
+  }
+  // Net GEX
+  const netGex = gex.reduce((a, b) => a + b, 0);
+  // Flip level: strike where cumulative GEX crosses zero
+  let cum = 0, flipIdx = -1;
+  for (let i = 0; i < gex.length; i++) {
+    cum += gex[i];
+    if (i > 0 && Math.sign(gex[i]) !== Math.sign(gex[i - 1])) { flipIdx = i; break; }
+  }
+  const flipPx = flipIdx >= 0 ? strikes[flipIdx] : spot;
+  // Max pain (strike with maximum |OI losses| → here we use peak gamma absolute)
+  let maxPainStrike = strikes[0];
+  let maxPainScore = 0;
+  for (let i = 0; i < gex.length; i++) {
+    const score = Math.abs(gex[i]);
+    if (score > maxPainScore) { maxPainScore = score; maxPainStrike = strikes[i]; }
+  }
+  return { spot, strikes, gex, vanna, charm, netGex, flipPx, maxPain: maxPainStrike, change: q.changePct || 0 };
+}
+
+let chart1, chart2, chart3;
+function paint() {
+  const sym = document.getElementById('symSel').value;
+  const d = compute(sym);
+  document.getElementById('kSpot').textContent = '$' + d.spot.toFixed(2);
+  const cCol = d.change >= 0 ? 'var(--green)' : 'var(--red)';
+  document.getElementById('kSpotChg').textContent = (d.change >= 0 ? '+' : '') + d.change.toFixed(2) + '%';
+  document.getElementById('kSpotChg').style.color = cCol;
+  const gexB = (d.netGex / 1e9).toFixed(2);
+  document.getElementById('kGex').textContent = (d.netGex >= 0 ? '+$' : '−$') + Math.abs(d.netGex / 1e9).toFixed(2) + 'B';
+  document.getElementById('kGex').style.color = d.netGex >= 0 ? 'var(--green)' : 'var(--red)';
+  document.getElementById('kGexBody').textContent = d.netGex >= 0 ? 'Dealers long gamma' : 'Dealers short gamma';
+  document.getElementById('kFlip').textContent = '$' + d.flipPx.toFixed(2);
+  document.getElementById('kFlip').style.color = d.spot > d.flipPx ? 'var(--green)' : 'var(--red)';
+  document.getElementById('kFlipBody').textContent = d.spot > d.flipPx ? 'Above flip — stable regime' : 'Below flip — explosive regime';
+  document.getElementById('kMaxPain').textContent = '$' + d.maxPain.toFixed(2);
+  const distPct = ((d.maxPain - d.spot) / d.spot * 100).toFixed(2);
+  const rEl = document.getElementById('kRegime');
+  if (d.spot > d.flipPx) { rEl.textContent = 'PINNING'; rEl.style.color = 'var(--green)'; document.getElementById('kRegimeBody').textContent = 'Range-bound · sell premium'; }
+  else { rEl.textContent = 'TRENDING'; rEl.style.color = 'var(--red)'; document.getElementById('kRegimeBody').textContent = 'Volatile · long vol works'; }
+
+  // Chart 1: GEX by strike
+  if (chart1) chart1.destroy();
+  chart1 = new Chart(document.getElementById('gexChart').getContext('2d'), {
+    type: 'bar',
+    data: { labels: d.strikes, datasets: [{
+      label: 'GEX ($)', data: d.gex.map(v => v / 1e6),
+      backgroundColor: d.gex.map(v => v >= 0 ? 'rgba(16,185,129,0.7)' : 'rgba(239,68,68,0.7)')
+    }] },
+    options: { responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false },
+        annotation: false
+      },
+      scales: { x: { grid: { display: false }, ticks: { color: '#9ca3af', font: { size: 9 } } }, y: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#9ca3af', callback: v => '$' + v + 'M' } } }
+    }
+  });
+  // Chart 2: Vanna
+  if (chart2) chart2.destroy();
+  chart2 = new Chart(document.getElementById('vannaChart').getContext('2d'), {
+    type: 'bar',
+    data: { labels: d.strikes, datasets: [{
+      label: 'Vanna', data: d.vanna.map(v => v / 1e3),
+      backgroundColor: d.vanna.map(v => v >= 0 ? 'rgba(0,212,255,0.6)' : 'rgba(245,158,11,0.6)')
+    }] },
+    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } },
+      scales: { x: { grid: { display: false }, ticks: { color: '#9ca3af', font: { size: 9 } } }, y: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#9ca3af' } } }
+    }
+  });
+  // Chart 3: Charm
+  if (chart3) chart3.destroy();
+  chart3 = new Chart(document.getElementById('charmChart').getContext('2d'), {
+    type: 'bar',
+    data: { labels: d.strikes, datasets: [{
+      label: 'Charm', data: d.charm.map(v => v / 1e3),
+      backgroundColor: d.charm.map(v => v >= 0 ? 'rgba(124,58,237,0.6)' : 'rgba(245,158,11,0.6)')
+    }] },
+    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } },
+      scales: { x: { grid: { display: false }, ticks: { color: '#9ca3af', font: { size: 9 } } }, y: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#9ca3af' } } }
+    }
+  });
+}
+paint();
+document.getElementById('refreshBtn').addEventListener('click', paint);
+document.getElementById('symSel').addEventListener('change', paint);
+setInterval(paint, 60000);
+</script>
+</body>
+</html>

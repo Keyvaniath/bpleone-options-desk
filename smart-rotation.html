@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Smart Rotation — bpleone / trade</title>
+<meta name="description" content="Macro regime + style rotation matrix: growth/value, large/small, US/intl, cyclicals/defensives — where to lean.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.matrix-cell { padding:14px; border-radius:8px; text-align:center; }
+.matrix-cell .l { font-size:10px; color:var(--text-muted); font-weight:700; letter-spacing:0.5px; }
+.matrix-cell .v { font-family:var(--font-mono); font-size:18px; font-weight:700; margin-top:4px; }
+.matrix-cell .s { font-size:11px; margin-top:2px; }
+.regime-block { padding:18px; border-radius:12px; }
+</style>
+</head>
+<body data-needs="live">
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">🔄 Smart Rotation</div>
+      <div class="page-subtitle">Macro regime + style rotation · where to lean today · <span id="market-clock">--</span></div>
+    </div>
+    <div class="flex gap-8"><button class="btn btn-secondary" id="refreshBtn">🔄</button></div>
+  </div>
+
+  <!-- REGIME -->
+  <div class="card mb-24">
+    <div class="card-header"><div class="card-title">📍 Macro Regime Classification</div></div>
+    <div class="regime-block" id="regimeBlock"></div>
+  </div>
+
+  <!-- STYLE MATRIX -->
+  <div class="grid grid-2 mb-24">
+    <div class="card">
+      <div class="card-header"><div class="card-title">Growth vs Value</div></div>
+      <div class="grid grid-2" style="gap:10px;" id="gvBlock"></div>
+    </div>
+    <div class="card">
+      <div class="card-header"><div class="card-title">Large vs Small</div></div>
+      <div class="grid grid-2" style="gap:10px;" id="lsBlock"></div>
+    </div>
+    <div class="card">
+      <div class="card-header"><div class="card-title">US vs International</div></div>
+      <div class="grid grid-2" style="gap:10px;" id="usintBlock"></div>
+    </div>
+    <div class="card">
+      <div class="card-header"><div class="card-title">Cyclicals vs Defensives</div></div>
+      <div class="grid grid-2" style="gap:10px;" id="cdBlock"></div>
+    </div>
+  </div>
+
+  <!-- LEAN HERE -->
+  <div class="card">
+    <div class="card-header"><div class="card-title">🎯 Today's Lean — where the rotation matrix points</div></div>
+    <div id="leanBlock" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;"></div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script>
+buildNav('smart-rotation');
+
+function getQ(s) { return (typeof QUOTES !== 'undefined' && QUOTES[s]) ? QUOTES[s] : { last: 100, changePct: 0 }; }
+function pct(s) { return getQ(s).changePct || 0; }
+
+function classifyRegime() {
+  const spy = pct('SPY'), vxx = pct('VXX'), tlt = pct('TLT'), uup = pct('UUP'), gld = pct('GLD'), hyg = pct('HYG');
+  const score = spy*5 + hyg*6 - vxx*4 - uup*3 - gld*2 + tlt;
+  // Reflation: growth+inflation. Goldilocks: growth-inflation. Stagflation: -growth+inflation. Recession: -growth-inflation
+  const growthBias = spy + hyg - vxx; // proxy
+  const inflationBias = gld + uup * -0.5 - tlt; // higher = inflationary
+  let label, body, col;
+  if (growthBias > 0 && inflationBias > 0) { label = 'REFLATION'; col = 'var(--green)'; body = 'Growth + inflation regime. Cyclicals, commodities, value, small caps. Avoid long-duration tech.'; }
+  else if (growthBias > 0 && inflationBias <= 0) { label = 'GOLDILOCKS'; col = 'var(--accent)'; body = 'Growth without inflation. Tech + growth lead, long-duration assets bid. Best regime for risk.'; }
+  else if (growthBias <= 0 && inflationBias > 0) { label = 'STAGFLATION'; col = 'var(--yellow)'; body = 'Stagflation. Commodities + defensives. Avoid growth, avoid long-duration. Cash works.'; }
+  else { label = 'CONTRACTION'; col = 'var(--red)'; body = 'Risk-off. Treasuries + USD + gold + defensives. Cut equity exposure broadly.'; }
+  return { label, body, col, score, growthBias, inflationBias };
+}
+
+function compareETFs(a, b) {
+  const ca = pct(a), cb = pct(b);
+  const leader = ca > cb ? a : b;
+  const diff = +(ca - cb).toFixed(2);
+  return { leader, diff, ca, cb };
+}
+
+function paintCompare(blockId, pairs) {
+  const wrap = document.getElementById(blockId);
+  wrap.innerHTML = '';
+  pairs.forEach(([sym, lbl]) => {
+    const q = getQ(sym);
+    const chg = q.changePct || 0;
+    const col = chg > 0 ? 'var(--green)' : chg < 0 ? 'var(--red)' : 'var(--text-muted)';
+    const bg = chg > 0 ? 'rgba(16,185,129,0.08)' : chg < 0 ? 'rgba(239,68,68,0.08)' : 'rgba(100,116,139,0.06)';
+    const cell = document.createElement('div');
+    cell.className = 'matrix-cell';
+    cell.style.background = bg;
+    cell.innerHTML = '<div class="l">' + lbl + '</div>'
+      + '<div class="v">' + sym + '</div>'
+      + '<div class="s" style="color:' + col + ';">' + (chg >= 0 ? '+' : '') + chg.toFixed(2) + '%</div>';
+    wrap.appendChild(cell);
+  });
+}
+
+function paint() {
+  const r = classifyRegime();
+  document.getElementById('regimeBlock').innerHTML = `
+    <div style="background:rgba(0,0,0,0.2);border-left:4px solid ${r.col};padding:18px;border-radius:10px;">
+      <div style="font-size:11px;color:var(--text-muted);font-weight:700;letter-spacing:0.5px;">CURRENT REGIME</div>
+      <div style="font-family:var(--font-mono);font-size:32px;font-weight:800;color:${r.col};margin-top:4px;">${r.label}</div>
+      <div style="font-size:13px;color:var(--text-secondary);line-height:1.6;margin-top:8px;">${r.body}</div>
+    </div>
+  `;
+
+  paintCompare('gvBlock', [['IVW','Growth'], ['IVE','Value']]);
+  paintCompare('lsBlock', [['IVV','Large'], ['IJR','Small']]);
+  paintCompare('usintBlock', [['SPY','US'], ['EFA','Intl Dev']]);
+  paintCompare('cdBlock', [['XLY','Cyclicals'], ['XLP','Defensives']]);
+
+  // Lean cards
+  const leans = [];
+  const gv = compareETFs('IVW', 'IVE');
+  leans.push({ t: gv.leader === 'IVW' ? 'Lean GROWTH' : 'Lean VALUE', body: gv.leader + ' outperforming by ' + Math.abs(gv.diff).toFixed(2) + '% today. ' + (gv.leader === 'IVW' ? 'Long QQQ, XLK, mega-cap tech.' : 'Long XLE, XLF, dividend stocks.'), col: gv.leader === 'IVW' ? 'var(--accent)' : 'var(--green)' });
+  const ls = compareETFs('IVV', 'IJR');
+  leans.push({ t: ls.leader === 'IVV' ? 'Lean LARGE-CAP' : 'Lean SMALL-CAP', body: ls.leader + ' ahead by ' + Math.abs(ls.diff).toFixed(2) + '%. ' + (ls.leader === 'IVV' ? 'Risk-off undertone. Stay in mega-caps.' : 'Risk-on undertone. IWM, small-caps bidding.'), col: ls.leader === 'IVV' ? 'var(--accent)' : 'var(--green)' });
+  const ui = compareETFs('SPY', 'EFA');
+  leans.push({ t: ui.leader === 'SPY' ? 'Lean US' : 'Lean INTL', body: ui.leader + ' leading by ' + Math.abs(ui.diff).toFixed(2) + '%. ' + (ui.leader === 'SPY' ? 'US leadership intact. Avoid EM, prefer domestic.' : 'Intl outperforming — weaker USD + global rotation. Consider EFA, FXI.'), col: ui.leader === 'SPY' ? 'var(--accent)' : 'var(--yellow)' });
+  const cd = compareETFs('XLY', 'XLP');
+  leans.push({ t: cd.leader === 'XLY' ? 'Lean CYCLICAL' : 'Lean DEFENSIVE', body: cd.leader + ' ahead by ' + Math.abs(cd.diff).toFixed(2) + '%. ' + (cd.leader === 'XLY' ? 'Risk-on confirmed. Lean retail, autos, leisure.' : 'Risk-off undertone. Staples, utilities, healthcare bid.'), col: cd.leader === 'XLY' ? 'var(--green)' : 'var(--red)' });
+
+  const leanEl = document.getElementById('leanBlock');
+  leanEl.innerHTML = '';
+  leans.forEach(l => {
+    const card = document.createElement('div');
+    card.style.cssText = 'padding:14px;border-radius:10px;background:var(--bg-elevated);border:1px solid var(--border);border-left:3px solid ' + l.col + ';';
+    card.innerHTML = '<div style="font-weight:700;font-size:14px;margin-bottom:6px;color:' + l.col + ';">' + l.t + '</div><div style="font-size:12px;color:var(--text-secondary);line-height:1.5;">' + l.body + '</div>';
+    leanEl.appendChild(card);
+  });
+}
+paint();
+document.getElementById('refreshBtn').addEventListener('click', paint);
+setInterval(paint, 60000);
+</script>
+</body>
+</html>
