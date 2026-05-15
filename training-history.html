@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Training History — bpleone / trade</title>
+<meta name="description" content="Timeline of every model training event — see how the brain learned over time.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.timeline-event { display:grid; grid-template-columns: 100px 1fr 80px 80px 90px; gap:14px; padding:12px 14px; border-bottom:1px solid var(--border); align-items:center; font-size:12px; }
+.timeline-event.batch { border-left:3px solid var(--accent); }
+.timeline-event.retrain { border-left:3px solid var(--green); background:rgba(16,185,129,0.04); }
+.timeline-event.label { border-left:3px solid var(--yellow); }
+.timeline-event.drift { border-left:3px solid var(--red); background:rgba(239,68,68,0.05); }
+.event-icon { font-size:14px; }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">📜 Training History</div>
+      <div class="page-subtitle">Every training event since model birth · <span id="market-clock">--</span></div>
+    </div>
+    <div class="flex gap-8">
+      <button class="btn btn-secondary" id="exportBtn">📥 Export</button>
+    </div>
+  </div>
+
+  <div class="grid grid-4 mb-24">
+    <div class="card"><div class="card-header"><div class="card-title">Total Events</div></div><div class="mono" style="font-size:26px;font-weight:700;" id="kTotal">--</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">Model Age</div></div><div class="mono" style="font-size:26px;font-weight:700;color:var(--accent);" id="kAge">--</div><div class="mono" style="font-size:11px;color:var(--text-muted);" id="kAgeBody">--</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">Avg Loss (recent 50)</div></div><div class="mono" style="font-size:26px;font-weight:700;" id="kLoss">--</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">Trend</div></div><div class="mono" style="font-size:26px;font-weight:700;" id="kTrend">--</div><div class="mono" style="font-size:11px;color:var(--text-muted);">Loss vs lifetime avg</div></div>
+  </div>
+
+  <!-- LOSS OVER TIME -->
+  <div class="card mb-24">
+    <div class="card-header"><div class="card-title">📉 Loss Over Time</div></div>
+    <canvas id="lossChart" height="200"></canvas>
+  </div>
+
+  <!-- TIMELINE -->
+  <div class="card" style="padding:0;">
+    <div class="card-header" style="padding:14px 16px;"><div class="card-title">⏱ Event Timeline</div></div>
+    <div class="timeline-event" style="background:var(--bg-elevated);font-size:9px;color:var(--text-muted);font-weight:800;letter-spacing:0.5px;">
+      <div>TIME</div><div>EVENT</div><div>LOSS</div><div>PRED</div><div>ACTUAL</div>
+    </div>
+    <div id="timelineBody" style="max-height:560px;overflow-y:auto;"></div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script src="js/model.js"></script>
+<script src="js/charts.js"></script>
+<script>
+buildNav('training-history');
+
+let lossChart;
+function paint() {
+  if (!window.ModelStore) { setTimeout(paint, 500); return; }
+  const model = ModelStore.load();
+  const versions = ModelStore.versions();
+  const events = (model.lossHistory || []).slice();
+
+  document.getElementById('kTotal').textContent = events.length;
+  const ageHours = (Date.now() - model.createdTs) / 3600000;
+  document.getElementById('kAge').textContent = ageHours < 24 ? ageHours.toFixed(1) + 'h' : Math.round(ageHours / 24) + 'd';
+  document.getElementById('kAgeBody').textContent = 'born ' + new Date(model.createdTs).toLocaleDateString();
+  const recent50 = events.slice(-50);
+  const avgRecent = recent50.length > 0 ? recent50.reduce((s, e) => s + e.loss, 0) / recent50.length : 0;
+  const avgAll = events.length > 0 ? events.reduce((s, e) => s + e.loss, 0) / events.length : 0;
+  document.getElementById('kLoss').textContent = avgRecent.toFixed(4);
+  const trend = avgAll > 0 ? ((avgRecent - avgAll) / avgAll * 100) : 0;
+  const trendEl = document.getElementById('kTrend');
+  trendEl.textContent = (trend >= 0 ? '+' : '') + trend.toFixed(1) + '%';
+  trendEl.style.color = trend < -10 ? 'var(--green)' : trend > 10 ? 'var(--red)' : 'var(--text-primary)';
+
+  // Loss chart
+  const labels = events.map((_, i) => i + 1);
+  const data = events.map(e => e.loss);
+  // Smoothed
+  const win = 30;
+  const smoothed = [];
+  for (let i = 0; i < data.length; i++) {
+    const s = Math.max(0, i - win + 1);
+    const slice = data.slice(s, i + 1);
+    smoothed.push(slice.reduce((a, b) => a + b, 0) / slice.length);
+  }
+  if (lossChart) lossChart.destroy();
+  lossChart = new Chart(document.getElementById('lossChart').getContext('2d'), {
+    type: 'line',
+    data: { labels, datasets: [
+      { label: 'Loss', data, borderColor: 'rgba(239,68,68,0.3)', borderWidth: 1, pointRadius: 0 },
+      { label: 'Smoothed (30)', data: smoothed, borderColor: 'rgba(0,212,255,1)', borderWidth: 2, pointRadius: 0, tension: 0.2 }
+    ] },
+    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: true, position: 'top', labels: { color: '#9ca3af' } } }, scales: { x: { display: false }, y: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#6b7280' } } } }
+  });
+
+  // Timeline — combine events (training samples) + versions (snapshots)
+  const combined = [];
+  events.forEach((e, i) => {
+    combined.push({ ts: e.ts, type: 'batch', loss: e.loss, p: e.p, y: e.y, label: 'Train sample #' + (i + 1) });
+  });
+  versions.forEach(v => {
+    combined.push({ ts: v.savedAt, type: 'retrain', label: 'SNAPSHOT: ' + (v.label || 'snapshot'), version: v.version, samples: v.n_trained });
+  });
+  combined.sort((a, b) => b.ts - a.ts);
+
+  const body = document.getElementById('timelineBody');
+  body.innerHTML = '';
+  combined.slice(0, 200).forEach(e => {
+    const time = new Date(e.ts).toLocaleString();
+    const row = document.createElement('div');
+    row.className = 'timeline-event ' + e.type;
+    if (e.type === 'batch') {
+      const correct = (e.p >= 0.5 ? 1 : 0) === e.y;
+      row.innerHTML = '<div class="mono" style="color:var(--text-muted);font-size:10px;">' + time + '</div>'
+        + '<div><span class="event-icon">🎓</span> ' + e.label + '</div>'
+        + '<div class="mono">' + e.loss.toFixed(4) + '</div>'
+        + '<div class="mono">' + (e.p * 100).toFixed(0) + '%</div>'
+        + '<div class="mono" style="color:' + (correct ? 'var(--green)' : 'var(--red)') + ';">' + (e.y === 1 ? 'HIT' : 'MISS') + ' ' + (correct ? '✓' : '✗') + '</div>';
+    } else {
+      row.innerHTML = '<div class="mono" style="color:var(--text-muted);font-size:10px;">' + time + '</div>'
+        + '<div><span class="event-icon">💾</span> <strong>' + e.label + '</strong></div>'
+        + '<div class="mono">v' + e.version + '</div>'
+        + '<div class="mono">' + e.samples + '</div>'
+        + '<div></div>';
+    }
+    body.appendChild(row);
+  });
+}
+
+document.getElementById('exportBtn').addEventListener('click', () => {
+  const model = ModelStore.load();
+  const csv = ['index,timestamp,loss,prob,label,correct'];
+  (model.lossHistory || []).forEach((e, i) => {
+    const correct = (e.p >= 0.5 ? 1 : 0) === e.y;
+    csv.push([i + 1, new Date(e.ts).toISOString(), e.loss, e.p, e.y, correct].join(','));
+  });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([csv.join('\n')], { type: 'text/csv' }));
+  a.download = 'training-history-' + Date.now() + '.csv';
+  a.click();
+});
+
+paint();
+window.addEventListener('bpleone:model-trained', paint);
+setInterval(paint, 30000);
+</script>
+</body>
+</html>

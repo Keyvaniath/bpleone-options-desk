@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>First Run Tour — bpleone / trade</title>
+<meta name="description" content="5-minute onboarding · seed the brain · enable alerts · start trading.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.step { padding:24px;background:var(--bg-elevated);border:1px solid var(--border);border-radius:12px;margin-bottom:14px;display:flex;gap:20px;align-items:flex-start; }
+.step.done { border-left:4px solid var(--green); }
+.step .num { width:48px;height:48px;border-radius:50%;background:rgba(0,212,255,0.18);color:var(--accent);display:flex;align-items:center;justify-content:center;font-weight:800;font-size:20px;font-family:var(--font-mono);flex-shrink:0; }
+.step.done .num { background:rgba(16,185,129,0.18);color:var(--green); }
+.step .body h3 { font-size:18px;font-weight:700;margin-bottom:6px; }
+.step .body p { font-size:13px;color:var(--text-secondary);line-height:1.7;margin-bottom:12px; }
+.step .actions { display:flex;gap:10px;flex-wrap:wrap; }
+.action-btn { padding:10px 20px;border-radius:8px;font-weight:600;font-size:12px;text-decoration:none;border:none;cursor:pointer; }
+.action-btn.primary { background:var(--accent);color:#000; }
+.action-btn.secondary { background:var(--bg);color:var(--text-primary);border:1px solid var(--border); }
+.action-btn.skip { background:transparent;color:var(--text-muted); }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">🎬 First-Run Tour</div>
+      <div class="page-subtitle">5-minute setup · the ML model needs ~5 things to be useful · <span id="market-clock">--</span></div>
+    </div>
+    <div class="flex gap-8">
+      <button class="btn btn-secondary" id="resetBtn">🔄 Reset progress</button>
+    </div>
+  </div>
+
+  <div class="card mb-24" style="background:linear-gradient(135deg,rgba(0,212,255,0.05),transparent);">
+    <div style="font-size:14px;color:var(--text-secondary);line-height:1.7;">
+      Welcome. The autonomous brain is already running in the background — but it needs <strong>~5 things</strong> to be genuinely useful for you. Walk through these in order. Most steps take 30 seconds each.
+    </div>
+  </div>
+
+  <div id="steps"></div>
+
+  <div class="card mt-24" style="background:linear-gradient(135deg,rgba(16,185,129,0.05),transparent);border-color:rgba(16,185,129,0.2);">
+    <div class="card-header"><div class="card-title">✅ When you're done</div></div>
+    <div style="font-size:13px;color:var(--text-secondary);line-height:1.7;">
+      Open <a href="morning-brief.html" style="color:var(--accent);">Morning Brief</a> as your daily starting point. The brain will train continuously as you use the site. Check <a href="ml-status.html" style="color:var(--accent);">ML Status</a> weekly to see model health. That's it — you're set.
+    </div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script src="js/model.js"></script>
+<script>
+buildNav('first-run-tour');
+
+const TOUR_KEY = 'bpleone_tour_progress_v1';
+function loadProgress() { try { return JSON.parse(localStorage.getItem(TOUR_KEY) || '{}'); } catch (e) { return {}; } }
+function saveProgress(p) { try { localStorage.setItem(TOUR_KEY, JSON.stringify(p)); } catch (e) {} }
+
+const STEPS = [
+  {
+    id: 'seed',
+    title: 'Seed the model',
+    body: 'The ML model needs labeled data. We auto-seed 200 synthetic rows on first visit — but check that it worked. If `bpleone_model_autoseeded_v1` exists in localStorage, you\'re good.',
+    check: () => !!localStorage.getItem('bpleone_model_autoseeded_v1'),
+    actions: [
+      { label: '🌱 Open Model Seed', url: 'model-seed.html', primary: true },
+      { label: '🩺 Check ML Status', url: 'ml-status.html' }
+    ]
+  },
+  {
+    id: 'pwa',
+    title: 'Install as an app',
+    body: 'Pin bpleone to your desktop / home screen so it\'s one tap away. Required for push notifications when the model finds high-confidence setups.',
+    check: () => window.matchMedia('(display-mode: standalone)').matches,
+    actions: [
+      { label: '📱 Install Now', url: 'pwa-install.html', primary: true }
+    ]
+  },
+  {
+    id: 'notify',
+    title: 'Enable ML push notifications',
+    body: 'The brain will desktop-notify when a finding has ≥78% model confidence AND high severity. Rare but high-value alerts — won\'t spam.',
+    check: () => 'Notification' in window && Notification.permission === 'granted',
+    actions: [
+      { label: '🔔 Enable Notifications', action: async () => { if ('Notification' in window) { await Notification.requestPermission(); refresh(); } }, primary: true }
+    ]
+  },
+  {
+    id: 'watchlist',
+    title: 'Build your watchlist',
+    body: 'The model uses per-symbol learned weights. Each symbol in your watchlist gets tracked — predictions improve fastest for symbols you watch.',
+    check: () => { try { const lists = JSON.parse(localStorage.getItem('bpleone_watchlist_pro_v1') || '[]'); return lists.length > 0 && lists.some(l => l.syms && l.syms.length > 0); } catch (e) { return false; } },
+    actions: [
+      { label: '⭐ Open Watchlist PRO', url: 'watchlist-pro.html', primary: true }
+    ]
+  },
+  {
+    id: 'journal',
+    title: 'Log a real trade (optional)',
+    body: 'If you\'ve traded recently, log it in Journal PRO. Then click "Train ML from my trades" — your real history becomes training data, dramatically improving model accuracy on your style.',
+    check: () => { try { const entries = JSON.parse(localStorage.getItem('bpleone_journal_pro_v1') || '[]'); return entries.length >= 3; } catch (e) { return false; } },
+    actions: [
+      { label: '📓 Open Journal PRO', url: 'trade-journal-pro.html', primary: true }
+    ]
+  },
+  {
+    id: 'tour',
+    title: 'Explore the desk',
+    body: 'You\'re set. Visit Morning Brief daily, check Conviction Stack for ranked setups, and click any finding for a full Trade Coach plan with ML confidence.',
+    check: () => loadProgress().toured === true,
+    actions: [
+      { label: '☀ Open Morning Brief', url: 'morning-brief.html', primary: true },
+      { label: '⭐ Conviction Stack', url: 'conviction-stack.html' },
+      { label: '🗂 All Tools', url: 'all-tools.html' },
+      { label: '✓ Mark complete', action: () => { const p = loadProgress(); p.toured = true; saveProgress(p); refresh(); }, primary: false }
+    ]
+  }
+];
+
+function refresh() {
+  const wrap = document.getElementById('steps');
+  wrap.innerHTML = '';
+  STEPS.forEach((step, i) => {
+    const done = step.check();
+    const div = document.createElement('div');
+    div.className = 'step' + (done ? ' done' : '');
+    div.innerHTML = '<div class="num">' + (done ? '✓' : (i + 1)) + '</div>'
+      + '<div class="body" style="flex:1;"><h3>' + step.title + (done ? ' <span style="color:var(--green);font-size:14px;">— DONE</span>' : '') + '</h3>'
+      + '<p>' + step.body + '</p>'
+      + '<div class="actions">' + step.actions.map((a, ai) => {
+          const cls = a.primary ? 'primary' : a.skip ? 'skip' : 'secondary';
+          return a.url
+            ? '<a class="action-btn ' + cls + '" href="' + a.url + '">' + a.label + '</a>'
+            : '<button class="action-btn ' + cls + '" data-step="' + i + '" data-act="' + ai + '">' + a.label + '</button>';
+        }).join('') + '</div></div>';
+    wrap.appendChild(div);
+  });
+  document.querySelectorAll('button[data-step]').forEach(b => b.addEventListener('click', () => {
+    const step = STEPS[+b.dataset.step];
+    const action = step.actions[+b.dataset.act];
+    if (action.action) action.action();
+  }));
+}
+
+document.getElementById('resetBtn').addEventListener('click', () => {
+  if (!confirm('Reset tour progress?')) return;
+  localStorage.removeItem(TOUR_KEY);
+  refresh();
+});
+refresh();
+setInterval(refresh, 5000);
+</script>
+</body>
+</html>

@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Active Learning — bpleone / trade</title>
+<meta name="description" content="Prioritize the findings the model is most UNCERTAIN about — efficient learning.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.uncertain-row { display:grid; grid-template-columns: 30px 70px 90px 100px 1fr 140px; gap:10px; padding:11px 14px; border-bottom:1px solid var(--border); font-family:var(--font-mono); font-size:11px; align-items:center; }
+.uncertain-row.very { border-left:3px solid var(--yellow);background:rgba(245,158,11,0.04); }
+.label-btn { padding:6px 14px;font-size:11px;font-weight:700;border-radius:6px;border:1px solid var(--border);cursor:pointer;background:var(--bg-elevated); }
+.label-btn.hit { color:var(--green); }
+.label-btn.hit:hover { background:rgba(16,185,129,0.12);border-color:var(--green); }
+.label-btn.miss { color:var(--red); }
+.label-btn.miss:hover { background:rgba(239,68,68,0.12);border-color:var(--red); }
+.uncertainty-bar { display:inline-block;width:60px;height:6px;background:var(--bg);border-radius:3px;overflow:hidden;vertical-align:middle; }
+.uncertainty-bar > div { height:100%;background:var(--yellow); }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">🎯 Active Learning</div>
+      <div class="page-subtitle">Label the findings the model is MOST uncertain about — fastest way to improve · <span id="market-clock">--</span></div>
+    </div>
+    <div class="flex gap-8">
+      <a href="model-trainer.html" class="btn btn-secondary">🎓 Trainer</a>
+    </div>
+  </div>
+
+  <div class="card mb-24" style="background:linear-gradient(135deg,rgba(245,158,11,0.05),transparent);border-color:rgba(245,158,11,0.2);">
+    <div style="font-size:13px;color:var(--text-secondary);line-height:1.7;">
+      <strong style="color:var(--yellow);">Active learning</strong> = picking which samples to label first to make the model learn fastest. The model is most uncertain about findings where P(win) is near 50% — those are the ones where labeling gives the biggest accuracy boost per row.
+      <div class="mt-12">Below: 30 most-uncertain unlabeled findings. Manually click <strong style="color:var(--green);">HIT</strong> or <strong style="color:var(--red);">MISS</strong> — model retrains immediately on each label. This is how you teach the model from your own knowledge faster than waiting for automatic outcome rating.</div>
+    </div>
+  </div>
+
+  <div class="grid grid-4 mb-24">
+    <div class="card"><div class="card-header"><div class="card-title">Total Uncertain</div></div><div class="mono" style="font-size:26px;font-weight:700;color:var(--yellow);" id="kTotal">--</div><div class="mono" style="font-size:11px;color:var(--text-muted);">|prob - 0.5| &lt; 0.15</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">Labeled This Session</div></div><div class="mono green-text" style="font-size:26px;font-weight:700;" id="kLabeled">0</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">Model Acc Before</div></div><div class="mono" style="font-size:26px;font-weight:700;" id="kBefore">--</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">Model Acc Now</div></div><div class="mono" style="font-size:26px;font-weight:700;color:var(--accent);" id="kNow">--</div><div class="mono" style="font-size:11px;color:var(--text-muted);" id="kDelta">--</div></div>
+  </div>
+
+  <div class="card" style="padding:0;">
+    <div class="card-header" style="padding:14px 16px;"><div class="card-title">📋 Most Uncertain Findings (sorted by |prob - 50%|)</div></div>
+    <div class="uncertain-row" style="background:var(--bg-elevated);font-size:9px;color:var(--text-muted);font-weight:800;letter-spacing:0.5px;">
+      <div>#</div><div>SYM</div><div>P(WIN)</div><div>UNCERTAINTY</div><div>SETUP</div><div>LABEL</div>
+    </div>
+    <div id="uncertainBody"></div>
+  </div>
+
+  <div class="card mt-24">
+    <div class="card-header"><div class="card-title">🧠 Why this works</div></div>
+    <div style="font-size:13px;color:var(--text-secondary);line-height:1.7;">
+      Suppose the model is 90% confident on one finding and 50% confident on another. The 90% one already gives the model little to learn — outcome is mostly expected either way. The 50% one is genuinely undecided — labeling it teaches the model the most. In practice, labeling uncertain samples first can yield <strong>2-5×</strong> more accuracy improvement per label than random sampling.
+      <div class="mt-12"><strong>How to use:</strong> Trust your trading intuition. If you'd bet on the setup, click HIT. If you'd skip / fade, click MISS. If you can't tell, skip it. Don't agonize — the model just needs a directional signal.</div>
+    </div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script src="js/model.js"></script>
+<script>
+buildNav('active-learning');
+
+let labeledThisSession = 0;
+let accBefore = null;
+
+function paint() {
+  if (!window.ModelStore) { setTimeout(paint, 500); return; }
+
+  const findings = (function () { try { return JSON.parse(localStorage.getItem('bpleone_brain_findings_v1') || '{"items":[]}').items; } catch (e) { return []; } })();
+  const unlabeled = findings.filter(f => !f.outcome && f.features);
+  const model = ModelStore.load();
+
+  // Set "before" once on first paint
+  if (accBefore === null) accBefore = model.rollingAccuracy();
+
+  // Compute uncertainty for each
+  const ranked = unlabeled.map(f => {
+    const pred = model.predict(f.features);
+    return { f, prob: pred.prob, uncertainty: 1 - Math.abs(pred.prob - 0.5) * 2 };
+  }).sort((a, b) => b.uncertainty - a.uncertainty);
+
+  // Stats
+  const uncertainCount = ranked.filter(r => r.uncertainty > 0.7).length;
+  document.getElementById('kTotal').textContent = uncertainCount;
+  document.getElementById('kLabeled').textContent = labeledThisSession;
+  document.getElementById('kBefore').textContent = (accBefore * 100).toFixed(1) + '%';
+  const now = model.rollingAccuracy();
+  document.getElementById('kNow').textContent = (now * 100).toFixed(1) + '%';
+  const delta = (now - accBefore) * 100;
+  document.getElementById('kDelta').textContent = (delta >= 0 ? '+' : '') + delta.toFixed(2) + '% delta';
+  document.getElementById('kDelta').style.color = delta > 0 ? 'var(--green)' : delta < 0 ? 'var(--red)' : 'var(--text-muted)';
+
+  // Render top 30
+  const body = document.getElementById('uncertainBody');
+  body.innerHTML = '';
+  if (ranked.length === 0) {
+    body.innerHTML = '<div style="padding:30px;text-align:center;color:var(--text-muted);font-size:13px;">No unlabeled findings with feature snapshots. Brain needs to be running.</div>';
+    return;
+  }
+  ranked.slice(0, 30).forEach((r, i) => {
+    const cls = r.uncertainty > 0.8 ? 'very' : '';
+    const sym = (r.f.meta && r.f.meta.sym) || '—';
+    const setup = (r.f.meta && r.f.meta.setup) || r.f.type || '';
+    const probCol = r.prob >= 0.6 ? 'var(--green)' : r.prob <= 0.4 ? 'var(--red)' : 'var(--accent)';
+    const row = document.createElement('div');
+    row.className = 'uncertain-row ' + cls;
+    row.innerHTML = '<div>' + (i + 1) + '</div>'
+      + '<div><strong>' + sym + '</strong></div>'
+      + '<div style="color:' + probCol + ';font-weight:700;font-size:13px;">' + (r.prob * 100).toFixed(0) + '%</div>'
+      + '<div><span class="uncertainty-bar"><div style="width:' + (r.uncertainty * 100) + '%;"></div></span> <span style="font-size:9px;color:var(--text-muted);margin-left:4px;">' + (r.uncertainty * 100).toFixed(0) + '%</span></div>'
+      + '<div style="font-family:Inter;color:var(--text-secondary);font-size:11px;">' + setup + '</div>'
+      + '<div style="display:flex;gap:6px;"><button class="label-btn hit" data-id="' + r.f.id + '" data-label="hit">✓ HIT</button><button class="label-btn miss" data-id="' + r.f.id + '" data-label="miss">✗ MISS</button></div>';
+    body.appendChild(row);
+  });
+
+  // Bind label buttons
+  document.querySelectorAll('.label-btn').forEach(b => b.addEventListener('click', () => {
+    const id = b.dataset.id;
+    const label = b.dataset.label;
+    const finding = findings.find(f => f.id === id);
+    if (!finding) return;
+    // Mark outcome
+    finding.outcome = label;
+    finding.realizedPct = label === 'hit' ? 1.5 : -1.5; // synthetic
+    finding.activeLabeled = true;
+    // Save back
+    try {
+      const all = JSON.parse(localStorage.getItem('bpleone_brain_findings_v1') || '{"items":[]}');
+      const idx = all.items.findIndex(x => x.id === id);
+      if (idx >= 0) all.items[idx] = finding;
+      localStorage.setItem('bpleone_brain_findings_v1', JSON.stringify(all));
+    } catch (e) {}
+    // Train on it
+    const m = ModelStore.load();
+    const y = label === 'hit' ? 1 : 0;
+    m.train(finding.features, y);
+    ModelStore.save(m);
+    ModelStore.addTrainingRow(finding.features, y, { id: finding.id, sym: finding.meta && finding.meta.sym, setup: finding.meta && finding.meta.setup, source: 'active-learning' });
+    labeledThisSession++;
+    try { window.dispatchEvent(new CustomEvent('bpleone:model-trained', { detail: { batchSize: 1, avgLoss: 0, model: m.serialize() } })); } catch (e) {}
+    paint();
+  }));
+}
+
+paint();
+window.addEventListener('bpleone:brain-finding', paint);
+setInterval(paint, 30000);
+</script>
+</body>
+</html>
