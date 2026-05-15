@@ -1,0 +1,274 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Multi-Symbol Radar — bpleone / trade</title>
+<meta name="description" content="At-a-glance live grid of 12 symbols with TA snapshot, current setup tag, learned edge score. The whole tape on one screen.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.radar-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; }
+@media (max-width: 1100px) { .radar-grid { grid-template-columns: repeat(2, 1fr); } }
+@media (max-width: 700px) { .radar-grid { grid-template-columns: 1fr; } }
+.radar-tile { background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 10px; padding: 14px; transition: border-color .2s ease, transform .12s ease; position: relative; overflow: hidden; cursor: pointer; }
+.radar-tile:hover { transform: translateY(-2px); border-color: var(--accent); }
+.radar-tile.bull { border-left: 3px solid var(--green); }
+.radar-tile.bear { border-left: 3px solid var(--red); }
+.radar-tile.high-conv { box-shadow: 0 0 0 1px var(--accent), 0 0 20px rgba(0,212,255,0.15); }
+.radar-tile .head { display: flex; justify-content: space-between; align-items: baseline; }
+.radar-tile .sym { font-family: var(--font-mono); font-weight: 800; font-size: 18px; }
+.radar-tile .px { font-family: var(--font-mono); font-weight: 600; font-size: 14px; }
+.radar-tile .chg { font-family: var(--font-mono); font-size: 11px; }
+.radar-tile .chg.pos { color: var(--green); }
+.radar-tile .chg.neg { color: var(--red); }
+.radar-tile .setup-line { margin-top: 10px; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.radar-tile .setup-tag { display: inline-block; padding: 2px 8px; border-radius: 999px; font-family: var(--font-mono); font-size: 10px; font-weight: 600; background: var(--bg-secondary); border: 1px solid var(--border); }
+.radar-tile .setup-tag.bull { background: rgba(16,185,129,0.12); color: var(--green); border-color: rgba(16,185,129,0.3); }
+.radar-tile .setup-tag.bear { background: rgba(239,68,68,0.12); color: var(--red); border-color: rgba(239,68,68,0.3); }
+.radar-tile .score-bar { width: 80px; height: 5px; background: var(--bg-secondary); border-radius: 3px; overflow: hidden; }
+.radar-tile .score-bar .fill { height: 100%; background: linear-gradient(to right, var(--accent), var(--purple)); }
+.radar-tile .ind-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; margin-top: 10px; font-size: 10px; }
+.radar-tile .ind-row .lab { color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.3px; font-size: 9px; }
+.radar-tile .ind-row .val { font-family: var(--font-mono); font-weight: 700; font-size: 11px; }
+.radar-tile .actions { margin-top: 10px; display: flex; gap: 6px; font-size: 10px; }
+.radar-tile .actions a { color: var(--text-muted); text-decoration: none; padding: 2px 6px; border-radius: 4px; background: var(--bg-secondary); border: 1px solid var(--border); }
+.radar-tile .actions a:hover { color: var(--accent); border-color: var(--accent); }
+.kpi-strip { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; margin-bottom: 20px; }
+.tile-kpi { background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 10px; padding: 14px; text-align: center; }
+.tile-kpi .lab { font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; }
+.tile-kpi .val { font-family: var(--font-mono); font-weight: 700; font-size: 20px; margin-top: 4px; }
+.r-pos { color: var(--green); } .r-neg { color: var(--red); }
+.controls { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 16px; padding: 12px 16px; background: var(--bg-elevated); border-radius: 10px; border: 1px solid var(--border); }
+.controls label { font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; }
+.controls input, .controls select { background: var(--bg-secondary); border: 1px solid var(--border); color: var(--text-primary); padding: 6px 10px; border-radius: 6px; font-family: inherit; font-size: 12px; }
+.flash-update { animation: pulseFlash 0.6s ease; }
+@keyframes pulseFlash { 0% { background: rgba(0,212,255,0.10); } 100% { background: transparent; } }
+.pulse-dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--green); animation: dot 1.4s ease-in-out infinite; vertical-align: middle; margin-right: 4px; }
+@keyframes dot { 0%, 100% { opacity: 0.4; } 50% { opacity: 1; } }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title"><span class="pulse-dot"></span> Multi-Symbol Radar <span class="feat-badge feat-new">NEW</span> <span class="feat-badge feat-live">LIVE</span></div>
+      <div class="page-subtitle">12 symbols, every tick. TA + setup + learned edge in one glance. · <span id="market-clock">--</span></div>
+    </div>
+    <div class="flex gap-8">
+      <a href="live-train.html" class="btn btn-primary">🎓 AI Trainer</a>
+      <a href="edge-scanner.html" class="btn btn-ghost">🛰 Scanner</a>
+      <a href="setup-combos.html" class="btn btn-ghost">🔗 Combos</a>
+    </div>
+  </div>
+
+  <!-- KPI strip -->
+  <div class="kpi-strip">
+    <div class="tile-kpi"><div class="lab">Universe</div><div class="val" id="kSyms">0</div></div>
+    <div class="tile-kpi"><div class="lab">Bull setups</div><div class="val r-pos" id="kBull">0</div></div>
+    <div class="tile-kpi"><div class="lab">Bear setups</div><div class="val r-neg" id="kBear">0</div></div>
+    <div class="tile-kpi"><div class="lab">High-conviction (≥0.75)</div><div class="val" id="kHC">0</div></div>
+    <div class="tile-kpi"><div class="lab">Avg breadth</div><div class="val" id="kBreadth">—</div></div>
+  </div>
+
+  <!-- Controls -->
+  <div class="controls">
+    <div>
+      <label>Symbols</label><br>
+      <input id="symList" value="SPY,QQQ,IWM,NVDA,AAPL,TSLA,META,AMZN,MSFT,GOOGL,AMD,COIN" style="width:340px;text-transform:uppercase;">
+    </div>
+    <div>
+      <label>Sort by</label><br>
+      <select id="sortBy">
+        <option value="adj">Adj score ↓</option>
+        <option value="chg">Day % ↓</option>
+        <option value="rsi">RSI ↓</option>
+        <option value="vwap">VWAP distance ↓</option>
+        <option value="sym">Symbol A-Z</option>
+      </select>
+    </div>
+    <div>
+      <label>Filter</label><br>
+      <select id="biasFilter">
+        <option value="all">All biases</option>
+        <option value="bull">Bull only</option>
+        <option value="bear">Bear only</option>
+        <option value="high">≥0.75 only</option>
+      </select>
+    </div>
+    <div style="margin-left:auto;font-size:11px;color:var(--text-muted);">
+      Auto-refresh every tick + 1s poll
+    </div>
+  </div>
+
+  <!-- Radar grid -->
+  <div id="radarGrid" class="radar-grid"></div>
+</div>
+
+<div id="site-footer"></div>
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script src="js/ta.js"></script>
+<script src="js/learn.js"></script>
+<script src="js/discord.js"></script>
+<script>buildNav('learn');</script>
+
+<script>
+(function () {
+  function getSymbols() {
+    return (document.getElementById('symList').value || '').split(',').map(s => s.trim().toUpperCase()).filter(Boolean);
+  }
+
+  function loadWeights() {
+    try {
+      const raw = localStorage.getItem('bpleone_learn_v1');
+      if (!raw) return {};
+      return JSON.parse(raw).weights || {};
+    } catch (e) { return {}; }
+  }
+
+  function biasFromTag(tag) {
+    const bullTags = ['volume-breakout', '52w-break', 'unusual-call', '50ma-reclaim', 'macd-cross', 'momentum-extension', 'bull-flag', 'cup-handle', 'vwap-reclaim', 'continuation-bull'];
+    const bearTags = ['flush-on-volume', 'breakdown', 'unusual-put', 'bear-flag', 'overbought-fade', 'vwap-rejection', 'continuation-bear', 'bb-stretch-up'];
+    if (bullTags.indexOf(tag) !== -1) return 'bull';
+    if (bearTags.indexOf(tag) !== -1) return 'bear';
+    if (tag === 'oversold-mean-revert' || tag === 'bb-stretch-down') return 'bull';
+    return 'neutral';
+  }
+
+  function buildTile(d) {
+    const bias = d.bias;
+    const cls = 'radar-tile ' + (bias === 'bull' ? 'bull' : bias === 'bear' ? 'bear' : '') + (d.adj >= 0.75 ? ' high-conv' : '');
+    const tip = d.reasons.join(' · ');
+    return `<div class="${cls}" data-sym="${d.sym}" onclick="if(!event.target.closest('a'))location.href='live-train.html?sym=${d.sym}';">
+      <div class="head">
+        <div>
+          <div class="sym">${d.sym}</div>
+        </div>
+        <div style="text-align:right;">
+          <div class="px">$${(d.last || 0).toFixed(2)}</div>
+          <div class="chg ${d.chg >= 0 ? 'pos' : 'neg'}">${d.chg >= 0 ? '+' : ''}${(d.chg || 0).toFixed(2)}%</div>
+        </div>
+      </div>
+      <div class="setup-line" title="${tip}">
+        <span class="setup-tag ${bias}">${d.setup}</span>
+        <div class="score-bar"><span class="fill" style="width:${Math.min(100, d.adj * 100)}%;"></span></div>
+        <span style="font-family:var(--font-mono);font-size:11px;color:var(--text-muted);">${d.adj.toFixed(2)}</span>
+      </div>
+      <div class="ind-row">
+        <div><div class="lab">RSI</div><div class="val" style="color:${d.rsi > 70 ? 'var(--red)' : d.rsi < 30 ? 'var(--green)' : 'var(--text-primary)'};">${d.rsi != null ? d.rsi.toFixed(0) : '—'}</div></div>
+        <div><div class="lab">MACD</div><div class="val" style="color:${d.hist > 0 ? 'var(--green)' : d.hist < 0 ? 'var(--red)' : 'var(--text-muted)'};">${d.hist != null ? (d.hist >= 0 ? '+' : '') + d.hist.toFixed(2) : '—'}</div></div>
+        <div><div class="lab">ADX</div><div class="val" style="color:${d.adx >= 25 ? 'var(--accent)' : 'var(--text-muted)'};">${d.adx != null ? d.adx.toFixed(0) : '—'}</div></div>
+        <div><div class="lab">VWAP</div><div class="val" style="color:${d.vwapDist >= 0 ? 'var(--green)' : 'var(--red)'};">${d.vwapDist != null ? (d.vwapDist >= 0 ? '+' : '') + d.vwapDist.toFixed(1) + '%' : '—'}</div></div>
+      </div>
+      <div class="actions">
+        <a href="ticker.html?sym=${d.sym}">🔍 Focus</a>
+        <a href="hypothetical.html?sym=${d.sym}&bias=${bias}&source=signals">📝 Track</a>
+        <a href="kelly-sizer.html?sym=${d.sym}">📐 Size</a>
+        <a href="paper-trade.html?sym=${d.sym}">🎮 Paper</a>
+      </div>
+    </div>`;
+  }
+
+  function compute() {
+    if (typeof QUOTES === 'undefined' || typeof Learn === 'undefined' || typeof TA === 'undefined') return [];
+    const symbols = getSymbols();
+    const weights = loadWeights();
+    const list = symbols.map(sym => {
+      const q = QUOTES[sym];
+      if (!q || !q.last) return null;
+      const snap = TA.snapshot(sym);
+      const features = {
+        last: q.last, prevClose: q.prevClose, dayHigh: q.dayHigh, dayLow: q.dayLow,
+        volume: q.volume, avgVolume: q.avgVolume,
+        rsi: snap ? snap.rsi : null,
+        macd: snap ? snap.macd : null,
+        macdHist: snap ? snap.hist : null,
+        ma50: snap ? (snap.sma50 || snap.ema50) : null,
+        ma200: snap ? (snap.sma200 || snap.ema200) : null,
+        atr: snap ? snap.atr : null, atrPct: snap ? snap.atrPct : null,
+        adx: snap ? snap.adx : null, bbPct: snap ? snap.bbPct : null,
+        vwapDist: snap ? snap.vwapDist : null,
+        donchUp: snap ? snap.donchUp : null, donchDn: snap ? snap.donchDn : null,
+        trend: snap ? snap.trend : null, trendStrong: snap ? snap.trendStrong : null,
+        regime: snap ? snap.regime : null, rvol: snap ? snap.rvol : null
+      };
+      const tag = Learn.autoTagSetup(features, { symbol: sym });
+      const bias = biasFromTag(tag.tag);
+      const weight = weights[tag.tag] != null ? weights[tag.tag] : 1.0;
+      const adj = tag.score * weight;
+      // Push high-conviction to discord (deduped 1h)
+      if (adj >= 0.85 && typeof DiscordAlerts !== 'undefined' && DiscordAlerts.url()) {
+        DiscordAlerts.signal({ sym, setup: tag.tag, score: adj, last: q.last, bias, reasons: tag.reasons });
+      }
+      return {
+        sym, last: q.last, chg: q.changePct, bias,
+        setup: tag.tag, reasons: tag.reasons || [], adj,
+        rsi: features.rsi, hist: features.macdHist, adx: features.adx, vwapDist: features.vwapDist
+      };
+    }).filter(Boolean);
+    return list;
+  }
+
+  function render() {
+    let list = compute();
+    const sortBy = document.getElementById('sortBy').value;
+    const biasFilter = document.getElementById('biasFilter').value;
+    if (biasFilter === 'bull') list = list.filter(x => x.bias === 'bull');
+    else if (biasFilter === 'bear') list = list.filter(x => x.bias === 'bear');
+    else if (biasFilter === 'high') list = list.filter(x => x.adj >= 0.75);
+    list.sort((a, b) => {
+      if (sortBy === 'chg') return (b.chg || 0) - (a.chg || 0);
+      if (sortBy === 'rsi') return (b.rsi || 0) - (a.rsi || 0);
+      if (sortBy === 'vwap') return (b.vwapDist || 0) - (a.vwapDist || 0);
+      if (sortBy === 'sym') return a.sym.localeCompare(b.sym);
+      return b.adj - a.adj;
+    });
+    // KPIs
+    const all = compute();
+    document.getElementById('kSyms').textContent = all.length;
+    document.getElementById('kBull').textContent = all.filter(x => x.bias === 'bull').length;
+    document.getElementById('kBear').textContent = all.filter(x => x.bias === 'bear').length;
+    document.getElementById('kHC').textContent = all.filter(x => x.adj >= 0.75).length;
+    const bullPct = all.length ? (all.filter(x => x.bias === 'bull').length / all.length * 100) : 0;
+    document.getElementById('kBreadth').textContent = all.length ? bullPct.toFixed(0) + '% bull' : '—';
+
+    document.getElementById('radarGrid').innerHTML = list.map(buildTile).join('');
+  }
+
+  document.getElementById('sortBy').addEventListener('change', render);
+  document.getElementById('biasFilter').addEventListener('change', render);
+  document.getElementById('symList').addEventListener('change', () => {
+    // Warmup TA for any new symbols
+    getSymbols().forEach(s => { if (typeof TA !== 'undefined') TA.warmup(s); });
+    render();
+  });
+
+  // Initial warmup
+  setTimeout(() => {
+    getSymbols().forEach(s => { if (typeof TA !== 'undefined') TA.warmup(s); });
+    render();
+  }, 500);
+
+  // Live refresh
+  setInterval(render, 1500);
+  if (typeof Feed !== 'undefined') {
+    let pending = false;
+    Feed.subscribe('*', () => {
+      if (pending) return;
+      pending = true;
+      requestAnimationFrame(() => { pending = false; render(); });
+    });
+  }
+})();
+</script>
+</body>
+</html>

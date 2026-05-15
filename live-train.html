@@ -1,0 +1,644 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Live AI Trainer — bpleone / trade</title>
+<meta name="description" content="Watch one symbol intraday — the AI logs every setup transition (RSI cross, MACD flip, VWAP test) and learns from the forward move. Self-training in real time.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.train-banner { background: linear-gradient(135deg, rgba(0,212,255,0.10), rgba(139,92,246,0.06)); border: 1px solid rgba(0,212,255,0.25); border-radius: 12px; padding: 16px 20px; margin-bottom: 18px; }
+.sym-row { display: flex; gap: 14px; align-items: center; flex-wrap: wrap; }
+.big-sym { font-family: var(--font-mono); font-weight: 800; font-size: 28px; }
+.big-px { font-family: var(--font-mono); font-weight: 700; font-size: 22px; }
+.chg-pos { color: var(--green); }
+.chg-neg { color: var(--red); }
+.pulse { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--green); animation: pulse 1.4s ease-in-out infinite; vertical-align: middle; margin-right: 6px; }
+@keyframes pulse { 0%, 100% { opacity: 0.4; } 50% { opacity: 1; } }
+.tile-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 18px; }
+.ind-tile { background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 10px; padding: 14px; }
+.ind-tile .lab { font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; }
+.ind-tile .val { font-family: var(--font-mono); font-weight: 700; font-size: 18px; margin-top: 4px; }
+.ind-tile .sub { font-size: 11px; color: var(--text-muted); margin-top: 4px; }
+.ind-tile .info { display: inline-block; width: 14px; height: 14px; border-radius: 50%; background: var(--bg-secondary); color: var(--text-muted); text-align: center; line-height: 14px; font-size: 9px; cursor: help; margin-left: 4px; }
+.summary-pill { display: inline-block; padding: 4px 12px; border-radius: 999px; background: var(--bg-secondary); border: 1px solid var(--border); font-size: 12px; margin: 3px 4px 3px 0; font-family: var(--font-mono); }
+.summary-pill.up { background: rgba(16,185,129,0.10); border-color: rgba(16,185,129,0.3); color: var(--green); }
+.summary-pill.down { background: rgba(239,68,68,0.10); border-color: rgba(239,68,68,0.3); color: var(--red); }
+.summary-pill.neutral { background: rgba(245,158,11,0.10); border-color: rgba(245,158,11,0.3); color: var(--yellow); }
+.event-row { display: grid; grid-template-columns: 80px 1fr 80px 80px 90px; gap: 10px; padding: 8px 0; border-top: 1px solid var(--border); font-size: 12px; align-items: center; }
+.event-row .mono { font-family: var(--font-mono); }
+.event-row .tag { display: inline-block; padding: 2px 8px; border-radius: 4px; background: var(--bg-secondary); font-family: var(--font-mono); font-size: 10px; margin-right: 4px; border: 1px solid var(--border); }
+.event-row .tag.bull { background: rgba(16,185,129,0.15); color: var(--green); border-color: rgba(16,185,129,0.3); }
+.event-row .tag.bear { background: rgba(239,68,68,0.15); color: var(--red); border-color: rgba(239,68,68,0.3); }
+.r-pos { color: var(--green); font-weight: 700; }
+.r-neg { color: var(--red); font-weight: 700; }
+.r-pending { color: var(--text-muted); }
+.commentary-card { background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 10px; padding: 16px; height: 240px; overflow-y: auto; font-size: 12px; line-height: 1.6; }
+.commentary-entry { padding: 8px 0; border-bottom: 1px solid var(--border); }
+.commentary-entry:last-child { border-bottom: none; }
+.commentary-entry .ts { font-family: var(--font-mono); font-size: 10px; color: var(--text-muted); }
+.controls { display: flex; gap: 8px; align-items: center; margin-bottom: 14px; flex-wrap: wrap; }
+.controls input, .controls select { background: var(--bg-secondary); border: 1px solid var(--border); color: var(--text-primary); padding: 6px 10px; border-radius: 6px; font-family: inherit; font-size: 13px; }
+.trainer-status { display: inline-block; padding: 4px 10px; border-radius: 999px; font-family: var(--font-mono); font-size: 11px; }
+.trainer-status.on { background: rgba(16,185,129,0.15); color: var(--green); border: 1px solid rgba(16,185,129,0.3); }
+.trainer-status.off { background: var(--bg-secondary); color: var(--text-muted); border: 1px solid var(--border); }
+.flash-row { animation: flash .8s ease; }
+@keyframes flash { 0% { background: rgba(0,212,255,0.15); } 100% { background: transparent; } }
+.tooltip { position: relative; display: inline-block; }
+.tooltip:hover .tooltip-text { visibility: visible; opacity: 1; }
+.tooltip-text { visibility: hidden; opacity: 0; transition: opacity .15s; position: absolute; bottom: 125%; left: 50%; transform: translateX(-50%); background: var(--bg-card); border: 1px solid var(--border); border-radius: 6px; padding: 8px 12px; width: 240px; font-size: 11px; line-height: 1.5; z-index: 100; color: var(--text-muted); }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">Live AI Trainer <span class="feat-badge feat-new">NEW</span> <span class="feat-badge feat-live">LIVE</span></div>
+      <div class="page-subtitle">Pick a symbol. Brain logs every setup transition + learns from the forward move. The self-learning thesis, in real time. · <span id="market-clock">--</span></div>
+    </div>
+    <div class="flex gap-8">
+      <a href="edge-scanner.html" class="btn btn-ghost">🛰 Scanner</a>
+      <a href="setup-combos.html" class="btn btn-ghost">🔗 Combos</a>
+      <a href="kelly-sizer.html" class="btn btn-ghost">📐 Kelly</a>
+    </div>
+  </div>
+
+  <!-- Controls -->
+  <div class="train-banner">
+    <div class="sym-row">
+      <div>
+        <span class="pulse"></span>
+        <span style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;">Watching</span>
+      </div>
+      <select id="symSelect" style="background:var(--bg-elevated);border:1px solid var(--accent);color:var(--text-primary);padding:8px 14px;border-radius:8px;font-family:var(--font-mono);font-size:18px;font-weight:700;">
+        <option value="SPY">SPY · S&amp;P 500</option>
+        <option value="QQQ">QQQ · Nasdaq 100</option>
+        <option value="IWM">IWM · Russell 2000</option>
+        <option value="DIA">DIA · Dow Jones</option>
+        <option value="NVDA">NVDA · Nvidia</option>
+        <option value="AAPL">AAPL · Apple</option>
+        <option value="TSLA">TSLA · Tesla</option>
+        <option value="MSFT">MSFT · Microsoft</option>
+        <option value="META">META · Meta</option>
+        <option value="AMZN">AMZN · Amazon</option>
+        <option value="GOOGL">GOOGL · Alphabet</option>
+        <option value="AMD">AMD</option>
+        <option value="COIN">COIN · Coinbase</option>
+        <option value="PLTR">PLTR · Palantir</option>
+        <option value="SMCI">SMCI · Super Micro</option>
+        <option value="BTC">BTC · Bitcoin</option>
+        <option value="VIX">VIX</option>
+      </select>
+      <div class="big-px" id="bigPx">—</div>
+      <div id="bigChg" class="mono" style="font-size:15px;">—</div>
+      <div style="margin-left:auto;display:flex;gap:8px;align-items:center;">
+        <span style="font-size:11px;color:var(--text-muted);">Auto-train</span>
+        <button id="btnTrain" class="trainer-status on">ON · learns from every event</button>
+        <button id="btnReset" class="btn btn-ghost" style="font-size:11px;padding:4px 10px;">Clear events</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Indicator tiles -->
+  <div class="tile-grid">
+    <div class="ind-tile">
+      <div class="lab">RSI(14) — 5m
+        <span class="tooltip"><span class="info">?</span><span class="tooltip-text" id="ttRsi"></span></span>
+      </div>
+      <div class="val" id="iRsi">—</div>
+      <div class="sub" id="iRsiSub">—</div>
+    </div>
+    <div class="ind-tile">
+      <div class="lab">MACD hist
+        <span class="tooltip"><span class="info">?</span><span class="tooltip-text" id="ttMacd"></span></span>
+      </div>
+      <div class="val" id="iMacd">—</div>
+      <div class="sub" id="iMacdSub">—</div>
+    </div>
+    <div class="ind-tile">
+      <div class="lab">ADX(14)
+        <span class="tooltip"><span class="info">?</span><span class="tooltip-text" id="ttAdx"></span></span>
+      </div>
+      <div class="val" id="iAdx">—</div>
+      <div class="sub" id="iAdxSub">—</div>
+    </div>
+    <div class="ind-tile">
+      <div class="lab">VWAP dist
+        <span class="tooltip"><span class="info">?</span><span class="tooltip-text" id="ttVwap"></span></span>
+      </div>
+      <div class="val" id="iVwap">—</div>
+      <div class="sub" id="iVwapSub">—</div>
+    </div>
+    <div class="ind-tile">
+      <div class="lab">ATR%
+        <span class="tooltip"><span class="info">?</span><span class="tooltip-text" id="ttAtr"></span></span>
+      </div>
+      <div class="val" id="iAtr">—</div>
+      <div class="sub" id="iAtrSub">—</div>
+    </div>
+    <div class="ind-tile">
+      <div class="lab">Bollinger %B
+        <span class="tooltip"><span class="info">?</span><span class="tooltip-text" id="ttBb"></span></span>
+      </div>
+      <div class="val" id="iBb">—</div>
+      <div class="sub" id="iBbSub">—</div>
+    </div>
+    <div class="ind-tile">
+      <div class="lab">Trend
+        <span class="tooltip"><span class="info">?</span><span class="tooltip-text" id="ttTrend"></span></span>
+      </div>
+      <div class="val" id="iTrend" style="font-size:14px;">—</div>
+      <div class="sub" id="iTrendSub">—</div>
+    </div>
+    <div class="ind-tile">
+      <div class="lab">Bars accumulated</div>
+      <div class="val" id="iBars" style="font-size:14px;">—</div>
+      <div class="sub" id="iBarsSub">Brain needs ≥14 to compute</div>
+    </div>
+  </div>
+
+  <!-- TA Summary pills -->
+  <div style="margin-bottom:18px;">
+    <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px;">📡 What the brain sees right now</div>
+    <div id="summaryPills"></div>
+  </div>
+
+  <!-- Live setup + chart -->
+  <div class="grid grid-12 mb-24">
+    <div class="card col-7">
+      <div class="card-header"><div class="card-title">📈 Live price + EMA20 + VWAP + Bollinger</div></div>
+      <div style="height:300px;"><canvas id="priceChart"></canvas></div>
+    </div>
+    <div class="card col-5">
+      <div class="card-header"><div class="card-title">🎯 Currently firing</div></div>
+      <div id="currentSetup" style="text-align:center;padding:18px 0;">
+        <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;">Auto-tag</div>
+        <div id="currentTag" style="font-family:var(--font-mono);font-weight:800;font-size:28px;margin:8px 0;">—</div>
+        <div id="currentScore" style="font-family:var(--font-mono);font-size:14px;color:var(--text-muted);">score —</div>
+        <div id="currentReasons" style="font-size:11px;color:var(--text-muted);margin-top:10px;line-height:1.5;"></div>
+      </div>
+      <div style="border-top:1px solid var(--border);padding-top:12px;margin-top:12px;">
+        <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px;">All setups detected</div>
+        <div id="currentAllTags"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- AI commentary -->
+  <div class="card mb-24">
+    <div class="card-header" style="display:flex;justify-content:space-between;align-items:center;">
+      <div class="card-title">🤖 AI tape commentary</div>
+      <div>
+        <select id="aiCadence" class="btn btn-ghost" style="font-size:11px;">
+          <option value="event">On every event</option>
+          <option value="strong" selected>On strong events only</option>
+          <option value="off">Off</option>
+        </select>
+      </div>
+    </div>
+    <div id="commentaryFeed" class="commentary-card">
+      <div class="commentary-entry" style="color:var(--text-muted);">
+        <span class="ts">—</span> Waiting for the first setup transition…
+      </div>
+    </div>
+    <div id="aiStatus" style="font-size:11px;color:var(--text-muted);margin-top:8px;"></div>
+  </div>
+
+  <!-- Event log + training stats -->
+  <div class="grid grid-12">
+    <div class="card col-8">
+      <div class="card-header"><div class="card-title">📋 Setup transition events (this session)</div></div>
+      <div class="event-row" style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;font-weight:600;">
+        <div>Time</div>
+        <div>Event</div>
+        <div style="text-align:right;">Px</div>
+        <div style="text-align:right;">Score</div>
+        <div style="text-align:right;">Outcome</div>
+      </div>
+      <div id="eventLog" style="max-height:380px;overflow-y:auto;"></div>
+    </div>
+    <div class="card col-4">
+      <div class="card-header"><div class="card-title">📊 Today's training stats</div></div>
+      <div style="font-size:12px;line-height:1.8;">
+        <div><span style="color:var(--text-muted);">Events logged:</span> <strong id="sEvents" class="mono">0</strong></div>
+        <div><span style="color:var(--text-muted);">Closed (have outcome):</span> <strong id="sClosed" class="mono">0</strong></div>
+        <div><span style="color:var(--text-muted);">Avg 5m reaction:</span> <strong id="s5m" class="mono">—</strong></div>
+        <div><span style="color:var(--text-muted);">Avg 30m reaction:</span> <strong id="s30m" class="mono">—</strong></div>
+        <div><span style="color:var(--text-muted);">Best setup today:</span> <strong id="sBest" class="mono" style="font-size:11px;">—</strong></div>
+        <div><span style="color:var(--text-muted);">Worst setup today:</span> <strong id="sWorst" class="mono" style="font-size:11px;">—</strong></div>
+      </div>
+      <hr style="border:0;border-top:1px solid var(--border);margin:14px 0;">
+      <div style="font-size:11px;color:var(--text-muted);line-height:1.6;">
+        <strong>How training works:</strong> when the auto-tag transitions to a new setup, we log the moment + the TA snapshot. After 5m and 30m we record the realized price move as the "outcome". Each event becomes one data point in your symbol-specific edge file.
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script src="js/ta.js"></script>
+<script src="js/learn.js"></script>
+<script src="js/discord.js"></script>
+<script>buildNav('learn');</script>
+
+<script>
+(function () {
+  const KEY = 'bpleone_train_events_v1';
+  let currentSym = 'SPY';
+  let trainerOn = true;
+  let priceChart = null;
+  const priceBuf = []; // {t, px, ema20, vwap, bbU, bbL}
+  let lastTag = null;
+  let lastCommentaryAt = 0;
+
+  function loadStore() {
+    try { return JSON.parse(localStorage.getItem(KEY) || '{"bySym":{}}'); }
+    catch (e) { return { bySym: {} }; }
+  }
+  function saveStore(s) { try { localStorage.setItem(KEY, JSON.stringify(s)); } catch (e) {} }
+  function events(sym) {
+    const s = loadStore();
+    if (!s.bySym[sym]) s.bySym[sym] = [];
+    return s;
+  }
+  function pushEvent(sym, evt) {
+    const s = events(sym);
+    s.bySym[sym].push(evt);
+    if (s.bySym[sym].length > 200) s.bySym[sym].shift();
+    saveStore(s);
+  }
+  function updateEvent(sym, id, patch) {
+    const s = events(sym);
+    const idx = s.bySym[sym].findIndex(e => e.id === id);
+    if (idx === -1) return;
+    s.bySym[sym][idx] = Object.assign({}, s.bySym[sym][idx], patch);
+    saveStore(s);
+  }
+  function getEvents(sym) {
+    const s = events(sym);
+    return s.bySym[sym] || [];
+  }
+  function clearEvents(sym) {
+    const s = events(sym);
+    s.bySym[sym] = [];
+    saveStore(s);
+  }
+
+  function tooltips() {
+    document.getElementById('ttRsi').textContent = TA.explain('rsi');
+    document.getElementById('ttMacd').textContent = TA.explain('macd');
+    document.getElementById('ttAdx').textContent = TA.explain('adx');
+    document.getElementById('ttVwap').textContent = TA.explain('vwap');
+    document.getElementById('ttAtr').textContent = TA.explain('atr');
+    document.getElementById('ttBb').textContent = TA.explain('bb');
+    document.getElementById('ttTrend').textContent = TA.explain('trend');
+  }
+
+  function biasFromTag(tag) {
+    const bullTags = ['volume-breakout', '52w-break', 'unusual-call', '50ma-reclaim', 'macd-cross', 'momentum-extension', 'bull-flag', 'cup-handle', 'vwap-reclaim', 'continuation-bull'];
+    const bearTags = ['flush-on-volume', 'breakdown', 'unusual-put', 'bear-flag', 'overbought-fade', 'vwap-rejection', 'continuation-bear', 'bb-stretch-up'];
+    if (bullTags.indexOf(tag) !== -1) return 'bull';
+    if (bearTags.indexOf(tag) !== -1) return 'bear';
+    if (tag === 'oversold-mean-revert' || tag === 'bb-stretch-down') return 'bull';
+    return 'neutral';
+  }
+
+  function colorForRsi(v) {
+    if (v == null) return 'var(--text-muted)';
+    if (v > 70) return 'var(--red)';
+    if (v < 30) return 'var(--green)';
+    return 'var(--text-muted)';
+  }
+
+  function renderIndicators(snap) {
+    if (!snap) return;
+    const fmt = (v, d) => (v == null) ? '—' : (+v).toFixed(d || 2);
+    document.getElementById('iRsi').textContent = fmt(snap.rsi, 0);
+    document.getElementById('iRsi').style.color = colorForRsi(snap.rsi);
+    document.getElementById('iRsiSub').textContent = snap.rsi == null ? '—' : (snap.rsi > 70 ? 'overbought' : snap.rsi < 30 ? 'oversold' : 'neutral');
+
+    document.getElementById('iMacd').textContent = snap.hist != null ? (snap.hist >= 0 ? '+' : '') + fmt(snap.hist, 3) : '—';
+    document.getElementById('iMacd').style.color = snap.hist == null ? 'var(--text-muted)' : (snap.hist > 0 ? 'var(--green)' : 'var(--red)');
+    document.getElementById('iMacdSub').textContent = snap.hist == null ? '—' : (snap.hist > 0 ? 'bull cross' : 'bear');
+
+    document.getElementById('iAdx').textContent = fmt(snap.adx, 0);
+    document.getElementById('iAdx').style.color = snap.adx == null ? 'var(--text-muted)' : (snap.adx >= 25 ? 'var(--accent)' : 'var(--text-muted)');
+    document.getElementById('iAdxSub').textContent = snap.adx == null ? '—' : (snap.adx >= 25 ? 'real trend' : 'chop');
+
+    document.getElementById('iVwap').textContent = snap.vwapDist != null ? (snap.vwapDist >= 0 ? '+' : '') + fmt(snap.vwapDist, 2) + '%' : '—';
+    document.getElementById('iVwap').style.color = snap.vwapDist == null ? 'var(--text-muted)' : (snap.vwapDist >= 0 ? 'var(--green)' : 'var(--red)');
+    document.getElementById('iVwapSub').textContent = snap.vwap != null ? 'VWAP $' + snap.vwap.toFixed(2) : '—';
+
+    document.getElementById('iAtr').textContent = snap.atrPct != null ? fmt(snap.atrPct, 2) + '%' : '—';
+    document.getElementById('iAtrSub').textContent = snap.regime || '—';
+
+    document.getElementById('iBb').textContent = snap.bbPct != null ? fmt(snap.bbPct * 100, 0) + '%' : '—';
+    document.getElementById('iBbSub').textContent = snap.bbPct == null ? '—' : (snap.bbPct > 1 ? 'above upper' : snap.bbPct < 0 ? 'below lower' : 'inside bands');
+
+    document.getElementById('iTrend').textContent = (snap.trend || '—').replace('-', ' ');
+    document.getElementById('iTrend').style.color = snap.trend === 'uptrend' ? 'var(--green)' : snap.trend === 'downtrend' ? 'var(--red)' : 'var(--text-muted)';
+    document.getElementById('iTrendSub').textContent = snap.trendStrong ? 'strong (ADX ≥ 25)' : (snap.trend ? 'developing' : '—');
+
+    document.getElementById('iBars').textContent = (snap.bars['1m'] || 0) + ' / ' + (snap.bars['5m'] || 0) + ' / ' + (snap.bars['15m'] || 0);
+    document.getElementById('iBarsSub').textContent = '1m / 5m / 15m bars';
+
+    const pills = (snap.summary || []).map(s => {
+      const cls = /uptrend|bull|reclaim|over VWAP|oversold/i.test(s) ? 'up' :
+                  /downtrend|bear|rejection|under VWAP|overbought|below/i.test(s) ? 'down' : 'neutral';
+      return `<span class="summary-pill ${cls}">${s}</span>`;
+    }).join('');
+    document.getElementById('summaryPills').innerHTML = pills || '<span style="color:var(--text-muted);font-size:11px;">Brain is warming up… need a few minutes of ticks.</span>';
+  }
+
+  function renderCurrentSetup(snap) {
+    if (!snap || typeof Learn === 'undefined') return;
+    const q = QUOTES[currentSym] || {};
+    const features = {
+      last: snap.last || q.last,
+      prevClose: q.prevClose, dayHigh: q.dayHigh, dayLow: q.dayLow,
+      volume: q.volume, avgVolume: q.avgVolume,
+      rsi: snap.rsi, macd: snap.macd, macdHist: snap.hist,
+      ma50: snap.sma50 || snap.ema50, ma200: snap.sma200 || snap.ema200,
+      atr: snap.atr, atrPct: snap.atrPct, adx: snap.adx,
+      bbPct: snap.bbPct, vwapDist: snap.vwapDist,
+      donchUp: snap.donchUp, donchDn: snap.donchDn,
+      trend: snap.trend, trendStrong: snap.trendStrong, regime: snap.regime,
+      rvol: snap.rvol
+    };
+    const tag = Learn.autoTagSetup(features, { symbol: currentSym });
+    const bias = biasFromTag(tag.tag);
+    document.getElementById('currentTag').textContent = tag.tag;
+    document.getElementById('currentTag').style.color = bias === 'bull' ? 'var(--green)' : bias === 'bear' ? 'var(--red)' : 'var(--text-muted)';
+    document.getElementById('currentScore').textContent = 'score ' + (tag.score || 0).toFixed(2);
+    document.getElementById('currentReasons').textContent = (tag.reasons || []).join(' · ');
+    const allTags = (tag.allHits || []).map(h => `<span class="summary-pill ${biasFromTag(h.tag) === 'bull' ? 'up' : biasFromTag(h.tag) === 'bear' ? 'down' : 'neutral'}" title="score ${h.score.toFixed(2)}">${h.tag}</span>`).join('');
+    document.getElementById('currentAllTags').innerHTML = allTags || '<span style="color:var(--text-muted);font-size:11px;">—</span>';
+
+    // Detect transition
+    if (lastTag && lastTag !== tag.tag && trainerOn) {
+      handleTransition(lastTag, tag.tag, snap, features);
+    }
+    lastTag = tag.tag;
+  }
+
+  function handleTransition(fromTag, toTag, snap, features) {
+    const q = QUOTES[currentSym];
+    if (!q) return;
+    const id = 'evt_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6);
+    const evt = {
+      id,
+      ts: Date.now(),
+      sym: currentSym,
+      from: fromTag,
+      to: toTag,
+      bias: biasFromTag(toTag),
+      px: q.last,
+      score: features._tagScore || null,
+      rsi: snap.rsi,
+      hist: snap.hist,
+      adx: snap.adx,
+      vwapDist: snap.vwapDist,
+      trend: snap.trend,
+      regime: snap.regime,
+      reaction5m: null,
+      reaction30m: null
+    };
+    pushEvent(currentSym, evt);
+    renderEventLog();
+    streamCommentary(evt);
+
+    // Schedule outcome measurement
+    setTimeout(() => measureOutcome(id, currentSym, q.last, 5 * 60 * 1000), 5 * 60 * 1000);
+    setTimeout(() => measureOutcome(id, currentSym, q.last, 30 * 60 * 1000), 30 * 60 * 1000);
+  }
+
+  function measureOutcome(eventId, sym, entryPx, windowMs) {
+    const q = (typeof QUOTES !== 'undefined') ? QUOTES[sym] : null;
+    if (!q || !entryPx) return;
+    const reactionPct = ((q.last - entryPx) / entryPx) * 100;
+    if (windowMs <= 5 * 60 * 1000) updateEvent(sym, eventId, { reaction5m: reactionPct });
+    else updateEvent(sym, eventId, { reaction30m: reactionPct });
+    renderEventLog();
+    renderStats();
+  }
+
+  function renderEventLog() {
+    const evts = getEvents(currentSym).slice().reverse();
+    const body = document.getElementById('eventLog');
+    if (!evts.length) { body.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-muted);font-size:12px;">No transitions yet. Brain needs time to see setups change.</div>'; return; }
+    body.innerHTML = evts.map(e => {
+      const time = new Date(e.ts).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
+      const rxn = e.reaction30m != null ? e.reaction30m : e.reaction5m;
+      const rxnLabel = rxn != null ? (rxn >= 0 ? '+' : '') + rxn.toFixed(2) + '%' : (e.reaction5m != null ? (e.reaction5m >= 0 ? '+' : '') + e.reaction5m.toFixed(2) + '%' : 'pending');
+      const rxnCls = rxn != null ? (rxn > 0 ? 'r-pos' : rxn < 0 ? 'r-neg' : '') : 'r-pending';
+      return `<div class="event-row">
+        <div class="mono" style="font-size:11px;color:var(--text-muted);">${time}</div>
+        <div>
+          <span class="tag">${e.from || '—'}</span>→
+          <span class="tag ${e.bias}">${e.to}</span>
+        </div>
+        <div class="mono" style="text-align:right;">$${(e.px || 0).toFixed(2)}</div>
+        <div class="mono" style="text-align:right;font-size:11px;color:var(--text-muted);">RSI ${e.rsi != null ? e.rsi.toFixed(0) : '—'}</div>
+        <div class="mono ${rxnCls}" style="text-align:right;">${rxnLabel}</div>
+      </div>`;
+    }).join('');
+  }
+
+  function renderStats() {
+    const evts = getEvents(currentSym);
+    const closed = evts.filter(e => e.reaction5m != null || e.reaction30m != null);
+    document.getElementById('sEvents').textContent = evts.length;
+    document.getElementById('sClosed').textContent = closed.length;
+    const r5 = evts.filter(e => e.reaction5m != null);
+    const r30 = evts.filter(e => e.reaction30m != null);
+    document.getElementById('s5m').textContent = r5.length ? ((r5.reduce((a, e) => a + e.reaction5m, 0) / r5.length).toFixed(2) + '%') : '—';
+    document.getElementById('s30m').textContent = r30.length ? ((r30.reduce((a, e) => a + e.reaction30m, 0) / r30.length).toFixed(2) + '%') : '—';
+
+    // Best/worst setup
+    const bySetup = {};
+    closed.forEach(e => {
+      const r = e.reaction30m != null ? e.reaction30m : e.reaction5m;
+      const sign = e.bias === 'bear' ? -1 : 1;
+      const dirAdj = r * sign;     // bull setup with +move = positive; bear setup with -move = positive
+      if (!bySetup[e.to]) bySetup[e.to] = [];
+      bySetup[e.to].push(dirAdj);
+    });
+    const setupAvgs = Object.entries(bySetup).map(([k, arr]) => ({ k, avg: arr.reduce((a, x) => a + x, 0) / arr.length, n: arr.length }));
+    setupAvgs.sort((a, b) => b.avg - a.avg);
+    if (setupAvgs.length) {
+      const best = setupAvgs[0], worst = setupAvgs[setupAvgs.length - 1];
+      document.getElementById('sBest').textContent = best.k + ' (' + (best.avg >= 0 ? '+' : '') + best.avg.toFixed(2) + '%, n=' + best.n + ')';
+      document.getElementById('sWorst').textContent = worst.k + ' (' + (worst.avg >= 0 ? '+' : '') + worst.avg.toFixed(2) + '%, n=' + worst.n + ')';
+    } else {
+      document.getElementById('sBest').textContent = '—';
+      document.getElementById('sWorst').textContent = '—';
+    }
+  }
+
+  async function streamCommentary(evt) {
+    const cadence = document.getElementById('aiCadence').value;
+    if (cadence === 'off') return;
+    if (cadence === 'strong' && Math.abs((evt.rsi || 50) - 50) < 15 && (!evt.hist || Math.abs(evt.hist) < 0.05)) return;
+    if (Date.now() - lastCommentaryAt < 10000) return; // throttle 10s
+    lastCommentaryAt = Date.now();
+
+    const feed = document.getElementById('commentaryFeed');
+    const ts = new Date(evt.ts).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
+    // Heuristic comment (no LLM needed)
+    let comment = '';
+    if (evt.to.indexOf('macd-cross') !== -1) comment = `${evt.sym} MACD just turned bullish (hist ${evt.hist?.toFixed(3) || '?'}). With RSI ${evt.rsi?.toFixed(0)} this is a momentum entry candidate.`;
+    else if (evt.to.indexOf('volume-breakout') !== -1) comment = `${evt.sym} breaking out on volume. Look for follow-through on the next 1-2 bars before sizing up.`;
+    else if (evt.to.indexOf('vol-squeeze') !== -1) comment = `${evt.sym} compressed — ATR/ADX both low. Setup is binary: a breakout is loaded but direction unknown.`;
+    else if (evt.to.indexOf('vwap-reclaim') !== -1) comment = `${evt.sym} reclaimed VWAP. In an uptrend (${evt.trend}) this is institutional defense — bulls in control.`;
+    else if (evt.to.indexOf('vwap-rejection') !== -1) comment = `${evt.sym} rejected at VWAP. Bears stepped in at the day's volume center — short-term short setup.`;
+    else if (evt.to.indexOf('overbought') !== -1) comment = `${evt.sym} RSI ${evt.rsi?.toFixed(0)} stretched. Fade if no real trend strength (ADX ${evt.adx?.toFixed(0)}).`;
+    else if (evt.to.indexOf('bear-flag') !== -1) comment = `${evt.sym} downside momentum with volume — bears extending. Trend ${evt.trend}.`;
+    else if (evt.to.indexOf('bull-flag') !== -1) comment = `${evt.sym} bull-flag with rvol. Healthy momentum, look for entry on shallow pullback.`;
+    else if (evt.to.indexOf('breakdown') !== -1) comment = `${evt.sym} broke the 20-bar low. Trend ${evt.trend}, regime ${evt.regime}. Below VWAP by ${evt.vwapDist?.toFixed(2) || '?'}%.`;
+    else if (evt.to.indexOf('52w-break') !== -1) comment = `${evt.sym} broke the 20-bar high. New range expansion — chase with caution.`;
+    else if (evt.to === 'consolidation') comment = `${evt.sym} drifted into consolidation. Brain stands aside until the next signal.`;
+    else comment = `${evt.sym} transitioned ${evt.from || '—'} → ${evt.to}. RSI ${evt.rsi?.toFixed(0)}, ADX ${evt.adx?.toFixed(0)}.`;
+    const entry = document.createElement('div');
+    entry.className = 'commentary-entry';
+    entry.innerHTML = `<span class="ts">${ts}</span> ${comment}`;
+    feed.insertBefore(entry, feed.firstChild);
+    // Limit history
+    while (feed.children.length > 30) feed.removeChild(feed.lastChild);
+
+    // Stream from Claude if available (use a brief prompt; non-blocking)
+    if (typeof AIClient !== 'undefined' && AIClient.isReady()) {
+      try {
+        document.getElementById('aiStatus').textContent = '🤖 Claude commenting…';
+        const prompt = `You are an institutional trader watching ${evt.sym} in real time. The auto-tagger just transitioned setup from '${evt.from || 'none'}' to '${evt.to}'. Current readings: RSI ${evt.rsi?.toFixed(0)}, MACD hist ${evt.hist?.toFixed(3) || '?'}, ADX ${evt.adx?.toFixed(0)}, VWAP dist ${evt.vwapDist?.toFixed(2)}%, trend ${evt.trend}, regime ${evt.regime}, price $${evt.px?.toFixed(2)}. In 1-2 short sentences (under 40 words), comment on what's happening and what to watch next. Be terse and specific, not vague.`;
+        const res = await AIClient.chat([{ role: 'user', content: prompt }], { maxTokens: 120 });
+        if (res && res.text) {
+          entry.innerHTML = `<span class="ts">${ts}</span> ${res.text.trim()}`;
+        }
+        document.getElementById('aiStatus').textContent = '';
+      } catch (e) {
+        document.getElementById('aiStatus').textContent = '';
+      }
+    }
+  }
+
+  function setupChart() {
+    const ctx = document.getElementById('priceChart').getContext('2d');
+    priceChart = new Chart(ctx, {
+      type: 'line',
+      data: {
+        datasets: [
+          { label: 'Price', data: [], borderColor: '#00d4ff', backgroundColor: 'rgba(0,212,255,0.08)', fill: false, tension: 0.18, pointRadius: 0, borderWidth: 2 },
+          { label: 'EMA20', data: [], borderColor: '#f59e0b', backgroundColor: 'transparent', fill: false, tension: 0.2, pointRadius: 0, borderWidth: 1.5, borderDash: [4, 3] },
+          { label: 'VWAP', data: [], borderColor: '#8b5cf6', backgroundColor: 'transparent', fill: false, tension: 0.2, pointRadius: 0, borderWidth: 1.5 },
+          { label: 'BB upper', data: [], borderColor: 'rgba(239,68,68,0.4)', backgroundColor: 'transparent', fill: false, tension: 0.2, pointRadius: 0, borderWidth: 1, borderDash: [2, 2] },
+          { label: 'BB lower', data: [], borderColor: 'rgba(16,185,129,0.4)', backgroundColor: 'transparent', fill: false, tension: 0.2, pointRadius: 0, borderWidth: 1, borderDash: [2, 2] }
+        ]
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false, animation: false,
+        parsing: false,
+        plugins: { legend: { display: true, labels: { color: '#999', font: { size: 10 }, boxWidth: 12 } } },
+        scales: {
+          x: { type: 'linear', grid: { display: false }, ticks: { display: false } },
+          y: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#999', font: { family: 'JetBrains Mono', size: 10 } } }
+        }
+      }
+    });
+  }
+
+  function pushChart(snap) {
+    if (!priceChart || !snap || !snap.last) return;
+    const t = Date.now();
+    priceBuf.push({ t, px: snap.last, ema20: snap.ema20, vwap: snap.vwap, bbU: snap.bbUpper, bbL: snap.bbLower });
+    if (priceBuf.length > 240) priceBuf.shift();
+    const toPts = (key) => priceBuf.filter(p => p[key] != null).map(p => ({ x: p.t, y: p[key] }));
+    priceChart.data.datasets[0].data = priceBuf.map(p => ({ x: p.t, y: p.px }));
+    priceChart.data.datasets[1].data = toPts('ema20');
+    priceChart.data.datasets[2].data = toPts('vwap');
+    priceChart.data.datasets[3].data = toPts('bbU');
+    priceChart.data.datasets[4].data = toPts('bbL');
+    priceChart.update('none');
+  }
+
+  function updateHeader() {
+    const q = QUOTES[currentSym];
+    if (!q) return;
+    document.getElementById('bigPx').textContent = '$' + q.last.toFixed(2);
+    const chg = q.changePct || 0;
+    const chgEl = document.getElementById('bigChg');
+    chgEl.textContent = (chg >= 0 ? '+' : '') + (q.change || 0).toFixed(2) + ' (' + (chg >= 0 ? '+' : '') + chg.toFixed(2) + '%)';
+    chgEl.className = 'mono ' + (chg >= 0 ? 'chg-pos' : 'chg-neg');
+  }
+
+  function switchSymbol(newSym) {
+    if (newSym === currentSym) return;
+    currentSym = newSym;
+    lastTag = null;
+    priceBuf.length = 0;
+    if (priceChart) priceChart.data.datasets.forEach(d => d.data = []);
+    document.getElementById('commentaryFeed').innerHTML = '<div class="commentary-entry" style="color:var(--text-muted);"><span class="ts">—</span> Switched to ' + newSym + '. Brain warming up…</div>';
+    if (typeof TA !== 'undefined') TA.warmup(currentSym);
+    refreshAll();
+  }
+
+  function refreshAll() {
+    const snap = typeof TA !== 'undefined' ? TA.snapshot(currentSym) : null;
+    updateHeader();
+    if (snap) {
+      renderIndicators(snap);
+      renderCurrentSetup(snap);
+      pushChart(snap);
+    }
+    renderEventLog();
+    renderStats();
+  }
+
+  // Init
+  document.getElementById('symSelect').addEventListener('change', e => switchSymbol(e.target.value));
+  document.getElementById('btnTrain').addEventListener('click', () => {
+    trainerOn = !trainerOn;
+    const btn = document.getElementById('btnTrain');
+    btn.className = 'trainer-status ' + (trainerOn ? 'on' : 'off');
+    btn.textContent = trainerOn ? 'ON · learns from every event' : 'OFF · paused';
+  });
+  document.getElementById('btnReset').addEventListener('click', () => {
+    if (!confirm('Clear all training events for ' + currentSym + '?')) return;
+    clearEvents(currentSym);
+    refreshAll();
+  });
+
+  setTimeout(() => {
+    setupChart();
+    tooltips();
+    if (typeof TA !== 'undefined') TA.warmup(currentSym);
+    refreshAll();
+    // URL ?sym=X
+    const params = new URLSearchParams(location.search);
+    if (params.has('sym')) {
+      const s = (params.get('sym') || '').toUpperCase();
+      document.getElementById('symSelect').value = s;
+      switchSymbol(s);
+    }
+  }, 400);
+
+  // Live updates: every tick + once per second
+  if (typeof Feed !== 'undefined') {
+    Feed.subscribe('*', () => { /* TA pulls from its own hook; we just re-render */ });
+  }
+  setInterval(refreshAll, 1000);
+})();
+</script>
+</body>
+</html>
