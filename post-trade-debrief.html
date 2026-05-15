@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Post-Trade Debrief — bpleone / trade</title>
+<meta name="description" content="60 seconds after every closed trade. 3 questions. Compounds into the biggest edge most retail traders never have.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.trade-card { padding:18px;background:var(--bg-elevated);border:1px solid var(--border);border-radius:10px;cursor:pointer;transition:all 0.15s;margin-bottom:8px; }
+.trade-card:hover { border-color:var(--accent); }
+.trade-card.win { border-left:4px solid var(--green); }
+.trade-card.loss { border-left:4px solid var(--red); }
+.trade-card.done { opacity:0.6; }
+.trade-card.done::after { content:'✓ debriefed';float:right;font-size:10px;color:var(--green);font-weight:700; }
+.q-block { padding:18px;background:var(--bg-elevated);border-radius:12px;margin-bottom:12px; }
+.q-block h4 { font-size:14px;font-weight:700;margin-bottom:10px; }
+.q-block textarea { width:100%;min-height:90px;padding:10px;background:var(--bg);border:1px solid var(--border);color:var(--text-primary);border-radius:6px;font-size:13px;font-family:inherit;resize:vertical; }
+.q-block .options { display:flex;gap:6px;flex-wrap:wrap; }
+.q-pill { padding:6px 14px;border-radius:14px;font-size:12px;cursor:pointer;background:var(--bg);border:1px solid var(--border);color:var(--text-secondary); }
+.q-pill.on { background:var(--accent);color:#000;border-color:var(--accent); }
+.q-pill:hover { border-color:var(--accent); }
+.history-row { display:grid;grid-template-columns:120px 1fr 100px 100px;gap:14px;padding:11px 0;border-bottom:1px solid var(--border);font-size:12px;align-items:center; }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">🪞 Post-Trade Debrief</div>
+      <div class="page-subtitle">60 seconds · 3 questions · compounds into the biggest edge most traders never have · <span id="market-clock">--</span></div>
+    </div>
+  </div>
+
+  <div class="card mb-24" style="background:linear-gradient(135deg,rgba(0,212,255,0.05),transparent);">
+    <div style="font-size:14px;color:var(--text-primary);line-height:1.7;">
+      <strong>Why this matters:</strong> Pros review every trade — wins and losses — within minutes of closing. Reps in not making decisions are reps wasted. 60 seconds × 100 trades = a personal playbook nobody else has access to.
+    </div>
+  </div>
+
+  <div class="grid grid-2" style="gap:18px;">
+    <div>
+      <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.6px;font-weight:700;margin-bottom:10px;">📋 Recent closed trades — click one</div>
+      <div id="trades"></div>
+    </div>
+    <div id="debrief"></div>
+  </div>
+
+  <div class="card mt-24">
+    <div class="card-header"><div class="card-title">📜 Past debriefs</div></div>
+    <div id="history"></div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script>
+buildNav('post-trade-debrief');
+
+const DKEY = 'bpleone_debriefs_v1';
+function loadDebriefs() { try { return JSON.parse(localStorage.getItem(DKEY) || '{}'); } catch(e) { return {}; } }
+function saveDebriefs(d) { try { localStorage.setItem(DKEY, JSON.stringify(d)); } catch(e) {} }
+function loadJournal() { try { return JSON.parse(localStorage.getItem('bpleone_journal_pro_v1') || '[]'); } catch(e) { return []; } }
+
+let activeId = null;
+const debriefState = {};
+
+function renderTrades() {
+  const journal = loadJournal().filter(t => t.exit != null).slice(0, 20);
+  const debriefs = loadDebriefs();
+  document.getElementById('trades').innerHTML = journal.length === 0
+    ? '<div style="padding:30px;text-align:center;color:var(--text-muted);font-size:13px;">No closed trades yet. Close some in Journal PRO or Live Positions.</div>'
+    : journal.map(t => {
+        const cls = t.pnl > 0 ? 'win' : 'loss';
+        const done = debriefs[t.id] ? 'done' : '';
+        return '<div class="trade-card ' + cls + ' ' + done + (activeId === t.id ? ' on' : '') + '" data-tid="' + t.id + '" style="' + (activeId === t.id ? 'border-color:var(--accent);' : '') + '">'
+          + '<div style="display:flex;justify-content:space-between;align-items:center;">'
+            + '<div><strong style="font-family:var(--font-mono);">' + t.sym + '</strong> · <span style="font-size:11px;color:var(--text-muted);">' + new Date(t.ts).toLocaleDateString() + '</span></div>'
+            + '<div style="font-family:var(--font-mono);font-weight:700;color:' + (t.pnl > 0 ? 'var(--green)' : 'var(--red)') + ';">' + (t.pnl >= 0 ? '+' : '-') + '$' + Math.abs(t.pnl).toFixed(0) + '</div>'
+          + '</div>'
+          + '<div style="font-size:11px;color:var(--text-muted);margin-top:4px;">$' + t.entry.toFixed(2) + ' → $' + t.exit.toFixed(2) + '</div>'
+          + '</div>';
+      }).join('');
+  document.querySelectorAll('.trade-card[data-tid]').forEach(c => c.addEventListener('click', () => {
+    activeId = c.dataset.tid;
+    renderTrades();
+    renderDebrief();
+  }));
+}
+
+function renderDebrief() {
+  const wrap = document.getElementById('debrief');
+  if (!activeId) {
+    wrap.innerHTML = '<div style="padding:30px;text-align:center;color:var(--text-muted);font-size:13px;">← Pick a closed trade to start the 60-second debrief.</div>';
+    return;
+  }
+  const t = loadJournal().find(x => x.id === activeId);
+  if (!t) return;
+  const debriefs = loadDebriefs();
+  const cur = debriefs[activeId] || {};
+  const isWin = t.pnl > 0;
+
+  // Compose the 3 questions based on outcome
+  const html = '<div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.6px;font-weight:700;margin-bottom:10px;">🪞 Debrief: ' + t.sym + ' · ' + (isWin ? 'WIN' : 'LOSS') + ' (' + (t.pnl >= 0 ? '+' : '-') + '$' + Math.abs(t.pnl).toFixed(0) + ')</div>'
+    + '<div class="q-block"><h4>1. ' + (isWin ? 'What worked?' : 'What went wrong?') + '</h4>'
+      + '<div class="options">'
+        + ['Plan A play', 'Trend with me', 'Brain edge', 'Scaled in well', 'Got lucky'].map(o => '<div class="q-pill ' + (cur.q1 === o ? 'on' : '') + '" data-q="q1" data-v="' + o + '">' + o + '</div>').join('')
+      + '</div>'
+      + '<textarea data-q="q1note" placeholder="Optional: 1 sentence on why...">' + (cur.q1note || '') + '</textarea>'
+    + '</div>'
+    + '<div class="q-block"><h4>2. Did I follow my plan?</h4>'
+      + '<div class="options">'
+        + ['Yes, fully', 'Mostly', 'Drifted', 'Improvised', 'No plan'].map(o => '<div class="q-pill ' + (cur.q2 === o ? 'on' : '') + '" data-q="q2" data-v="' + o + '">' + o + '</div>').join('')
+      + '</div>'
+    + '</div>'
+    + '<div class="q-block"><h4>3. ' + (isWin ? 'Can I replicate this?' : 'What would I do differently next time?') + '</h4>'
+      + '<textarea data-q="q3" placeholder="' + (isWin ? 'Be specific. What\'s the recipe?' : 'Be honest. Future-you will thank you.') + '">' + (cur.q3 || '') + '</textarea>'
+    + '</div>'
+    + '<div class="flex gap-8">'
+      + '<button class="btn btn-primary" id="saveDebrief">💾 Save (60s done)</button>'
+      + '<button class="btn btn-ghost" id="skipDebrief">Skip</button>'
+    + '</div>';
+
+  wrap.innerHTML = html;
+
+  // Wire pills
+  wrap.querySelectorAll('.q-pill').forEach(p => p.addEventListener('click', () => {
+    const q = p.dataset.q, v = p.dataset.v;
+    wrap.querySelectorAll('.q-pill[data-q="' + q + '"]').forEach(x => x.classList.remove('on'));
+    p.classList.add('on');
+    debriefState[q] = v;
+  }));
+  wrap.querySelectorAll('textarea[data-q]').forEach(t => t.addEventListener('input', () => {
+    debriefState[t.dataset.q] = t.value;
+  }));
+
+  document.getElementById('saveDebrief').addEventListener('click', () => {
+    const d = loadDebriefs();
+    d[activeId] = { ...cur, ...debriefState, savedAt: Date.now(), sym: t.sym, pnl: t.pnl };
+    saveDebriefs(d);
+    activeId = null;
+    renderTrades();
+    renderDebrief();
+    renderHistory();
+  });
+  document.getElementById('skipDebrief').addEventListener('click', () => {
+    activeId = null;
+    renderTrades();
+    renderDebrief();
+  });
+}
+
+function renderHistory() {
+  const debriefs = loadDebriefs();
+  const arr = Object.entries(debriefs).map(([id, d]) => ({ id, ...d })).sort((a,b) => b.savedAt - a.savedAt).slice(0, 20);
+  document.getElementById('history').innerHTML = arr.length === 0
+    ? '<div style="padding:14px 0;text-align:center;color:var(--text-muted);font-size:13px;">No past debriefs. Start with one above.</div>'
+    : arr.map(d =>
+      '<div class="history-row">'
+        + '<div style="font-family:var(--font-mono);font-size:11px;color:var(--text-muted);">' + new Date(d.savedAt).toLocaleDateString() + '</div>'
+        + '<div><strong>' + (d.sym || '?') + '</strong> · <span style="color:var(--text-muted);">' + (d.q1 || '') + ' · ' + (d.q2 || '') + '</span>' + (d.q3 ? '<br><em style="font-size:11px;color:var(--text-muted);">"' + d.q3 + '"</em>' : '') + '</div>'
+        + '<div style="font-family:var(--font-mono);color:' + (d.pnl > 0 ? 'var(--green)' : 'var(--red)') + ';font-weight:700;">' + (d.pnl >= 0 ? '+' : '-') + '$' + Math.abs(d.pnl || 0).toFixed(0) + '</div>'
+        + '<div style="font-family:var(--font-mono);color:var(--text-muted);font-size:10px;">' + (d.q1 === 'Got lucky' ? '⚠ lucky' : d.q2 === 'Improvised' ? '⚠ improvised' : '✓') + '</div>'
+      + '</div>'
+    ).join('');
+}
+
+renderTrades();
+renderDebrief();
+renderHistory();
+</script>
+</body>
+</html>

@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Emergency Stop — bpleone / trade</title>
+<meta name="description" content="One-button kill switch. Halt autopilot, mute notifications, lock the day. With audit log.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.estop-btn { width:240px;height:240px;border-radius:50%;background:linear-gradient(135deg,#ef4444,#b91c1c);color:#fff;font-size:48px;font-weight:800;font-family:var(--font-mono);border:6px solid #fff;cursor:pointer;box-shadow:0 12px 40px rgba(239,68,68,0.4),0 0 0 6px rgba(239,68,68,0.15);transition:transform 0.1s;letter-spacing:1px; }
+.estop-btn:hover { transform:scale(1.05); }
+.estop-btn:active { transform:scale(0.97); }
+.estop-btn.locked { background:linear-gradient(135deg,#475569,#1e293b);box-shadow:0 0 0 6px rgba(100,116,139,0.2); }
+.lock-status { padding:32px;border-radius:14px;text-align:center;margin-bottom:24px; }
+.lock-status.locked { background:rgba(239,68,68,0.12);border:2px solid rgba(239,68,68,0.4); }
+.lock-status.unlocked { background:rgba(16,185,129,0.08);border:2px solid rgba(16,185,129,0.25); }
+.action-list { padding:14px 0;font-size:13px;line-height:1.85;color:var(--text-secondary); }
+.action-list li { padding-left:24px;position:relative; }
+.action-list li::before { content:'⏸';position:absolute;left:0;color:var(--red);font-weight:700; }
+.audit-row { padding:11px 0;border-bottom:1px solid var(--border);font-size:12px;display:grid;grid-template-columns:160px 80px 1fr;gap:14px;align-items:center; }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">🚨 Emergency Stop</div>
+      <div class="page-subtitle">One button · halt everything · audit trail · <span id="market-clock">--</span></div>
+    </div>
+  </div>
+
+  <div id="status" class="lock-status unlocked"></div>
+
+  <div style="text-align:center;margin:40px 0;">
+    <button id="estop" class="estop-btn">PRESS</button>
+    <div style="margin-top:24px;font-size:13px;color:var(--text-muted);">Hold for 1 second to activate</div>
+  </div>
+
+  <div class="grid grid-2" style="gap:18px;">
+    <div class="card">
+      <div class="card-header"><div class="card-title">⏸ What gets locked when activated</div></div>
+      <ul class="action-list">
+        <li>Autopilot paper trader stops opening new positions</li>
+        <li>All notifications muted</li>
+        <li>Brain Hub shows "LOCKED" banner across site</li>
+        <li>New positions can't be opened from Live Positions form</li>
+        <li>Alert Rules paused</li>
+        <li>You stay logged in to history, audit, postmortem — read-only mode</li>
+      </ul>
+      <div style="margin-top:14px;padding:12px;background:var(--bg);border-radius:8px;font-size:12px;color:var(--text-secondary);">
+        <strong>What it doesn't do:</strong> close existing positions (you do that manually) or contact your broker (no real broker connection in v1).
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-header"><div class="card-title">🕐 Auto-unlock timer</div></div>
+      <div style="padding:14px 0;font-size:13px;color:var(--text-secondary);line-height:1.85;">
+        Default: lock expires at midnight ET. You can shorten or extend below.
+        <br><br>
+        <label style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;font-weight:700;display:block;margin-bottom:5px;">Unlock duration</label>
+        <select id="lockDur" style="width:100%;padding:10px;background:var(--bg);border:1px solid var(--border);color:var(--text-primary);border-radius:6px;font-size:13px;">
+          <option value="30">30 minutes (cool off)</option>
+          <option value="120">2 hours</option>
+          <option value="eod" selected>End of day (midnight ET)</option>
+          <option value="weekend">Through weekend</option>
+          <option value="manual">Until I manually unlock</option>
+        </select>
+      </div>
+    </div>
+  </div>
+
+  <div class="card mt-24">
+    <div class="card-header"><div class="card-title">📜 Audit log</div></div>
+    <div id="audit"></div>
+  </div>
+
+  <div class="card mt-24">
+    <div class="card-header"><div class="card-title">💡 When to use</div></div>
+    <div style="font-size:13px;color:var(--text-secondary);line-height:1.7;">
+      <strong>You hit your daily loss limit.</strong> Don't trust yourself to follow it manually — flip the switch.<br>
+      <strong>You're tilted.</strong> 3 losses in a row, you're angry, you're "going to make it back." Hit the button. Come back tomorrow.<br>
+      <strong>A flash event.</strong> Flash crash, major news event, brokerage outage. Pause until you have clarity.<br>
+      <strong>Major regime change.</strong> Calibration just broke. Don't trade until you've retrained.<br>
+      <strong>You're traveling / distracted.</strong> If you can't watch positions and can't manage them, don't have them.
+    </div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script>
+buildNav('emergency-stop');
+
+const STOP_KEY = 'bpleone_estop_v1';
+const AUDIT_KEY = 'bpleone_estop_audit_v1';
+
+function loadStop() { try { return JSON.parse(localStorage.getItem(STOP_KEY) || 'null'); } catch(e) { return null; } }
+function saveStop(s) { try { if (s) localStorage.setItem(STOP_KEY, JSON.stringify(s)); else localStorage.removeItem(STOP_KEY); } catch(e) {} }
+function loadAudit() { try { return JSON.parse(localStorage.getItem(AUDIT_KEY) || '[]'); } catch(e) { return []; } }
+function logAudit(action, meta) { try { const log = loadAudit(); log.unshift({ ts: Date.now(), action, meta }); localStorage.setItem(AUDIT_KEY, JSON.stringify(log.slice(0, 100))); } catch(e) {} }
+
+let pressTimer = null;
+
+function render() {
+  const stop = loadStop();
+  const now = Date.now();
+  const isLocked = stop && (stop.unlockAt === 'manual' || stop.unlockAt > now);
+
+  const btn = document.getElementById('estop');
+  if (isLocked) {
+    btn.textContent = 'LOCKED';
+    btn.classList.add('locked');
+    document.getElementById('status').className = 'lock-status locked';
+    const unlockStr = stop.unlockAt === 'manual' ? 'Until you manually unlock' : 'Unlocks ' + new Date(stop.unlockAt).toLocaleString();
+    document.getElementById('status').innerHTML = '<div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:1px;margin-bottom:8px;">🛑 SYSTEM LOCKED</div>'
+      + '<div style="font-size:32px;font-weight:800;color:var(--red);margin-bottom:8px;">All trading paused</div>'
+      + '<div style="font-size:13px;color:var(--text-secondary);">' + unlockStr + '</div>'
+      + '<button class="btn btn-ghost" id="unlockBtn" style="margin-top:14px;border-color:var(--red);color:var(--red);">↓ Manual unlock (cooling-off override)</button>';
+    document.getElementById('unlockBtn').addEventListener('click', () => {
+      if (!confirm('Are you sure? The lock was activated for a reason.')) return;
+      saveStop(null);
+      logAudit('manual_unlock', { wasUntil: stop.unlockAt });
+      render();
+    });
+  } else {
+    btn.textContent = 'PRESS';
+    btn.classList.remove('locked');
+    document.getElementById('status').className = 'lock-status unlocked';
+    document.getElementById('status').innerHTML = '<div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:1px;margin-bottom:8px;">✓ SYSTEM ACTIVE</div>'
+      + '<div style="font-size:28px;font-weight:800;color:var(--green);">All systems normal</div>'
+      + '<div style="font-size:13px;color:var(--text-muted);margin-top:6px;">Hit the button below if anything feels off</div>';
+  }
+
+  // Audit
+  const log = loadAudit();
+  document.getElementById('audit').innerHTML = log.length === 0
+    ? '<div style="padding:14px 0;text-align:center;color:var(--text-muted);font-size:13px;">No events yet.</div>'
+    : log.slice(0, 20).map(e =>
+      '<div class="audit-row">'
+        + '<div style="font-family:var(--font-mono);color:var(--text-muted);font-size:11px;">' + new Date(e.ts).toLocaleString() + '</div>'
+        + '<div style="font-family:var(--font-mono);color:' + (e.action.startsWith('lock') ? 'var(--red)' : 'var(--green)') + ';font-weight:700;">' + e.action.toUpperCase() + '</div>'
+        + '<div style="color:var(--text-secondary);">' + (e.meta?.duration ? 'Duration: ' + e.meta.duration : '') + (e.meta?.reason ? ' · ' + e.meta.reason : '') + (e.meta?.wasUntil ? 'Was locked until ' + new Date(e.meta.wasUntil).toLocaleTimeString() : '') + '</div>'
+      + '</div>'
+    ).join('');
+}
+
+document.getElementById('estop').addEventListener('mousedown', () => {
+  if (loadStop()) return;
+  const btn = document.getElementById('estop');
+  btn.style.transform = 'scale(0.95)';
+  btn.textContent = 'HOLD...';
+  pressTimer = setTimeout(() => {
+    const dur = document.getElementById('lockDur').value;
+    let unlockAt;
+    if (dur === 'eod') {
+      const eod = new Date(); eod.setHours(23, 59, 59); unlockAt = eod.getTime();
+    } else if (dur === 'weekend') {
+      const m = new Date(); m.setDate(m.getDate() + (8 - m.getDay()) % 7 || 7); m.setHours(8, 0, 0); unlockAt = m.getTime();
+    } else if (dur === 'manual') {
+      unlockAt = 'manual';
+    } else {
+      unlockAt = Date.now() + parseInt(dur) * 60000;
+    }
+    saveStop({ activatedAt: Date.now(), unlockAt });
+    logAudit('locked', { duration: dur === 'manual' ? 'until manual unlock' : (typeof unlockAt === 'number' ? Math.round((unlockAt - Date.now())/60000) + ' min' : dur) });
+    render();
+  }, 1000);
+});
+
+['mouseup','mouseleave'].forEach(ev => document.getElementById('estop').addEventListener(ev, () => {
+  if (pressTimer) { clearTimeout(pressTimer); pressTimer = null; const btn = document.getElementById('estop'); btn.style.transform = ''; if (!loadStop()) btn.textContent = 'PRESS'; }
+}));
+
+render();
+setInterval(render, 10000);
+</script>
+</body>
+</html>

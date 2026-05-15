@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Brain vs Coin Flip — bpleone / trade</title>
+<meta name="description" content="Statistical test of brain edge. Am I really beating random? Binomial test + z-score + p-value.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<style>
+.verdict-big { padding:32px;border-radius:16px;text-align:center;margin-bottom:24px; }
+.verdict-big.yes { background:rgba(16,185,129,0.1);border:2px solid rgba(16,185,129,0.4); }
+.verdict-big.maybe { background:rgba(245,158,11,0.08);border:2px solid rgba(245,158,11,0.3); }
+.verdict-big.no { background:rgba(239,68,68,0.1);border:2px solid rgba(239,68,68,0.4); }
+.verdict-big .lead { font-size:38px;font-weight:800;font-family:var(--font-mono);line-height:1.2; }
+.verdict-big .sub { font-size:14px;color:var(--text-secondary);margin-top:14px;line-height:1.6; }
+.stat-row { padding:12px 0;border-bottom:1px solid var(--border);display:grid;grid-template-columns:1fr 100px;gap:14px;font-size:13px;align-items:center; }
+.stat-row .lbl { color:var(--text-secondary); }
+.stat-row .val { font-family:var(--font-mono);font-weight:700;text-align:right; }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">🪙 Brain vs Coin Flip</div>
+      <div class="page-subtitle">Statistical test of edge · binomial · z-score · p-value · <span id="market-clock">--</span></div>
+    </div>
+    <div class="flex gap-8">
+      <select id="window" class="btn btn-secondary" style="background:var(--bg-elevated);border:1px solid var(--border);color:var(--text-primary);padding:8px 14px;">
+        <option value="7">Last 7 days</option>
+        <option value="30" selected>Last 30 days</option>
+        <option value="90">Last 90 days</option>
+        <option value="all">All time</option>
+      </select>
+    </div>
+  </div>
+
+  <div id="verdict" class="verdict-big maybe"></div>
+
+  <div class="grid grid-2" style="gap:18px;margin-bottom:24px;">
+    <div class="card">
+      <div class="card-header"><div class="card-title">📊 The test</div></div>
+      <div class="stat-row"><div class="lbl">Trades analyzed</div><div class="val" id="kN">--</div></div>
+      <div class="stat-row"><div class="lbl">Brain hit rate</div><div class="val" id="kHit">--</div></div>
+      <div class="stat-row"><div class="lbl">Null hypothesis (random)</div><div class="val">50%</div></div>
+      <div class="stat-row"><div class="lbl">Z-score</div><div class="val" id="kZ">--</div></div>
+      <div class="stat-row"><div class="lbl">P-value</div><div class="val" id="kP">--</div></div>
+      <div class="stat-row"><div class="lbl">Significant at 95%?</div><div class="val" id="kSig">--</div></div>
+      <div class="stat-row"><div class="lbl">Significant at 99%?</div><div class="val" id="kSig99">--</div></div>
+      <div class="stat-row"><div class="lbl">Sample-size needed</div><div class="val" id="kNNeed">--</div></div>
+    </div>
+    <div class="card">
+      <div class="card-header"><div class="card-title">🎯 Binomial distribution under null</div></div>
+      <canvas id="distChart" height="220"></canvas>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-header"><div class="card-title">💡 What this means</div></div>
+    <div style="font-size:13px;color:var(--text-secondary);line-height:1.85;">
+      The null hypothesis: <strong>"My brain is no better than a coin flip"</strong> (50% hit rate).
+      <br>
+      The z-score and p-value tell you how unlikely your observed hit rate is, assuming the null is true.
+      <br><br>
+      <strong>p &lt; 0.05</strong>: Less than 5% chance you got these results by luck. The brain has edge.<br>
+      <strong>p &lt; 0.01</strong>: Less than 1% chance. Very strong evidence of edge.<br>
+      <strong>p &gt; 0.10</strong>: Could easily be random. Don't trust the apparent edge yet.
+      <br><br>
+      <strong>Sample size matters massively:</strong> 70% over 10 trades = nothing. 60% over 200 trades = very real. Most traders fool themselves with small samples. The "sample-size needed" stat tells you how many trades you'd need at your current win rate to prove edge.
+    </div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script>
+buildNav('brain-vs-coin-flip');
+
+function loadTrain() { try { return JSON.parse(localStorage.getItem('bpleone_train_v1') || '[]'); } catch(e) { return []; } }
+
+// Error function approximation (for p-value from z-score)
+function erf(x) {
+  // Abramowitz and Stegun approximation
+  const sign = x >= 0 ? 1 : -1;
+  x = Math.abs(x);
+  const a1 = 0.254829592, a2 = -0.284496736, a3 = 1.421413741, a4 = -1.453152027, a5 = 1.061405429, p = 0.3275911;
+  const t = 1.0 / (1.0 + p * x);
+  const y = 1.0 - (((((a5 * t + a4) * t) + a3) * t + a2) * t + a1) * t * Math.exp(-x * x);
+  return sign * y;
+}
+function normalCDF(z) { return 0.5 * (1 + erf(z / Math.SQRT2)); }
+
+function binomialPmf(n, k, p) {
+  // log version to handle big n
+  if (k < 0 || k > n) return 0;
+  let logC = 0;
+  for (let i = 1; i <= k; i++) logC += Math.log((n - k + i) / i);
+  return Math.exp(logC + k * Math.log(p) + (n - k) * Math.log(1 - p));
+}
+
+function compute() {
+  const winStr = document.getElementById('window').value;
+  const since = winStr === 'all' ? 0 : Date.now() - parseInt(winStr) * 86400000;
+  const train = loadTrain().filter(t => t.ts >= since);
+  const n = train.length;
+  const k = train.filter(t => t.y === 1).length;
+  const p0 = 0.5;
+  const p_hat = n > 0 ? k / n : 0;
+  // Z = (p_hat - p0) / sqrt(p0(1-p0)/n)
+  const stdErr = Math.sqrt(p0 * (1 - p0) / Math.max(n, 1));
+  const z = n > 0 ? (p_hat - p0) / stdErr : 0;
+  // p-value (one-sided)
+  const pval = 1 - normalCDF(z);
+  // sample-size needed for 95% significance at current p_hat (one-tailed, alpha=0.05, z=1.645)
+  const zCrit = 1.645;
+  const effect = p_hat - p0;
+  const nNeed = effect > 0 ? Math.ceil((zCrit ** 2 * p0 * (1 - p0)) / (effect ** 2)) : Infinity;
+  return { n, k, p_hat, z, pval, nNeed };
+}
+
+function render() {
+  const r = compute();
+  document.getElementById('kN').textContent = r.n;
+  document.getElementById('kHit').textContent = (r.p_hat * 100).toFixed(1) + '%';
+  document.getElementById('kZ').textContent = r.z.toFixed(2);
+  document.getElementById('kZ').style.color = r.z > 1.96 ? 'var(--green)' : r.z > 1 ? 'var(--accent)' : 'var(--text-primary)';
+  document.getElementById('kP').textContent = r.pval < 0.0001 ? '< 0.0001' : r.pval.toFixed(4);
+  document.getElementById('kP').style.color = r.pval < 0.05 ? 'var(--green)' : r.pval < 0.1 ? 'var(--accent)' : 'var(--red)';
+  document.getElementById('kSig').innerHTML = r.pval < 0.05 ? '<span style="color:var(--green);">✓ YES</span>' : '<span style="color:var(--red);">✗ NO</span>';
+  document.getElementById('kSig99').innerHTML = r.pval < 0.01 ? '<span style="color:var(--green);">✓ YES</span>' : '<span style="color:var(--red);">✗ NO</span>';
+  document.getElementById('kNNeed').textContent = r.nNeed === Infinity ? 'Hit rate ≤ 50%' : r.nNeed + ' trades';
+
+  // Verdict
+  const v = document.getElementById('verdict');
+  if (r.n < 10) {
+    v.className = 'verdict-big maybe';
+    v.innerHTML = '<div class="lead" style="color:var(--yellow);">🌱 NOT ENOUGH DATA</div><div class="sub">Only ' + r.n + ' trades — need at least 20-30 for any meaningful test. Keep trading and come back.</div>';
+  } else if (r.pval < 0.01 && r.p_hat > 0.5) {
+    v.className = 'verdict-big yes';
+    v.innerHTML = '<div class="lead" style="color:var(--green);">✓ REAL EDGE (p &lt; 1%)</div><div class="sub">Your brain is beating random with strong statistical confidence. Less than 1% chance these results are luck.</div>';
+  } else if (r.pval < 0.05 && r.p_hat > 0.5) {
+    v.className = 'verdict-big yes';
+    v.innerHTML = '<div class="lead" style="color:var(--green);">✓ LIKELY EDGE (p &lt; 5%)</div><div class="sub">Above random with 95% confidence. Less than 5% chance of luck. Solid evidence.</div>';
+  } else if (r.p_hat > 0.5) {
+    v.className = 'verdict-big maybe';
+    v.innerHTML = '<div class="lead" style="color:var(--yellow);">⚠ INCONCLUSIVE</div><div class="sub">You\'re above 50% but the sample size is too small (or the edge too thin) to prove it\'s not luck. Trade more — need ' + r.nNeed + ' total trades at this rate.</div>';
+  } else {
+    v.className = 'verdict-big no';
+    v.innerHTML = '<div class="lead" style="color:var(--red);">✗ NO EDGE YET</div><div class="sub">Your win rate is below 50%. Either you\'re trading the wrong setups or losing on costs. Recalibrate.</div>';
+  }
+
+  // Binomial distribution chart under null
+  const labels = [];
+  const data = [];
+  const obs = [];
+  for (let k = 0; k <= r.n; k++) {
+    labels.push(k);
+    const pmf = binomialPmf(r.n, k, 0.5);
+    data.push(pmf);
+    obs.push(k === r.k ? pmf : null);
+  }
+  if (window._dist) window._dist.destroy();
+  window._dist = new Chart(document.getElementById('distChart'), {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: [
+        { label: 'P(K wins | 50% true)', data, backgroundColor:'rgba(0,212,255,0.4)' },
+        { label: 'Your result (' + r.k + '/' + r.n + ')', data: obs, backgroundColor:'#10b981' }
+      ]
+    },
+    options: { responsive:true, maintainAspectRatio:false, plugins:{legend:{labels:{color:'#ccc',font:{size:11}}}}, scales:{x:{ticks:{color:'#888',maxTicksLimit:12},grid:{display:false},title:{display:true,text:'# of wins',color:'#888'}},y:{ticks:{color:'#888'},grid:{color:'#222'}}} }
+  });
+}
+
+document.getElementById('window').addEventListener('change', render);
+render();
+</script>
+</body>
+</html>
