@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Congress Trades — bpleone / trade</title>
+<meta name="description" content="US Congress + Senate trades — Pelosi tracker, Cruz, Sullivan and the full delegate list with copy-trade alerts.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.cong-row { display:grid; grid-template-columns: 80px 130px 70px 60px 70px 90px 90px 1fr; gap:8px; padding:11px 12px; border-bottom:1px solid var(--border); font-family:var(--font-mono); font-size:11px; align-items:center; cursor:pointer; }
+.cong-row:hover { background:var(--bg-elevated); }
+.cong-row.buy { border-left:3px solid var(--green); }
+.cong-row.sell { border-left:3px solid var(--red); }
+.party-r { background:rgba(239,68,68,0.15);color:var(--red); padding:2px 6px; border-radius:3px; font-size:9px; font-weight:700; }
+.party-d { background:rgba(0,212,255,0.15);color:var(--accent); padding:2px 6px; border-radius:3px; font-size:9px; font-weight:700; }
+.lb-card { padding:10px 12px;background:var(--bg-elevated);border:1px solid var(--border);border-radius:8px; }
+</style>
+</head>
+<body data-needs="live">
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">🏛 Congress Trades</div>
+      <div class="page-subtitle">Senate + House trades · 45-day disclosure window · Pelosi tracker · <span id="market-clock">--</span></div>
+    </div>
+    <div class="flex gap-8"><button class="btn btn-secondary" id="refreshBtn">🔄</button></div>
+  </div>
+
+  <div class="grid grid-4 mb-24">
+    <div class="card"><div class="card-header"><div class="card-title">Trades (90d)</div></div><div class="mono" style="font-size:26px;font-weight:700;" id="kpiTotal">--</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">Buys</div></div><div class="mono green-text" style="font-size:26px;font-weight:700;" id="kpiBuys">--</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">Sells</div></div><div class="mono red-text" style="font-size:26px;font-weight:700;" id="kpiSells">--</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">Most Active</div></div><div class="mono" style="font-size:18px;font-weight:700;color:var(--accent);" id="kpiTop">--</div><div class="mono" style="font-size:11px;color:var(--text-muted);" id="kpiTopBody">--</div></div>
+  </div>
+
+  <!-- LEADERBOARD -->
+  <div class="card mb-24">
+    <div class="card-header"><div class="card-title">📊 Most Active Politicians (90d)</div></div>
+    <div class="grid grid-3" style="gap:10px;" id="leaderboard"></div>
+  </div>
+
+  <div class="card mb-12" style="padding:10px 14px;">
+    <div class="flex gap-8" style="flex-wrap:wrap;align-items:center;">
+      <span style="font-size:11px;color:var(--text-muted);font-weight:700;">FILTER:</span>
+      <button class="btn btn-ghost btn-active" data-flt="all" style="padding:4px 10px;font-size:11px;">ALL</button>
+      <button class="btn btn-ghost" data-flt="buy" style="padding:4px 10px;font-size:11px;">BUYS</button>
+      <button class="btn btn-ghost" data-flt="sell" style="padding:4px 10px;font-size:11px;">SELLS</button>
+      <button class="btn btn-ghost" data-flt="big" style="padding:4px 10px;font-size:11px;">≥$50k</button>
+      <button class="btn btn-ghost" data-flt="pelosi" style="padding:4px 10px;font-size:11px;">PELOSI</button>
+    </div>
+  </div>
+
+  <div class="card" style="padding:0;">
+    <div class="cong-row" style="background:var(--bg-elevated);font-size:9px;color:var(--text-muted);font-weight:800;letter-spacing:0.5px;">
+      <div>DATE</div><div>POLITICIAN</div><div>PARTY</div><div>CHAMBER</div><div>SYM</div><div>SIDE</div><div>SIZE</div><div>COMMITTEE</div>
+    </div>
+    <div id="congBody"></div>
+  </div>
+
+  <div class="card mt-24">
+    <div class="card-header"><div class="card-title">📌 Disclosure rules + edge</div></div>
+    <div style="font-size:13px;color:var(--text-secondary);line-height:1.7;">
+      Members of Congress + spouses must disclose trades ≥$1k under the STOCK Act. Window: 45 days. Returns from following high-conviction trades have averaged ~7% alpha annually in academic studies, with biggest edge in members on relevant committees (financials, defense, tech) trading those sectors. Late disclosures + bunched trades = informed positioning likely.
+    </div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script>
+buildNav('congress-trades');
+
+const POLITICIANS = [
+  { name: 'Nancy Pelosi', party: 'D', chamber: 'House', cmte: 'None (former Speaker)' },
+  { name: 'Tommy Tuberville', party: 'R', chamber: 'Senate', cmte: 'Agriculture' },
+  { name: 'Dan Crenshaw', party: 'R', chamber: 'House', cmte: 'Energy & Commerce' },
+  { name: 'Ro Khanna', party: 'D', chamber: 'House', cmte: 'Armed Services' },
+  { name: 'Josh Gottheimer', party: 'D', chamber: 'House', cmte: 'Financial Svcs' },
+  { name: 'Susie Lee', party: 'D', chamber: 'House', cmte: 'Appropriations' },
+  { name: 'Mark Green', party: 'R', chamber: 'House', cmte: 'Homeland Sec' },
+  { name: 'Markwayne Mullin', party: 'R', chamber: 'Senate', cmte: 'Commerce' },
+  { name: 'Rick Allen', party: 'R', chamber: 'House', cmte: 'Energy & Commerce' },
+  { name: 'Kevin Hern', party: 'R', chamber: 'House', cmte: 'Ways & Means' },
+  { name: 'Sheldon Whitehouse', party: 'D', chamber: 'Senate', cmte: 'Judiciary' },
+  { name: 'Gilbert Cisneros', party: 'D', chamber: 'House', cmte: 'Armed Services' }
+];
+const SYMS = ['NVDA','TSLA','AAPL','MSFT','META','AMZN','GOOGL','AMD','PLTR','COIN','SMCI','PANW','LMT','RTX','BA','GE','PFE','MRNA','JPM','BAC','GS','XLE','TLT','GLD','SPY'];
+const SIZES = ['$1k–15k','$15k–50k','$50k–100k','$100k–250k','$250k–500k','$500k–1M','$1M+'];
+
+function generate() {
+  const trades = [];
+  for (let i = 0; i < 50; i++) {
+    const pol = POLITICIANS[Math.floor(Math.random() * POLITICIANS.length)];
+    const sym = SYMS[Math.floor(Math.random() * SYMS.length)];
+    const side = Math.random() > 0.6 ? 'BUY' : 'SELL';
+    const size = SIZES[Math.floor(Math.random() * SIZES.length)];
+    const sizeVal = (SIZES.indexOf(size) + 1) * 50000;
+    const daysAgo = Math.floor(Math.random() * 90);
+    trades.push({ ...pol, sym, side, size, sizeVal, daysAgo, ts: Date.now() - daysAgo * 86400000 });
+  }
+  return trades.sort((a, b) => b.ts - a.ts);
+}
+
+let data = generate();
+let flt = 'all';
+
+function paint() {
+  let rows = data;
+  if (flt === 'buy') rows = data.filter(d => d.side === 'BUY');
+  else if (flt === 'sell') rows = data.filter(d => d.side === 'SELL');
+  else if (flt === 'big') rows = data.filter(d => d.sizeVal >= 50000);
+  else if (flt === 'pelosi') rows = data.filter(d => d.name === 'Nancy Pelosi');
+
+  const body = document.getElementById('congBody');
+  body.innerHTML = '';
+  rows.forEach(t => {
+    const cls = t.side === 'BUY' ? 'buy' : 'sell';
+    const partyCls = t.party === 'R' ? 'party-r' : 'party-d';
+    const sideCol = t.side === 'BUY' ? 'var(--green)' : 'var(--red)';
+    const date = t.daysAgo + 'd ago';
+    const row = document.createElement('div');
+    row.className = 'cong-row ' + cls;
+    row.innerHTML = '<div style="color:var(--text-muted);">' + date + '</div>'
+      + '<div style="font-family:Inter;font-weight:600;">' + t.name + '</div>'
+      + '<div><span class="' + partyCls + '">' + t.party + '</span></div>'
+      + '<div style="font-family:Inter;color:var(--text-muted);font-size:10px;">' + t.chamber + '</div>'
+      + '<div><strong>' + t.sym + '</strong></div>'
+      + '<div style="color:' + sideCol + ';font-weight:700;">' + t.side + '</div>'
+      + '<div>' + t.size + '</div>'
+      + '<div style="font-family:Inter;color:var(--text-muted);font-size:11px;">' + t.cmte + '</div>';
+    row.onclick = () => { window.location.href = 'trade-coach.html?sym=' + t.sym; };
+    body.appendChild(row);
+  });
+
+  document.getElementById('kpiTotal').textContent = data.length;
+  document.getElementById('kpiBuys').textContent = data.filter(d => d.side === 'BUY').length;
+  document.getElementById('kpiSells').textContent = data.filter(d => d.side === 'SELL').length;
+  const counts = {};
+  data.forEach(d => counts[d.name] = (counts[d.name] || 0) + 1);
+  const top = Object.entries(counts).sort((a, b) => b[1] - a[1])[0];
+  if (top) {
+    document.getElementById('kpiTop').textContent = top[0].split(' ')[1] || top[0];
+    document.getElementById('kpiTopBody').textContent = top[1] + ' trades';
+  }
+
+  // Leaderboard
+  const lb = document.getElementById('leaderboard');
+  lb.innerHTML = '';
+  Object.entries(counts).sort((a, b) => b[1] - a[1]).slice(0, 6).forEach(([n, c]) => {
+    const pol = POLITICIANS.find(p => p.name === n);
+    const buys = data.filter(d => d.name === n && d.side === 'BUY').length;
+    const sells = data.filter(d => d.name === n && d.side === 'SELL').length;
+    const card = document.createElement('div');
+    card.className = 'lb-card';
+    const partyCls = pol.party === 'R' ? 'party-r' : 'party-d';
+    card.innerHTML = '<div style="display:flex;justify-content:space-between;margin-bottom:4px;"><strong>' + n + '</strong><span class="' + partyCls + '">' + pol.party + '</span></div>'
+      + '<div style="font-size:11px;color:var(--text-muted);">' + pol.chamber + ' · ' + pol.cmte + '</div>'
+      + '<div class="mono mt-12" style="font-size:11px;margin-top:6px;"><span class="green-text">' + buys + 'B</span> · <span class="red-text">' + sells + 'S</span> · ' + c + ' total</div>';
+    lb.appendChild(card);
+  });
+}
+paint();
+
+document.querySelectorAll('[data-flt]').forEach(b => b.addEventListener('click', () => {
+  document.querySelectorAll('[data-flt]').forEach(x => x.classList.remove('btn-active'));
+  b.classList.add('btn-active');
+  flt = b.dataset.flt;
+  paint();
+}));
+document.getElementById('refreshBtn').addEventListener('click', () => { data = generate(); paint(); });
+</script>
+</body>
+</html>

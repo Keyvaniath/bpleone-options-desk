@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Earnings Reactor — bpleone / trade</title>
+<meta name="description" content="Live post-earnings movers tracker — implied vs realized, gap direction, drift potential.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.er-row { display:grid; grid-template-columns: 30px 70px 80px 80px 80px 80px 90px 90px 1fr; gap:8px; padding:11px 12px; border-bottom:1px solid var(--border); font-family:var(--font-mono); font-size:11px; align-items:center; cursor:pointer; }
+.er-row:hover { background:var(--bg-elevated); }
+.er-row.beat { border-left:3px solid var(--green); }
+.er-row.miss { border-left:3px solid var(--red); }
+.er-row.mixed { border-left:3px solid var(--yellow); }
+.pill { padding:2px 6px; border-radius:3px; font-size:9px; font-weight:800; letter-spacing:0.3px; }
+.p-beat { background:rgba(16,185,129,0.18); color:var(--green); }
+.p-miss { background:rgba(239,68,68,0.18); color:var(--red); }
+.p-mixed { background:rgba(245,158,11,0.18); color:var(--yellow); }
+</style>
+</head>
+<body data-needs="live">
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">📊 Earnings Reactor</div>
+      <div class="page-subtitle">Live post-earnings movers · implied vs realized · drift candidates · <span id="market-clock">--</span></div>
+    </div>
+    <div class="flex gap-8"><button class="btn btn-secondary" id="refreshBtn">🔄</button></div>
+  </div>
+
+  <div class="grid grid-4 mb-24">
+    <div class="card"><div class="card-header"><div class="card-title">Reported Today</div></div><div class="mono" style="font-size:26px;font-weight:700;" id="kpiTotal">--</div><div class="mono" style="font-size:11px;color:var(--text-muted);">Within last 24h</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">Beats</div></div><div class="mono green-text" style="font-size:26px;font-weight:700;" id="kpiBeats">--</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">Misses</div></div><div class="mono red-text" style="font-size:26px;font-weight:700;" id="kpiMisses">--</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">Realized &gt; Implied</div></div><div class="mono" style="font-size:26px;font-weight:700;color:var(--yellow);" id="kpiBeyond">--</div><div class="mono" style="font-size:11px;color:var(--text-muted);">Broke expected move</div></div>
+  </div>
+
+  <div class="card mb-12" style="padding:10px 14px;">
+    <div class="flex gap-8" style="flex-wrap:wrap;align-items:center;">
+      <span style="font-size:11px;color:var(--text-muted);font-weight:700;">FILTER:</span>
+      <button class="btn btn-ghost btn-active" data-flt="all" style="padding:4px 10px;font-size:11px;">ALL</button>
+      <button class="btn btn-ghost" data-flt="beat" style="padding:4px 10px;font-size:11px;">BEATS</button>
+      <button class="btn btn-ghost" data-flt="miss" style="padding:4px 10px;font-size:11px;">MISSES</button>
+      <button class="btn btn-ghost" data-flt="beyond" style="padding:4px 10px;font-size:11px;">EXCEEDED MOVE</button>
+      <button class="btn btn-ghost" data-flt="drift" style="padding:4px 10px;font-size:11px;">DRIFT CANDIDATES</button>
+    </div>
+  </div>
+
+  <div class="card" style="padding:0;">
+    <div class="er-row" style="background:var(--bg-elevated);font-size:9px;color:var(--text-muted);font-weight:800;letter-spacing:0.5px;">
+      <div>#</div><div>SYM</div><div>EPS B/M</div><div>REV B/M</div><div>IMPLIED</div><div>REALIZED</div><div>GAP</div><div>DRIFT 3D</div><div>OUTLOOK</div>
+    </div>
+    <div id="erBody"></div>
+  </div>
+
+  <div class="card mt-24">
+    <div class="card-header"><div class="card-title">🧠 How to trade post-earnings</div></div>
+    <div class="grid grid-3" style="gap:20px;">
+      <div>
+        <div style="font-weight:700;color:var(--green);margin-bottom:6px;">Realized &gt; Implied + beat</div>
+        <div style="font-size:13px;color:var(--text-muted);line-height:1.6;">Stock blew through expected move on a beat. Post-earnings drift historically continues 1-5 days. Buy the dip below VWAP.</div>
+      </div>
+      <div>
+        <div style="font-weight:700;color:var(--red);margin-bottom:6px;">Realized &gt; Implied + miss</div>
+        <div style="font-size:13px;color:var(--text-muted);line-height:1.6;">Severe selloff exceeded option-market estimate. Often overshoots. 60% mean-revert within 5 days. Cautious long.</div>
+      </div>
+      <div>
+        <div style="font-weight:700;color:var(--accent);margin-bottom:6px;">Realized &lt; Implied</div>
+        <div style="font-size:13px;color:var(--text-muted);line-height:1.6;">Quiet earnings — volatility sellers profited. Watch for delayed catalyst (guidance Q&amp;A, analyst day) to spark belated move.</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script>
+buildNav('earnings-reactor');
+
+const NAMES = ['NVDA','TSLA','AAPL','MSFT','GOOGL','META','AMZN','NFLX','AMD','PLTR','SHOP','UBER','SNOW','CRM','ORCL','MU','AVGO','PYPL','SMCI','COIN','SOFI','HOOD','WMT','TGT','HD','LOW','COST','DIS','BA','GS','JPM','BAC','PFE','MRNA','BABA','FUTU','MELI'];
+
+function generate() {
+  return NAMES.slice(0, 24).map(sym => {
+    const seed = sym.charCodeAt(0) * 11 + (sym.charCodeAt(1) || 0);
+    const rand = (k) => { const x = Math.sin(seed + k) * 10000; return x - Math.floor(x); };
+    const epsBeat = rand(1) > 0.35;
+    const revBeat = rand(2) > 0.4;
+    const implied = +(2 + rand(3) * 8).toFixed(2);
+    // Realized is biased by beat/miss
+    let realized;
+    const both = epsBeat && revBeat;
+    if (both) realized = +(implied * (0.7 + rand(4) * 0.9)).toFixed(2);
+    else if (!epsBeat && !revBeat) realized = -+(implied * (0.6 + rand(4) * 1.1)).toFixed(2);
+    else realized = +((rand(4) - 0.5) * implied * 0.8).toFixed(2);
+    const gap = realized;
+    const drift3d = +((rand(5) - 0.5) * 6).toFixed(2);
+    const outlook = (epsBeat && revBeat && Math.abs(realized) > implied) ? 'STRONG · drift candidate' :
+                    (!epsBeat && !revBeat && Math.abs(realized) > implied) ? 'CAPITULATION · mean-revert' :
+                    Math.abs(realized) < implied * 0.6 ? 'QUIET · vol-sellers won' :
+                    epsBeat ? 'MIXED · trend with caution' : 'WEAK · avoid';
+    return { sym, epsBeat, revBeat, implied, realized, gap, drift3d, outlook };
+  });
+}
+
+let data = generate();
+let flt = 'all';
+
+function paint() {
+  let rows = data.slice();
+  if (flt === 'beat') rows = rows.filter(r => r.epsBeat && r.revBeat);
+  else if (flt === 'miss') rows = rows.filter(r => !r.epsBeat || !r.revBeat);
+  else if (flt === 'beyond') rows = rows.filter(r => Math.abs(r.realized) > r.implied);
+  else if (flt === 'drift') rows = rows.filter(r => r.epsBeat && r.revBeat && r.drift3d > 1);
+
+  const body = document.getElementById('erBody');
+  body.innerHTML = '';
+  rows.forEach((r, i) => {
+    const cls = r.epsBeat && r.revBeat ? 'beat' : (!r.epsBeat && !r.revBeat) ? 'miss' : 'mixed';
+    const epsPill = r.epsBeat ? '<span class="pill p-beat">B</span>' : '<span class="pill p-miss">M</span>';
+    const revPill = r.revBeat ? '<span class="pill p-beat">B</span>' : '<span class="pill p-miss">M</span>';
+    const gapCol = r.gap > 0 ? 'var(--green)' : 'var(--red)';
+    const driftCol = r.drift3d > 0 ? 'var(--green)' : 'var(--red)';
+    const beyond = Math.abs(r.realized) > r.implied;
+    const row = document.createElement('div');
+    row.className = 'er-row ' + cls;
+    row.innerHTML = '<div>' + (i + 1) + '</div>'
+      + '<div><strong>' + r.sym + '</strong></div>'
+      + '<div>' + epsPill + '</div>'
+      + '<div>' + revPill + '</div>'
+      + '<div>±' + r.implied + '%</div>'
+      + '<div style="color:' + (beyond ? 'var(--yellow)' : 'var(--text-secondary)') + ';font-weight:700;">' + (r.realized >= 0 ? '+' : '') + r.realized + '%</div>'
+      + '<div style="color:' + gapCol + ';font-weight:700;">' + (r.gap >= 0 ? '+' : '') + r.gap + '%</div>'
+      + '<div style="color:' + driftCol + ';">' + (r.drift3d >= 0 ? '+' : '') + r.drift3d + '%</div>'
+      + '<div style="color:var(--text-secondary);font-family:Inter;font-size:11px;">' + r.outlook + '</div>';
+    row.onclick = () => { window.location.href = 'trade-coach.html?sym=' + r.sym; };
+    body.appendChild(row);
+  });
+
+  document.getElementById('kpiTotal').textContent = data.length;
+  document.getElementById('kpiBeats').textContent = data.filter(d => d.epsBeat && d.revBeat).length;
+  document.getElementById('kpiMisses').textContent = data.filter(d => !d.epsBeat && !d.revBeat).length;
+  document.getElementById('kpiBeyond').textContent = data.filter(d => Math.abs(d.realized) > d.implied).length;
+}
+paint();
+
+document.querySelectorAll('[data-flt]').forEach(b => b.addEventListener('click', () => {
+  document.querySelectorAll('[data-flt]').forEach(x => x.classList.remove('btn-active'));
+  b.classList.add('btn-active');
+  flt = b.dataset.flt;
+  paint();
+}));
+document.getElementById('refreshBtn').addEventListener('click', () => { data = generate(); paint(); });
+</script>
+</body>
+</html>

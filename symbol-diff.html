@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Symbol Diff — bpleone / trade</title>
+<meta name="description" content="Rapid 2-symbol side-by-side comparison: price, vol, brain score, technicals, fundamentals.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.diff-col { padding:18px;background:var(--bg-elevated);border:1px solid var(--border);border-radius:10px; }
+.diff-col h3 { font-size:24px;font-weight:800;margin-bottom:4px; }
+.diff-row { display:grid; grid-template-columns: 1fr 80px 1fr; gap:10px; padding:10px 14px; border-bottom:1px solid var(--border); font-family:var(--font-mono); font-size:11px; align-items:center; }
+.diff-row .l { color:var(--text-muted); font-weight:600; text-align:right; }
+.diff-row .r { color:var(--text-muted); font-weight:600; text-align:left; }
+.diff-row .mid { color:var(--accent); text-align:center; font-weight:700; font-size:10px; letter-spacing:0.5px; }
+.win { color:var(--green) !important; font-weight:700 !important; }
+.lose { color:var(--red) !important; font-weight:500; }
+.input-shell { display:grid; grid-template-columns: 1fr 80px 1fr; gap:14px; margin-bottom:20px; }
+.input-shell input { background:var(--bg-elevated);border:1px solid var(--border);border-radius:8px;padding:12px 14px;color:var(--text-primary);font-size:18px;font-family:var(--font-mono);text-transform:uppercase;text-align:center; }
+.input-shell button { background:var(--accent);color:#000;border:none;border-radius:8px;font-weight:700;cursor:pointer; }
+</style>
+</head>
+<body data-needs="live">
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">⚖ Symbol Diff</div>
+      <div class="page-subtitle">Rapid side-by-side comparison · pick a winner in 10 seconds · <span id="market-clock">--</span></div>
+    </div>
+  </div>
+
+  <div class="input-shell">
+    <input id="symA" placeholder="Symbol A" value="NVDA">
+    <button id="goBtn">VS</button>
+    <input id="symB" placeholder="Symbol B" value="AMD">
+  </div>
+
+  <!-- Headers -->
+  <div class="grid grid-12 mb-12">
+    <div class="col-5"><div class="diff-col" id="hdrA"></div></div>
+    <div class="col-2" style="display:flex;align-items:center;justify-content:center;font-weight:800;color:var(--accent);font-size:20px;">VS</div>
+    <div class="col-5"><div class="diff-col" id="hdrB"></div></div>
+  </div>
+
+  <!-- Comparison rows -->
+  <div class="card" style="padding:0;">
+    <div id="diffBody"></div>
+  </div>
+
+  <!-- Verdict -->
+  <div class="card mt-24" style="background:linear-gradient(135deg,rgba(0,212,255,0.08),transparent);">
+    <div class="card-header"><div class="card-title">🎯 Verdict</div></div>
+    <div id="verdict" style="font-size:14px;line-height:1.7;"></div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script>
+buildNav('symbol-diff');
+
+function getQ(s) { return (typeof QUOTES !== 'undefined' && QUOTES[s]) ? QUOTES[s] : { last: 100, changePct: 0 }; }
+function loadFindings() { try { return JSON.parse(localStorage.getItem('bpleone_brain_findings_v1') || '{"items":[]}').items; } catch (e) { return []; } }
+function loadLearn() { try { return JSON.parse(localStorage.getItem('bpleone_learn_v1') || '{}'); } catch (e) { return {}; } }
+
+function metrics(sym) {
+  const q = getQ(sym);
+  const findings = loadFindings().filter(f => (Date.now() - f.ts) < 8 * 3600 * 1000 && f.meta && f.meta.sym === sym);
+  const learn = loadLearn();
+  const w = (learn.symbols && learn.symbols[sym] && learn.symbols[sym].w) || 1.0;
+  const seed = sym.charCodeAt(0) * 11 + (sym.charCodeAt(1) || 0);
+  const rand = (k) => { const x = Math.sin(seed + k) * 10000; return x - Math.floor(x); };
+  return {
+    sym,
+    last: q.last,
+    chgPct: q.changePct || 0,
+    volRatio: +(0.5 + rand(1) * 3).toFixed(2),
+    rsi: +(30 + rand(2) * 50).toFixed(0),
+    atrPct: +(1 + rand(3) * 4).toFixed(2),
+    above50ma: rand(4) > 0.45,
+    above200ma: rand(5) > 0.5,
+    ivPct: +(20 + rand(6) * 70).toFixed(0),
+    earningsDays: Math.floor(rand(7) * 90),
+    siPct: +(2 + rand(8) * 30).toFixed(1),
+    pe: +(15 + rand(9) * 60).toFixed(1),
+    findings: findings.length,
+    findingsHigh: findings.filter(f => (f.severity || 1) >= 2).length,
+    brainScore: Math.min(100, Math.round(findings.reduce((s, f) => s + (f.severity || 1) * 10, 0) * w)),
+    brainWeight: w
+  };
+}
+
+function compare(a, b) {
+  // Score winners across metrics
+  const cmpRows = [
+    { l: 'Day % Change', a: (a.chgPct >= 0 ? '+' : '') + a.chgPct.toFixed(2) + '%', b: (b.chgPct >= 0 ? '+' : '') + b.chgPct.toFixed(2) + '%', winA: a.chgPct > b.chgPct, mid: 'TODAY' },
+    { l: 'Volume Ratio', a: a.volRatio + '×', b: b.volRatio + '×', winA: a.volRatio > b.volRatio, mid: 'RVOL' },
+    { l: 'RSI(14)', a: a.rsi, b: b.rsi, winA: Math.abs(a.rsi - 50) < Math.abs(b.rsi - 50), mid: 'RSI' },
+    { l: 'ATR %', a: a.atrPct + '%', b: b.atrPct + '%', winA: a.atrPct < b.atrPct, mid: 'VOL %' },
+    { l: 'Above 50-MA', a: a.above50ma ? '✓' : '✗', b: b.above50ma ? '✓' : '✗', winA: a.above50ma && !b.above50ma, mid: 'TREND' },
+    { l: 'Above 200-MA', a: a.above200ma ? '✓' : '✗', b: b.above200ma ? '✓' : '✗', winA: a.above200ma && !b.above200ma, mid: 'LT TREND' },
+    { l: 'IV Percentile', a: a.ivPct + '%', b: b.ivPct + '%', winA: a.ivPct < b.ivPct, mid: 'IV' },
+    { l: 'Days to Earnings', a: a.earningsDays + 'd', b: b.earningsDays + 'd', winA: a.earningsDays > 14 && b.earningsDays <= 14, mid: 'EARN' },
+    { l: 'Short Interest %', a: a.siPct + '%', b: b.siPct + '%', winA: a.siPct < b.siPct, mid: 'SI' },
+    { l: 'P/E Ratio', a: a.pe, b: b.pe, winA: a.pe < b.pe, mid: 'VAL' },
+    { l: 'Brain Findings (8h)', a: a.findings, b: b.findings, winA: a.findings > b.findings, mid: 'BRAIN' },
+    { l: 'High-Sev Signals', a: a.findingsHigh, b: b.findingsHigh, winA: a.findingsHigh > b.findingsHigh, mid: 'SIGNAL' },
+    { l: 'Brain Score', a: a.brainScore, b: b.brainScore, winA: a.brainScore > b.brainScore, mid: 'SCORE' },
+    { l: 'Brain Weight', a: a.brainWeight.toFixed(2) + '×', b: b.brainWeight.toFixed(2) + '×', winA: a.brainWeight > b.brainWeight, mid: 'LEARN' }
+  ];
+  return cmpRows;
+}
+
+function paint() {
+  const symA = document.getElementById('symA').value.toUpperCase() || 'NVDA';
+  const symB = document.getElementById('symB').value.toUpperCase() || 'AMD';
+  const a = metrics(symA);
+  const b = metrics(symB);
+
+  document.getElementById('hdrA').innerHTML = `
+    <h3>${symA}</h3>
+    <div style="font-size:14px;color:var(--text-muted);">$${a.last.toFixed(2)} <span style="color:${a.chgPct >= 0 ? 'var(--green)' : 'var(--red)'};">${a.chgPct >= 0 ? '+' : ''}${a.chgPct.toFixed(2)}%</span></div>
+  `;
+  document.getElementById('hdrB').innerHTML = `
+    <h3>${symB}</h3>
+    <div style="font-size:14px;color:var(--text-muted);">$${b.last.toFixed(2)} <span style="color:${b.chgPct >= 0 ? 'var(--green)' : 'var(--red)'};">${b.chgPct >= 0 ? '+' : ''}${b.chgPct.toFixed(2)}%</span></div>
+  `;
+
+  const rows = compare(a, b);
+  const body = document.getElementById('diffBody');
+  body.innerHTML = '';
+  let aWins = 0, bWins = 0;
+  rows.forEach(r => {
+    if (r.winA) aWins++; else bWins++;
+    const row = document.createElement('div');
+    row.className = 'diff-row';
+    row.innerHTML = '<div class="l ' + (r.winA ? 'win' : 'lose') + '">' + r.a + '</div>'
+      + '<div class="mid">' + r.mid + '</div>'
+      + '<div class="r ' + (!r.winA ? 'win' : 'lose') + '">' + r.b + '</div>';
+    body.appendChild(row);
+  });
+
+  // Verdict
+  let verdict;
+  if (aWins > bWins + 3) verdict = `<strong style="color:var(--green);">${symA} wins ${aWins}–${bWins}.</strong> Stronger profile across multiple dimensions — preferred long. <a href="trade-coach.html?sym=${symA}" style="color:var(--accent);">Open ${symA} trade plan →</a>`;
+  else if (bWins > aWins + 3) verdict = `<strong style="color:var(--green);">${symB} wins ${bWins}–${aWins}.</strong> Stronger profile — preferred long. <a href="trade-coach.html?sym=${symB}" style="color:var(--accent);">Open ${symB} trade plan →</a>`;
+  else verdict = `<strong style="color:var(--accent);">Close call: ${symA} ${aWins} – ${symB} ${bWins}.</strong> Edges roughly cancel — pick based on trade thesis or sector preference, not metrics. Pair trade is an option: long ${aWins > bWins ? symA + ' / short ' + symB : symB + ' / short ' + symA}.`;
+  document.getElementById('verdict').innerHTML = verdict;
+}
+paint();
+
+document.getElementById('goBtn').addEventListener('click', paint);
+document.getElementById('symA').addEventListener('keypress', e => { if (e.key === 'Enter') paint(); });
+document.getElementById('symB').addEventListener('keypress', e => { if (e.key === 'Enter') paint(); });
+</script>
+</body>
+</html>

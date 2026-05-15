@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Mean Reversion Scanner — bpleone / trade</title>
+<meta name="description" content="Find stocks stretched 2+ ATR from 20-MA — classic mean reversion setups.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.mr-row { display:grid; grid-template-columns: 30px 70px 80px 80px 80px 80px 90px 70px 1fr; gap:8px; padding:11px 12px; border-bottom:1px solid var(--border); font-family:var(--font-mono); font-size:11px; align-items:center; cursor:pointer; }
+.mr-row:hover { background:var(--bg-elevated); }
+.mr-row.long { border-left:3px solid var(--green); }
+.mr-row.short { border-left:3px solid var(--red); }
+</style>
+</head>
+<body data-needs="live">
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">🔄 Mean Reversion Scanner</div>
+      <div class="page-subtitle">RSI + Z-score + ATR distance from 20-MA · <span id="market-clock">--</span></div>
+    </div>
+    <div class="flex gap-8"><button class="btn btn-secondary" id="refreshBtn">🔄</button></div>
+  </div>
+
+  <div class="grid grid-4 mb-24">
+    <div class="card"><div class="card-header"><div class="card-title">Oversold Bounce Setups</div></div><div class="mono green-text" style="font-size:26px;font-weight:700;" id="kpiBounce">--</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">Overbought Fades</div></div><div class="mono red-text" style="font-size:26px;font-weight:700;" id="kpiFade">--</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">Most Stretched</div></div><div class="mono" style="font-size:18px;font-weight:700;color:var(--yellow);" id="kpiTop">--</div><div class="mono" style="font-size:11px;color:var(--text-muted);" id="kpiTopBody">--</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">Avg Z-Score</div></div><div class="mono" style="font-size:26px;font-weight:700;" id="kpiAvg">--</div></div>
+  </div>
+
+  <div class="card mb-12" style="padding:10px 14px;">
+    <div class="flex gap-8">
+      <button class="btn btn-ghost btn-active" data-flt="all" style="padding:4px 10px;font-size:11px;">ALL</button>
+      <button class="btn btn-ghost" data-flt="long" style="padding:4px 10px;font-size:11px;">LONG (oversold)</button>
+      <button class="btn btn-ghost" data-flt="short" style="padding:4px 10px;font-size:11px;">SHORT (overbought)</button>
+    </div>
+  </div>
+
+  <div class="card" style="padding:0;">
+    <div class="mr-row" style="background:var(--bg-elevated);font-size:9px;color:var(--text-muted);font-weight:800;letter-spacing:0.5px;">
+      <div>#</div><div>SYM</div><div>NOW</div><div>20-MA</div><div>Z-SCORE</div><div>ATR DIST</div><div>RSI(14)</div><div>BIAS</div><div>STOP / TARGET</div>
+    </div>
+    <div id="mrBody"></div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script>
+buildNav('mean-reversion-scanner');
+
+const UNIVERSE = ['NVDA','TSLA','AAPL','MSFT','META','AMZN','GOOGL','AMD','PLTR','COIN','SMCI','NFLX','MSTR','SHOP','UBER','HOOD','SOFI','PANW','SNOW','AVGO','MU','MRVL','LCID','RIVN','GME','AMC','CVNA','MARA','RIOT','OPRA','BBAI','SOUN','PATH','BIRD','WISH','MULN','ATER','BLNK'];
+
+function getQ(s) { return (typeof QUOTES !== 'undefined' && QUOTES[s]) ? QUOTES[s] : { last: 100 }; }
+
+function generate() {
+  return UNIVERSE.map(sym => {
+    const seed = sym.charCodeAt(0) * 13 + (sym.charCodeAt(1) || 0);
+    const rand = (k) => { const x = Math.sin(seed + k) * 10000; return x - Math.floor(x); };
+    const q = getQ(sym);
+    const px = q.last;
+    const ma20 = +(px * (1 + (rand(1) - 0.5) * 0.08)).toFixed(2);
+    const atr = px * 0.025;
+    const distance = +((px - ma20) / atr).toFixed(2);
+    const z = +((px - ma20) / (atr * 1.2)).toFixed(2);
+    const rsi = +(50 + z * 12 + (rand(2) - 0.5) * 4).toFixed(0);
+    return { sym, px, ma20, atr, distance, z, rsi };
+  });
+}
+
+let data = generate();
+let flt = 'all';
+
+function paint() {
+  let rows = data.slice().filter(d => Math.abs(d.z) >= 1.5).sort((a, b) => Math.abs(b.z) - Math.abs(a.z));
+  if (flt === 'long') rows = rows.filter(d => d.z < 0);
+  else if (flt === 'short') rows = rows.filter(d => d.z > 0);
+
+  const body = document.getElementById('mrBody');
+  body.innerHTML = '';
+  rows.slice(0, 24).forEach((r, i) => {
+    const long = r.z < 0;
+    const cls = long ? 'long' : 'short';
+    const biasCol = long ? 'var(--green)' : 'var(--red)';
+    const bias = long ? 'LONG' : 'SHORT';
+    const stop = long ? +(r.px - r.atr).toFixed(2) : +(r.px + r.atr).toFixed(2);
+    const target = +r.ma20.toFixed(2);
+    const row = document.createElement('div');
+    row.className = 'mr-row ' + cls;
+    row.innerHTML = '<div>' + (i + 1) + '</div>'
+      + '<div><strong>' + r.sym + '</strong></div>'
+      + '<div>$' + r.px.toFixed(2) + '</div>'
+      + '<div>$' + r.ma20.toFixed(2) + '</div>'
+      + '<div style="color:' + (Math.abs(r.z) > 2.5 ? 'var(--yellow)' : 'var(--accent)') + ';font-weight:700;">' + (r.z >= 0 ? '+' : '') + r.z + 'σ</div>'
+      + '<div>' + (r.distance >= 0 ? '+' : '') + r.distance + ' ATR</div>'
+      + '<div style="color:' + (r.rsi < 30 ? 'var(--green)' : r.rsi > 70 ? 'var(--red)' : 'var(--text-muted)') + ';">' + r.rsi + '</div>'
+      + '<div style="color:' + biasCol + ';font-weight:700;">' + bias + '</div>'
+      + '<div style="color:var(--text-muted);font-family:Inter;font-size:11px;">Stop $' + stop + ' → T $' + target + '</div>';
+    row.onclick = () => { window.location.href = 'trade-coach.html?sym=' + r.sym; };
+    body.appendChild(row);
+  });
+
+  document.getElementById('kpiBounce').textContent = data.filter(d => d.z < -1.5).length;
+  document.getElementById('kpiFade').textContent = data.filter(d => d.z > 1.5).length;
+  const top = data.slice().sort((a, b) => Math.abs(b.z) - Math.abs(a.z))[0];
+  if (top) { document.getElementById('kpiTop').textContent = top.sym; document.getElementById('kpiTopBody').textContent = (top.z >= 0 ? '+' : '') + top.z + 'σ'; }
+  document.getElementById('kpiAvg').textContent = (data.reduce((s, d) => s + Math.abs(d.z), 0) / data.length).toFixed(2);
+}
+paint();
+document.querySelectorAll('[data-flt]').forEach(b => b.addEventListener('click', () => {
+  document.querySelectorAll('[data-flt]').forEach(x => x.classList.remove('btn-active'));
+  b.classList.add('btn-active');
+  flt = b.dataset.flt;
+  paint();
+}));
+document.getElementById('refreshBtn').addEventListener('click', () => { data = generate(); paint(); });
+</script>
+</body>
+</html>

@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Brain Decision Log — bpleone / trade</title>
+<meta name="description" content="Every weight nudge the brain made, with full reasoning — full transparency into the ML loop.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.dec-row { display:grid; grid-template-columns: 90px 80px 90px 80px 100px 1fr; gap:10px; padding:11px 12px; border-bottom:1px solid var(--border); font-family:var(--font-mono); font-size:11px; align-items:center; }
+.dec-row.up { border-left:3px solid var(--green); background:rgba(16,185,129,0.04); }
+.dec-row.dn { border-left:3px solid var(--red); background:rgba(239,68,68,0.04); }
+.dec-row.flat { border-left:3px solid var(--text-muted); }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">📜 Brain Decision Log</div>
+      <div class="page-subtitle">Every weight nudge the brain made · full transparency · <span id="market-clock">--</span></div>
+    </div>
+    <div class="flex gap-8">
+      <button class="btn btn-secondary" id="refreshBtn">🔄</button>
+      <button class="btn btn-secondary" id="exportBtn">📥 Export</button>
+    </div>
+  </div>
+
+  <div class="grid grid-4 mb-24">
+    <div class="card"><div class="card-header"><div class="card-title">Total Decisions</div></div><div class="mono" style="font-size:26px;font-weight:700;" id="kpiTotal">--</div><div class="mono" style="font-size:11px;color:var(--text-muted);">Lifetime weight nudges</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">Up-Weights</div></div><div class="mono green-text" style="font-size:26px;font-weight:700;" id="kpiUp">--</div><div class="mono" style="font-size:11px;color:var(--text-muted);">Symbol promoted</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">Down-Weights</div></div><div class="mono red-text" style="font-size:26px;font-weight:700;" id="kpiDn">--</div><div class="mono" style="font-size:11px;color:var(--text-muted);">Symbol penalized</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">Net Δ</div></div><div class="mono" style="font-size:26px;font-weight:700;" id="kpiNet">--</div><div class="mono" style="font-size:11px;color:var(--text-muted);">Cumulative weight change</div></div>
+  </div>
+
+  <div class="card mb-12" style="padding:10px 14px;">
+    <div class="flex gap-8" style="flex-wrap:wrap;align-items:center;">
+      <span style="font-size:11px;color:var(--text-muted);font-weight:700;">FILTER:</span>
+      <button class="btn btn-ghost btn-active" data-flt="all" style="padding:4px 10px;font-size:11px;">ALL</button>
+      <button class="btn btn-ghost" data-flt="hit" style="padding:4px 10px;font-size:11px;">HITS (+)</button>
+      <button class="btn btn-ghost" data-flt="miss" style="padding:4px 10px;font-size:11px;">MISSES (−)</button>
+      <button class="btn btn-ghost" data-flt="flat" style="padding:4px 10px;font-size:11px;">FLAT</button>
+      <input type="text" id="symFilter" placeholder="Symbol filter..." style="background:var(--bg-elevated);border:1px solid var(--border);border-radius:6px;padding:4px 10px;color:var(--text-primary);font-family:var(--font-mono);text-transform:uppercase;width:140px;margin-left:auto;">
+    </div>
+  </div>
+
+  <div class="card" style="padding:0;">
+    <div class="dec-row" style="background:var(--bg-elevated);font-size:9px;color:var(--text-muted);font-weight:800;letter-spacing:0.5px;">
+      <div>TIME</div><div>SYM</div><div>OUTCOME</div><div>Δ WEIGHT</div><div>REALIZED %</div><div>REASONING</div>
+    </div>
+    <div id="decBody"></div>
+  </div>
+
+  <div class="card mt-24" style="background:linear-gradient(135deg,rgba(124,58,237,0.05),transparent);">
+    <div class="card-header"><div class="card-title">🧠 How weight nudges work</div></div>
+    <div style="font-size:13px;color:var(--text-secondary);line-height:1.7;">
+      Every 5 minutes, the brain checks each finding aged 30+ minutes. It compares the bias-adjusted realized move against thresholds:
+      <ul style="margin-top:10px;padding-left:18px;">
+        <li><strong>Hit</strong> — signed move ≥ +0.5% in expected direction → weight += <strong style="color:var(--green);">+0.005</strong></li>
+        <li><strong>Miss</strong> — signed move ≤ −0.5% in expected direction → weight += <strong style="color:var(--red);">−0.005</strong></li>
+        <li><strong>Flat</strong> — between ±0.5% → no change</li>
+      </ul>
+      Weights are clamped to <code>[0.5, 1.6]</code> and applied multiplicatively to future raw signal scores. After ~200 outcomes per symbol, the brain has built meaningful posterior weights. Every nudge is logged here.
+    </div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script>
+buildNav('brain-decisions');
+
+function loadState() { try { return JSON.parse(localStorage.getItem('bpleone_brain_loop_state_v1') || '{}'); } catch (e) { return {}; } }
+function loadFindings() { try { return JSON.parse(localStorage.getItem('bpleone_brain_findings_v1') || '{"items":[]}').items; } catch (e) { return []; } }
+
+let flt = 'all';
+let symFlt = '';
+
+function paint() {
+  const state = loadState();
+  const findings = loadFindings();
+  const fed = state.fedFindings || {};
+  const decisions = [];
+  Object.entries(fed).forEach(([fid, info]) => {
+    const f = findings.find(x => x.id === fid);
+    if (!f) return;
+    decisions.push({
+      ts: info.ts,
+      sym: (f.meta && f.meta.sym) || '?',
+      outcome: info.outcome,
+      delta: info.delta || 0,
+      realizedPct: f.realizedPct || 0,
+      title: f.title,
+      type: f.type,
+      setup: f.meta && f.meta.setup,
+      bias: f.meta && f.meta.bias
+    });
+  });
+  decisions.sort((a, b) => b.ts - a.ts);
+
+  // Apply filter
+  let rows = decisions;
+  if (flt === 'hit') rows = rows.filter(d => d.outcome === 'hit');
+  else if (flt === 'miss') rows = rows.filter(d => d.outcome === 'miss');
+  else if (flt === 'flat') rows = rows.filter(d => d.outcome === 'flat');
+  if (symFlt) rows = rows.filter(d => d.sym.includes(symFlt));
+
+  const body = document.getElementById('decBody');
+  body.innerHTML = '';
+  if (rows.length === 0) {
+    body.innerHTML = '<div style="padding:30px;text-align:center;color:var(--text-muted);font-size:13px;">No decisions logged yet. The brain rates findings 30 min after firing — visit the site for a while to populate the log.</div>';
+  } else {
+    rows.slice(0, 100).forEach(d => {
+      const cls = d.outcome === 'hit' ? 'up' : d.outcome === 'miss' ? 'dn' : 'flat';
+      const outcomeCol = d.outcome === 'hit' ? 'var(--green)' : d.outcome === 'miss' ? 'var(--red)' : 'var(--text-muted)';
+      const time = new Date(d.ts).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false });
+      const reasoning = (d.setup || d.type) + ' fired on ' + d.sym + (d.bias ? ' (' + d.bias + ' bias)' : '') + '. Realized ' + (d.realizedPct >= 0 ? '+' : '') + d.realizedPct + '% in 30+ min window.';
+      const row = document.createElement('div');
+      row.className = 'dec-row ' + cls;
+      row.innerHTML = '<div style="color:var(--text-muted);">' + time + '</div>'
+        + '<div><strong>' + d.sym + '</strong></div>'
+        + '<div style="color:' + outcomeCol + ';font-weight:700;">' + d.outcome.toUpperCase() + '</div>'
+        + '<div style="color:' + outcomeCol + ';font-weight:700;">' + (d.delta >= 0 ? '+' : '') + d.delta.toFixed(3) + '</div>'
+        + '<div style="color:' + outcomeCol + ';">' + (d.realizedPct >= 0 ? '+' : '') + d.realizedPct + '%</div>'
+        + '<div style="color:var(--text-secondary);font-family:Inter;font-size:11px;line-height:1.4;">' + reasoning + '</div>';
+      body.appendChild(row);
+    });
+  }
+
+  document.getElementById('kpiTotal').textContent = decisions.length;
+  document.getElementById('kpiUp').textContent = decisions.filter(d => d.outcome === 'hit').length;
+  document.getElementById('kpiDn').textContent = decisions.filter(d => d.outcome === 'miss').length;
+  const net = decisions.reduce((s, d) => s + d.delta, 0);
+  document.getElementById('kpiNet').textContent = (net >= 0 ? '+' : '') + net.toFixed(3);
+  document.getElementById('kpiNet').style.color = net > 0 ? 'var(--green)' : net < 0 ? 'var(--red)' : 'var(--text-primary)';
+}
+
+paint();
+document.querySelectorAll('[data-flt]').forEach(b => b.addEventListener('click', () => {
+  document.querySelectorAll('[data-flt]').forEach(x => x.classList.remove('btn-active'));
+  b.classList.add('btn-active');
+  flt = b.dataset.flt;
+  paint();
+}));
+document.getElementById('symFilter').addEventListener('input', e => { symFlt = e.target.value.toUpperCase(); paint(); });
+document.getElementById('refreshBtn').addEventListener('click', paint);
+document.getElementById('exportBtn').addEventListener('click', () => {
+  const state = loadState();
+  const findings = loadFindings();
+  const fed = state.fedFindings || {};
+  const csv = ['Time,Symbol,Outcome,Delta,RealizedPct,Setup,Bias,Title'];
+  Object.entries(fed).forEach(([fid, info]) => {
+    const f = findings.find(x => x.id === fid);
+    if (!f) return;
+    csv.push([new Date(info.ts).toISOString(), (f.meta && f.meta.sym) || '?', info.outcome, info.delta, f.realizedPct, (f.meta && f.meta.setup) || '', (f.meta && f.meta.bias) || '', '"' + (f.title || '').replace(/"/g,'""') + '"'].join(','));
+  });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([csv.join('\n')], { type: 'text/csv' }));
+  a.download = 'brain-decisions-' + Date.now() + '.csv';
+  a.click();
+});
+</script>
+</body>
+</html>

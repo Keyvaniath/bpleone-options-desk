@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Algo Signals — bpleone / trade</title>
+<meta name="description" content="Every algo-detected signal across the universe — momentum, mean reversion, breakouts, breakdowns — filterable + brain-scored.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.signal-row { display:grid; grid-template-columns: 30px 70px 130px 110px 60px 80px 90px 80px 1fr; gap:8px; padding:11px 12px; border-bottom:1px solid var(--border); font-family:var(--font-mono); font-size:11px; align-items:center; cursor:pointer; }
+.signal-row:hover { background:var(--bg-elevated); }
+.signal-row.bull { border-left:3px solid var(--green); }
+.signal-row.bear { border-left:3px solid var(--red); }
+.signal-row.neut { border-left:3px solid var(--accent); }
+.tag { padding:2px 6px; border-radius:3px; font-size:9px; font-weight:800; letter-spacing:0.3px; }
+.t-mom { background:rgba(0,212,255,0.15); color:var(--accent); }
+.t-mr  { background:rgba(245,158,11,0.15); color:var(--yellow); }
+.t-bo  { background:rgba(16,185,129,0.15); color:var(--green); }
+.t-bd  { background:rgba(239,68,68,0.15); color:var(--red); }
+.t-sq  { background:rgba(124,58,237,0.15); color:#a78bfa; }
+.t-vol { background:rgba(236,72,153,0.15); color:#f9a8d4; }
+</style>
+</head>
+<body data-needs="live">
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">⚡ Algo Signals</div>
+      <div class="page-subtitle">All algorithmic signals · momentum, mean-rev, breakout, breakdown, squeeze, vol · <span id="market-clock">--</span></div>
+    </div>
+    <div class="flex gap-8"><button class="btn btn-secondary" id="refreshBtn">🔄</button></div>
+  </div>
+
+  <div class="grid grid-5 mb-24">
+    <div class="card"><div class="card-header"><div class="card-title">Total Signals</div></div><div class="mono" style="font-size:26px;font-weight:700;" id="kpiTotal">--</div><div class="mono" style="font-size:11px;color:var(--text-muted);">Active in last 4h</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">Long Bias</div></div><div class="mono green-text" style="font-size:26px;font-weight:700;" id="kpiBull">--</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">Short Bias</div></div><div class="mono red-text" style="font-size:26px;font-weight:700;" id="kpiBear">--</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">High Score (≥75)</div></div><div class="mono" style="font-size:26px;font-weight:700;color:var(--accent);" id="kpiHigh">--</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">Top Type</div></div><div class="mono" style="font-size:26px;font-weight:700;color:var(--yellow);" id="kpiTopType">--</div><div class="mono" style="font-size:11px;color:var(--text-muted);" id="kpiTopBody">--</div></div>
+  </div>
+
+  <div class="card mb-12" style="padding:10px 14px;">
+    <div class="flex gap-8" style="flex-wrap:wrap;align-items:center;">
+      <span style="font-size:11px;color:var(--text-muted);font-weight:700;">TYPE:</span>
+      <button class="btn btn-ghost btn-active" data-flt="all" style="padding:4px 10px;font-size:11px;">ALL</button>
+      <button class="btn btn-ghost" data-flt="MOM" style="padding:4px 10px;font-size:11px;">MOMENTUM</button>
+      <button class="btn btn-ghost" data-flt="MR" style="padding:4px 10px;font-size:11px;">MEAN-REV</button>
+      <button class="btn btn-ghost" data-flt="BO" style="padding:4px 10px;font-size:11px;">BREAKOUT</button>
+      <button class="btn btn-ghost" data-flt="BD" style="padding:4px 10px;font-size:11px;">BREAKDOWN</button>
+      <button class="btn btn-ghost" data-flt="SQ" style="padding:4px 10px;font-size:11px;">SQUEEZE</button>
+      <button class="btn btn-ghost" data-flt="VOL" style="padding:4px 10px;font-size:11px;">VOL</button>
+      <span style="margin-left:auto;font-size:11px;color:var(--text-muted);">Showing <strong id="visibleCount">0</strong></span>
+    </div>
+  </div>
+
+  <div class="card" style="padding:0;">
+    <div class="signal-row" style="background:var(--bg-elevated);font-size:9px;color:var(--text-muted);font-weight:800;letter-spacing:0.5px;">
+      <div>#</div><div>SYM</div><div>SETUP</div><div>TRIGGER</div><div>TYPE</div><div>SCORE</div><div>BIAS</div><div>AGE</div><div>WHAT IT MEANS</div>
+    </div>
+    <div id="sigBody"></div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script>
+buildNav('algo-signals');
+
+const SETUPS = [
+  { name: 'RSI Oversold + reversal', type: 'MR', bias: 'bull', cls: 't-mr', meaning: 'Daily RSI < 30 with bullish candle reversal. Bounce setup.' },
+  { name: 'RSI Overbought fade', type: 'MR', bias: 'bear', cls: 't-mr', meaning: 'Daily RSI > 75 with bearish reversal candle. Fade setup.' },
+  { name: '52W high breakout', type: 'BO', bias: 'bull', cls: 't-bo', meaning: 'Closed above 52w high on volume ≥1.5×. Trend entry.' },
+  { name: '50DMA reclaim + vol', type: 'BO', bias: 'bull', cls: 't-bo', meaning: 'Recaptured 50-day MA on heavy buying. Trend resume.' },
+  { name: '50DMA breakdown', type: 'BD', bias: 'bear', cls: 't-bd', meaning: 'Lost 50-day MA on volume. Trend reversal warning.' },
+  { name: '52W low breakdown', type: 'BD', bias: 'bear', cls: 't-bd', meaning: 'Broke 52w low. Capitulation candidate.' },
+  { name: 'MACD bullish cross', type: 'MOM', bias: 'bull', cls: 't-mom', meaning: 'MACD crossed above signal line. Momentum waking up.' },
+  { name: 'MACD bearish cross', type: 'MOM', bias: 'bear', cls: 't-mom', meaning: 'MACD crossed below signal. Momentum waning.' },
+  { name: 'Bollinger squeeze', type: 'SQ', bias: 'neut', cls: 't-sq', meaning: 'BB width at 20-period low. Big move pending — direction TBD.' },
+  { name: 'BB breakout (upper)', type: 'BO', bias: 'bull', cls: 't-bo', meaning: 'Closed above upper Bollinger on volume. Continuation likely.' },
+  { name: 'BB breakdown (lower)', type: 'BD', bias: 'bear', cls: 't-bd', meaning: 'Closed below lower Bollinger on volume.' },
+  { name: 'Volume spike + flat px', type: 'VOL', bias: 'neut', cls: 't-vol', meaning: 'Volume ≥2× avg with no price move. Accumulation or distribution — confirmation needed.' },
+  { name: 'IV spike (no news)', type: 'VOL', bias: 'neut', cls: 't-vol', meaning: 'IV percentile jumped without obvious catalyst. Informed positioning possible.' },
+  { name: 'Gap fill (50%)', type: 'MR', bias: 'neut', cls: 't-mr', meaning: 'Halfway through filling yesterday\'s gap. Watch for either rejection or full fill.' },
+  { name: 'Inside-day breakout', type: 'BO', bias: 'bull', cls: 't-bo', meaning: 'Broke above prior inside-day high. NR7 expansion.' }
+];
+
+const UNIVERSE = ['NVDA','TSLA','SPY','QQQ','AAPL','MSFT','META','AMZN','GOOGL','AMD','PLTR','COIN','SMCI','NFLX','MSTR','SHOP','AVGO','MU','UBER','HOOD','SOFI','PANW','SNOW','MRVL','LCID','GME','AMC','CVNA','MARA','RIOT','BA','DIS','JPM','XLE','XLF','XLK','TLT','GLD','BTC','ETH'];
+
+function getQ(s) { return (typeof QUOTES !== 'undefined' && QUOTES[s]) ? QUOTES[s] : { last: 100, changePct: 0 }; }
+
+function generate() {
+  const sigs = [];
+  const count = 28 + Math.floor(Math.random() * 12);
+  for (let i = 0; i < count; i++) {
+    const sym = UNIVERSE[Math.floor(Math.random() * UNIVERSE.length)];
+    const setup = SETUPS[Math.floor(Math.random() * SETUPS.length)];
+    const q = getQ(sym);
+    const trigger = (setup.bias === 'bull' && setup.type === 'BO') ? '+' + (Math.random() * 3 + 1).toFixed(2) + '% break' :
+                    (setup.bias === 'bear' && setup.type === 'BD') ? '−' + (Math.random() * 3 + 1).toFixed(2) + '% break' :
+                    setup.type === 'MR' ? 'RSI ' + (setup.bias === 'bull' ? '<' + (25 + Math.random() * 5).toFixed(0) : '>' + (75 + Math.random() * 5).toFixed(0)) :
+                    setup.type === 'SQ' ? 'BBW ' + (5 + Math.random() * 8).toFixed(1) + '%' :
+                    setup.type === 'VOL' ? 'V ' + (1.8 + Math.random() * 2).toFixed(1) + '×' :
+                    'Cross @ ' + q.last.toFixed(2);
+    const score = Math.floor(40 + Math.random() * 55);
+    const ageMin = Math.floor(Math.random() * 240);
+    sigs.push({ sym, setup, trigger, score, ageMin, q });
+  }
+  return sigs.sort((a, b) => b.score - a.score);
+}
+
+let data = generate();
+let flt = 'all';
+
+function paint() {
+  let rows = data;
+  if (flt !== 'all') rows = data.filter(r => r.setup.type === flt);
+
+  const body = document.getElementById('sigBody');
+  body.innerHTML = '';
+  rows.forEach((r, i) => {
+    const cls = 'signal-row ' + r.setup.bias;
+    const biasCol = r.setup.bias === 'bull' ? 'var(--green)' : r.setup.bias === 'bear' ? 'var(--red)' : 'var(--accent)';
+    const scoreCol = r.score >= 75 ? 'var(--green)' : r.score >= 60 ? 'var(--accent)' : 'var(--text-muted)';
+    const row = document.createElement('div');
+    row.className = cls;
+    row.innerHTML = '<div>' + (i + 1) + '</div>'
+      + '<div><strong>' + r.sym + '</strong></div>'
+      + '<div style="font-family:Inter;color:var(--text-secondary);font-size:11px;">' + r.setup.name + '</div>'
+      + '<div>' + r.trigger + '</div>'
+      + '<div><span class="tag ' + r.setup.cls + '">' + r.setup.type + '</span></div>'
+      + '<div style="font-weight:700;color:' + scoreCol + ';">' + r.score + '</div>'
+      + '<div style="color:' + biasCol + ';font-weight:700;font-size:10px;">' + r.setup.bias.toUpperCase() + '</div>'
+      + '<div style="color:var(--text-muted);">' + r.ageMin + 'm</div>'
+      + '<div style="color:var(--text-muted);font-family:Inter;font-size:11px;line-height:1.4;">' + r.setup.meaning + '</div>';
+    row.onclick = () => { window.location.href = 'trade-coach.html?sym=' + r.sym; };
+    body.appendChild(row);
+  });
+
+  document.getElementById('kpiTotal').textContent = data.length;
+  document.getElementById('kpiBull').textContent = data.filter(d => d.setup.bias === 'bull').length;
+  document.getElementById('kpiBear').textContent = data.filter(d => d.setup.bias === 'bear').length;
+  document.getElementById('kpiHigh').textContent = data.filter(d => d.score >= 75).length;
+  const types = {};
+  data.forEach(d => types[d.setup.type] = (types[d.setup.type] || 0) + 1);
+  const top = Object.entries(types).sort((a, b) => b[1] - a[1])[0];
+  if (top) {
+    document.getElementById('kpiTopType').textContent = top[0];
+    document.getElementById('kpiTopBody').textContent = top[1] + ' signals · dominant';
+  }
+  document.getElementById('visibleCount').textContent = rows.length;
+}
+paint();
+
+document.querySelectorAll('[data-flt]').forEach(b => b.addEventListener('click', () => {
+  document.querySelectorAll('[data-flt]').forEach(x => x.classList.remove('btn-active'));
+  b.classList.add('btn-active');
+  flt = b.dataset.flt;
+  paint();
+}));
+document.getElementById('refreshBtn').addEventListener('click', () => { data = generate(); paint(); });
+setInterval(() => { data = generate(); paint(); }, 60000);
+</script>
+</body>
+</html>

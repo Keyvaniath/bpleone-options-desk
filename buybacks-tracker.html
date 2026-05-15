@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Buybacks Tracker — bpleone / trade</title>
+<meta name="description" content="Announced share buyback programs, execution rate, and EPS-accretive impact estimates.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.bb-row { display:grid; grid-template-columns: 30px 70px 100px 90px 90px 90px 100px 110px 1fr; gap:8px; padding:11px 12px; border-bottom:1px solid var(--border); font-family:var(--font-mono); font-size:11px; align-items:center; cursor:pointer; }
+.bb-row:hover { background:var(--bg-elevated); }
+.bb-row.big { border-left:3px solid var(--accent); }
+.bb-row.mid { border-left:3px solid var(--green); }
+.progress-bar { height:6px; background:var(--bg-elevated); border-radius:3px; overflow:hidden; }
+.progress-bar > div { height:100%; background:var(--accent); }
+</style>
+</head>
+<body data-needs="live">
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">💰 Buybacks Tracker</div>
+      <div class="page-subtitle">Announced programs · execution rate · EPS accretion · <span id="market-clock">--</span></div>
+    </div>
+    <div class="flex gap-8"><button class="btn btn-secondary" id="refreshBtn">🔄</button></div>
+  </div>
+
+  <div class="grid grid-4 mb-24">
+    <div class="card"><div class="card-header"><div class="card-title">Total Announced</div></div><div class="mono" style="font-size:26px;font-weight:700;color:var(--accent);" id="kpiTotal">--</div><div class="mono" style="font-size:11px;color:var(--text-muted);">Across tracked names</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">Mega Programs (≥$10B)</div></div><div class="mono" style="font-size:26px;font-weight:700;color:var(--accent);" id="kpiMega">--</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">Avg Execution Rate</div></div><div class="mono" style="font-size:26px;font-weight:700;" id="kpiExec">--</div><div class="mono" style="font-size:11px;color:var(--text-muted);">% of program done</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">Aggressive Buyers</div></div><div class="mono green-text" style="font-size:26px;font-weight:700;" id="kpiAgg">--</div><div class="mono" style="font-size:11px;color:var(--text-muted);">Execution &gt; 70%</div></div>
+  </div>
+
+  <div class="card" style="padding:0;">
+    <div class="card-header" style="padding:14px 16px;"><div class="card-title">📊 Active Buyback Programs</div></div>
+    <div class="bb-row" style="background:var(--bg-elevated);font-size:9px;color:var(--text-muted);font-weight:800;letter-spacing:0.5px;">
+      <div>#</div><div>SYM</div><div>SIZE</div><div>EXEC %</div><div>VS MKT CAP</div><div>YIELD</div><div>EPS LIFT</div><div>PROGRESS</div><div>ANNOUNCED</div>
+    </div>
+    <div id="bbBody"></div>
+  </div>
+
+  <div class="card mt-24">
+    <div class="card-header"><div class="card-title">🧠 Why buybacks matter</div></div>
+    <div class="grid grid-3" style="gap:20px;">
+      <div>
+        <div style="font-weight:700;color:var(--green);margin-bottom:6px;">Aggressive (≥70% executed)</div>
+        <div style="font-size:13px;color:var(--text-muted);line-height:1.6;">Company actively buying — provides daily flow demand. Floors price during selloffs. Often signal of management confidence.</div>
+      </div>
+      <div>
+        <div style="font-weight:700;color:var(--accent);margin-bottom:6px;">Large program ≥5% of cap</div>
+        <div style="font-size:13px;color:var(--text-muted);line-height:1.6;">Meaningful share reduction. Mechanically boosts EPS. Multi-year tailwind for stock if company executes consistently.</div>
+      </div>
+      <div>
+        <div style="font-weight:700;color:var(--yellow);margin-bottom:6px;">Slow / paused programs</div>
+        <div style="font-size:13px;color:var(--text-muted);line-height:1.6;">Watch for cash strain or capital reallocation. Companies pause buybacks before bad news ~30% of time. Signal not noise.</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script>
+buildNav('buybacks-tracker');
+
+const PROGRAMS = [
+  { sym: 'AAPL', size: 90, mktCap: 3500, exec: 78, age: 90 },
+  { sym: 'GOOGL', size: 70, mktCap: 2100, exec: 65, age: 60 },
+  { sym: 'META', size: 50, mktCap: 1500, exec: 82, age: 120 },
+  { sym: 'MSFT', size: 60, mktCap: 3300, exec: 55, age: 180 },
+  { sym: 'NVDA', size: 50, mktCap: 3000, exec: 30, age: 30 },
+  { sym: 'BRK.B', size: 25, mktCap: 950, exec: 88, age: 200 },
+  { sym: 'JPM', size: 30, mktCap: 700, exec: 60, age: 90 },
+  { sym: 'BAC', size: 25, mktCap: 320, exec: 72, age: 120 },
+  { sym: 'GS', size: 18, mktCap: 180, exec: 68, age: 150 },
+  { sym: 'V', size: 20, mktCap: 600, exec: 80, age: 200 },
+  { sym: 'MA', size: 16, mktCap: 480, exec: 75, age: 180 },
+  { sym: 'AMZN', size: 10, mktCap: 1900, exec: 25, age: 45 },
+  { sym: 'WMT', size: 20, mktCap: 720, exec: 70, age: 240 },
+  { sym: 'NFLX', size: 5, mktCap: 280, exec: 50, age: 60 },
+  { sym: 'CVX', size: 15, mktCap: 290, exec: 73, age: 120 },
+  { sym: 'XOM', size: 20, mktCap: 470, exec: 78, age: 150 },
+  { sym: 'AVGO', size: 12, mktCap: 800, exec: 55, age: 60 },
+  { sym: 'TSLA', size: 0, mktCap: 1100, exec: 0, age: 0 }
+].filter(p => p.size > 0);
+
+function paint() {
+  const body = document.getElementById('bbBody');
+  body.innerHTML = '';
+  PROGRAMS.sort((a, b) => b.size - a.size).forEach((p, i) => {
+    const pctMktCap = (p.size / p.mktCap) * 100;
+    const yield_ = pctMktCap * (p.exec / 100);
+    const epsLift = (yield_ * 0.95).toFixed(2);
+    const cls = p.size >= 50 ? 'big' : 'mid';
+    const aggCol = p.exec >= 70 ? 'var(--green)' : p.exec >= 50 ? 'var(--accent)' : 'var(--yellow)';
+    const row = document.createElement('div');
+    row.className = 'bb-row ' + cls;
+    row.innerHTML = '<div>' + (i + 1) + '</div>'
+      + '<div><strong>' + p.sym + '</strong></div>'
+      + '<div style="font-weight:700;">$' + p.size + 'B</div>'
+      + '<div style="color:' + aggCol + ';font-weight:700;">' + p.exec + '%</div>'
+      + '<div>' + pctMktCap.toFixed(2) + '%</div>'
+      + '<div style="color:var(--green);">' + yield_.toFixed(2) + '%</div>'
+      + '<div style="color:var(--accent);">+' + epsLift + '%</div>'
+      + '<div><div class="progress-bar"><div style="width:' + p.exec + '%;"></div></div></div>'
+      + '<div style="color:var(--text-muted);">' + p.age + 'd ago</div>';
+    row.onclick = () => { window.location.href = 'trade-coach.html?sym=' + p.sym; };
+    body.appendChild(row);
+  });
+
+  const total = PROGRAMS.reduce((s, p) => s + p.size, 0);
+  document.getElementById('kpiTotal').textContent = '$' + total.toFixed(0) + 'B';
+  document.getElementById('kpiMega').textContent = PROGRAMS.filter(p => p.size >= 10).length;
+  const avgExec = PROGRAMS.reduce((s, p) => s + p.exec, 0) / PROGRAMS.length;
+  document.getElementById('kpiExec').textContent = avgExec.toFixed(0) + '%';
+  document.getElementById('kpiAgg').textContent = PROGRAMS.filter(p => p.exec >= 70).length;
+}
+paint();
+document.getElementById('refreshBtn').addEventListener('click', paint);
+</script>
+</body>
+</html>

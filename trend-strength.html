@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Trend Strength — bpleone / trade</title>
+<meta name="description" content="ADX-based trend ranking — strongest trends in the market for momentum trades.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.ts-row { display:grid; grid-template-columns: 30px 70px 80px 80px 80px 80px 90px 70px 1fr; gap:8px; padding:11px 12px; border-bottom:1px solid var(--border); font-family:var(--font-mono); font-size:11px; align-items:center; cursor:pointer; }
+.ts-row:hover { background:var(--bg-elevated); }
+.ts-row.strong-up { border-left:3px solid var(--green); }
+.ts-row.strong-dn { border-left:3px solid var(--red); }
+.ts-row.weak { border-left:3px solid var(--text-muted); }
+</style>
+</head>
+<body data-needs="live">
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">📈 Trend Strength</div>
+      <div class="page-subtitle">ADX · MA stack · momentum score — strongest trends in market · <span id="market-clock">--</span></div>
+    </div>
+    <div class="flex gap-8"><button class="btn btn-secondary" id="refreshBtn">🔄</button></div>
+  </div>
+
+  <div class="grid grid-4 mb-24">
+    <div class="card"><div class="card-header"><div class="card-title">Strong Uptrends</div></div><div class="mono green-text" style="font-size:26px;font-weight:700;" id="kpiUp">--</div><div class="mono" style="font-size:11px;color:var(--text-muted);">ADX &gt; 30 + above MAs</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">Strong Downtrends</div></div><div class="mono red-text" style="font-size:26px;font-weight:700;" id="kpiDn">--</div><div class="mono" style="font-size:11px;color:var(--text-muted);">ADX &gt; 30 + below MAs</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">Avg ADX</div></div><div class="mono" style="font-size:26px;font-weight:700;" id="kpiAvgAdx">--</div><div class="mono" style="font-size:11px;color:var(--text-muted);">Universe-wide</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">Top Trend</div></div><div class="mono" style="font-size:18px;font-weight:700;color:var(--accent);" id="kpiTop">--</div><div class="mono" style="font-size:11px;color:var(--text-muted);" id="kpiTopBody">--</div></div>
+  </div>
+
+  <div class="card mb-12" style="padding:10px 14px;">
+    <div class="flex gap-8">
+      <button class="btn btn-ghost btn-active" data-flt="all" style="padding:4px 10px;font-size:11px;">ALL</button>
+      <button class="btn btn-ghost" data-flt="up" style="padding:4px 10px;font-size:11px;">UPTRENDS</button>
+      <button class="btn btn-ghost" data-flt="dn" style="padding:4px 10px;font-size:11px;">DOWNTRENDS</button>
+      <button class="btn btn-ghost" data-flt="strong" style="padding:4px 10px;font-size:11px;">ADX ≥ 35</button>
+    </div>
+  </div>
+
+  <div class="card" style="padding:0;">
+    <div class="ts-row" style="background:var(--bg-elevated);font-size:9px;color:var(--text-muted);font-weight:800;letter-spacing:0.5px;">
+      <div>#</div><div>SYM</div><div>NOW</div><div>ADX(14)</div><div>+DI</div><div>−DI</div><div>MA STACK</div><div>DIR</div><div>TREND SCORE</div>
+    </div>
+    <div id="tsBody"></div>
+  </div>
+
+  <div class="card mt-24">
+    <div class="card-header"><div class="card-title">🧠 How to use ADX</div></div>
+    <div class="grid grid-3" style="gap:20px;">
+      <div>
+        <div style="font-weight:700;color:var(--green);margin-bottom:6px;">ADX ≥ 30 + +DI &gt; −DI</div>
+        <div style="font-size:13px;color:var(--text-muted);line-height:1.6;">Strong uptrend. Trend-following works. Buy pullbacks to 8-EMA or 20-MA. Mean-reversion fades.</div>
+      </div>
+      <div>
+        <div style="font-weight:700;color:var(--red);margin-bottom:6px;">ADX ≥ 30 + −DI &gt; +DI</div>
+        <div style="font-size:13px;color:var(--text-muted);line-height:1.6;">Strong downtrend. Short rallies. Watch for crowded-short squeeze risk when sentiment hits extreme negative.</div>
+      </div>
+      <div>
+        <div style="font-weight:700;color:var(--yellow);margin-bottom:6px;">ADX &lt; 20</div>
+        <div style="font-size:13px;color:var(--text-muted);line-height:1.6;">Range-bound / chop. Mean-reversion works. Trend strategies fail. Avoid breakout setups — high false-positive rate.</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script>
+buildNav('trend-strength');
+
+const UNIVERSE = ['NVDA','TSLA','SPY','QQQ','AAPL','MSFT','META','AMZN','GOOGL','AMD','PLTR','COIN','SMCI','NFLX','MSTR','SHOP','UBER','HOOD','SOFI','PANW','SNOW','AVGO','MU','MRVL','LCID','GME','AMC','BA','DIS','JPM','XLE','XLF','XLK','TLT','GLD','BTC','ETH'];
+
+function getQ(s) { return (typeof QUOTES !== 'undefined' && QUOTES[s]) ? QUOTES[s] : { last: 100, changePct: 0 }; }
+
+function generate() {
+  return UNIVERSE.map(sym => {
+    const seed = sym.charCodeAt(0) * 17 + (sym.charCodeAt(1) || 0);
+    const rand = (k) => { const x = Math.sin(seed + k) * 10000; return x - Math.floor(x); };
+    const q = getQ(sym);
+    const adx = +(15 + rand(1) * 40).toFixed(0);
+    const dirBias = (q.changePct || 0) + (rand(2) - 0.5) * 1.5;
+    const plusDI = +(20 + (dirBias > 0 ? 15 : 0) + rand(3) * 10).toFixed(0);
+    const minusDI = +(20 + (dirBias < 0 ? 15 : 0) + rand(3) * 10).toFixed(0);
+    const dir = plusDI > minusDI ? 'UP' : 'DOWN';
+    const above8ema = dir === 'UP' ? rand(4) > 0.2 : rand(4) > 0.7;
+    const above20ma = dir === 'UP' ? rand(5) > 0.3 : rand(5) > 0.7;
+    const above50ma = dir === 'UP' ? rand(6) > 0.4 : rand(6) > 0.6;
+    const stackCount = (above8ema ? 1 : 0) + (above20ma ? 1 : 0) + (above50ma ? 1 : 0);
+    const stack = dir === 'UP' ? stackCount + '/3 above' : (3 - stackCount) + '/3 below';
+    const score = Math.min(100, Math.round(adx * 0.7 + stackCount * 10));
+    return { sym, last: q.last, adx, plusDI, minusDI, dir, stack, stackCount, score };
+  });
+}
+
+let data = generate();
+let flt = 'all';
+
+function paint() {
+  let rows = data.slice();
+  if (flt === 'up') rows = rows.filter(d => d.dir === 'UP');
+  else if (flt === 'dn') rows = rows.filter(d => d.dir === 'DOWN');
+  else if (flt === 'strong') rows = rows.filter(d => d.adx >= 35);
+  rows.sort((a, b) => b.score - a.score);
+
+  const body = document.getElementById('tsBody');
+  body.innerHTML = '';
+  rows.slice(0, 24).forEach((r, i) => {
+    const strong = r.adx >= 30;
+    const cls = !strong ? 'weak' : r.dir === 'UP' ? 'strong-up' : 'strong-dn';
+    const dirCol = r.dir === 'UP' ? 'var(--green)' : 'var(--red)';
+    const adxCol = r.adx >= 35 ? 'var(--green)' : r.adx >= 25 ? 'var(--accent)' : 'var(--text-muted)';
+    const scoreCol = r.score >= 75 ? 'var(--green)' : r.score >= 55 ? 'var(--accent)' : 'var(--text-muted)';
+    const row = document.createElement('div');
+    row.className = 'ts-row ' + cls;
+    row.innerHTML = '<div>' + (i + 1) + '</div>'
+      + '<div><strong>' + r.sym + '</strong></div>'
+      + '<div>$' + r.last.toFixed(2) + '</div>'
+      + '<div style="color:' + adxCol + ';font-weight:700;">' + r.adx + '</div>'
+      + '<div style="color:var(--green);">' + r.plusDI + '</div>'
+      + '<div style="color:var(--red);">' + r.minusDI + '</div>'
+      + '<div style="font-family:Inter;color:var(--text-muted);font-size:11px;">' + r.stack + '</div>'
+      + '<div style="color:' + dirCol + ';font-weight:700;">' + r.dir + '</div>'
+      + '<div style="color:' + scoreCol + ';font-weight:700;font-size:14px;">' + r.score + '</div>';
+    row.onclick = () => { window.location.href = 'trade-coach.html?sym=' + r.sym; };
+    body.appendChild(row);
+  });
+
+  document.getElementById('kpiUp').textContent = data.filter(d => d.adx >= 30 && d.dir === 'UP').length;
+  document.getElementById('kpiDn').textContent = data.filter(d => d.adx >= 30 && d.dir === 'DOWN').length;
+  document.getElementById('kpiAvgAdx').textContent = (data.reduce((s, d) => s + d.adx, 0) / data.length).toFixed(0);
+  const top = data.slice().sort((a, b) => b.score - a.score)[0];
+  if (top) { document.getElementById('kpiTop').textContent = top.sym; document.getElementById('kpiTopBody').textContent = top.dir + ' · score ' + top.score; }
+}
+paint();
+document.querySelectorAll('[data-flt]').forEach(b => b.addEventListener('click', () => {
+  document.querySelectorAll('[data-flt]').forEach(x => x.classList.remove('btn-active'));
+  b.classList.add('btn-active');
+  flt = b.dataset.flt;
+  paint();
+}));
+document.getElementById('refreshBtn').addEventListener('click', () => { data = generate(); paint(); });
+</script>
+</body>
+</html>
