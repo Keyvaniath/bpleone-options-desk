@@ -108,6 +108,7 @@
 <script src="js/app.js"></script>
 <script src="js/notify.js"></script>
 <script src="js/live.js"></script>
+<script src="js/model.js"></script>
 <script>
 buildNav('day-trader-pro');
 
@@ -191,9 +192,16 @@ function paintSignals() {
   body.innerHTML = '';
   findings.slice(0, 6).forEach(f => {
     const sym = f.meta && f.meta.sym;
+    // ML model confidence
+    let modelProb = null;
+    if (window.predictForFinding) {
+      try { const pred = window.predictForFinding(f); if (pred) modelProb = pred.prob; } catch (e) {}
+    }
+    const mlCol = modelProb == null ? 'var(--text-muted)' : modelProb >= 0.6 ? 'var(--green)' : modelProb <= 0.4 ? 'var(--red)' : 'var(--accent)';
+    const mlBadge = modelProb != null ? '<span style="margin-left:8px;padding:2px 6px;border-radius:3px;font-size:10px;font-weight:700;color:' + mlCol + ';background:rgba(124,58,237,0.12);">🧬 ' + (modelProb * 100).toFixed(0) + '%</span>' : '';
     const card = document.createElement('div');
     card.className = 'signal-card';
-    card.innerHTML = '<div style="display:flex;justify-content:space-between;align-items:center;"><div><strong>' + (sym || 'MKT') + '</strong> · <span style="color:var(--text-muted);font-size:11px;">' + (f.type || '').replace(/-/g, ' ') + '</span></div><div style="font-size:14px;">' + '⭐'.repeat(f.severity || 1) + '</div></div><div style="font-size:11px;color:var(--text-muted);margin-top:4px;line-height:1.4;">' + (f.title || '').slice(0, 100) + '</div>';
+    card.innerHTML = '<div style="display:flex;justify-content:space-between;align-items:center;"><div><strong>' + (sym || 'MKT') + '</strong> · <span style="color:var(--text-muted);font-size:11px;">' + (f.type || '').replace(/-/g, ' ') + '</span>' + mlBadge + '</div><div style="font-size:14px;">' + '⭐'.repeat(f.severity || 1) + '</div></div><div style="font-size:11px;color:var(--text-muted);margin-top:4px;line-height:1.4;">' + (f.title || '').slice(0, 100) + '</div>';
     card.onclick = () => { if (sym) window.location.href = 'trade-coach.html?sym=' + sym; };
     body.appendChild(card);
   });

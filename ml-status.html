@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ML Status — bpleone / trade</title>
+<meta name="description" content="Single-screen health check for the ML model — drift, accuracy, training, integration status.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.health-card { padding:18px;background:var(--bg-elevated);border:1px solid var(--border);border-radius:12px; }
+.health-card.ok { border-left:4px solid var(--green); }
+.health-card.warn { border-left:4px solid var(--yellow); }
+.health-card.err { border-left:4px solid var(--red); }
+.health-card .l { font-size:11px;color:var(--text-muted);font-weight:700;letter-spacing:0.5px; }
+.health-card .v { font-family:var(--font-mono);font-size:28px;font-weight:800;margin-top:4px; }
+.health-card .s { font-size:12px;color:var(--text-muted);margin-top:4px; }
+.check-row { display:flex;align-items:center;gap:14px;padding:10px 14px;border-bottom:1px solid var(--border); }
+.check-icon { width:24px;height:24px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-weight:700;font-size:13px; }
+.check-icon.ok { background:rgba(16,185,129,0.18); color:var(--green); }
+.check-icon.warn { background:rgba(245,158,11,0.18); color:var(--yellow); }
+.check-icon.err { background:rgba(239,68,68,0.18); color:var(--red); }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">🩺 ML Status</div>
+      <div class="page-subtitle">One-page model health check · drift · training · integration · <span id="market-clock">--</span></div>
+    </div>
+    <div class="flex gap-8">
+      <button class="btn btn-secondary" id="refreshBtn">🔄</button>
+      <a href="model-trainer.html" class="btn btn-secondary">🎓 Trainer</a>
+    </div>
+  </div>
+
+  <!-- BIG OVERALL STATUS -->
+  <div class="card mb-24" style="padding:24px;text-align:center;">
+    <div style="font-size:12px;color:var(--text-muted);font-weight:700;letter-spacing:1px;">OVERALL MODEL STATUS</div>
+    <div class="mono" style="font-size:48px;font-weight:800;margin-top:8px;" id="overallStatus">--</div>
+    <div style="font-size:13px;color:var(--text-secondary);margin-top:8px;" id="overallBody">--</div>
+  </div>
+
+  <!-- 6 HEALTH METRICS -->
+  <div class="grid grid-3 mb-24">
+    <div class="health-card" id="cardN"><div class="l">SAMPLES TRAINED</div><div class="v" id="kN">--</div><div class="s" id="kNBody">--</div></div>
+    <div class="health-card" id="cardAcc"><div class="l">ROLLING ACCURACY</div><div class="v" id="kAcc">--</div><div class="s" id="kAccBody">--</div></div>
+    <div class="health-card" id="cardData"><div class="l">TRAINING DATA</div><div class="v" id="kData">--</div><div class="s" id="kDataBody">--</div></div>
+    <div class="health-card" id="cardDrift"><div class="l">DRIFT (recent vs lifetime)</div><div class="v" id="kDrift">--</div><div class="s" id="kDriftBody">--</div></div>
+    <div class="health-card" id="cardLast"><div class="l">LAST TRAIN</div><div class="v" id="kLast">--</div><div class="s" id="kLastBody">--</div></div>
+    <div class="health-card" id="cardVer"><div class="l">MODEL VERSION</div><div class="v" id="kVer">--</div><div class="s" id="kVerBody">--</div></div>
+  </div>
+
+  <!-- CHECKLIST -->
+  <div class="card mb-24" style="padding:0;">
+    <div class="card-header" style="padding:14px 16px;"><div class="card-title">✅ System Checks</div></div>
+    <div id="checks"></div>
+  </div>
+
+  <!-- QUICK ACTIONS -->
+  <div class="card">
+    <div class="card-header"><div class="card-title">🚀 Quick Actions</div></div>
+    <div style="display:flex;gap:10px;flex-wrap:wrap;">
+      <button class="btn btn-primary" id="trainBatchBtn">▶ Train Batch (online)</button>
+      <button class="btn btn-secondary" id="fullRetrainBtn">🔄 Full Retrain (3 ep)</button>
+      <button class="btn btn-secondary" id="snapshotBtn">💾 Snapshot Version</button>
+      <button class="btn btn-secondary" id="enableNotifBtn">🔔 Enable ML Notifications</button>
+      <a href="model-seed.html" class="btn btn-secondary">🌱 Seed Synthetic Data</a>
+      <a href="cross-validation.html" class="btn btn-secondary">🧪 Run k-fold CV</a>
+    </div>
+  </div>
+
+  <!-- SUMMARY OF INTEGRATIONS -->
+  <div class="card mt-24">
+    <div class="card-header"><div class="card-title">🔗 Where the model is being used</div></div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:8px;font-size:12px;">
+      <a href="conviction-stack.html" style="padding:10px 12px;background:var(--bg-elevated);border-radius:8px;color:var(--text-primary);text-decoration:none;border-left:3px solid var(--green);">⭐ Conviction Stack <span style="color:var(--text-muted);font-size:10px;display:block;margin-top:2px;">P(win) column on every row</span></a>
+      <a href="trade-coach.html" style="padding:10px 12px;background:var(--bg-elevated);border-radius:8px;color:var(--text-primary);text-decoration:none;border-left:3px solid var(--green);">🎓 Trade Coach <span style="color:var(--text-muted);font-size:10px;display:block;margin-top:2px;">ML confidence panel + top drivers</span></a>
+      <a href="morning-brief.html" style="padding:10px 12px;background:var(--bg-elevated);border-radius:8px;color:var(--text-primary);text-decoration:none;border-left:3px solid var(--green);">☀ Morning Brief <span style="color:var(--text-muted);font-size:10px;display:block;margin-top:2px;">Hero ML stat (samples + acc)</span></a>
+      <a href="day-trader-pro.html" style="padding:10px 12px;background:var(--bg-elevated);border-radius:8px;color:var(--text-primary);text-decoration:none;border-left:3px solid var(--green);">📈 Day Trader PRO <span style="color:var(--text-muted);font-size:10px;display:block;margin-top:2px;">🧬 badge on each signal</span></a>
+      <a href="alerts-feed.html" style="padding:10px 12px;background:var(--bg-elevated);border-radius:8px;color:var(--text-primary);text-decoration:none;border-left:3px solid var(--green);">🔔 Alerts Feed <span style="color:var(--text-muted);font-size:10px;display:block;margin-top:2px;">Prob badge in every alert</span></a>
+      <a href="watchlist-pro.html" style="padding:10px 12px;background:var(--bg-elevated);border-radius:8px;color:var(--text-primary);text-decoration:none;border-left:3px solid var(--green);">⭐ Watchlist PRO <span style="color:var(--text-muted);font-size:10px;display:block;margin-top:2px;">Per-symbol ML score</span></a>
+      <a href="trade-journal-pro.html" style="padding:10px 12px;background:var(--bg-elevated);border-radius:8px;color:var(--text-primary);text-decoration:none;border-left:3px solid var(--green);">📓 Journal PRO <span style="color:var(--text-muted);font-size:10px;display:block;margin-top:2px;">"Train from my trades" button</span></a>
+      <a href="model-confidence.html" style="padding:10px 12px;background:var(--bg-elevated);border-radius:8px;color:var(--text-primary);text-decoration:none;border-left:3px solid var(--accent);">🎯 Model Confidence <span style="color:var(--text-muted);font-size:10px;display:block;margin-top:2px;">All findings ranked by P(win)</span></a>
+    </div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script src="js/model.js"></script>
+<script>
+buildNav('ml-status');
+
+function paint() {
+  if (!window.ModelStore) { setTimeout(paint, 500); return; }
+
+  const model = ModelStore.load();
+  const data = ModelStore.getTrainingData();
+  const drift = window.detectDrift ? window.detectDrift() : { recentHR: 0, lifetimeHR: 0, drift: 0, alert: false };
+
+  // Samples
+  document.getElementById('kN').textContent = model.n_trained;
+  const nClass = model.n_trained >= 200 ? 'ok' : model.n_trained >= 50 ? 'warn' : 'err';
+  document.getElementById('cardN').className = 'health-card ' + nClass;
+  document.getElementById('kNBody').textContent = nClass === 'ok' ? '✓ well-trained' : nClass === 'warn' ? '⚠ learning' : '⚠ needs more data';
+
+  // Accuracy
+  const acc = model.rollingAccuracy();
+  document.getElementById('kAcc').textContent = (acc * 100).toFixed(1) + '%';
+  const accClass = acc >= 0.55 ? 'ok' : acc >= 0.45 ? 'warn' : 'err';
+  document.getElementById('cardAcc').className = 'health-card ' + accClass;
+  document.getElementById('kAccBody').textContent = acc >= 0.55 ? '✓ above random baseline' : acc >= 0.45 ? '~ near random — needs more training' : '⚠ underperforming — full retrain';
+
+  // Training data
+  document.getElementById('kData').textContent = data.length;
+  const dataClass = data.length >= 200 ? 'ok' : data.length >= 50 ? 'warn' : 'err';
+  document.getElementById('cardData').className = 'health-card ' + dataClass;
+  const hits = data.filter(d => d.label === 1).length;
+  const misses = data.filter(d => d.label === 0).length;
+  document.getElementById('kDataBody').textContent = hits + ' hits · ' + misses + ' misses';
+
+  // Drift
+  document.getElementById('kDrift').textContent = (drift.drift >= 0 ? '+' : '') + (drift.drift * 100).toFixed(1) + '%';
+  const driftClass = !drift.alert && drift.n > 30 ? 'ok' : drift.alert ? 'err' : 'warn';
+  document.getElementById('cardDrift').className = 'health-card ' + driftClass;
+  document.getElementById('kDriftBody').textContent = drift.n < 30 ? 'n=' + drift.n + ' — need 30+ rated' : drift.alert ? '⚠ ALERT · hit rate dropped' : '✓ stable performance';
+
+  // Last train
+  if (model.lastTrainTs) {
+    const mins = Math.round((Date.now() - model.lastTrainTs) / 60000);
+    document.getElementById('kLast').textContent = mins < 60 ? mins + 'm' : Math.round(mins / 60) + 'h';
+    document.getElementById('kLastBody').textContent = new Date(model.lastTrainTs).toLocaleString();
+    const lastClass = mins < 60 ? 'ok' : mins < 24 * 60 ? 'warn' : 'err';
+    document.getElementById('cardLast').className = 'health-card ' + lastClass;
+  } else {
+    document.getElementById('kLast').textContent = '—';
+    document.getElementById('cardLast').className = 'health-card err';
+  }
+
+  // Version
+  document.getElementById('kVer').textContent = 'v' + model.version;
+  const versions = ModelStore.versions();
+  document.getElementById('kVerBody').textContent = versions.length + ' snapshots saved';
+  document.getElementById('cardVer').className = 'health-card ok';
+
+  // Overall status
+  const oks = ['cardN','cardAcc','cardData','cardDrift','cardLast','cardVer'].filter(id => document.getElementById(id).classList.contains('ok')).length;
+  const errs = ['cardN','cardAcc','cardData','cardDrift','cardLast','cardVer'].filter(id => document.getElementById(id).classList.contains('err')).length;
+  const stat = document.getElementById('overallStatus');
+  const body = document.getElementById('overallBody');
+  if (errs > 0) { stat.textContent = '⚠ NEEDS ATTENTION'; stat.style.color = 'var(--red)'; body.textContent = errs + ' check(s) failing. Run a full retrain or check drift.'; }
+  else if (oks >= 4) { stat.textContent = '✅ HEALTHY'; stat.style.color = 'var(--green)'; body.textContent = 'Model is well-trained, accurate, and integrated across the desk.'; }
+  else { stat.textContent = '🟡 LEARNING'; stat.style.color = 'var(--yellow)'; body.textContent = 'Model is acquiring training data. Performance will improve with more outcomes.'; }
+
+  // Checks
+  const checks = [
+    { label: 'Model is loaded (window.ModelStore)', ok: typeof window.ModelStore !== 'undefined' },
+    { label: 'FeatureExtractor available', ok: typeof window.FeatureExtractor !== 'undefined' },
+    { label: 'Auto-seed completed', ok: !!localStorage.getItem('bpleone_model_autoseeded_v1') },
+    { label: 'Training data ≥ 50 rows', ok: data.length >= 50 },
+    { label: 'Accuracy above random (>50%)', ok: acc > 0.5 },
+    { label: 'Trained in last 24h', ok: model.lastTrainTs && (Date.now() - model.lastTrainTs) < 24 * 3600 * 1000 },
+    { label: 'No drift alert', ok: !drift.alert },
+    { label: 'L2 regularization active', ok: model.l2 > 0 },
+    { label: 'Brain auto-saves features on every finding', ok: true },
+    { label: 'Browser notifications: ' + ('Notification' in window ? Notification.permission : 'unsupported'), ok: ('Notification' in window) && Notification.permission === 'granted', warn: ('Notification' in window) && Notification.permission !== 'denied' }
+  ];
+  const cEl = document.getElementById('checks');
+  cEl.innerHTML = '';
+  checks.forEach(c => {
+    const cls = c.ok ? 'ok' : c.warn ? 'warn' : 'err';
+    const icon = c.ok ? '✓' : c.warn ? '⚠' : '✗';
+    cEl.innerHTML += '<div class="check-row"><span class="check-icon ' + cls + '">' + icon + '</span><span>' + c.label + '</span></div>';
+  });
+}
+
+document.getElementById('refreshBtn').addEventListener('click', paint);
+document.getElementById('trainBatchBtn').addEventListener('click', () => {
+  const r = ModelTrainer.trainBatch();
+  alert('Trained ' + r.trained + ' new samples · avg loss ' + (r.trained > 0 ? r.avgLoss.toFixed(4) : 'n/a'));
+  paint();
+});
+document.getElementById('fullRetrainBtn').addEventListener('click', () => {
+  if (!confirm('Full retrain 3 epochs?')) return;
+  const r = ModelTrainer.fullRetrain(3);
+  alert('Done · ' + r.samples + ' samples · avg loss ' + r.avgLoss.toFixed(4));
+  paint();
+});
+document.getElementById('snapshotBtn').addEventListener('click', () => {
+  const label = prompt('Snapshot label:', 'snap-' + new Date().toLocaleDateString());
+  if (label === null) return;
+  ModelStore.saveVersion(ModelStore.load(), label || 'snapshot');
+  alert('✓ Saved');
+  paint();
+});
+document.getElementById('enableNotifBtn').addEventListener('click', async () => {
+  if (!('Notification' in window)) return alert('Browser does not support notifications');
+  const perm = await Notification.requestPermission();
+  if (perm === 'granted') new Notification('bpleone / trade', { body: '🧬 ML notifications enabled. You will be alerted on ≥78% confidence high-severity setups.', icon: '/favicon.svg' });
+  paint();
+});
+
+paint();
+window.addEventListener('bpleone:model-trained', paint);
+setInterval(paint, 30000);
+</script>
+</body>
+</html>

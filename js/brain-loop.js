@@ -75,6 +75,29 @@ const BrainLoop = (function () {
         DiscordAlerts.fire('🧠 ' + title + ' · ' + body, { dedupKey: 'brain:' + dedupKey + ':' + new Date().toLocaleDateString('en-US'), dedupTtl: 6 * 60 * 60 * 1000 });
       } catch (e) {}
     }
+    // ---- High-conviction ML push notification ----
+    // Trigger if model says >= 0.78 AND severity is high/3-star
+    try {
+      if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted'
+          && (severity === 'high' || severity === 3)
+          && f.modelProb && f.modelProb >= 0.78) {
+        const sym = (meta && meta.sym) || 'MKT';
+        // Dedup on this exact notification within 30 min
+        const notifKey = 'mlnotif:' + sym + ':' + (f.modelProb >= 0.85 ? 'extreme' : 'high');
+        const state = loadState();
+        if (!state.notifSent) state.notifSent = {};
+        const lastSent = state.notifSent[notifKey] || 0;
+        if (Date.now() - lastSent > 30 * 60 * 1000) {
+          state.notifSent[notifKey] = Date.now();
+          saveState(state);
+          new Notification('🧬 ML high-confidence · ' + sym, {
+            body: 'Model: ' + (f.modelProb * 100).toFixed(0) + '% confidence · ' + title,
+            icon: '/favicon.svg',
+            tag: notifKey
+          });
+        }
+      }
+    } catch (e) {}
     return f;
   }
 

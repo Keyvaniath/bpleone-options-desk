@@ -51,7 +51,7 @@
   <!-- TABLE -->
   <div class="card" style="padding:0;">
     <div class="wl-row" style="background:var(--bg-elevated);font-size:9px;color:var(--text-muted);font-weight:800;letter-spacing:0.5px;">
-      <div>#</div><div>SYM</div><div>LAST</div><div>% CHG</div><div>BRAIN W</div><div>SIGNALS</div><div>SCORE</div><div>QUICK</div>
+      <div>#</div><div>SYM</div><div>LAST</div><div>% CHG</div><div>ML P(WIN)</div><div>SIGNALS</div><div>SCORE</div><div>QUICK</div>
     </div>
     <div id="wlBody"></div>
   </div>
@@ -72,6 +72,7 @@
 <script src="js/app.js"></script>
 <script src="js/notify.js"></script>
 <script src="js/live.js"></script>
+<script src="js/model.js"></script>
 <script>
 buildNav('watchlist-pro');
 
@@ -128,6 +129,15 @@ function renderRows() {
     const w = (learn.symbols && learn.symbols[sym] && learn.symbols[sym].w) || 1.0;
     const score = Math.min(100, Math.round(symFindings.reduce((a, f) => a + (f.severity || 1) * 10 * w, 0)));
     if (score >= 60) totalHigh++;
+    // ML model probability - average across this symbol's recent findings
+    let mlProb = null;
+    if (window.predictForFinding && symFindings.length > 0) {
+      try {
+        const probs = symFindings.slice(0, 5).map(f => { const p = window.predictForFinding(f); return p ? p.prob : null; }).filter(Boolean);
+        if (probs.length > 0) mlProb = probs.reduce((a, b) => a + b, 0) / probs.length;
+      } catch (e) {}
+    }
+    const mlCol = mlProb == null ? 'var(--text-muted)' : mlProb >= 0.6 ? 'var(--green)' : mlProb <= 0.4 ? 'var(--red)' : 'var(--accent)';
     const cls = chg > 0 ? 'up' : chg < 0 ? 'dn' : '';
     const chgCol = chg > 0 ? 'var(--green)' : chg < 0 ? 'var(--red)' : 'var(--text-muted)';
     const scoreCol = score >= 70 ? 'var(--green)' : score >= 50 ? 'var(--accent)' : score >= 30 ? 'var(--yellow)' : 'var(--text-muted)';
@@ -138,7 +148,7 @@ function renderRows() {
       + '<div><strong>' + sym + '</strong></div>'
       + '<div>$' + (q.last || 0).toFixed(2) + '</div>'
       + '<div style="color:' + chgCol + ';">' + (chg >= 0 ? '+' : '') + chg.toFixed(2) + '%</div>'
-      + '<div style="color:' + wCol + ';">' + w.toFixed(2) + '×</div>'
+      + '<div style="color:' + mlCol + ';font-weight:700;">' + (mlProb == null ? '—' : '🧬 ' + (mlProb * 100).toFixed(0) + '%') + '</div>'
       + '<div><span class="score-badge" style="background:rgba(0,212,255,0.12);color:var(--accent);">' + symFindings.length + ' sig</span></div>'
       + '<div style="font-weight:700;color:' + scoreCol + ';font-size:14px;">' + score + '</div>'
       + '<div><a href="trade-coach.html?sym=' + sym + '" class="btn btn-ghost" style="padding:4px 10px;font-size:10px;">Plan</a> <a href="ticker.html?sym=' + sym + '" class="btn btn-ghost" style="padding:4px 10px;font-size:10px;">Focus</a> <span class="rm-btn" data-sym="' + sym + '" style="cursor:pointer;color:var(--red);font-size:14px;margin-left:6px;">×</span></div>';
