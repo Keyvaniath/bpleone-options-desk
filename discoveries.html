@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Brain Discoveries — bpleone / trade</title>
+<meta name="description" content="Chronological feed of everything the self-learning brain has found. Filterable, exportable, time-stamped.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.banner { background: linear-gradient(135deg, rgba(139,92,246,0.10), rgba(0,212,255,0.06)); border: 1px solid rgba(139,92,246,0.25); border-radius: 12px; padding: 16px 18px; margin-bottom: 18px; }
+.kpi-strip { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; margin-bottom: 18px; }
+.tile { background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 10px; padding: 14px; text-align: center; }
+.tile .lab { font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; }
+.tile .val { font-family: var(--font-mono); font-weight: 700; font-size: 18px; margin-top: 4px; }
+.r-pos { color: var(--green); } .r-neg { color: var(--red); }
+.find-card { background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 10px; padding: 14px; margin-bottom: 10px; transition: transform .12s; cursor: pointer; }
+.find-card:hover { transform: translateY(-1px); border-color: var(--accent); }
+.find-card.sev-high { border-left: 4px solid var(--red); }
+.find-card.sev-medium { border-left: 4px solid var(--yellow); }
+.find-card.sev-low { border-left: 4px solid var(--text-muted); }
+.find-card .head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 6px; }
+.find-card .title { font-weight: 700; font-size: 14px; }
+.find-card .ts { font-family: var(--font-mono); font-size: 11px; color: var(--text-muted); }
+.find-card .body { font-size: 12px; color: var(--text-muted); line-height: 1.5; margin-bottom: 8px; }
+.find-card .meta-row { display: flex; gap: 8px; flex-wrap: wrap; font-size: 11px; }
+.find-card .tag { display: inline-block; padding: 2px 8px; border-radius: 999px; background: var(--bg-secondary); font-family: var(--font-mono); font-size: 10px; border: 1px solid var(--border); }
+.find-card .tag.type-high-conviction-signal { background: rgba(16,185,129,0.15); color: var(--green); border-color: rgba(16,185,129,0.3); }
+.find-card .tag.type-weight-shift { background: rgba(139,92,246,0.15); color: var(--purple); border-color: rgba(139,92,246,0.3); }
+.find-card .tag.type-confluence-6star { background: rgba(250,204,21,0.15); color: #facc15; border-color: rgba(250,204,21,0.3); }
+.find-card .tag.type-hourly-digest { background: var(--bg-secondary); color: var(--text-muted); }
+.controls { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; padding: 12px 16px; background: var(--bg-elevated); border-radius: 10px; border: 1px solid var(--border); margin-bottom: 16px; }
+.controls select, .controls input { background: var(--bg-secondary); border: 1px solid var(--border); color: var(--text-primary); padding: 6px 10px; border-radius: 6px; font-size: 12px; }
+.empty { padding: 40px; text-align: center; color: var(--text-muted); }
+.sym-link { color: var(--accent); text-decoration: none; font-family: var(--font-mono); font-weight: 700; }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">Brain Discoveries <span class="feat-badge feat-pro">PRO</span></div>
+      <div class="page-subtitle">Every finding the autonomous brain has emitted. Chronological. Filterable. · <span id="market-clock">--</span></div>
+    </div>
+    <div class="flex gap-8">
+      <a href="brain-heartbeat.html" class="btn btn-primary">🫀 Heartbeat</a>
+      <a href="weight-heatmap.html" class="btn btn-ghost">🌡 Weight map</a>
+      <a href="conviction-board.html" class="btn btn-ghost">⭐ Conviction</a>
+    </div>
+  </div>
+
+  <div class="banner">
+    <strong style="font-size:14px;">📜 The brain's diary.</strong>
+    <div style="font-size:11px;color:var(--text-muted);margin-top:6px;line-height:1.6;">
+      Every time the autonomous brain finds something, it logs here. 4 finding types:
+      <strong>high-conviction-signal</strong> (adj-score ≥0.85 setup fired),
+      <strong>weight-shift</strong> (a learned weight moved ≥0.04),
+      <strong>confluence-6star</strong> (5+ independent signals aligned),
+      <strong>hourly-digest</strong> (60-min summary).
+      High-severity findings auto-post to Discord. Last 500 stored.
+    </div>
+  </div>
+
+  <div class="kpi-strip">
+    <div class="tile"><div class="lab">Total findings</div><div class="val mono" id="kN">0</div></div>
+    <div class="tile"><div class="lab">Last 24h</div><div class="val mono" id="k24h">0</div></div>
+    <div class="tile"><div class="lab">High severity (24h)</div><div class="val mono r-neg" id="kHigh">0</div></div>
+    <div class="tile"><div class="lab">Most-active type</div><div class="val mono" id="kTopType" style="font-size:13px;">—</div></div>
+    <div class="tile"><div class="lab">Most-mentioned symbol</div><div class="val mono" id="kTopSym" style="font-size:13px;">—</div></div>
+  </div>
+
+  <div class="controls">
+    <div>
+      <label style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;display:block;margin-bottom:4px;">Type</label>
+      <select id="typeFilter">
+        <option value="all">All</option>
+        <option value="high-conviction-signal">High-conviction signals</option>
+        <option value="weight-shift">Weight shifts</option>
+        <option value="confluence-6star">Confluence (6-star)</option>
+        <option value="hourly-digest">Hourly digests</option>
+      </select>
+    </div>
+    <div>
+      <label style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;display:block;margin-bottom:4px;">Severity</label>
+      <select id="sevFilter">
+        <option value="all">All</option>
+        <option value="high">High only</option>
+        <option value="medium">Medium+</option>
+      </select>
+    </div>
+    <div>
+      <label style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;display:block;margin-bottom:4px;">Symbol</label>
+      <input id="symFilter" placeholder="(any)" style="width:80px;text-transform:uppercase;font-family:var(--font-mono);">
+    </div>
+    <div>
+      <label style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;display:block;margin-bottom:4px;">Window</label>
+      <select id="windowFilter">
+        <option value="1">Last 1h</option>
+        <option value="24" selected>Last 24h</option>
+        <option value="168">Last 7d</option>
+        <option value="0">All time</option>
+      </select>
+    </div>
+    <button id="btnExport" class="btn btn-ghost" style="margin-left:auto;font-size:11px;">⬇ Export JSON</button>
+    <button id="btnClear" class="btn btn-ghost" style="font-size:11px;color:var(--red);">Clear log</button>
+  </div>
+
+  <div id="findingsList"></div>
+</div>
+
+<div id="site-footer"></div>
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script src="js/ta.js"></script>
+<script src="js/learn.js"></script>
+<script src="js/discord.js"></script>
+<script src="js/brain-loop.js"></script>
+<script>buildNav('learn');</script>
+
+<script>
+(function () {
+  function fmtTime(ts) {
+    return new Date(ts).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+  }
+
+  function render() {
+    if (typeof BrainLoop === 'undefined') return;
+    const all = BrainLoop.recent(500);
+    const win = parseInt(document.getElementById('windowFilter').value, 10);
+    const cutoff = win > 0 ? Date.now() - win * 60 * 60 * 1000 : 0;
+    const tf = document.getElementById('typeFilter').value;
+    const sf = document.getElementById('sevFilter').value;
+    const symF = (document.getElementById('symFilter').value || '').toUpperCase().trim();
+
+    let list = all;
+    if (cutoff) list = list.filter(f => f.ts >= cutoff);
+    if (tf !== 'all') list = list.filter(f => f.type === tf);
+    if (sf === 'high') list = list.filter(f => f.severity === 'high');
+    else if (sf === 'medium') list = list.filter(f => f.severity === 'high' || f.severity === 'medium');
+    if (symF) list = list.filter(f => f.meta && f.meta.sym === symF);
+
+    document.getElementById('kN').textContent = all.length;
+    const last24 = all.filter(f => f.ts > Date.now() - 24 * 60 * 60 * 1000);
+    document.getElementById('k24h').textContent = last24.length;
+    document.getElementById('kHigh').textContent = last24.filter(f => f.severity === 'high').length;
+    const byType = {};
+    all.forEach(f => { byType[f.type] = (byType[f.type] || 0) + 1; });
+    const topType = Object.entries(byType).sort((a, b) => b[1] - a[1])[0];
+    document.getElementById('kTopType').textContent = topType ? topType[0].replace(/-/g, ' ') + ' (' + topType[1] + ')' : '—';
+    const bySym = {};
+    all.forEach(f => { if (f.meta && f.meta.sym) bySym[f.meta.sym] = (bySym[f.meta.sym] || 0) + 1; });
+    const topSym = Object.entries(bySym).sort((a, b) => b[1] - a[1])[0];
+    document.getElementById('kTopSym').textContent = topSym ? topSym[0] + ' (' + topSym[1] + ')' : '—';
+
+    const body = document.getElementById('findingsList');
+    if (!list.length) {
+      body.innerHTML = '<div class="empty">No findings match filters. The brain may still be warming up (60s after page load).</div>';
+      return;
+    }
+    body.innerHTML = list.map(f => {
+      const sym = f.meta && f.meta.sym ? f.meta.sym : null;
+      const metaChips = [];
+      if (f.meta.score) metaChips.push(`<span class="tag">score ${f.meta.score.toFixed(2)}</span>`);
+      if (f.meta.bias) metaChips.push(`<span class="tag">${f.meta.bias.toUpperCase()}</span>`);
+      if (f.meta.setup) metaChips.push(`<span class="tag">${f.meta.setup}</span>`);
+      if (f.meta.signals) metaChips.push(`<span class="tag">${f.meta.signals.length} signals</span>`);
+      if (f.meta.delta != null) metaChips.push(`<span class="tag">${f.meta.delta >= 0 ? '+' : ''}${f.meta.delta.toFixed(3)} Δ</span>`);
+      const action = sym ? `<a href="trade-ticket.html?sym=${sym}" class="sym-link">🎯 ${sym} Ticket →</a>` : '';
+      return `<div class="find-card sev-${f.severity}" ${sym ? `onclick="if(!event.target.closest('a'))location.href='trade-ticket.html?sym=${sym}';"` : ''}>
+        <div class="head">
+          <div class="title">${f.title}</div>
+          <div class="ts">${fmtTime(f.ts)}</div>
+        </div>
+        <div class="body">${f.body}</div>
+        <div class="meta-row">
+          <span class="tag type-${f.type}">${f.type.replace(/-/g, ' ')}</span>
+          <span class="tag" style="color:${f.severity === 'high' ? 'var(--red)' : f.severity === 'medium' ? 'var(--yellow)' : 'var(--text-muted)'};">${f.severity.toUpperCase()}</span>
+          ${metaChips.join('')}
+          ${action ? `<span style="margin-left:auto;">${action}</span>` : ''}
+        </div>
+      </div>`;
+    }).join('');
+  }
+
+  document.getElementById('typeFilter').addEventListener('change', render);
+  document.getElementById('sevFilter').addEventListener('change', render);
+  document.getElementById('symFilter').addEventListener('input', render);
+  document.getElementById('windowFilter').addEventListener('change', render);
+  document.getElementById('btnExport').addEventListener('click', () => {
+    if (typeof BrainLoop === 'undefined') return;
+    const data = JSON.stringify({ exportedAt: new Date().toISOString(), findings: BrainLoop.recent(500) }, null, 2);
+    const blob = new Blob([data], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = 'brain-discoveries-' + new Date().toISOString().slice(0, 10) + '.json';
+    a.click();
+    URL.revokeObjectURL(url);
+  });
+  document.getElementById('btnClear').addEventListener('click', () => {
+    if (!confirm('Clear all brain findings?')) return;
+    if (typeof BrainLoop !== 'undefined') BrainLoop.clear();
+    render();
+  });
+
+  window.addEventListener('bpleone:brain-finding', render);
+  setTimeout(render, 800);
+  setInterval(render, 5000);
+})();
+</script>
+</body>
+</html>

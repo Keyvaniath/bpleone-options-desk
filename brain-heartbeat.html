@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Brain Heartbeat — bpleone / trade</title>
+<meta name="description" content="Live view of what the self-learning brain is doing right now. Setups firing, weight shifts, confluence detected. Updates every second.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.banner { background: linear-gradient(135deg, rgba(0,212,255,0.10), rgba(139,92,246,0.06)); border: 1px solid rgba(0,212,255,0.25); border-radius: 12px; padding: 16px 18px; margin-bottom: 18px; }
+.pulse-status { display: inline-flex; align-items: center; gap: 8px; font-family: var(--font-mono); font-size: 11px; }
+.pulse-status .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--green); box-shadow: 0 0 8px var(--green); animation: heartbeat 1.5s ease-in-out infinite; }
+@keyframes heartbeat { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.5; transform: scale(1.3); } }
+.kpi-strip { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; margin-bottom: 18px; }
+.tile { background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 10px; padding: 14px; text-align: center; }
+.tile .lab { font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; }
+.tile .val { font-family: var(--font-mono); font-weight: 700; font-size: 18px; margin-top: 4px; }
+.r-pos { color: var(--green); } .r-neg { color: var(--red); }
+.section { background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 12px; padding: 16px; margin-bottom: 14px; }
+.section h3 { margin: 0 0 10px; font-size: 14px; font-weight: 700; display: flex; align-items: center; gap: 8px; }
+.live-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 10px; }
+.live-tile { background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 8px; padding: 10px; transition: transform .12s; cursor: pointer; }
+.live-tile:hover { transform: translateY(-2px); border-color: var(--accent); }
+.live-tile.bull { border-left: 3px solid var(--green); }
+.live-tile.bear { border-left: 3px solid var(--red); }
+.live-tile .sym { font-family: var(--font-mono); font-weight: 800; font-size: 14px; }
+.live-tile .setup { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
+.live-tile .score { font-family: var(--font-mono); font-weight: 700; font-size: 12px; margin-top: 4px; }
+.find-row { display: grid; grid-template-columns: 90px 110px 1fr 90px 100px; gap: 10px; padding: 8px 0; border-top: 1px solid var(--border); font-size: 12px; align-items: center; }
+.find-row .ts { font-family: var(--font-mono); font-size: 10px; color: var(--text-muted); }
+.find-row .type { display: inline-block; padding: 2px 8px; border-radius: 4px; font-family: var(--font-mono); font-size: 10px; }
+.find-row .type.high-conviction-signal { background: rgba(16,185,129,0.15); color: var(--green); }
+.find-row .type.weight-shift { background: rgba(139,92,246,0.15); color: var(--purple); }
+.find-row .type.confluence-6star { background: rgba(250,204,21,0.15); color: #facc15; }
+.find-row .type.hourly-digest { background: var(--bg-secondary); color: var(--text-muted); }
+.sev-high { color: var(--red); font-weight: 700; }
+.sev-medium { color: var(--yellow); }
+.sev-low { color: var(--text-muted); }
+.empty { padding: 30px; text-align: center; color: var(--text-muted); }
+.flash-new { animation: flashNew 1.2s ease-out; }
+@keyframes flashNew { 0% { background: rgba(0,212,255,0.18); } 100% { background: transparent; } }
+.muted { color: var(--text-muted); font-size: 11px; }
+.live-tile .meta { font-size: 9px; color: var(--text-muted); margin-top: 4px; }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">Brain Heartbeat <span class="feat-badge feat-live">LIVE</span> <span class="pulse-status"><span class="dot"></span><span id="liveLabel">streaming</span></span></div>
+      <div class="page-subtitle">Live view of what the self-learning AI is doing this second. · <span id="market-clock">--</span></div>
+    </div>
+    <div class="flex gap-8">
+      <a href="discoveries.html" class="btn btn-ghost">📜 Discoveries feed</a>
+      <a href="conviction-board.html" class="btn btn-ghost">⭐ Conviction</a>
+      <a href="weight-heatmap.html" class="btn btn-ghost">🌡 Weight map</a>
+    </div>
+  </div>
+
+  <div class="banner">
+    <strong style="font-size:14px;">🧠 The brain is always on.</strong>
+    <div style="font-size:11px;color:var(--text-muted);margin-top:6px;line-height:1.6;">
+      As long as ANY page is open, the brain runs in the background.
+      Every <strong>60s</strong> it scans 28 symbols for adj-score ≥0.85 setups.
+      Every <strong>5m</strong> it re-balances learned weights and reports shifts.
+      Every <strong>15m</strong> it checks for 5+ signal confluence (TA + trend + volume + sector + insider + sentiment).
+      Every <strong>hour</strong> it writes a digest and posts high-severity findings to Discord.
+      <strong>This page = real-time window into all of that.</strong>
+    </div>
+  </div>
+
+  <div class="kpi-strip">
+    <div class="tile"><div class="lab">Findings (24h)</div><div class="val mono" id="k24h">0</div></div>
+    <div class="tile"><div class="lab">High severity</div><div class="val mono r-neg" id="kHigh">0</div></div>
+    <div class="tile"><div class="lab">Setups firing now</div><div class="val mono" id="kSetups">0</div></div>
+    <div class="tile"><div class="lab">Universe scanned</div><div class="val mono" id="kUniv">28</div></div>
+    <div class="tile"><div class="lab">Next scan</div><div class="val mono" id="kNext">—</div></div>
+  </div>
+
+  <!-- Live setups firing right now -->
+  <div class="section">
+    <h3>⚡ Setups firing this minute (adj-score ≥ 0.7)</h3>
+    <div id="liveSetups" class="live-grid"></div>
+  </div>
+
+  <!-- Recent findings -->
+  <div class="section">
+    <h3>📡 Recent brain findings <span class="muted">(auto-updates)</span></h3>
+    <div class="find-row" style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;font-weight:600;">
+      <div>When</div>
+      <div>Type</div>
+      <div>Finding</div>
+      <div>Severity</div>
+      <div>Action</div>
+    </div>
+    <div id="findingsList" style="max-height:60vh;overflow-y:auto;"></div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script src="js/ta.js"></script>
+<script src="js/learn.js"></script>
+<script src="js/discord.js"></script>
+<script src="js/brain-loop.js"></script>
+<script>buildNav('learn');</script>
+
+<script>
+(function () {
+  const UNIVERSE = ['SPY','QQQ','IWM','NVDA','TSLA','AAPL','MSFT','META','AMZN','GOOGL','AMD','COIN','PLTR','SMCI','NFLX','CRM','ORCL','AVGO','MU','BTC','ETH','GLD','SLV','USO','XLK','XLE','XLF','VXX'];
+  let nextScanTs = Date.now() + 60000;
+
+  function biasFromTag(tag) {
+    const bull = ['volume-breakout','52w-break','50ma-reclaim','macd-cross','bull-flag','cup-handle','vwap-reclaim','momentum-extension','continuation-bull','oversold-mean-revert'];
+    const bear = ['flush-on-volume','breakdown','bear-flag','vwap-rejection','overbought-fade','continuation-bear'];
+    if (bull.indexOf(tag) !== -1) return 'bull';
+    if (bear.indexOf(tag) !== -1) return 'bear';
+    return 'neutral';
+  }
+
+  function scanLive() {
+    if (typeof QUOTES === 'undefined' || typeof Learn === 'undefined') return [];
+    return UNIVERSE.map(sym => {
+      const q = QUOTES[sym]; if (!q || !q.last) return null;
+      const snap = (typeof TA !== 'undefined') ? TA.snapshot(sym) : null;
+      const features = {
+        last: q.last, prevClose: q.prevClose, dayHigh: q.dayHigh, dayLow: q.dayLow,
+        volume: q.volume, avgVolume: q.avgVolume,
+        rsi: snap ? snap.rsi : null, atrPct: snap ? snap.atrPct : null,
+        adx: snap ? snap.adx : null, vwapDist: snap ? snap.vwapDist : null,
+        trend: snap ? snap.trend : null, regime: snap ? snap.regime : null,
+        donchUp: snap ? snap.donchUp : null, donchDn: snap ? snap.donchDn : null
+      };
+      const tag = Learn.autoTagSetup(features, { symbol: sym });
+      const weight = Learn.weightFor ? Learn.weightFor(tag.tag, { symbol: sym }) : 1.0;
+      const adj = tag.score * weight;
+      const bias = biasFromTag(tag.tag);
+      return { sym, q, snap, tag, adj, bias };
+    }).filter(d => d && d.adj >= 0.7 && d.bias !== 'neutral').sort((a, b) => b.adj - a.adj);
+  }
+
+  function fmtAge(ts) {
+    const sec = Math.floor((Date.now() - ts) / 1000);
+    if (sec < 60) return sec + 's';
+    if (sec < 3600) return Math.floor(sec / 60) + 'm';
+    if (sec < 86400) return Math.floor(sec / 3600) + 'h';
+    return Math.floor(sec / 86400) + 'd';
+  }
+
+  function render() {
+    const findings = (typeof BrainLoop !== 'undefined') ? BrainLoop.recent(100) : [];
+    const cutoff = Date.now() - 24 * 60 * 60 * 1000;
+    const last24 = findings.filter(f => f.ts > cutoff);
+    document.getElementById('k24h').textContent = last24.length;
+    document.getElementById('kHigh').textContent = last24.filter(f => f.severity === 'high').length;
+
+    const setups = scanLive();
+    document.getElementById('kSetups').textContent = setups.length;
+    document.getElementById('kUniv').textContent = UNIVERSE.length;
+
+    const secToNext = Math.max(0, Math.floor((nextScanTs - Date.now()) / 1000));
+    if (secToNext === 0) nextScanTs = Date.now() + 60000;
+    document.getElementById('kNext').textContent = secToNext + 's';
+
+    // Live setups grid
+    const liveSet = document.getElementById('liveSetups');
+    if (!setups.length) {
+      liveSet.innerHTML = '<div class="empty" style="grid-column:1/-1;">No setups ≥0.7 firing right now. Brain is patient.</div>';
+    } else {
+      liveSet.innerHTML = setups.map(d => `<div class="live-tile ${d.bias}" onclick="location.href='trade-ticket.html?sym=${d.sym}';" title="${(d.tag.reasons || []).join(' · ')}">
+        <div class="sym">${d.sym}</div>
+        <div class="setup">${d.tag.tag}</div>
+        <div class="score" style="color:${d.bias === 'bull' ? 'var(--green)' : 'var(--red)'};">${d.bias === 'bull' ? '▲' : '▼'} ${d.adj.toFixed(2)}</div>
+        <div class="meta">$${d.q.last.toFixed(2)} · ${(d.q.changePct || 0) >= 0 ? '+' : ''}${(d.q.changePct || 0).toFixed(2)}%</div>
+      </div>`).join('');
+    }
+
+    // Findings list
+    const body = document.getElementById('findingsList');
+    if (!findings.length) {
+      body.innerHTML = '<div class="empty">Brain warming up. Findings will appear within 60s.</div>';
+      return;
+    }
+    body.innerHTML = findings.map(f => `<div class="find-row">
+      <div class="ts">${fmtAge(f.ts)} ago</div>
+      <div><span class="type ${f.type}">${f.type.replace(/-/g, ' ')}</span></div>
+      <div><strong>${f.title}</strong><div style="font-size:11px;color:var(--text-muted);margin-top:2px;">${f.body}</div></div>
+      <div class="sev-${f.severity}" style="font-family:var(--font-mono);font-size:11px;text-transform:uppercase;">${f.severity}</div>
+      <div style="font-size:11px;">${f.meta && f.meta.sym ? `<a href="trade-ticket.html?sym=${f.meta.sym}" style="color:var(--accent);">🎯 ${f.meta.sym}</a>` : '—'}</div>
+    </div>`).join('');
+  }
+
+  window.addEventListener('bpleone:brain-finding', e => {
+    render();
+    // Visual flash on the new row
+    setTimeout(() => {
+      const rows = document.querySelectorAll('#findingsList .find-row');
+      if (rows.length) rows[0].classList.add('flash-new');
+    }, 50);
+  });
+
+  setTimeout(() => { render(); }, 800);
+  setInterval(render, 1000);
+})();
+</script>
+</body>
+</html>

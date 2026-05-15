@@ -22,7 +22,7 @@
 // Auto-load companion modules on any page that includes this script.
 // Pages that already imported these get a no-op (idempotent).
 (function loadCompanions() {
-  const want = ['js/toast.js', 'js/command-palette.js', 'js/hotkeys.js', 'js/onboarding.js', 'js/recent-tickers.js', 'js/symbol-linker.js'];
+  const want = ['js/toast.js', 'js/command-palette.js', 'js/hotkeys.js', 'js/onboarding.js', 'js/recent-tickers.js', 'js/symbol-linker.js', 'js/brain-loop.js', 'js/data-mode-banner.js'];
   const have = new Set([...document.querySelectorAll('script[src]')].map(s => {
     try { return new URL(s.src, location.href).pathname.split('/').slice(-2).join('/'); } catch (e) { return s.src; }
   }));
@@ -99,7 +99,7 @@ function buildNav(activePage) {
   activePage = activePage || '';
   const playsGrp = ['totd','plays','signals','earnings','earnings-preview','pre-market','zero-dte','setup-wizard','paper-trade','game-plan','hot-movers','squeeze-radar','trade-plan'];
   const tradeGrp = ['flow','chain','ta','momentum','market-internals','smart-money','heatmap','watchlists','vol-surface','gex','tape','sectors','pairs','calendar-analyzer','vol-cone','dark-pool','short-interest','etf-flows','volume-profile','order-flow','ticker','multi-leg-builder','bracket-builder','spread-scanner','wheel','correlation'];
-  const toolsGrp = ['risk','fundamentals','backtester','edge','learn','learn-engine-explained','crypto','journal','alerts','macro','news','screener','anomalies','assistant','ai-scout','portfolio-builder','position-sizing','execution','strategies','api','seasonality','economic-events','settings','mindset','changelog','friday-summary','replay','live-positions','risk-attribution','edge-scanner','hypothetical','account','setup-combos','kelly-sizer','potd-backtest','news-reactions','live-train','radar','ai-cotrader','train-history','alerts-dashboard','weight-heatmap','sector-rotation','options-flow-live','earnings-playbook','daily-debrief','multi-backtest','pre-market-scanner','position-stacking','crypto-commodities','after-hours-scanner','tomorrow-playbook','earnings-tonight','global-markets','cross-asset-correlations','trade-ticket','trade-blotter','conviction-board','squeeze-radar-pro','insider-congress-flow','calendar-plays','pair-trades','iv-skew','crypto-basis','desk-split','confluence-scanner','live-pnl-heatmap','time-of-day-pnl'];
+  const toolsGrp = ['risk','fundamentals','backtester','edge','learn','learn-engine-explained','crypto','journal','alerts','macro','news','screener','anomalies','assistant','ai-scout','portfolio-builder','position-sizing','execution','strategies','api','seasonality','economic-events','settings','mindset','changelog','friday-summary','replay','live-positions','risk-attribution','edge-scanner','hypothetical','account','setup-combos','kelly-sizer','potd-backtest','news-reactions','live-train','radar','ai-cotrader','train-history','alerts-dashboard','weight-heatmap','sector-rotation','options-flow-live','earnings-playbook','daily-debrief','multi-backtest','pre-market-scanner','position-stacking','crypto-commodities','after-hours-scanner','tomorrow-playbook','earnings-tonight','global-markets','cross-asset-correlations','trade-ticket','trade-blotter','conviction-board','squeeze-radar-pro','insider-congress-flow','calendar-plays','pair-trades','iv-skew','crypto-basis','desk-split','confluence-scanner','live-pnl-heatmap','time-of-day-pnl','brain-heartbeat','discoveries'];
   const isTrade = tradeGrp.indexOf(activePage) !== -1;
   const isPlays = playsGrp.indexOf(activePage) !== -1;
   const isTools = toolsGrp.indexOf(activePage) !== -1;
@@ -201,6 +201,8 @@ function buildNav(activePage) {
     + '<a href="confluence-scanner.html">🎯 Confluence Scanner <span class="feat-badge feat-pro" style="font-size:8px;padding:0 5px;">PRO</span></a>'
     + '<a href="live-pnl-heatmap.html">🌡 Live P&amp;L Heatmap <span class="feat-badge feat-pro" style="font-size:8px;padding:0 5px;">PRO</span></a>'
     + '<a href="time-of-day-pnl.html">⏰ Time-of-Day P&amp;L <span class="feat-badge feat-pro" style="font-size:8px;padding:0 5px;">PRO</span></a>'
+    + '<a href="brain-heartbeat.html">🫀 Brain Heartbeat <span class="feat-badge feat-live" style="font-size:8px;padding:0 5px;">LIVE</span></a>'
+    + '<a href="discoveries.html">📜 Brain Discoveries <span class="feat-badge feat-pro" style="font-size:8px;padding:0 5px;">PRO</span></a>'
     + '<a href="position-stacking.html">🛡 Position Stacking <span class="feat-badge feat-new" style="font-size:8px;padding:0 5px;">NEW</span></a>'
     + '<a href="crypto-commodities.html">🌍 Crypto + Commodities <span class="feat-badge feat-live" style="font-size:8px;padding:0 5px;">LIVE</span></a>'
     + '<a href="edge-scanner.html">🛰 Live Edge Scanner <span class="feat-badge feat-live" style="font-size:8px;padding:0 5px;">LIVE</span></a>'
@@ -472,6 +474,8 @@ function buildFooter() {
     + '<li><a href="confluence-scanner.html">Confluence Scanner</a></li>'
     + '<li><a href="live-pnl-heatmap.html">Live P&amp;L Heatmap</a></li>'
     + '<li><a href="time-of-day-pnl.html">Time-of-Day P&amp;L</a></li>'
+    + '<li><a href="brain-heartbeat.html">Brain Heartbeat</a></li>'
+    + '<li><a href="discoveries.html">Brain Discoveries</a></li>'
     + '<li><a href="position-stacking.html">Position Stacking</a></li>'
     + '<li><a href="crypto-commodities.html">Crypto + Commodities</a></li>'
     + '<li><a href="edge-scanner.html">Edge Scanner</a></li>'
