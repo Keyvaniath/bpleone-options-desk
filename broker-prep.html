@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Broker Prep — bpleone / trade</title>
+<meta name="description" content="Step-by-step guide to connecting a real broker for live trading the model.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.step-card { padding:20px;background:var(--bg-elevated);border:1px solid var(--border);border-radius:12px;margin-bottom:14px;display:flex;gap:18px;align-items:flex-start; }
+.step-card .num { width:44px;height:44px;border-radius:50%;background:rgba(0,212,255,0.18);color:var(--accent);display:flex;align-items:center;justify-content:center;font-weight:800;font-size:18px;font-family:var(--font-mono);flex-shrink:0; }
+.step-card h3 { font-size:17px;font-weight:700;margin-bottom:8px; }
+.step-card p { font-size:13px;color:var(--text-secondary);line-height:1.7;margin-bottom:10px; }
+.broker-table { width:100%;border-collapse:collapse; }
+.broker-table th, .broker-table td { padding:12px 14px;text-align:left;border-bottom:1px solid var(--border);font-size:13px; }
+.broker-table th { background:var(--bg-elevated);color:var(--text-muted);font-weight:700;font-size:11px;letter-spacing:0.5px; }
+.broker-table tr:hover td { background:rgba(0,212,255,0.04); }
+.tier { padding:3px 8px;border-radius:4px;font-size:10px;font-weight:700;display:inline-block; }
+.tier-free { background:rgba(16,185,129,0.18);color:var(--green); }
+.tier-paid { background:rgba(245,158,11,0.18);color:var(--yellow); }
+.tier-pro { background:rgba(124,58,237,0.18);color:#a78bfa; }
+.warn-card { padding:18px;background:linear-gradient(135deg,rgba(239,68,68,0.06),transparent);border:1px solid rgba(239,68,68,0.25);border-left:4px solid var(--red);border-radius:10px;margin-bottom:18px; }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">🔌 Broker Prep</div>
+      <div class="page-subtitle">Step-by-step · connect a real broker · move from paper to live · <span id="market-clock">--</span></div>
+    </div>
+  </div>
+
+  <!-- READINESS CHECK -->
+  <div class="card mb-24" style="background:linear-gradient(135deg,rgba(245,158,11,0.06),transparent);border:1px solid rgba(245,158,11,0.25);">
+    <div class="card-header"><div class="card-title">⚠ Before you do this — readiness checklist</div></div>
+    <div style="font-size:13px;color:var(--text-secondary);line-height:1.8;">
+      <div style="margin-bottom:6px;">☐ Model has <strong>≥100 rated outcomes</strong></div>
+      <div style="margin-bottom:6px;">☐ Model accuracy <strong>≥55%</strong> over last 30 rated</div>
+      <div style="margin-bottom:6px;">☐ Autopilot paper has run for <strong>≥1 month</strong> w/ positive P&L</div>
+      <div style="margin-bottom:6px;">☐ You've worked through full <strong>cycle of drift / retrain / promotion</strong> at least once</div>
+      <div style="margin-bottom:6px;">☐ Risk-of-Ruin model says <strong>≤5% chance of blow-up</strong></div>
+      <div style="margin-bottom:6px;">☐ You're comfortable with <strong>losing the first 5% live</strong> as the model adapts to real fills/slippage</div>
+      <div style="margin-top:10px;color:var(--yellow);"><strong>If you can't check all 6 — keep paper-trading first.</strong></div>
+    </div>
+  </div>
+
+  <!-- BROKER CHOICES -->
+  <div class="card mb-24">
+    <div class="card-header"><div class="card-title">📊 Broker Comparison · what to pick</div></div>
+    <table class="broker-table">
+      <thead><tr><th>Broker</th><th>API</th><th>Cost</th><th>Best For</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Alpaca</strong></td><td>REST + WebSocket · official docs<br><a href="https://alpaca.markets" style="color:var(--accent);font-size:11px;">alpaca.markets →</a></td><td><span class="tier tier-free">FREE tier</span> · paper API · live IEX feed</td><td>★ Starting point. Free, clean API, paper-to-live one flag swap.</td></tr>
+        <tr><td><strong>Tradier</strong></td><td>REST · brokerage<br><a href="https://tradier.com" style="color:var(--accent);font-size:11px;">tradier.com →</a></td><td><span class="tier tier-paid">$10/mo</span> · sandbox free</td><td>Real options trading. Solid for multi-leg.</td></tr>
+        <tr><td><strong>Polygon</strong></td><td>REST + WS · data only<br><a href="https://polygon.io" style="color:var(--accent);font-size:11px;">polygon.io →</a></td><td><span class="tier tier-paid">$29-199/mo</span></td><td>Best data feed. Pair with another broker for execution.</td></tr>
+        <tr><td><strong>Interactive Brokers</strong></td><td>TWS API · complex<br><a href="https://interactivebrokers.com" style="color:var(--accent);font-size:11px;">ibkr.com →</a></td><td><span class="tier tier-pro">Pro</span> · per-share fees</td><td>For large accounts. Most product coverage. Complex setup.</td></tr>
+        <tr><td><strong>Finnhub</strong></td><td>WebSocket · data only<br><a href="https://finnhub.io" style="color:var(--accent);font-size:11px;">finnhub.io →</a></td><td><span class="tier tier-free">FREE tier</span></td><td>Free real-time US equities. Already wired in settings.html.</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- STEP BY STEP -->
+  <div class="step-card">
+    <div class="num">1</div>
+    <div>
+      <h3>Open the broker account</h3>
+      <p>Pick from above. I recommend Alpaca for first-timers — fully digital, takes ~10 minutes, free paper account immediately, can flip to live with $0 funding requirement.</p>
+      <p>Apply at <a href="https://alpaca.markets" style="color:var(--accent);">alpaca.markets</a>. Click "Sign up", complete KYC (SSN, address), select <strong>individual</strong> account, accept agreements. Approval is usually instant.</p>
+    </div>
+  </div>
+
+  <div class="step-card">
+    <div class="num">2</div>
+    <div>
+      <h3>Generate API keys</h3>
+      <p>Once logged in, go to: <strong>Dashboard → Paper Trading → API Keys → Generate</strong>. Copy the <strong>Key ID</strong> and <strong>Secret Key</strong>. Save them — secret won't show again.</p>
+      <p>For LIVE keys (real money), use <strong>Live Trading → API Keys</strong>. Same process. Always use paper first.</p>
+    </div>
+  </div>
+
+  <div class="step-card">
+    <div class="num">3</div>
+    <div>
+      <h3>Configure bpleone</h3>
+      <p>Open <a href="settings.html" style="color:var(--accent);">settings.html</a>. Select provider = <strong>Alpaca</strong>. Paste your Key ID + Secret. Toggle "Enable Live Feed". Click <strong>Save &amp; Connect</strong>. Within 30 seconds the data pill in the nav should turn green ("LIVE FEED").</p>
+    </div>
+  </div>
+
+  <div class="step-card">
+    <div class="num">4</div>
+    <div>
+      <h3>Watch for 1 week — paper mode</h3>
+      <p>Don't trade yet. Watch <a href="model-results.html" style="color:var(--accent);">Model Results</a> and <a href="auto-paper.html" style="color:var(--accent);">Autopilot Paper</a> with real-quote data. Real prices may differ from synthetic — model might re-calibrate. If accuracy holds for a week, you're ready.</p>
+    </div>
+  </div>
+
+  <div class="step-card">
+    <div class="num">5</div>
+    <div>
+      <h3>Start small with LIVE keys</h3>
+      <p>Switch to live keys in settings.html. Fund the account with the <strong>minimum you can afford to lose</strong> — $500-2000 to start. The model's real win rate may differ from paper by 5-10% due to slippage. Plan accordingly.</p>
+      <p>First 20 trades: take only ≥80% confidence calls. Size = 0.5% of account. Re-evaluate after 20.</p>
+    </div>
+  </div>
+
+  <div class="step-card">
+    <div class="num">6</div>
+    <div>
+      <h3>Scale up methodically</h3>
+      <p>If first 20 trades are profitable AND match paper hit rate within 5%: scale risk to 1% of account. After 50 trades: 1.5%. Never more than 2% per trade. Use <a href="risk-sizer-pro.html" style="color:var(--accent);">Risk Sizer PRO</a> for exact sizing.</p>
+    </div>
+  </div>
+
+  <div class="warn-card">
+    <div style="font-weight:700;color:var(--red);margin-bottom:6px;">⚠ Critical reminders</div>
+    <div style="font-size:13px;color:var(--text-secondary);line-height:1.7;">
+      <ul style="margin-left:18px;">
+        <li>Past paper performance does not guarantee live results. Slippage, fees, and broker behavior all subtract from model edge.</li>
+        <li>The brain's autopilot can fire many trades per day. <strong>Disable autopilot for live</strong> — always have human approval on real-money trades. Use the brain as input, not as autopilot.</li>
+        <li>Set a <strong>daily max loss</strong> at your broker (most platforms support this). If you hit it, system locks you out for the day.</li>
+        <li>If you live-trade options: paper-trade single legs only at first. Multi-leg is fragile to slippage.</li>
+        <li>Tax: every closed trade is a taxable event. Keep records via the journal.</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="card mt-24">
+    <div class="card-header"><div class="card-title">📞 What to do if something breaks</div></div>
+    <div style="font-size:13px;color:var(--text-secondary);line-height:1.7;">
+      Most broker APIs have status pages. Check yours first if data stops flowing. The bpleone DataProvider auto-reconnects with exponential backoff. If it gives up after ~10 attempts, refresh the page. Logs are in <code>localStorage</code> under <code>bpleone_data_v1</code>.
+    </div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script>
+buildNav('broker-prep');
+</script>
+</body>
+</html>

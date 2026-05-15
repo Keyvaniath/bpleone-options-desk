@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Missed Opportunities — bpleone / trade</title>
+<meta name="description" content="High-confidence model calls you didn't act on — see what you missed.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.miss-row { display:grid; grid-template-columns: 100px 70px 90px 80px 80px 100px 1fr; gap:10px; padding:11px 14px; border-bottom:1px solid var(--border); font-family:var(--font-mono); font-size:11px; align-items:center; cursor:pointer; }
+.miss-row:hover { background:var(--bg-elevated); }
+.miss-row.bigwin { border-left:3px solid var(--green);background:rgba(16,185,129,0.04); }
+.miss-row.savedloss { border-left:3px solid var(--accent); }
+.miss-row.pending { border-left:3px solid var(--text-muted); }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">😢 Missed Opportunities</div>
+      <div class="page-subtitle">High-conf calls you didn't paper-trade · see what you missed (or dodged) · <span id="market-clock">--</span></div>
+    </div>
+    <div class="flex gap-8">
+      <a href="auto-paper.html" class="btn btn-primary">🤖 Enable Autopilot</a>
+    </div>
+  </div>
+
+  <div class="card mb-24" style="background:linear-gradient(135deg,rgba(245,158,11,0.05),transparent);border-color:rgba(245,158,11,0.2);">
+    <div style="font-size:13px;color:var(--text-secondary);line-height:1.7;">
+      Every high-confidence (≥70%) model call where you did NOT have a paper position (autopilot OFF or position-limited). This is your <strong>cost of inaction</strong>: if you'd taken every call at 1R risk, this is what you would've made (or saved). The bigger this number gets, the more reason to flip autopilot ON.
+    </div>
+  </div>
+
+  <!-- KPIs -->
+  <div class="grid grid-4 mb-24">
+    <div class="card"><div class="card-header"><div class="card-title">Missed Setups</div></div><div class="mono" style="font-size:26px;font-weight:700;color:var(--yellow);" id="kTotal">--</div><div class="mono" style="font-size:11px;color:var(--text-muted);">≥70% confidence + you didn't act</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">Hypothetical P&L</div></div><div class="mono" style="font-size:26px;font-weight:700;" id="kPnl">--</div><div class="mono" style="font-size:11px;color:var(--text-muted);">If you'd taken all at 1R</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">Biggest Miss</div></div><div class="mono green-text" style="font-size:18px;font-weight:700;" id="kBig">--</div><div class="mono" style="font-size:11px;color:var(--text-muted);" id="kBigBody">--</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">Pending (live now)</div></div><div class="mono" style="font-size:26px;font-weight:700;color:var(--accent);" id="kPending">--</div><div class="mono" style="font-size:11px;color:var(--text-muted);">Active high-conf · not too late</div></div>
+  </div>
+
+  <!-- TABLE -->
+  <div class="card mb-12" style="padding:10px 14px;">
+    <div class="flex gap-8">
+      <button class="btn btn-ghost btn-active" data-flt="all" style="padding:4px 10px;font-size:11px;">ALL</button>
+      <button class="btn btn-ghost" data-flt="hit" style="padding:4px 10px;font-size:11px;">WOULD'VE WON</button>
+      <button class="btn btn-ghost" data-flt="miss" style="padding:4px 10px;font-size:11px;">DODGED LOSS</button>
+      <button class="btn btn-ghost" data-flt="pending" style="padding:4px 10px;font-size:11px;">STILL LIVE</button>
+    </div>
+  </div>
+
+  <div class="card" style="padding:0;">
+    <div class="miss-row" style="background:var(--bg-elevated);font-size:9px;color:var(--text-muted);font-weight:800;letter-spacing:0.5px;">
+      <div>TIME</div><div>SYM</div><div>MODEL CONF</div><div>SETUP</div><div>OUTCOME</div><div>HYPOTHETICAL</div><div>STATUS</div>
+    </div>
+    <div id="missBody" style="max-height:580px;overflow-y:auto;"></div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script src="js/model.js"></script>
+<script>
+buildNav('missed-opportunities');
+
+let flt = 'all';
+
+function paint() {
+  const findings = (function () { try { return JSON.parse(localStorage.getItem('bpleone_brain_findings_v1') || '{"items":[]}').items; } catch (e) { return []; } })();
+  const autopaper = (function () { try { return JSON.parse(localStorage.getItem('bpleone_autopaper_v1') || 'null'); } catch (e) { return null; } })();
+  const autoTradedIds = new Set();
+  if (autopaper) {
+    (autopaper.open || []).forEach(p => autoTradedIds.add(p.findingId));
+    (autopaper.closed || []).forEach(p => autoTradedIds.add(p.findingId));
+  }
+
+  // High-conf, not auto-traded
+  const highConf = findings.filter(f => typeof f.modelProb === 'number' && (f.modelProb >= 0.70 || f.modelProb <= 0.30));
+  const missed = highConf.filter(f => !autoTradedIds.has(f.id));
+
+  // Categorize
+  const resolved = missed.filter(f => f.outcome === 'hit' || f.outcome === 'miss');
+  const wouldveWon = resolved.filter(f => (f.modelProb >= 0.5 ? 'hit' : 'miss') === f.outcome);
+  const dodgedLoss = resolved.filter(f => (f.modelProb >= 0.5 ? 'hit' : 'miss') !== f.outcome);
+  const pendingNow = missed.filter(f => !f.outcome && (Date.now() - f.ts) < 4 * 3600 * 1000);
+
+  // Hypothetical P&L: each WIN = +1R, each LOSS = -1R
+  const hypoR = wouldveWon.length - dodgedLoss.length;
+
+  document.getElementById('kTotal').textContent = resolved.length;
+  document.getElementById('kPnl').textContent = (hypoR >= 0 ? '+' : '') + hypoR + 'R';
+  document.getElementById('kPnl').style.color = hypoR > 0 ? 'var(--green)' : hypoR < 0 ? 'var(--red)' : 'var(--text-primary)';
+  document.getElementById('kPending').textContent = pendingNow.length;
+
+  if (wouldveWon.length > 0) {
+    const biggest = wouldveWon.slice().sort((a, b) => b.modelProb - a.modelProb)[0];
+    document.getElementById('kBig').textContent = (biggest.meta && biggest.meta.sym) || '—';
+    document.getElementById('kBigBody').textContent = (biggest.modelProb * 100).toFixed(0) + '% → HIT';
+  }
+
+  let rows = missed;
+  if (flt === 'hit') rows = wouldveWon;
+  else if (flt === 'miss') rows = dodgedLoss;
+  else if (flt === 'pending') rows = pendingNow;
+  rows.sort((a, b) => b.ts - a.ts);
+
+  const body = document.getElementById('missBody');
+  body.innerHTML = '';
+  if (rows.length === 0) {
+    body.innerHTML = '<div style="padding:30px;text-align:center;color:var(--text-muted);font-size:13px;">No missed opportunities in this category. Either autopilot caught them, or model hasn\'t fired high-conf calls yet.</div>';
+    return;
+  }
+  rows.forEach(f => {
+    const sym = (f.meta && f.meta.sym) || '—';
+    const setup = (f.meta && f.meta.setup) || f.type;
+    const time = new Date(f.ts).toLocaleString();
+    const pred = f.modelProb >= 0.5 ? 'WIN' : 'LOSS';
+    const predProb = (f.modelProb * 100).toFixed(0) + '%';
+    let cls, status, hypo;
+    if (!f.outcome) {
+      cls = 'pending'; status = '⏳ live · ' + Math.round((Date.now() - f.ts) / 60000) + 'm ago';
+      hypo = 'open trade?';
+    } else {
+      const correct = (f.modelProb >= 0.5 ? 'hit' : 'miss') === f.outcome;
+      cls = correct ? 'bigwin' : 'savedloss';
+      status = correct ? '😢 missed WIN' : '✓ dodged LOSS';
+      hypo = correct ? '+1R' : '+1R saved';
+    }
+    const statusCol = cls === 'bigwin' ? 'var(--red)' : cls === 'savedloss' ? 'var(--green)' : 'var(--text-muted)';
+    const row = document.createElement('div');
+    row.className = 'miss-row ' + cls;
+    row.innerHTML = '<div style="color:var(--text-muted);font-size:10px;">' + time + '</div>'
+      + '<div><strong>' + sym + '</strong></div>'
+      + '<div style="color:var(--accent);font-weight:700;">' + pred + ' ' + predProb + '</div>'
+      + '<div style="font-family:Inter;color:var(--text-muted);font-size:10px;">' + setup + '</div>'
+      + '<div style="color:' + (f.outcome === 'hit' ? 'var(--green)' : f.outcome === 'miss' ? 'var(--red)' : 'var(--text-muted)') + ';">' + (f.outcome ? f.outcome.toUpperCase() : '—') + '</div>'
+      + '<div style="color:' + statusCol + ';font-weight:700;">' + hypo + '</div>'
+      + '<div style="font-family:Inter;font-size:11px;color:' + statusCol + ';">' + status + '</div>';
+    row.onclick = () => { window.location.href = 'trade-coach.html?sym=' + sym; };
+    body.appendChild(row);
+  });
+}
+
+document.querySelectorAll('[data-flt]').forEach(b => b.addEventListener('click', () => {
+  document.querySelectorAll('[data-flt]').forEach(x => x.classList.remove('btn-active'));
+  b.classList.add('btn-active');
+  flt = b.dataset.flt;
+  paint();
+}));
+
+paint();
+window.addEventListener('bpleone:brain-finding', paint);
+window.addEventListener('bpleone:model-trained', paint);
+setInterval(paint, 30000);
+</script>
+</body>
+</html>

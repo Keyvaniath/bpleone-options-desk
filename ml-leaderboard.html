@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ML Leaderboard — bpleone / trade</title>
+<meta name="description" content="Head-to-head comparison of model versions · best/worst performers · auto-promote winner.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.rank-row { display:grid; grid-template-columns: 40px 1fr 90px 90px 90px 90px 120px; gap:14px; padding:14px 16px; border-bottom:1px solid var(--border); font-family:var(--font-mono); font-size:12px; align-items:center; }
+.rank-row.gold { background:rgba(245,158,11,0.06);border-left:3px solid var(--yellow); }
+.rank-row.silver { background:rgba(180,180,180,0.06);border-left:3px solid #b0bec5; }
+.rank-row.bronze { background:rgba(205,127,50,0.06);border-left:3px solid #cd7f32; }
+.rank-row.current { background:rgba(0,212,255,0.08);border-left:3px solid var(--accent); }
+.rank-medal { font-size:24px; }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">🏆 ML Leaderboard</div>
+      <div class="page-subtitle">Every saved version, ranked by performance · auto-pick the winner · <span id="market-clock">--</span></div>
+    </div>
+    <div class="flex gap-8">
+      <button class="btn btn-primary" id="promoteBestBtn">⬆ Auto-Promote Top Version</button>
+      <a href="model-versions.html" class="btn btn-secondary">📜 All Versions</a>
+    </div>
+  </div>
+
+  <div class="card mb-24" style="background:linear-gradient(135deg,rgba(245,158,11,0.05),transparent);">
+    <div style="font-size:13px;color:var(--text-secondary);line-height:1.7;">
+      Every snapshot you've saved becomes a competitor here. Each is scored against the training data: accuracy, F1, Brier score. The top performer can be auto-promoted to production with one click.
+    </div>
+  </div>
+
+  <!-- KPIs -->
+  <div class="grid grid-4 mb-24">
+    <div class="card"><div class="card-header"><div class="card-title">Versions Saved</div></div><div class="mono" style="font-size:26px;font-weight:700;" id="kCount">--</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">Current Version</div></div><div class="mono" style="font-size:26px;font-weight:700;color:var(--accent);" id="kCur">--</div><div class="mono" style="font-size:11px;color:var(--text-muted);" id="kCurBody">--</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">Top Performer</div></div><div class="mono green-text" style="font-size:18px;font-weight:700;" id="kTop">--</div><div class="mono" style="font-size:11px;color:var(--text-muted);" id="kTopBody">--</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">Worst Performer</div></div><div class="mono red-text" style="font-size:18px;font-weight:700;" id="kBot">--</div><div class="mono" style="font-size:11px;color:var(--text-muted);" id="kBotBody">--</div></div>
+  </div>
+
+  <!-- LEADERBOARD -->
+  <div class="card mb-24" style="padding:0;">
+    <div class="card-header" style="padding:14px 16px;"><div class="card-title">🏁 Ranked Performance</div></div>
+    <div class="rank-row" style="background:var(--bg-elevated);font-size:9px;color:var(--text-muted);font-weight:800;letter-spacing:0.5px;">
+      <div>RANK</div><div>VERSION</div><div>SAMPLES</div><div>ACCURACY</div><div>F1</div><div>BRIER</div><div></div>
+    </div>
+    <div id="leaderBody"></div>
+  </div>
+
+  <!-- COMPARISON CHART -->
+  <div class="card">
+    <div class="card-header"><div class="card-title">📊 Accuracy Comparison</div></div>
+    <canvas id="cmpChart" height="240"></canvas>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script src="js/model.js"></script>
+<script src="js/charts.js"></script>
+<script>
+buildNav('ml-leaderboard');
+
+let cmpChart;
+
+function evaluateModel(weights, data) {
+  let tp = 0, fp = 0, tn = 0, fn = 0, brierSum = 0;
+  data.forEach(row => {
+    if (!row.features || row.features.length !== weights.length) return;
+    let z = 0;
+    for (let i = 0; i < weights.length; i++) z += weights[i] * row.features[i];
+    const p = 1 / (1 + Math.exp(-Math.max(-30, Math.min(30, z))));
+    const pred = p >= 0.5 ? 1 : 0;
+    if (pred === 1 && row.label === 1) tp++;
+    else if (pred === 1 && row.label === 0) fp++;
+    else if (pred === 0 && row.label === 0) tn++;
+    else fn++;
+    brierSum += (p - row.label) ** 2;
+  });
+  const n = tp + fp + tn + fn;
+  const acc = n > 0 ? (tp + tn) / n : 0;
+  const precision = (tp + fp) > 0 ? tp / (tp + fp) : 0;
+  const recall = (tp + fn) > 0 ? tp / (tp + fn) : 0;
+  const f1 = (precision + recall) > 0 ? 2 * precision * recall / (precision + recall) : 0;
+  const brier = n > 0 ? brierSum / n : 0;
+  return { acc, precision, recall, f1, brier, n };
+}
+
+function paint() {
+  if (!window.ModelStore) { setTimeout(paint, 500); return; }
+  const current = ModelStore.load();
+  const versions = ModelStore.versions();
+  const data = ModelStore.getTrainingData();
+
+  const competitors = [
+    { ...current.serialize(), label: 'CURRENT', isCurrent: true }
+  ];
+  versions.forEach(v => competitors.push(v));
+
+  // Evaluate
+  competitors.forEach(c => {
+    c.eval = evaluateModel(c.weights, data);
+  });
+
+  // Sort by F1
+  competitors.sort((a, b) => b.eval.f1 - a.eval.f1);
+
+  document.getElementById('kCount').textContent = versions.length;
+  document.getElementById('kCur').textContent = 'v' + current.version;
+  document.getElementById('kCurBody').textContent = current.n_trained + ' samples';
+  if (competitors.length > 0) {
+    document.getElementById('kTop').textContent = competitors[0].label || 'v' + competitors[0].version;
+    document.getElementById('kTopBody').textContent = (competitors[0].eval.acc * 100).toFixed(1) + '% acc · F1 ' + (competitors[0].eval.f1 * 100).toFixed(1) + '%';
+    const worst = competitors[competitors.length - 1];
+    document.getElementById('kBot').textContent = worst.label || 'v' + worst.version;
+    document.getElementById('kBotBody').textContent = (worst.eval.acc * 100).toFixed(1) + '% acc';
+  }
+
+  // Render leaderboard
+  const body = document.getElementById('leaderBody');
+  body.innerHTML = '';
+  if (data.length === 0) {
+    body.innerHTML = '<div style="padding:30px;text-align:center;color:var(--text-muted);font-size:13px;">No training data to evaluate against. Seed first.</div>';
+    return;
+  }
+  competitors.forEach((c, i) => {
+    let cls = '';
+    let medal = (i + 1);
+    if (c.isCurrent) cls = 'current';
+    if (i === 0) { cls = 'gold'; medal = '🥇'; }
+    else if (i === 1) { cls = 'silver'; medal = '🥈'; }
+    else if (i === 2) { cls = 'bronze'; medal = '🥉'; }
+    const row = document.createElement('div');
+    row.className = 'rank-row ' + cls;
+    row.innerHTML = '<div class="rank-medal">' + medal + '</div>'
+      + '<div><strong>' + (c.label || ('v' + c.version)) + '</strong>' + (c.isCurrent ? ' <span style="color:var(--accent);font-size:11px;">⭐ CURRENT</span>' : '') + '<div style="font-size:10px;color:var(--text-muted);margin-top:2px;">v' + c.version + ' · saved ' + new Date(c.savedAt || c.createdTs).toLocaleString() + '</div></div>'
+      + '<div>' + c.n_trained + '</div>'
+      + '<div style="color:' + (c.eval.acc >= 0.55 ? 'var(--green)' : c.eval.acc >= 0.50 ? 'var(--accent)' : 'var(--red)') + ';font-weight:700;">' + (c.eval.acc * 100).toFixed(1) + '%</div>'
+      + '<div>' + (c.eval.f1 * 100).toFixed(1) + '%</div>'
+      + '<div>' + c.eval.brier.toFixed(4) + '</div>'
+      + '<div>' + (c.isCurrent ? '<span style="color:var(--accent);font-weight:700;">IN PROD</span>' : '<button class="btn btn-secondary promote-row" data-i="' + (i - 1) + '" style="padding:4px 10px;font-size:10px;">Promote</button>') + '</div>';
+    body.appendChild(row);
+  });
+
+  document.querySelectorAll('.promote-row').forEach(b => b.addEventListener('click', e => {
+    const idx = +b.dataset.i;
+    if (!confirm('Promote this version to production?')) return;
+    ModelStore.promote(idx);
+    paint();
+  }));
+
+  // Comparison chart
+  if (cmpChart) cmpChart.destroy();
+  cmpChart = new Chart(document.getElementById('cmpChart').getContext('2d'), {
+    type: 'bar',
+    data: {
+      labels: competitors.slice(0, 10).map(c => (c.label || ('v' + c.version)).slice(0, 18)),
+      datasets: [{
+        label: 'Accuracy %',
+        data: competitors.slice(0, 10).map(c => c.eval.acc * 100),
+        backgroundColor: competitors.slice(0, 10).map((c, i) => i === 0 ? 'rgba(245,158,11,0.8)' : c.isCurrent ? 'rgba(0,212,255,0.7)' : 'rgba(100,116,139,0.5)')
+      }]
+    },
+    options: { indexAxis: 'y', responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { min: 0, max: 100, grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#6b7280', callback: v => v + '%' } }, y: { grid: { display: false }, ticks: { color: '#9ca3af', font: { size: 10 } } } } }
+  });
+}
+
+document.getElementById('promoteBestBtn').addEventListener('click', () => {
+  if (!confirm('Auto-promote the top-F1 version to production?')) return;
+  // Find best (excluding current)
+  const versions = ModelStore.versions();
+  const data = ModelStore.getTrainingData();
+  if (versions.length === 0) return alert('No versions saved.');
+  let bestIdx = 0, bestF1 = 0;
+  versions.forEach((v, i) => {
+    const ev = evaluateModel(v.weights, data);
+    if (ev.f1 > bestF1) { bestF1 = ev.f1; bestIdx = i; }
+  });
+  ModelStore.promote(bestIdx);
+  alert('✓ Promoted version: ' + (versions[bestIdx].label || 'v' + versions[bestIdx].version));
+  paint();
+});
+
+paint();
+window.addEventListener('bpleone:model-trained', paint);
+</script>
+</body>
+</html>

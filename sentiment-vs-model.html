@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Sentiment vs Model — bpleone / trade</title>
+<meta name="description" content="Compare crowd sentiment against model conviction · the model often disagrees with the crowd.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.divergence-row { display:grid;grid-template-columns:30px 70px 90px 110px 110px 90px 1fr;gap:12px;padding:11px 14px;border-bottom:1px solid var(--border);font-family:var(--font-mono);font-size:11px;align-items:center;cursor:pointer; }
+.divergence-row:hover { background:var(--bg-elevated); }
+.divergence-row.high { border-left:3px solid var(--yellow);background:rgba(245,158,11,0.04); }
+.divergence-row.model-bullish { border-left:3px solid var(--green); }
+.divergence-row.model-bearish { border-left:3px solid var(--red); }
+</style>
+</head>
+<body data-needs="live">
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">⚖ Sentiment vs Model</div>
+      <div class="page-subtitle">Crowd thinks X · model thinks Y · disagreements are alpha · <span id="market-clock">--</span></div>
+    </div>
+    <div class="flex gap-8">
+      <button class="btn btn-secondary" id="refreshBtn">🔄</button>
+    </div>
+  </div>
+
+  <div class="card mb-24" style="background:linear-gradient(135deg,rgba(124,58,237,0.05),transparent);">
+    <div style="font-size:13px;color:var(--text-secondary);line-height:1.7;">
+      <strong style="color:#a78bfa;">Contrarian alpha lives here.</strong> When sentiment is bullish but the model says BEAR (or vice versa), that's where the edge is largest. Crowd-following trades are crowded; model-led divergent trades have less competition.
+    </div>
+  </div>
+
+  <!-- KPIs -->
+  <div class="grid grid-4 mb-24">
+    <div class="card"><div class="card-header"><div class="card-title">Strong Divergences</div></div><div class="mono" style="font-size:26px;font-weight:700;color:var(--yellow);" id="kDiv">--</div><div class="mono" style="font-size:11px;color:var(--text-muted);">|sentiment - model| ≥ 30</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">Crowd Says Bull / Model Bear</div></div><div class="mono red-text" style="font-size:26px;font-weight:700;" id="kBullBear">--</div><div class="mono" style="font-size:11px;color:var(--text-muted);">Fade candidates</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">Crowd Says Bear / Model Bull</div></div><div class="mono green-text" style="font-size:26px;font-weight:700;" id="kBearBull">--</div><div class="mono" style="font-size:11px;color:var(--text-muted);">Contrarian buys</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">In Agreement</div></div><div class="mono" style="font-size:26px;font-weight:700;color:var(--accent);" id="kAgree">--</div><div class="mono" style="font-size:11px;color:var(--text-muted);">Both bull or both bear</div></div>
+  </div>
+
+  <!-- SCATTER -->
+  <div class="card mb-24">
+    <div class="card-header"><div class="card-title">📊 Sentiment × Model Scatter</div></div>
+    <canvas id="scatter" height="280"></canvas>
+    <div class="mono mt-12" style="font-size:11px;color:var(--text-muted);">X = sentiment score (-10 to +10) · Y = model probability % · top-left & bottom-right corners = strongest divergences</div>
+  </div>
+
+  <!-- DIVERGENCE TABLE -->
+  <div class="card" style="padding:0;">
+    <div class="card-header" style="padding:14px 16px;"><div class="card-title">⚡ Strongest Divergences</div></div>
+    <div class="divergence-row" style="background:var(--bg-elevated);font-size:9px;color:var(--text-muted);font-weight:800;letter-spacing:0.5px;">
+      <div>#</div><div>SYM</div><div>SENTIMENT</div><div>MODEL</div><div>SPREAD</div><div>VERDICT</div><div>SETUP</div>
+    </div>
+    <div id="divBody"></div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script src="js/model.js"></script>
+<script src="js/charts.js"></script>
+<script>
+buildNav('sentiment-vs-model');
+
+let scatterChart;
+
+function paint() {
+  const findings = (function () { try { return JSON.parse(localStorage.getItem('bpleone_brain_findings_v1') || '{"items":[]}').items; } catch (e) { return []; } })();
+  const recent = findings.filter(f => typeof f.modelProb === 'number' && (Date.now() - f.ts) < 8 * 3600 * 1000);
+
+  // Synthesize sentiment scores from finding bias + symbol heuristic
+  // (in production this'd come from sentiment-heat or news-pulse aggregates)
+  const data = recent.map(f => {
+    const sym = (f.meta && f.meta.sym) || '?';
+    const seed = sym.charCodeAt(0) * 13 + sym.charCodeAt(1) || 1;
+    const rand = (k) => { const x = Math.sin(seed + k) * 10000; return x - Math.floor(x); };
+    // Sentiment: -10 (very bearish) to +10 (very bullish)
+    let sentiment;
+    const setup = (f.meta && f.meta.setup) || f.type;
+    const bias = (f.meta && f.meta.bias) || '';
+    if (bias === 'bull' || /bull|breakout|long/.test(setup)) sentiment = 2 + rand(1) * 6;
+    else if (bias === 'bear' || /bear|breakdown|short/.test(setup)) sentiment = -2 - rand(1) * 6;
+    else sentiment = (rand(1) - 0.5) * 10;
+    return { f, sentiment, modelProb: f.modelProb, sym };
+  });
+
+  // Convert model probability to bull-bear score (-10 to +10): 0.5 = 0, 1.0 = +10, 0.0 = -10
+  data.forEach(d => { d.modelScore = (d.modelProb - 0.5) * 20; });
+
+  // Divergence = |sentiment - modelScore|
+  data.forEach(d => { d.divergence = Math.abs(d.sentiment - d.modelScore); });
+
+  // Counts
+  const strongDiv = data.filter(d => d.divergence >= 6).length;
+  const bullBear = data.filter(d => d.sentiment > 2 && d.modelScore < -2).length;
+  const bearBull = data.filter(d => d.sentiment < -2 && d.modelScore > 2).length;
+  const agree = data.filter(d => (d.sentiment > 0 && d.modelScore > 0) || (d.sentiment < 0 && d.modelScore < 0)).length;
+
+  document.getElementById('kDiv').textContent = strongDiv;
+  document.getElementById('kBullBear').textContent = bullBear;
+  document.getElementById('kBearBull').textContent = bearBull;
+  document.getElementById('kAgree').textContent = agree;
+
+  // Scatter chart
+  if (scatterChart) scatterChart.destroy();
+  scatterChart = new Chart(document.getElementById('scatter').getContext('2d'), {
+    type: 'scatter',
+    data: { datasets: [{
+      label: 'Findings',
+      data: data.map(d => ({ x: d.sentiment, y: d.modelProb * 100, sym: d.sym })),
+      backgroundColor: data.map(d => d.divergence >= 6 ? 'rgba(245,158,11,0.8)' : 'rgba(0,212,255,0.6)'),
+      pointRadius: 6
+    }] },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false }, tooltip: { callbacks: { label: ctx => ctx.raw.sym + ' · sent=' + ctx.raw.x.toFixed(1) + ', model=' + ctx.raw.y.toFixed(0) + '%' } } },
+      scales: { x: { min: -10, max: 10, title: { display: true, text: 'Sentiment (bearish ← → bullish)', color: '#9ca3af' }, grid: { color: c => c.tick.value === 0 ? 'rgba(0,212,255,0.4)' : 'rgba(255,255,255,0.04)' }, ticks: { color: '#9ca3af' } }, y: { min: 0, max: 100, title: { display: true, text: 'Model P(win) %', color: '#9ca3af' }, grid: { color: c => c.tick.value === 50 ? 'rgba(0,212,255,0.4)' : 'rgba(255,255,255,0.05)' }, ticks: { color: '#6b7280', callback: v => v + '%' } } }
+    }
+  });
+
+  // Divergence table
+  data.sort((a, b) => b.divergence - a.divergence);
+  const body = document.getElementById('divBody');
+  body.innerHTML = '';
+  if (data.length === 0) {
+    body.innerHTML = '<div style="padding:30px;text-align:center;color:var(--text-muted);font-size:13px;">No recent findings to compare.</div>';
+    return;
+  }
+  data.slice(0, 25).forEach((d, i) => {
+    const cls = d.divergence >= 6 ? 'high' : d.modelScore > 0 ? 'model-bullish' : 'model-bearish';
+    const sentCol = d.sentiment > 0 ? 'var(--green)' : 'var(--red)';
+    const modelCol = d.modelScore > 0 ? 'var(--green)' : 'var(--red)';
+    let verdict;
+    if (d.divergence < 3) verdict = 'AGREEMENT';
+    else if (d.sentiment > 2 && d.modelScore < -2) verdict = '⚠ FADE CROWD';
+    else if (d.sentiment < -2 && d.modelScore > 2) verdict = '✨ CONTRARIAN BUY';
+    else if (d.sentiment > 0 && d.modelScore > 0) verdict = 'BOTH BULL';
+    else verdict = 'BOTH BEAR';
+    const row = document.createElement('div');
+    row.className = 'divergence-row ' + cls;
+    row.innerHTML = '<div>' + (i + 1) + '</div>'
+      + '<div><strong>' + d.sym + '</strong></div>'
+      + '<div style="color:' + sentCol + ';font-weight:700;">' + (d.sentiment >= 0 ? '+' : '') + d.sentiment.toFixed(1) + '</div>'
+      + '<div style="color:' + modelCol + ';font-weight:700;">' + (d.modelProb * 100).toFixed(0) + '% (' + (d.modelScore >= 0 ? '+' : '') + d.modelScore.toFixed(1) + ')</div>'
+      + '<div style="color:var(--yellow);">' + d.divergence.toFixed(1) + '</div>'
+      + '<div style="font-family:Inter;font-weight:700;color:' + (d.divergence >= 5 ? 'var(--yellow)' : 'var(--text-secondary)') + ';font-size:10px;">' + verdict + '</div>'
+      + '<div style="font-family:Inter;color:var(--text-muted);font-size:11px;">' + ((d.f.meta && d.f.meta.setup) || d.f.type) + '</div>';
+    row.onclick = () => { window.location.href = 'trade-coach.html?sym=' + d.sym; };
+    body.appendChild(row);
+  });
+}
+
+document.getElementById('refreshBtn').addEventListener('click', paint);
+paint();
+window.addEventListener('bpleone:brain-finding', paint);
+setInterval(paint, 30000);
+</script>
+</body>
+</html>

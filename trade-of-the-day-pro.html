@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Trade of the Day PRO — bpleone / trade</title>
+<meta name="description" content="ML-selected Trade of the Day — the single highest-conviction setup the model is calling.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.totd-hero { padding:36px 32px;border-radius:18px;background:linear-gradient(135deg,rgba(124,58,237,0.12),rgba(0,212,255,0.08));border:1px solid rgba(124,58,237,0.3); }
+.totd-hero .sym { font-family:var(--font-mono);font-size:64px;font-weight:900;letter-spacing:-2px;line-height:1; }
+.totd-hero .conf { font-family:var(--font-mono);font-size:80px;font-weight:900;letter-spacing:-3px; }
+.spec-row { display:flex;justify-content:space-between;padding:12px 0;border-bottom:1px solid var(--border);font-size:13px; }
+.spec-row .label { color:var(--text-muted);font-weight:600; }
+.spec-row .value { font-family:var(--font-mono);font-weight:700; }
+</style>
+</head>
+<body data-needs="live">
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">🎯 Trade of the Day PRO</div>
+      <div class="page-subtitle">ML-selected highest-confidence setup · refreshes every 5 min · <span id="market-clock">--</span></div>
+    </div>
+    <div class="flex gap-8">
+      <button class="btn btn-secondary" id="refreshBtn">🔄 Re-rank</button>
+      <a href="conviction-stack.html" class="btn btn-secondary">⭐ Full Stack</a>
+    </div>
+  </div>
+
+  <div id="heroSection"></div>
+
+  <!-- BACKUP PICKS -->
+  <div class="card mt-24">
+    <div class="card-header"><div class="card-title">🔁 Runner-Ups</div></div>
+    <div id="backups" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px;"></div>
+  </div>
+
+  <div class="card mt-24">
+    <div class="card-header"><div class="card-title">🧠 Selection logic</div></div>
+    <div style="font-size:13px;color:var(--text-secondary);line-height:1.7;">
+      Picks the single finding from the last 4 hours that maximizes: <strong>model P(win) × severity × (1 + brain weight - 1)</strong>. Filters: severity ≥ 2 (must be at least medium-conviction), modelProb ≥ 0.60, no outcome yet (still actionable). Refreshes every 5 minutes — if a higher-conviction setup fires, it overtakes.
+    </div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script src="js/model.js"></script>
+<script>
+buildNav('trade-of-the-day-pro');
+
+function paint() {
+  if (!window.ModelStore) { setTimeout(paint, 500); return; }
+  const findings = (function () { try { return JSON.parse(localStorage.getItem('bpleone_brain_findings_v1') || '{"items":[]}').items; } catch (e) { return []; } })();
+  const learn = (function () { try { return JSON.parse(localStorage.getItem('bpleone_learn_v1') || '{}'); } catch (e) { return {}; } })();
+  const candidates = findings.filter(f =>
+    typeof f.modelProb === 'number' &&
+    f.modelProb >= 0.60 &&
+    (f.severity === 'high' || f.severity === 'medium' || (f.severity || 1) >= 2) &&
+    !f.outcome &&
+    (Date.now() - f.ts) < 4 * 3600 * 1000
+  );
+
+  // Score = modelProb * severity * (1 + (brainWeight - 1))
+  candidates.forEach(f => {
+    const sym = f.meta && f.meta.sym;
+    const w = (learn.symbols && learn.symbols[sym] && learn.symbols[sym].w) || 1.0;
+    const sevNum = f.severity === 'high' ? 3 : f.severity === 'medium' ? 2 : (f.severity || 1);
+    f._score = f.modelProb * sevNum * (1 + (w - 1) * 0.5);
+  });
+  candidates.sort((a, b) => b._score - a._score);
+
+  const hero = document.getElementById('heroSection');
+  if (candidates.length === 0) {
+    hero.innerHTML = '<div class="totd-hero" style="text-align:center;">'
+      + '<div style="font-size:13px;color:var(--text-muted);font-weight:700;letter-spacing:1px;">NO HIGH-CONVICTION SETUP RIGHT NOW</div>'
+      + '<div style="font-size:24px;font-weight:700;margin-top:14px;">⏳ Brain is scanning</div>'
+      + '<div style="font-size:14px;color:var(--text-secondary);margin-top:8px;max-width:500px;margin-left:auto;margin-right:auto;line-height:1.6;">Patient discipline beats forced trades. Check <a href="conviction-stack.html" style="color:var(--accent);">Conviction Stack</a> for B-tier setups or revisit in 30 min.</div>'
+      + '</div>';
+    document.getElementById('backups').innerHTML = '';
+    return;
+  }
+
+  const top = candidates[0];
+  const sym = (top.meta && top.meta.sym) || '—';
+  const setup = (top.meta && top.meta.setup) || top.type;
+  const w = (learn.symbols && learn.symbols[sym] && learn.symbols[sym].w) || 1.0;
+  const q = (typeof window.QUOTES !== 'undefined' && window.QUOTES[sym]) ? window.QUOTES[sym] : { last: 100, changePct: 0 };
+  const direction = top.modelProb >= 0.5 ? 'LONG' : 'SHORT';
+  const dirCol = direction === 'LONG' ? 'var(--green)' : 'var(--red)';
+  const atr = (q.last || 100) * 0.025;
+  const entry = q.last;
+  const stop = direction === 'LONG' ? entry - atr : entry + atr;
+  const target = direction === 'LONG' ? entry + atr * 3 : entry - atr * 3;
+
+  hero.innerHTML = '<div class="totd-hero">'
+    + '<div style="display:flex;justify-content:space-between;align-items:start;flex-wrap:wrap;gap:24px;">'
+    + '<div>'
+    + '<div style="font-size:11px;color:#a78bfa;font-weight:700;letter-spacing:1.5px;">🧬 ML SELECTED · TRADE OF THE DAY</div>'
+    + '<div class="sym" style="color:var(--accent);margin-top:8px;">' + sym + '</div>'
+    + '<div style="font-size:14px;color:var(--text-muted);margin-top:4px;">' + setup + '</div>'
+    + '<div style="margin-top:14px;display:inline-block;padding:6px 16px;background:rgba(' + (direction === 'LONG' ? '16,185,129' : '239,68,68') + ',0.18);color:' + dirCol + ';font-weight:800;border-radius:6px;font-size:13px;letter-spacing:0.5px;">' + direction + '</div>'
+    + '</div>'
+    + '<div style="text-align:right;">'
+    + '<div style="font-size:11px;color:var(--text-muted);font-weight:700;">MODEL CONFIDENCE</div>'
+    + '<div class="conf" style="color:' + (top.modelProb >= 0.7 ? 'var(--green)' : 'var(--accent)') + ';">' + (top.modelProb * 100).toFixed(0) + '%</div>'
+    + '<div style="font-size:12px;color:var(--text-muted);">' + '⭐'.repeat(top.severity === 'high' ? 3 : top.severity === 'medium' ? 2 : (top.severity || 1)) + ' · brain w=' + w.toFixed(2) + '×</div>'
+    + '</div>'
+    + '</div>'
+    + '<div style="margin-top:24px;padding-top:20px;border-top:1px solid rgba(255,255,255,0.08);">'
+    + '<div class="spec-row"><div class="label">Last Price</div><div class="value">$' + (q.last || 100).toFixed(2) + ' · ' + ((q.changePct || 0) >= 0 ? '+' : '') + (q.changePct || 0).toFixed(2) + '%</div></div>'
+    + '<div class="spec-row"><div class="label">Entry</div><div class="value" style="color:var(--accent);">$' + entry.toFixed(2) + '</div></div>'
+    + '<div class="spec-row"><div class="label">Stop (1 ATR)</div><div class="value" style="color:var(--red);">$' + stop.toFixed(2) + '</div></div>'
+    + '<div class="spec-row"><div class="label">Target (3R)</div><div class="value" style="color:var(--green);">$' + target.toFixed(2) + '</div></div>'
+    + '<div class="spec-row"><div class="label">Thesis</div><div class="value" style="font-family:Inter;font-weight:400;font-size:12px;color:var(--text-secondary);text-align:right;max-width:500px;">' + (top.title || top.body || '') + '</div></div>'
+    + '</div>'
+    + '<div style="margin-top:20px;display:flex;gap:10px;flex-wrap:wrap;">'
+    + '<a href="trade-coach.html?sym=' + sym + '" class="btn btn-primary" style="background:linear-gradient(135deg,#7c3aed,#a78bfa);border:none;">🎓 Full Trade Plan →</a>'
+    + '<a href="paper-portfolio.html" class="btn btn-secondary">🎮 Paper trade</a>'
+    + '<a href="risk-sizer-pro.html" class="btn btn-secondary">📐 Size it</a>'
+    + '<a href="model-explain.html" class="btn btn-secondary">🔬 Why this pick?</a>'
+    + '</div>'
+    + '</div>';
+
+  // Runner-ups
+  const bp = document.getElementById('backups');
+  bp.innerHTML = '';
+  candidates.slice(1, 5).forEach(f => {
+    const sym2 = (f.meta && f.meta.sym) || '—';
+    const col = f.modelProb >= 0.70 ? 'var(--green)' : 'var(--accent)';
+    const card = document.createElement('div');
+    card.style.cssText = 'padding:14px;background:var(--bg-elevated);border:1px solid var(--border);border-radius:10px;cursor:pointer;border-left:3px solid ' + col + ';';
+    card.onclick = () => { window.location.href = 'trade-coach.html?sym=' + sym2; };
+    card.innerHTML = '<div style="display:flex;justify-content:space-between;align-items:center;"><strong style="font-size:14px;">' + sym2 + '</strong><span class="mono" style="color:' + col + ';font-weight:800;font-size:18px;">' + (f.modelProb * 100).toFixed(0) + '%</span></div>'
+      + '<div style="font-size:11px;color:var(--text-muted);margin-top:4px;">' + ((f.meta && f.meta.setup) || f.type) + '</div>';
+    bp.appendChild(card);
+  });
+  if (candidates.length <= 1) {
+    bp.innerHTML = '<div style="padding:14px;color:var(--text-muted);font-size:12px;text-align:center;">Only one high-conviction setup right now.</div>';
+  }
+}
+
+document.getElementById('refreshBtn').addEventListener('click', paint);
+paint();
+window.addEventListener('bpleone:brain-finding', paint);
+window.addEventListener('bpleone:model-trained', paint);
+setInterval(paint, 5 * 60 * 1000);
+</script>
+</body>
+</html>
