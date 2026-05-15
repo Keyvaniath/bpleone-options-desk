@@ -169,6 +169,7 @@ class Model {
     this.n_hits = 0;
     this.n_misses = 0;
     this.lr = 0.05;
+    this.l2 = 0.0005; // L2 regularization strength (weight decay)
     this.lossHistory = [];
     this.accHistory = [];
     this.version = 1;
@@ -199,7 +200,9 @@ class Model {
     const { prob } = this.predict(x);
     const err = prob - y;
     for (let i = 0; i < x.length; i++) {
-      this.weights[i] -= this.lr * err * x[i];
+      // SGD update + L2 weight decay (skip bias term, last index)
+      const decay = (i === x.length - 1) ? 0 : this.l2 * this.weights[i];
+      this.weights[i] -= this.lr * (err * x[i] + decay);
     }
     const loss = -(y * Math.log(Math.max(1e-9, prob)) + (1 - y) * Math.log(Math.max(1e-9, 1 - prob)));
     this.n_trained++;
@@ -409,10 +412,124 @@ const ModelTrainer = {
   }
 };
 
+/**
+ * Auto-seed: if the model has never been trained AND there's no training data,
+ * silently generate ~200 synthetic labeled rows + train 3 epochs so the model
+ * is usable from minute one. This is idempotent — runs only once per browser.
+ */
+function autoSeedIfNeeded() {
+  try {
+    if (localStorage.getItem('bpleone_model_autoseeded_v1')) return false;
+    const existing = ModelStore.getTrainingData();
+    if (existing.length > 30) return false; // user has real data — don't pollute
+    const SETUP_PRIORS = [
+      { name: '52w-breakout', hr: 0.62, mom: 1, brk: 1, bull: 1 },
+      { name: 'bull-flag', hr: 0.58, mom: 1, brk: 0, bull: 1 },
+      { name: 'vwap-reclaim', hr: 0.54, mom: 1, brk: 0, bull: 1 },
+      { name: 'oversold-bounce', hr: 0.58, mom: 0, brk: 0, bull: 1, rev: 1 },
+      { name: 'overbought-fade', hr: 0.52, mom: 0, brk: 0, bull: 0, rev: 1 },
+      { name: 'bb-squeeze', hr: 0.63, mom: 0, brk: 1, bull: 0 },
+      { name: '50ma-breakdown', hr: 0.53, mom: 1, brk: 0, bull: 0 },
+      { name: 'sweep-call', hr: 0.45, mom: 0, brk: 0, bull: 1 },
+      { name: 'sweep-put', hr: 0.39, mom: 0, brk: 0, bull: 0 },
+      { name: 'dp-bid-lift', hr: 0.61, mom: 0, brk: 0, bull: 1 },
+      { name: 'confluence-6star', hr: 0.68, mom: 1, brk: 1, bull: 1 }
+    ];
+    function genRow(prior) {
+      const isHit = Math.random() < prior.hr;
+      const winBonus = isHit ? 0.15 : -0.10;
+      const features = new Array(FEATURES.length).fill(0);
+      features[0] = Math.max(0, Math.min(1, (prior.bull ? 0.45 : 0.55) + winBonus + (Math.random() - 0.5) * 0.3));
+      features[1] = 0.25 + (Math.random() - 0.5) * 0.3;
+      features[2] = Math.max(0, Math.min(1, 0.4 + winBonus + Math.random() * 0.3));
+      features[3] = Math.max(-1, Math.min(1, (prior.bull ? 0.3 : -0.3) + (Math.random() - 0.5) * 0.4));
+      features[4] = features[3] * 0.7 + (Math.random() - 0.5) * 0.3;
+      features[5] = Math.max(-1, Math.min(1, (prior.bull ? 0.2 : -0.2) + (Math.random() - 0.5) * 0.6));
+      features[6] = Math.max(-1, Math.min(1, (prior.bull ? 0.15 : -0.15) + winBonus * 2 + (Math.random() - 0.5) * 0.5));
+      features[7] = 0.4 + Math.random() * 0.4;
+      features[8] = Math.max(0, Math.min(1, 0.7 + winBonus * 1.5 + Math.random() * 0.2));
+      features[9] = 0.5 + (Math.random() - 0.5) * 0.6;
+      features[10] = 0.4 + (isHit ? 0.2 : 0) + Math.random() * 0.3;
+      features[11] = prior.bull ? 1 : 0;
+      features[12] = !prior.bull && !prior.rev ? 1 : 0;
+      features[13] = prior.mom ? 1 : 0;
+      features[14] = prior.rev ? 1 : 0;
+      features[15] = prior.brk ? 1 : 0;
+      features[16] = Math.max(0, Math.min(1, 0.5 + winBonus * 1.5 + (Math.random() - 0.5) * 0.3));
+      features[17] = Math.max(0, Math.min(1, (prior.bull ? 0.55 : 0.45) + winBonus * 2 + Math.random() * 0.2));
+      features[18] = 0.3 + (Math.random() - 0.5) * 0.4;
+      features[19] = Math.max(0, Math.min(1, 0.2 + winBonus * 3 + Math.random() * 0.3));
+      features[20] = Math.random();
+      features[21] = 1;
+      return { features, label: isHit ? 1 : 0, setup: prior.name };
+    }
+
+    const rows = [];
+    for (let i = 0; i < 200; i++) {
+      const prior = SETUP_PRIORS[Math.floor(Math.random() * SETUP_PRIORS.length)];
+      rows.push(genRow(prior));
+    }
+    const model = new Model();
+    for (let e = 0; e < 3; e++) {
+      const sh = rows.slice().sort(() => Math.random() - 0.5);
+      sh.forEach(r => model.train(r.features, r.label));
+    }
+    rows.forEach(r => ModelStore.addTrainingRow(r.features, r.label, { sym: 'AUTOSEED', setup: r.setup }));
+    ModelStore.save(model);
+    ModelStore.saveVersion(model, 'auto-seed (200 rows × 3 epochs)');
+    localStorage.setItem('bpleone_model_autoseeded_v1', String(Date.now()));
+    try { window.dispatchEvent(new CustomEvent('bpleone:model-autoseeded', { detail: { rows: 200 } })); } catch (e) {}
+    return true;
+  } catch (e) { return false; }
+}
+
+/**
+ * Convenience: predict P(win) for an existing brain finding.
+ * Returns {prob, score, contributions} or null if features missing.
+ */
+function predictForFinding(f) {
+  if (!f) return null;
+  const features = f.features || FeatureExtractor.extract(f);
+  if (!features) return null;
+  const model = ModelStore.load();
+  return model.predict(features);
+}
+
+/**
+ * Drift detection: compute brain's recent hit-rate vs long-term.
+ * Returns {recentHR, lifetimeHR, drift, alert}
+ */
+function detectDrift() {
+  try {
+    const state = JSON.parse(localStorage.getItem('bpleone_brain_loop_state_v1') || '{}');
+    const fed = Object.values(state.fedFindings || {});
+    if (fed.length < 30) return { recentHR: 0, lifetimeHR: 0, drift: 0, alert: false, n: fed.length };
+    const decided = fed.filter(f => f.outcome === 'hit' || f.outcome === 'miss');
+    if (decided.length < 30) return { recentHR: 0, lifetimeHR: 0, drift: 0, alert: false, n: decided.length };
+    decided.sort((a, b) => a.ts - b.ts);
+    const lifetimeHits = decided.filter(f => f.outcome === 'hit').length;
+    const lifetimeHR = lifetimeHits / decided.length;
+    const recent = decided.slice(-30);
+    const recentHits = recent.filter(f => f.outcome === 'hit').length;
+    const recentHR = recentHits / recent.length;
+    const drift = recentHR - lifetimeHR;
+    return { recentHR, lifetimeHR, drift, alert: drift < -0.15, n: decided.length };
+  } catch (e) { return { recentHR: 0, lifetimeHR: 0, drift: 0, alert: false, n: 0 }; }
+}
+
 if (typeof window !== 'undefined') {
   window.Model = Model;
   window.FEATURES = FEATURES;
   window.FeatureExtractor = FeatureExtractor;
   window.ModelStore = ModelStore;
   window.ModelTrainer = ModelTrainer;
+  window.predictForFinding = predictForFinding;
+  window.detectDrift = detectDrift;
+
+  // Auto-seed on first load
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', () => setTimeout(autoSeedIfNeeded, 500));
+  } else {
+    setTimeout(autoSeedIfNeeded, 500);
+  }
 }

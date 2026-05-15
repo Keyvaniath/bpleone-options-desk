@@ -84,7 +84,7 @@
       </div>
     </div>
     <div class="stack-row" style="background:var(--bg-elevated);font-size:10px;color:var(--text-muted);font-weight:800;letter-spacing:0.5px;">
-      <div>#</div><div>SYM</div><div>BIAS</div><div>SCORE</div><div>SETUP</div><div>SOURCES</div><div>CONVICTION</div><div>BRAIN W</div><div>ACTION</div>
+      <div>#</div><div>SYM</div><div>BIAS</div><div>SCORE</div><div>SETUP</div><div>SOURCES</div><div>CONVICTION</div><div>ML P(WIN)</div><div>ACTION</div>
     </div>
     <div id="stackBody"></div>
   </div>
@@ -123,6 +123,7 @@
 <script src="js/app.js"></script>
 <script src="js/notify.js"></script>
 <script src="js/live.js"></script>
+<script src="js/model.js"></script>
 <script src="js/charts.js"></script>
 <script>
 buildNav('conviction-stack');
@@ -214,9 +215,21 @@ function buildStack() {
     const dominant = s.bull >= s.bear ? 'bull' : 'bear';
     const score = Math.min(100, Math.round(total));
     const topSetup = s.setups.sort((a, b) => b.contribution - a.contribution)[0];
+    // ML model confidence — use top setup's finding
+    let modelProb = null;
+    if (topSetup && window.predictForFinding) {
+      try {
+        const matchingFinding = loadFindings().find(f => f.id === topSetup.id);
+        if (matchingFinding) {
+          const pred = window.predictForFinding(matchingFinding);
+          if (pred) modelProb = pred.prob;
+        }
+      } catch (e) {}
+    }
     return {
       sym: s.sym,
       score,
+      modelProb,
       bias: Math.abs(net) > total * 0.2 ? dominant : 'neutral',
       sources: Array.from(s.srcs),
       topSetup: topSetup ? (topSetup.setup || topSetup.type) : 'mixed',
@@ -268,7 +281,7 @@ function renderStack() {
       + '<div style="font-size:12px;"><div style="font-weight:600;">' + (s.topSetup || '').replace(/-/g, ' ') + '</div><div style="color:var(--text-muted);font-size:11px;">' + (s.title || '').slice(0, 60) + '</div></div>'
       + '<div>' + srcs + '</div>'
       + '<div><div class="conviction-bar"><div style="width:' + s.score + '%;background:' + tierCol + ';"></div></div><div class="mono" style="font-size:9px;color:var(--text-muted);margin-top:3px;">' + ageMin + 'm ago</div></div>'
-      + '<div class="mono" style="font-size:11px;color:' + (s.brainWeight > 1 ? 'var(--green)' : s.brainWeight < 1 ? 'var(--red)' : 'var(--text-muted)') + ';">' + s.brainWeight.toFixed(2) + '×</div>'
+      + '<div class="mono" style="font-size:13px;font-weight:700;color:' + (s.modelProb == null ? 'var(--text-muted)' : s.modelProb >= 0.6 ? 'var(--green)' : s.modelProb <= 0.4 ? 'var(--red)' : 'var(--accent)') + ';">' + (s.modelProb == null ? '—' : (s.modelProb * 100).toFixed(0) + '%') + '</div>'
       + '<div><a href="ticker.html?sym=' + s.sym + '" class="btn btn-ghost" style="padding:4px 10px;font-size:11px;">Open →</a></div>';
     row.onclick = (e) => { if (e.target.tagName !== 'A') window.location.href = 'ticker.html?sym=' + s.sym; };
     body.appendChild(row);

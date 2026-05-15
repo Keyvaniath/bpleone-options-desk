@@ -66,6 +66,7 @@
 <script src="js/app.js"></script>
 <script src="js/notify.js"></script>
 <script src="js/live.js"></script>
+<script src="js/model.js"></script>
 <script>
 buildNav('trade-coach');
 
@@ -152,6 +153,23 @@ function generatePlan(sym) {
        'wait for break of either daily H/L with volume confirmation.');
   }
 
+  // ML Model confidence for top finding
+  let modelProb = null;
+  let modelExplanation = '';
+  if (recent.length > 0 && window.predictForFinding) {
+    try {
+      const pred = window.predictForFinding(recent[0]);
+      if (pred) {
+        modelProb = pred.prob;
+        // Top 3 features
+        const top = pred.contributions.slice().sort((a, b) => Math.abs(b.contrib) - Math.abs(a.contrib)).slice(0, 3);
+        modelExplanation = top.map(c => (c.contrib >= 0 ? '+' : '') + c.feature.split('_')[0]).join(' / ');
+      }
+    } catch (e) {}
+  }
+  const modelCol = modelProb == null ? 'var(--text-muted)' : modelProb >= 0.6 ? 'var(--green)' : modelProb <= 0.4 ? 'var(--red)' : 'var(--accent)';
+  const modelVerdict = modelProb == null ? '—' : modelProb >= 0.6 ? '✓ LIKELY WIN' : modelProb <= 0.4 ? '⚠ LIKELY LOSS' : '≈ COIN-FLIP';
+
   return `
     <div style="display:flex;justify-content:space-between;align-items:start;flex-wrap:wrap;gap:18px;margin-bottom:20px;">
       <div>
@@ -163,6 +181,23 @@ function generatePlan(sym) {
         <div style="font-size:11px;color:var(--text-muted);">Brain conviction: <strong style="color:var(--accent);">${conviction}/100</strong></div>
       </div>
     </div>
+
+    ${modelProb != null ? `
+    <div style="padding:18px;border-radius:12px;background:linear-gradient(135deg,rgba(124,58,237,0.06),transparent);border:1px solid rgba(124,58,237,0.2);margin-bottom:20px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:14px;">
+        <div>
+          <div style="font-size:11px;color:var(--text-muted);font-weight:700;letter-spacing:0.5px;">🧬 ML MODEL CONFIDENCE</div>
+          <div class="mono" style="font-size:36px;font-weight:800;color:${modelCol};margin-top:4px;">${(modelProb * 100).toFixed(1)}%</div>
+          <div style="font-size:12px;color:${modelCol};font-weight:700;margin-top:2px;">${modelVerdict}</div>
+        </div>
+        <div style="flex:1;min-width:200px;max-width:400px;">
+          <div style="font-size:11px;color:var(--text-muted);font-weight:700;letter-spacing:0.5px;margin-bottom:6px;">TOP DRIVERS</div>
+          <div style="font-family:var(--font-mono);font-size:11px;color:var(--text-secondary);line-height:1.6;">${modelExplanation}</div>
+          <div style="margin-top:8px;"><a href="model-explain.html" style="color:var(--accent);font-size:11px;">See full breakdown →</a></div>
+        </div>
+      </div>
+    </div>
+    ` : ''}
 
     <div class="card mb-24" style="background:linear-gradient(135deg,rgba(0,212,255,0.05),transparent);">
       <div class="card-header"><div class="card-title">📋 Thesis</div></div>

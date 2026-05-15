@@ -310,6 +310,25 @@ const BrainLoop = (function () {
     saveState(state);
   }
 
+  // --- Drift detection ---
+  function tickDriftCheck() {
+    try {
+      if (typeof window === 'undefined' || !window.detectDrift) return;
+      const d = window.detectDrift();
+      if (d.alert) {
+        const state = loadState();
+        const lastAlert = state.lastDriftAlertTs || 0;
+        // Cooldown 6h
+        if (Date.now() - lastAlert < 6 * 60 * 60 * 1000) return;
+        state.lastDriftAlertTs = Date.now();
+        saveState(state);
+        emit('drift-alert', 'high', 'Model performance drift detected',
+          'Recent hit rate ' + (d.recentHR * 100).toFixed(1) + '% vs lifetime ' + (d.lifetimeHR * 100).toFixed(1) + '% (delta ' + (d.drift * 100).toFixed(1) + '%). Consider full retrain or snapshot rollback.',
+          { recentHR: d.recentHR, lifetimeHR: d.lifetimeHR, drift: d.drift, n: d.n });
+      }
+    } catch (e) {}
+  }
+
   // --- Hourly digest ---
   function tickHourlyDigest() {
     const findings = loadFindings();
@@ -336,6 +355,8 @@ const BrainLoop = (function () {
     setTimeout(() => { tickRegimeDetect(); timers.push(setInterval(tickRegimeDetect, 5 * 60 * 1000)); }, 18000);
     // Conviction stack snapshot every 2 min
     setTimeout(() => { tickConvictionSnapshot(); timers.push(setInterval(tickConvictionSnapshot, 2 * 60 * 1000)); }, 20000);
+    // Drift detection every 15 min
+    setTimeout(() => { tickDriftCheck(); timers.push(setInterval(tickDriftCheck, 15 * 60 * 1000)); }, 22000);
     // Hourly digest aligned to clock minute :30
     const minToHalf = (90 - (new Date().getMinutes() * 60 + new Date().getSeconds()) % 3600 / 60) % 60;
     setTimeout(() => { tickHourlyDigest(); timers.push(setInterval(tickHourlyDigest, 60 * 60 * 1000)); }, Math.max(15000, minToHalf * 60 * 1000));
@@ -356,6 +377,6 @@ const BrainLoop = (function () {
     }
   }
 
-  return { start, stop, recent, clear, emit, tickHighConviction, tickWeightShift, tickConfluence, tickOutcomes, tickMLFeedback, tickRegimeDetect, tickConvictionSnapshot, tickHourlyDigest };
+  return { start, stop, recent, clear, emit, tickHighConviction, tickWeightShift, tickConfluence, tickOutcomes, tickMLFeedback, tickRegimeDetect, tickConvictionSnapshot, tickHourlyDigest, tickDriftCheck };
 })();
 if (typeof window !== 'undefined') window.BrainLoop = BrainLoop;

@@ -33,6 +33,7 @@
       <div class="page-subtitle">Capture every trade · thesis · lessons · screenshots · <span id="market-clock">--</span></div>
     </div>
     <div class="flex gap-8">
+      <button class="btn btn-primary" id="trainBtn" style="background:linear-gradient(135deg,#7c3aed,#a78bfa);">🧬 Train ML from my trades</button>
       <button class="btn btn-secondary" id="exportBtn">📥 CSV Export</button>
     </div>
   </div>
@@ -77,6 +78,7 @@
 <script src="js/app.js"></script>
 <script src="js/notify.js"></script>
 <script src="js/live.js"></script>
+<script src="js/model.js"></script>
 <script>
 buildNav('trade-journal-pro');
 
@@ -149,6 +151,32 @@ document.getElementById('saveBtn').addEventListener('click', () => {
   save(entries);
   paint();
   ['fSym','fEntry','fExit','fThesis','fLessons','fTags'].forEach(id => document.getElementById(id).value = '');
+});
+
+document.getElementById('trainBtn').addEventListener('click', () => {
+  if (!window.ModelStore || !window.FeatureExtractor) { alert('ML model not loaded yet. Refresh page.'); return; }
+  if (entries.length < 5) { alert('Need at least 5 journal entries to train. Currently have ' + entries.length + '.'); return; }
+  if (!confirm('Train the ML model on your ' + entries.length + ' journaled trades? This adds them as labeled training data + runs a full retrain.')) return;
+  let added = 0;
+  entries.forEach(e => {
+    const sideMul = e.side === 'LONG' ? 1 : -1;
+    const pnl = (e.exit - e.entry) * e.shares * sideMul;
+    if (pnl === 0) return; // skip flat
+    const label = pnl > 0 ? 1 : 0;
+    // Build a synthetic finding from the journal entry for feature extraction
+    const synthFinding = {
+      ts: e.ts,
+      severity: 2,
+      meta: { sym: e.sym, setup: e.setup, bias: e.side === 'LONG' ? 'bull' : 'bear' },
+      type: 'journal-trade'
+    };
+    const features = window.FeatureExtractor.extract(synthFinding);
+    window.ModelStore.addTrainingRow(features, label, { sym: e.sym, setup: e.setup, source: 'journal', pnl });
+    added++;
+  });
+  // Full retrain
+  const result = window.ModelTrainer.fullRetrain(3);
+  alert('✓ Added ' + added + ' journal trades as training data. Model retrained from scratch (3 epochs × ' + result.samples + ' samples). View on Model Trainer.');
 });
 
 document.getElementById('exportBtn').addEventListener('click', () => {
