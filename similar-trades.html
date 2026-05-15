@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Similar Trades — bpleone / trade</title>
+<meta name="description" content="I've seen this before. Brain finds the most similar past trades to a current setup. Learn from history.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.match-row { padding:14px;background:var(--bg-elevated);border:1px solid var(--border);border-radius:10px;margin-bottom:10px;display:grid;grid-template-columns:60px 1fr 100px 80px 100px;gap:14px;align-items:center;font-size:12px; }
+.match-row.win { border-left:4px solid var(--green); }
+.match-row.loss { border-left:4px solid var(--red); }
+.match-row .sim-bar { height:8px;background:var(--bg);border-radius:4px;overflow:hidden;width:60px;display:inline-block;vertical-align:middle; }
+.match-row .sim-bar > div { height:100%; }
+.signal-row { padding:18px;background:var(--bg-elevated);border:1px solid var(--border);border-radius:10px;cursor:pointer;margin-bottom:10px;transition:all 0.15s; }
+.signal-row:hover { border-color:var(--accent); }
+.signal-row.on { border-color:var(--accent);background:rgba(0,212,255,0.05); }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">🔍 Similar Trades</div>
+      <div class="page-subtitle">Pick a live signal · find most similar past trades · learn from history · <span id="market-clock">--</span></div>
+    </div>
+  </div>
+
+  <div class="grid grid-2" style="gap:18px;">
+    <div>
+      <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.6px;font-weight:700;margin-bottom:10px;">📡 Live signals (last 6h) — click one</div>
+      <div id="signals"></div>
+    </div>
+    <div>
+      <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.6px;font-weight:700;margin-bottom:10px;">🎯 Most similar past trades</div>
+      <div id="matches"></div>
+    </div>
+  </div>
+
+  <div class="card mt-24">
+    <div class="card-header"><div class="card-title">💡 How similarity works</div></div>
+    <div style="font-size:13px;color:var(--text-secondary);line-height:1.7;">
+      Every signal is a feature vector — RSI, MACD, volume Z-score, momentum, etc. The brain computes <strong>Euclidean distance</strong> between the current signal's feature vector and every historical labeled trade.
+      <br><br>
+      The 10 closest matches tell you: <em>"When I've seen something this similar in the past, what happened?"</em>
+      <br><br>
+      If 8 of 10 most-similar trades were wins, the current signal is in a high-quality cluster. If 8 of 10 were losses, even if the model says 60% confident, you should be skeptical — your own history disagrees.
+    </div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script src="js/model.js"></script>
+<script>
+buildNav('similar-trades');
+
+function loadFindings() { try { return JSON.parse(localStorage.getItem('bpleone_brain_findings_v1') || '{"items":[]}').items; } catch(e) { return []; } }
+function loadTrain() { try { return JSON.parse(localStorage.getItem('bpleone_train_v1') || '[]'); } catch(e) { return []; } }
+
+function distance(a, b) {
+  if (!a || !b || !a.length || !b.length) return Infinity;
+  const n = Math.min(a.length, b.length);
+  let s = 0;
+  for (let i = 0; i < n; i++) s += (a[i] - b[i]) ** 2;
+  return Math.sqrt(s);
+}
+
+let activeId = null;
+
+function renderSignals() {
+  const findings = loadFindings().filter(f => Date.now() - f.ts < 6 * 3600 * 1000);
+  const wrap = document.getElementById('signals');
+  if (findings.length === 0) {
+    wrap.innerHTML = '<div style="padding:30px;text-align:center;color:var(--text-muted);font-size:13px;">No live signals in the last 6 hours. Wait for the brain to find one.</div>';
+    return;
+  }
+  const ranked = findings.map(f => {
+    let p = null; try { if (window.predictForFinding) { const r = window.predictForFinding(f); p = r ? r.prob : null; } } catch(e) {}
+    return { ...f, p };
+  }).filter(f => f.p != null).sort((a,b) => b.p - a.p).slice(0, 12);
+  wrap.innerHTML = ranked.map(f => '<div class="signal-row' + (activeId === f.id ? ' on' : '') + '" data-fid="' + f.id + '">'
+    + '<div style="display:flex;justify-content:space-between;align-items:center;">'
+    + '<div><strong style="font-family:var(--font-mono);font-size:14px;">' + (f.meta?.sym || '?') + '</strong> <span style="color:var(--text-muted);font-size:11px;margin-left:8px;">' + (f.meta?.setup || 'signal') + '</span></div>'
+    + '<div style="font-family:var(--font-mono);font-weight:700;color:var(--accent);">' + (f.p*100).toFixed(0) + '%</div>'
+    + '</div>'
+    + '<div style="font-size:11px;color:var(--text-muted);margin-top:4px;">' + (f.title || '') + '</div>'
+    + '</div>').join('');
+  wrap.querySelectorAll('.signal-row').forEach(r => r.addEventListener('click', () => {
+    activeId = r.dataset.fid;
+    renderSignals();
+    renderMatches();
+  }));
+}
+
+function renderMatches() {
+  const wrap = document.getElementById('matches');
+  if (!activeId) {
+    wrap.innerHTML = '<div style="padding:30px;text-align:center;color:var(--text-muted);font-size:13px;">← Pick a signal on the left to find its closest historical matches.</div>';
+    return;
+  }
+  const findings = loadFindings();
+  const target = findings.find(f => f.id === activeId);
+  if (!target || !target.x) {
+    wrap.innerHTML = '<div style="padding:30px;text-align:center;color:var(--text-muted);font-size:13px;">No feature vector for this signal.</div>';
+    return;
+  }
+  const train = loadTrain().filter(t => t.x && t.x.length);
+  if (train.length === 0) {
+    wrap.innerHTML = '<div style="padding:30px;text-align:center;color:var(--text-muted);font-size:13px;">No historical trades to compare against. Trade more.</div>';
+    return;
+  }
+  // Compute distances
+  const scored = train.map(t => ({ t, d: distance(target.x, t.x) })).sort((a, b) => a.d - b.d).slice(0, 10);
+  const maxD = scored[scored.length - 1].d || 1;
+  const wins = scored.filter(x => x.t.y === 1).length;
+  const summary = '<div style="padding:14px;background:var(--bg-elevated);border-radius:10px;margin-bottom:12px;font-size:13px;text-align:center;">'
+    + 'Of the 10 most similar past trades, <strong style="color:' + (wins >= 6 ? 'var(--green)' : wins >= 4 ? 'var(--yellow)' : 'var(--red)') + ';font-family:var(--font-mono);font-size:18px;">' + wins + '</strong> were wins. '
+    + (wins >= 7 ? 'High-quality cluster — your history supports the signal.' :
+       wins >= 4 ? 'Mixed cluster — coin flip.' :
+       '<span style="color:var(--red);">Bad cluster — history disagrees with the model.</span>')
+    + '</div>';
+  const matches = scored.map(({ t, d }) => {
+    const sim = Math.max(0, 1 - d / maxD);
+    const cls = t.y === 1 ? 'win' : 'loss';
+    const r = (t.y === 1 ? '+' + (t.r || 1.5).toFixed(2) : '-1.00') + 'R';
+    return '<div class="match-row ' + cls + '">'
+      + '<div style="font-family:var(--font-mono);font-size:11px;color:var(--text-muted);">' + new Date(t.ts).toLocaleDateString() + '</div>'
+      + '<div><strong>' + (t.meta?.sym || '?') + '</strong> · <span style="color:var(--text-muted);">' + (t.meta?.setup || '?') + '</span></div>'
+      + '<div style="font-family:var(--font-mono);font-weight:700;color:' + (t.y === 1 ? 'var(--green)' : 'var(--red)') + ';">' + (t.y === 1 ? 'WIN' : 'LOSS') + '</div>'
+      + '<div style="font-family:var(--font-mono);">' + r + '</div>'
+      + '<div><div class="sim-bar"><div style="width:' + (sim*100).toFixed(0) + '%;background:var(--accent);"></div></div> <span style="font-family:var(--font-mono);font-size:10px;color:var(--accent);">' + (sim*100).toFixed(0) + '%</span></div>'
+      + '</div>';
+  }).join('');
+  wrap.innerHTML = summary + matches;
+}
+
+renderSignals();
+renderMatches();
+setInterval(renderSignals, 10000);
+</script>
+</body>
+</html>

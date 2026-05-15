@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Trade Sizing Advisor — bpleone / trade</title>
+<meta name="description" content="Real-time position size recommendation. Adjusts for ML confidence, drift, daily P&L, and risk limits.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.adv-grid { display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-bottom:24px; }
+.input-block { padding:18px;background:var(--bg-elevated);border-radius:12px; }
+.input-block label { font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;font-weight:700;display:block;margin-bottom:5px; }
+.input-block input, .input-block select { width:100%;padding:10px;background:var(--bg);border:1px solid var(--border);color:var(--text-primary);border-radius:6px;font-family:var(--font-mono);font-size:14px; }
+.input-row { display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px; }
+.suggest-card { padding:30px;border-radius:16px;text-align:center;margin-bottom:14px; }
+.suggest-card.go { background:rgba(16,185,129,0.08);border:2px solid rgba(16,185,129,0.4); }
+.suggest-card.half { background:rgba(245,158,11,0.08);border:2px solid rgba(245,158,11,0.4); }
+.suggest-card.skip { background:rgba(239,68,68,0.12);border:2px solid rgba(239,68,68,0.4); }
+.suggest-big { font-family:var(--font-mono);font-size:64px;font-weight:800;line-height:1;margin:14px 0; }
+.factor-row { display:grid;grid-template-columns:1fr 80px;gap:14px;padding:8px 0;border-bottom:1px solid var(--border);font-size:12px;align-items:center; }
+.factor-row .label { color:var(--text-secondary); }
+.factor-row .val { font-family:var(--font-mono);font-weight:700;text-align:right; }
+.modifier { padding:2px 8px;border-radius:10px;font-size:10px;font-weight:700;display:inline-block; }
+.mod-up { background:rgba(16,185,129,0.18);color:var(--green); }
+.mod-down { background:rgba(239,68,68,0.15);color:var(--red); }
+.mod-neutral { background:rgba(100,116,139,0.15);color:var(--text-muted); }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">📐 Trade Sizing Advisor</div>
+      <div class="page-subtitle">Real-time position size advice · adjusts for ML confidence · drift · daily P&L · <span id="market-clock">--</span></div>
+    </div>
+  </div>
+
+  <div class="adv-grid">
+    <div>
+      <div class="input-block mb-16">
+        <h4 style="font-size:13px;font-weight:700;margin-bottom:14px;">📋 Trade details</h4>
+        <div class="input-row">
+          <div><label>Symbol</label><input type="text" id="sym" placeholder="NVDA" style="text-transform:uppercase;"></div>
+          <div><label>Side</label><select id="side"><option>LONG</option><option>SHORT</option></select></div>
+        </div>
+        <div class="input-row">
+          <div><label>Entry $</label><input type="number" id="entry" placeholder="450"></div>
+          <div><label>Stop $</label><input type="number" id="stop" placeholder="445"></div>
+        </div>
+        <div class="input-row">
+          <div><label>Target $</label><input type="number" id="target" placeholder="460"></div>
+          <div><label>ML Confidence %</label><input type="number" id="conf" placeholder="72" min="0" max="100"></div>
+        </div>
+      </div>
+      <div class="input-block">
+        <h4 style="font-size:13px;font-weight:700;margin-bottom:14px;">💰 Account</h4>
+        <div class="input-row">
+          <div><label>Book size ($)</label><input type="number" id="book" placeholder="10000" step="500"></div>
+          <div><label>Base risk (% of book)</label><input type="number" id="baseRisk" placeholder="1" step="0.25"></div>
+        </div>
+      </div>
+    </div>
+    <div>
+      <div id="suggestion" class="suggest-card half">
+        <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:1px;">Recommended size</div>
+        <div class="suggest-big" id="suggestBig">--</div>
+        <div id="suggestNote" style="font-size:13px;color:var(--text-secondary);line-height:1.6;">Fill in trade details to get a recommendation.</div>
+      </div>
+      <div class="input-block">
+        <h4 style="font-size:13px;font-weight:700;margin-bottom:14px;">⚙ Size modifiers</h4>
+        <div id="factors"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-header"><div class="card-title">💡 How sizing is calculated</div></div>
+    <div style="font-size:13px;color:var(--text-secondary);line-height:1.7;">
+      Base size = (book × base risk %) / (entry − stop). This is fixed-fractional risk.
+      <br><br>
+      Then the brain applies modifiers:
+      <br>
+      <strong>ML confidence:</strong> &lt;55% → skip the trade. 55–70% → half size. 70–85% → full size. 85%+ → can go 1.25x (still capped at 2% max risk).<br>
+      <strong>Daily P&L:</strong> If you're down &gt;1% on the day, size halves. Tilt protection.<br>
+      <strong>Drift:</strong> If model drift is &gt;10%, size halves. The brain doesn't trust itself when regime is shifting.<br>
+      <strong>Symbol weight:</strong> Symbols with proven edge (learned weight &gt;1.1) get a small bump. Symbols with negative edge get cut size.<br>
+      <strong>Daily limit:</strong> Hard cap — never risk more than your daily loss limit allows for one trade.
+    </div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script src="js/model.js"></script>
+<script>
+buildNav('trade-sizing-advisor');
+
+function loadLearn() { try { return JSON.parse(localStorage.getItem('bpleone_learn_v1') || '{}'); } catch(e) { return {}; } }
+function loadJournal() { try { return JSON.parse(localStorage.getItem('bpleone_journal_pro_v1') || '[]'); } catch(e) { return []; } }
+function loadTrain() { try { return JSON.parse(localStorage.getItem('bpleone_train_v1') || '[]'); } catch(e) { return []; } }
+
+function calc() {
+  const sym = (document.getElementById('sym').value || '').toUpperCase();
+  const entry = parseFloat(document.getElementById('entry').value);
+  const stop = parseFloat(document.getElementById('stop').value);
+  const target = parseFloat(document.getElementById('target').value);
+  const conf = parseFloat(document.getElementById('conf').value) / 100;
+  const book = parseFloat(document.getElementById('book').value) || 10000;
+  const baseRiskPct = parseFloat(document.getElementById('baseRisk').value) / 100 || 0.01;
+
+  if (!entry || !stop) return null;
+  const riskPerShare = Math.abs(entry - stop);
+  const baseRisk = book * baseRiskPct;
+  let baseSizeShares = Math.floor(baseRisk / riskPerShare);
+  let multiplier = 1.0;
+  const factors = [];
+
+  // ML confidence
+  if (!isNaN(conf)) {
+    if (conf < 0.55) {
+      factors.push({ label: 'ML confidence ' + (conf*100).toFixed(0) + '% (below 55%)', mod: 'SKIP', cls:'mod-down', mult: 0 });
+      multiplier *= 0;
+    } else if (conf < 0.70) {
+      factors.push({ label: 'ML confidence ' + (conf*100).toFixed(0) + '% (55-70%)', mod: '0.5x', cls:'mod-down', mult: 0.5 });
+      multiplier *= 0.5;
+    } else if (conf < 0.85) {
+      factors.push({ label: 'ML confidence ' + (conf*100).toFixed(0) + '% (70-85%)', mod: '1.0x', cls:'mod-neutral', mult: 1.0 });
+    } else {
+      factors.push({ label: 'ML confidence ' + (conf*100).toFixed(0) + '% (85%+)', mod: '1.25x', cls:'mod-up', mult: 1.25 });
+      multiplier *= 1.25;
+    }
+  } else {
+    factors.push({ label: 'ML confidence (not provided)', mod: '1.0x', cls:'mod-neutral', mult: 1.0 });
+  }
+
+  // Daily P&L
+  const today0 = new Date(); today0.setHours(0,0,0,0);
+  const dayPnl = loadJournal().filter(j => j.ts >= today0.getTime()).reduce((a, j) => a + (j.pnl || 0), 0);
+  const dayPnlPct = dayPnl / book;
+  if (dayPnlPct < -0.01) {
+    factors.push({ label: 'Down ' + (dayPnlPct*100).toFixed(1) + '% today', mod: '0.5x', cls:'mod-down', mult: 0.5 });
+    multiplier *= 0.5;
+  } else if (dayPnlPct < 0) {
+    factors.push({ label: 'Slightly down on day', mod: '0.75x', cls:'mod-down', mult: 0.75 });
+    multiplier *= 0.75;
+  } else {
+    factors.push({ label: 'Day P&L neutral/positive', mod: '1.0x', cls:'mod-neutral', mult: 1.0 });
+  }
+
+  // Drift
+  const train = loadTrain();
+  if (train.length > 10) {
+    const recent = train.filter(t => Date.now() - t.ts < 14 * 86400000);
+    const lifetimeHit = train.filter(t => t.y === 1).length / train.length;
+    const recentHit = recent.length > 0 ? recent.filter(t => t.y === 1).length / recent.length : lifetimeHit;
+    const drift = Math.abs(recentHit - lifetimeHit);
+    if (drift > 0.15) {
+      factors.push({ label: 'Major drift detected (' + (drift*100).toFixed(0) + '%)', mod: '0.5x', cls:'mod-down', mult: 0.5 });
+      multiplier *= 0.5;
+    } else if (drift > 0.1) {
+      factors.push({ label: 'Drift detected (' + (drift*100).toFixed(0) + '%)', mod: '0.75x', cls:'mod-down', mult: 0.75 });
+      multiplier *= 0.75;
+    } else {
+      factors.push({ label: 'No drift', mod: '1.0x', cls:'mod-neutral', mult: 1.0 });
+    }
+  }
+
+  // Symbol weight
+  const learn = loadLearn();
+  const symW = (learn.symbols && learn.symbols[sym] && learn.symbols[sym].w) || 1.0;
+  if (symW > 1.1) {
+    factors.push({ label: sym + ' is a proven winner (' + symW.toFixed(2) + 'x)', mod: '1.1x', cls:'mod-up', mult: 1.1 });
+    multiplier *= 1.1;
+  } else if (symW < 0.9) {
+    factors.push({ label: sym + ' is weak for the brain (' + symW.toFixed(2) + 'x)', mod: '0.75x', cls:'mod-down', mult: 0.75 });
+    multiplier *= 0.75;
+  } else {
+    factors.push({ label: sym + ' has neutral history', mod: '1.0x', cls:'mod-neutral', mult: 1.0 });
+  }
+
+  // R:R
+  if (target) {
+    const rr = Math.abs(target - entry) / riskPerShare;
+    if (rr < 1.0) {
+      factors.push({ label: 'R:R too low (' + rr.toFixed(2) + ':1)', mod: 'SKIP', cls:'mod-down', mult: 0 });
+      multiplier *= 0;
+    } else if (rr < 1.5) {
+      factors.push({ label: 'R:R borderline (' + rr.toFixed(2) + ':1)', mod: '0.75x', cls:'mod-down', mult: 0.75 });
+      multiplier *= 0.75;
+    } else {
+      factors.push({ label: 'R:R ' + rr.toFixed(2) + ':1 ✓', mod: '1.0x', cls:'mod-neutral', mult: 1.0 });
+    }
+  }
+
+  const finalShares = Math.max(0, Math.floor(baseSizeShares * multiplier));
+  const finalRisk = finalShares * riskPerShare;
+  const finalExposure = finalShares * entry;
+
+  return { sym, entry, stop, target, conf, book, baseSizeShares, multiplier, finalShares, finalRisk, finalExposure, factors };
+}
+
+function render() {
+  const r = calc();
+  const sBig = document.getElementById('suggestBig');
+  const sNote = document.getElementById('suggestNote');
+  const sCard = document.getElementById('suggestion');
+  const fWrap = document.getElementById('factors');
+
+  if (!r) {
+    sBig.textContent = '--';
+    sNote.textContent = 'Fill in entry and stop to get a recommendation.';
+    sCard.className = 'suggest-card half';
+    fWrap.innerHTML = '<div style="padding:14px 0;text-align:center;color:var(--text-muted);font-size:12px;">Modifiers appear here once trade details are entered.</div>';
+    return;
+  }
+
+  if (r.multiplier === 0) {
+    sBig.textContent = '🛑 SKIP';
+    sBig.style.color = 'var(--red)';
+    sNote.innerHTML = 'At least one factor says don\'t trade. Check modifiers below.';
+    sCard.className = 'suggest-card skip';
+  } else {
+    sBig.textContent = r.finalShares + ' shares';
+    sBig.style.color = r.multiplier >= 1 ? 'var(--green)' : 'var(--yellow)';
+    sNote.innerHTML = 'Risk <strong>$' + r.finalRisk.toFixed(0) + '</strong> (' + ((r.finalRisk/r.book)*100).toFixed(2) + '% of book)<br>Exposure <strong>$' + r.finalExposure.toFixed(0) + '</strong><br>Sizing multiplier: <strong>' + r.multiplier.toFixed(2) + 'x</strong>';
+    sCard.className = 'suggest-card ' + (r.multiplier >= 1 ? 'go' : 'half');
+  }
+
+  fWrap.innerHTML = r.factors.map(f =>
+    '<div class="factor-row">'
+      + '<div class="label">' + f.label + '</div>'
+      + '<div class="val"><span class="modifier ' + f.cls + '">' + f.mod + '</span></div>'
+    + '</div>'
+  ).join('');
+}
+
+['sym','entry','stop','target','conf','book','baseRisk','side'].forEach(id => document.getElementById(id).addEventListener('input', render));
+render();
+</script>
+</body>
+</html>

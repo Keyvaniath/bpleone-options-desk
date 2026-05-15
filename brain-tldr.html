@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Brain TL;DR — bpleone / trade</title>
+<meta name="description" content="60-second daily summary auto-generated from your brain state. For when you have 30 seconds.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.tldr-card { padding:32px;background:linear-gradient(135deg,rgba(0,212,255,0.05),rgba(167,139,250,0.03));border:1px solid var(--border);border-radius:16px;margin-bottom:18px; }
+.tldr-card h2 { font-size:22px;margin-bottom:14px;line-height:1.4; }
+.tldr-card .lead { font-size:18px;color:var(--text-primary);line-height:1.7;margin-bottom:14px; }
+.tldr-card .bullets { font-size:14px;color:var(--text-secondary);line-height:1.9; }
+.tldr-card .bullets li { margin-bottom:6px; }
+.tldr-card strong { color:var(--accent); }
+.tldr-card .accent { background:rgba(0,212,255,0.15);padding:2px 8px;border-radius:4px;font-family:var(--font-mono);font-weight:700; }
+.action-card { padding:18px;background:var(--bg-elevated);border-left:4px solid var(--accent);border-radius:10px;margin-bottom:10px; }
+.action-card.good { border-left-color:var(--green); }
+.action-card.bad { border-left-color:var(--red); }
+.action-card.warn { border-left-color:var(--yellow); }
+.action-card h4 { font-size:13px;font-weight:700;margin-bottom:6px; }
+.action-card p { font-size:12px;color:var(--text-secondary);line-height:1.6; }
+.read-time { font-size:11px;color:var(--text-muted);text-align:center;margin-top:24px;font-style:italic; }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">⚡ Brain TL;DR</div>
+      <div class="page-subtitle">Auto-generated 60-second summary · for when you have 30 seconds · <span id="market-clock">--</span></div>
+    </div>
+    <div class="flex gap-8">
+      <button class="btn btn-ghost" id="copyBtn">📋 Copy</button>
+      <button class="btn btn-primary" id="refreshBtn">↻ Regenerate</button>
+    </div>
+  </div>
+
+  <div id="tldr" class="tldr-card"></div>
+
+  <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.6px;font-weight:700;margin-bottom:10px;">🎯 What to do right now</div>
+  <div id="actions"></div>
+
+  <div class="read-time" id="readTime">Generated · auto-refreshes every 30s</div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script src="js/model.js"></script>
+<script>
+buildNav('brain-tldr');
+
+function loadFindings() { try { return JSON.parse(localStorage.getItem('bpleone_brain_findings_v1') || '{"items":[]}').items; } catch(e) { return []; } }
+function loadTrain() { try { return JSON.parse(localStorage.getItem('bpleone_train_v1') || '[]'); } catch(e) { return []; } }
+function loadPos() { try { return JSON.parse(localStorage.getItem('bpleone_positions_live_v1') || '[]'); } catch(e) { return []; } }
+
+function render() {
+  const findings = loadFindings();
+  const train = loadTrain();
+  const positions = loadPos();
+  const now = Date.now();
+  const weekAgo = now - 7 * 86400000;
+  const today0 = new Date(); today0.setHours(0,0,0,0);
+
+  // Stats
+  const week = train.filter(t => t.ts >= weekAgo);
+  const wins = week.filter(t => t.y === 1).length;
+  const hit = week.length > 0 ? wins / week.length : 0;
+  const pnl = week.reduce((a, t) => a + (t.y === 1 ? (t.r || 1.5) : -1.0), 0);
+  const grade = hit >= 0.7 ? 'A' : hit >= 0.6 ? 'B' : hit >= 0.5 ? 'C' : hit >= 0.4 ? 'D' : 'F';
+  const gradeCol = grade === 'A' ? 'var(--green)' : grade === 'B' ? '#84cc16' : grade === 'C' ? 'var(--yellow)' : grade === 'D' ? '#f97316' : 'var(--red)';
+
+  // Top pick today
+  const todayF = findings.filter(f => f.ts >= today0.getTime());
+  const ranked = todayF.map(f => {
+    let p = null; try { if (window.predictForFinding) { const r = window.predictForFinding(f); p = r ? r.prob : null; } } catch(e){}
+    return { ...f, p };
+  }).filter(f => f.p != null).sort((a,b) => b.p - a.p);
+  const top = ranked[0];
+
+  // Drift
+  const recent3 = train.filter(t => t.ts >= now - 3*86400000);
+  const recentHit = recent3.length > 0 ? recent3.filter(t => t.y === 1).length / recent3.length : null;
+  const lifeHit = train.length > 0 ? train.filter(t => t.y === 1).length / train.length : null;
+  const drift = (recentHit != null && lifeHit != null) ? recentHit - lifeHit : 0;
+
+  // Compose narrative
+  let lead = '';
+  if (top) lead = 'The brain\'s top pick right now is <strong>' + (top.meta?.sym || '?') + '</strong> at <span class="accent">' + (top.p*100).toFixed(0) + '%</span> confidence on a ' + (top.meta?.setup || 'signal') + ' setup.';
+  else if (todayF.length > 0) lead = 'The brain scanned ' + todayF.length + ' signals today but nothing above its conviction threshold yet.';
+  else lead = 'Brain is in scan mode — no high-conviction picks yet today.';
+
+  const moodWord = grade === 'A' ? 'crushing' : grade === 'B' ? 'solid' : grade === 'C' ? 'mixed' : grade === 'D' ? 'rough' : 'bad';
+  const summary = 'You\'re having a <strong style="color:' + gradeCol + ';">' + moodWord + '</strong> week — <span class="accent">grade ' + grade + '</span>, ' + (hit*100).toFixed(0) + '% hit rate over ' + week.length + ' resolved trades, ' + (pnl >= 0 ? '+' : '') + pnl.toFixed(1) + 'R total.';
+
+  // Bullets
+  const bullets = [];
+  if (positions.length > 0) bullets.push('Currently holding <strong>' + positions.length + '</strong> open position' + (positions.length > 1 ? 's' : '') + '.');
+  bullets.push('Last hour saw <strong>' + findings.filter(f => f.ts > now - 3600000).length + '</strong> brain findings.');
+  if (ranked.length > 0) bullets.push('<strong>' + ranked.filter(f => f.p >= 0.7).length + '</strong> high-conviction picks (≥70%) today.');
+  if (Math.abs(drift) > 0.1) bullets.push('<strong style="color:var(--yellow);">⚠ Drift detected:</strong> recent hit rate is ' + (drift >= 0 ? '+' : '') + (drift*100).toFixed(0) + '% vs lifetime. Watch for regime change.');
+  else if (lifeHit != null) bullets.push('Model is stable — no drift detected.');
+
+  const html = '<div class="lead">' + lead + '</div>'
+    + '<h2>' + summary + '</h2>'
+    + '<ul class="bullets">' + bullets.map(b => '<li>' + b + '</li>').join('') + '</ul>';
+
+  document.getElementById('tldr').innerHTML = html;
+
+  // Action items
+  const actions = [];
+  if (grade === 'F' || grade === 'D') actions.push({ tone:'bad', t:'🛑 Switch to paper only', b:'Your hit rate is below 50% this week. Don\'t compound losses. Trade paper until you find the leak.' });
+  if (Math.abs(drift) > 0.15) actions.push({ tone:'warn', t:'🔁 Retrain the model', b:'Drift is severe. <a href="model-trainer.html" style="color:var(--accent);">Run a full retrain</a> on the latest data.' });
+  if (top && top.p >= 0.8) actions.push({ tone:'good', t:'🎯 Plan ' + top.meta?.sym, b:'Highest-conviction setup of the day. <a href="trade-coach.html?sym=' + top.meta?.sym + '" style="color:var(--accent);">Open Trade Coach →</a>' });
+  if (positions.length > 0) actions.push({ tone:'warn', t:'👀 Check positions', b:'You have ' + positions.length + ' open position(s). <a href="positions-live.html" style="color:var(--accent);">Live tracker →</a>' });
+  if (week.length === 0 && findings.length > 0) actions.push({ tone:'warn', t:'📊 Resolve outstanding trades', b:'You have unresolved signals. <a href="trade-journal-pro.html" style="color:var(--accent);">Open Journal PRO</a> and label them so the brain can learn.' });
+  if (!actions.length) actions.push({ tone:'good', t:'✓ Nothing urgent', b:'Brain is healthy. Stick to the plan. Don\'t over-trade.' });
+
+  document.getElementById('actions').innerHTML = actions.map(a =>
+    '<div class="action-card ' + a.tone + '"><h4>' + a.t + '</h4><p>' + a.b + '</p></div>'
+  ).join('');
+
+  document.getElementById('readTime').textContent = 'Generated ' + new Date().toLocaleTimeString() + ' · 60-second read · auto-refreshes';
+}
+
+document.getElementById('refreshBtn').addEventListener('click', render);
+document.getElementById('copyBtn').addEventListener('click', () => {
+  const txt = document.getElementById('tldr').innerText + '\n\nACTIONS:\n' + document.getElementById('actions').innerText;
+  navigator.clipboard.writeText(txt).then(() => {
+    document.getElementById('copyBtn').textContent = '✓ Copied';
+    setTimeout(() => { document.getElementById('copyBtn').textContent = '📋 Copy'; }, 1500);
+  });
+});
+
+render();
+setInterval(render, 30000);
+</script>
+</body>
+</html>
