@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Learning Rate Tuner — bpleone / trade</title>
+<meta name="description" content="Sweep across learning rates and pick the one that minimizes loss.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.lr-row { display:grid; grid-template-columns: 90px 1fr 90px 90px 90px; gap:12px; padding:11px 14px; border-bottom:1px solid var(--border); font-family:var(--font-mono); font-size:12px; align-items:center; }
+.lr-row.winner { background:rgba(16,185,129,0.06);border-left:3px solid var(--green); }
+.lr-bar { height:10px;background:var(--bg-elevated);border-radius:5px;overflow:hidden; }
+.lr-bar > div { height:100%; }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">⚙ Learning Rate Tuner</div>
+      <div class="page-subtitle">Sweep learning rates · find the sweet spot · <span id="market-clock">--</span></div>
+    </div>
+    <div class="flex gap-8">
+      <button class="btn btn-primary" id="sweepBtn">▶ Run Sweep</button>
+    </div>
+  </div>
+
+  <div class="card mb-24" style="background:linear-gradient(135deg,rgba(0,212,255,0.05),transparent);">
+    <div style="font-size:13px;color:var(--text-secondary);line-height:1.7;">
+      Learning rate is the most critical hyperparameter. Too low: model trains too slowly. Too high: oscillates / diverges. This tool sweeps 10 LR values from 0.001 to 0.5 and reports final loss + accuracy for each.
+    </div>
+  </div>
+
+  <div class="card mb-24" style="padding:0;">
+    <div class="card-header" style="padding:14px 16px;"><div class="card-title">📋 Sweep Results</div></div>
+    <div class="lr-row" style="background:var(--bg-elevated);font-size:9px;color:var(--text-muted);font-weight:800;letter-spacing:0.5px;">
+      <div>LR</div><div>FINAL LOSS</div><div>ACCURACY</div><div>F1</div><div>STATUS</div>
+    </div>
+    <div id="lrBody"></div>
+  </div>
+
+  <div class="card">
+    <div class="card-header"><div class="card-title">📊 LR vs Final Loss</div></div>
+    <canvas id="lrChart" height="220"></canvas>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script src="js/model.js"></script>
+<script src="js/charts.js"></script>
+<script>
+buildNav('learning-rate-tuner');
+
+const LRS = [0.001, 0.005, 0.01, 0.02, 0.05, 0.1, 0.15, 0.2, 0.3, 0.5];
+
+let lrChart;
+function sweep() {
+  const data = ModelStore.getTrainingData();
+  if (data.length === 0) { alert('No training data. Seed first.'); return; }
+
+  const results = [];
+  LRS.forEach(lr => {
+    const m = new Model(); m.lr = lr;
+    let totalLoss = 0;
+    let count = 0;
+    // 3 epochs
+    for (let e = 0; e < 3; e++) {
+      const sh = data.slice().sort(() => Math.random() - 0.5);
+      sh.forEach(row => {
+        if (row.features && row.features.length === FEATURES.length) {
+          const r = m.train(row.features, row.label);
+          totalLoss += r.loss;
+          count++;
+        }
+      });
+    }
+    // Eval
+    let tp = 0, fp = 0, tn = 0, fn = 0;
+    data.forEach(row => {
+      if (!row.features) return;
+      const { prob } = m.predict(row.features);
+      const pred = prob >= 0.5 ? 1 : 0;
+      if (pred === 1 && row.label === 1) tp++;
+      else if (pred === 1 && row.label === 0) fp++;
+      else if (pred === 0 && row.label === 0) tn++;
+      else fn++;
+    });
+    const acc = (tp + tn) / Math.max(1, tp + fp + tn + fn);
+    const precision = (tp + fp) > 0 ? tp / (tp + fp) : 0;
+    const recall = (tp + fn) > 0 ? tp / (tp + fn) : 0;
+    const f1 = (precision + recall) > 0 ? 2 * precision * recall / (precision + recall) : 0;
+    results.push({ lr, finalLoss: count > 0 ? totalLoss / count : 0, acc, f1, diverged: !isFinite(totalLoss) });
+  });
+
+  // Best by F1
+  const best = results.slice().sort((a, b) => b.f1 - a.f1)[0];
+
+  const body = document.getElementById('lrBody');
+  body.innerHTML = '';
+  const minLoss = Math.min(...results.filter(r => !r.diverged).map(r => r.finalLoss));
+  const maxLoss = Math.max(...results.filter(r => !r.diverged).map(r => r.finalLoss));
+  results.forEach(r => {
+    const isWin = r === best;
+    const barW = r.diverged ? 0 : Math.max(5, 100 - ((r.finalLoss - minLoss) / Math.max(0.001, maxLoss - minLoss)) * 95);
+    const accCol = r.acc >= 0.55 ? 'var(--green)' : r.acc >= 0.50 ? 'var(--accent)' : 'var(--red)';
+    const row = document.createElement('div');
+    row.className = 'lr-row' + (isWin ? ' winner' : '');
+    row.innerHTML = '<div class="mono"><strong>' + r.lr + '</strong>' + (isWin ? ' 🏆' : '') + '</div>'
+      + '<div><div class="lr-bar"><div style="width:' + barW + '%;background:var(--accent);"></div></div></div>'
+      + '<div class="mono">' + (r.diverged ? '∞' : r.finalLoss.toFixed(4)) + '</div>'
+      + '<div class="mono" style="color:' + accCol + ';">' + (r.acc * 100).toFixed(1) + '%</div>'
+      + '<div class="mono">' + (r.f1 * 100).toFixed(1) + '%</div>';
+    body.appendChild(row);
+  });
+
+  // Chart
+  if (lrChart) lrChart.destroy();
+  lrChart = new Chart(document.getElementById('lrChart').getContext('2d'), {
+    type: 'line',
+    data: { labels: results.map(r => r.lr), datasets: [
+      { label: 'Final Loss', data: results.map(r => r.diverged ? null : r.finalLoss), borderColor: 'rgba(0,212,255,1)', backgroundColor: 'rgba(0,212,255,0.08)', fill: true, borderWidth: 2, pointRadius: 5, tension: 0.2 }
+    ] },
+    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { title: { display: true, text: 'Learning Rate', color: '#9ca3af' }, grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#9ca3af' } }, y: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#9ca3af' } } } }
+  });
+}
+
+document.getElementById('sweepBtn').addEventListener('click', sweep);
+</script>
+</body>
+</html>

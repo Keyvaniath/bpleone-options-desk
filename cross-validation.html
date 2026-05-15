@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Cross-Validation — bpleone / trade</title>
+<meta name="description" content="K-fold cross-validation — robust estimate of true model accuracy on unseen data.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.fold-row { display:grid; grid-template-columns: 60px 1fr 90px 90px 90px 90px; gap:12px; padding:11px 14px; border-bottom:1px solid var(--border); font-family:var(--font-mono); font-size:12px; align-items:center; }
+.fold-row.good { border-left:3px solid var(--green); }
+.fold-row.bad { border-left:3px solid var(--red); }
+.fold-bar { height:8px;background:var(--bg-elevated);border-radius:4px;overflow:hidden; }
+.fold-bar > div { height:100%; }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">🧪 Cross-Validation</div>
+      <div class="page-subtitle">K-fold CV · robust estimate of true accuracy · <span id="market-clock">--</span></div>
+    </div>
+    <div class="flex gap-8">
+      <button class="btn btn-primary" id="runBtn">▶ Run 5-Fold CV</button>
+      <button class="btn btn-secondary" id="run10Btn">▶ Run 10-Fold CV</button>
+    </div>
+  </div>
+
+  <div class="card mb-24" style="background:linear-gradient(135deg,rgba(0,212,255,0.05),transparent);">
+    <div style="font-size:13px;color:var(--text-secondary);line-height:1.7;">
+      <strong style="color:var(--accent);">K-fold CV</strong> splits the training data into K parts. The model trains on K-1 parts and tests on the held-out part — repeated K times so every sample gets tested. Average accuracy is a robust estimate. <strong>Cross-validated accuracy ≠ in-sample accuracy.</strong> If they differ a lot, the model is overfitting.
+    </div>
+  </div>
+
+  <!-- Aggregate -->
+  <div class="grid grid-4 mb-24">
+    <div class="card"><div class="card-header"><div class="card-title">Avg CV Accuracy</div></div><div class="mono" style="font-size:26px;font-weight:700;" id="kAvg">--</div><div class="mono" style="font-size:11px;color:var(--text-muted);" id="kAvgBody">--</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">Std Deviation</div></div><div class="mono" style="font-size:26px;font-weight:700;" id="kStd">--</div><div class="mono" style="font-size:11px;color:var(--text-muted);">Across folds</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">In-Sample Acc</div></div><div class="mono" style="font-size:26px;font-weight:700;color:var(--yellow);" id="kInsample">--</div><div class="mono" style="font-size:11px;color:var(--text-muted);">Trained on all data</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">Overfitting Gap</div></div><div class="mono" style="font-size:26px;font-weight:700;" id="kGap">--</div><div class="mono" style="font-size:11px;color:var(--text-muted);" id="kGapBody">--</div></div>
+  </div>
+
+  <!-- Folds -->
+  <div class="card mb-24" style="padding:0;">
+    <div class="card-header" style="padding:14px 16px;"><div class="card-title">📋 Per-Fold Results</div></div>
+    <div class="fold-row" style="background:var(--bg-elevated);font-size:9px;color:var(--text-muted);font-weight:800;letter-spacing:0.5px;">
+      <div>FOLD</div><div>BAR</div><div>ACCURACY</div><div>F1</div><div>PRECISION</div><div>RECALL</div>
+    </div>
+    <div id="foldBody"></div>
+  </div>
+
+  <!-- Chart -->
+  <div class="card">
+    <div class="card-header"><div class="card-title">📊 Accuracy Distribution Across Folds</div></div>
+    <canvas id="foldChart" height="200"></canvas>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script src="js/model.js"></script>
+<script src="js/charts.js"></script>
+<script>
+buildNav('cross-validation');
+
+let foldChart;
+
+function runCV(k) {
+  const data = ModelStore.getTrainingData();
+  if (data.length < k * 4) { alert('Need at least ' + (k * 4) + ' training rows for ' + k + '-fold CV. You have ' + data.length + '. Visit Model Seed.'); return; }
+
+  // Shuffle
+  const shuffled = data.slice().sort(() => Math.random() - 0.5);
+  const foldSize = Math.floor(shuffled.length / k);
+  const results = [];
+
+  for (let fold = 0; fold < k; fold++) {
+    const testStart = fold * foldSize;
+    const testEnd = (fold === k - 1) ? shuffled.length : (fold + 1) * foldSize;
+    const test = shuffled.slice(testStart, testEnd);
+    const train = shuffled.slice(0, testStart).concat(shuffled.slice(testEnd));
+
+    // Train fresh model
+    const m = new Model();
+    for (let e = 0; e < 3; e++) {
+      const trShuffle = train.slice().sort(() => Math.random() - 0.5);
+      trShuffle.forEach(row => {
+        if (row.features && row.features.length === FEATURES.length) m.train(row.features, row.label);
+      });
+    }
+
+    // Eval on test
+    let tp = 0, fp = 0, tn = 0, fn = 0;
+    test.forEach(row => {
+      if (!row.features || row.features.length !== FEATURES.length) return;
+      const { prob } = m.predict(row.features);
+      const pred = prob >= 0.5 ? 1 : 0;
+      if (pred === 1 && row.label === 1) tp++;
+      else if (pred === 1 && row.label === 0) fp++;
+      else if (pred === 0 && row.label === 0) tn++;
+      else fn++;
+    });
+    const total = tp + fp + tn + fn;
+    const acc = total > 0 ? (tp + tn) / total : 0;
+    const precision = (tp + fp) > 0 ? tp / (tp + fp) : 0;
+    const recall = (tp + fn) > 0 ? tp / (tp + fn) : 0;
+    const f1 = (precision + recall) > 0 ? 2 * precision * recall / (precision + recall) : 0;
+    results.push({ fold: fold + 1, acc, precision, recall, f1, n: total });
+  }
+
+  // In-sample accuracy
+  const fullModel = new Model();
+  for (let e = 0; e < 3; e++) {
+    const sh = data.slice().sort(() => Math.random() - 0.5);
+    sh.forEach(row => { if (row.features) fullModel.train(row.features, row.label); });
+  }
+  let isTP = 0, isFP = 0, isTN = 0, isFN = 0;
+  data.forEach(row => {
+    if (!row.features) return;
+    const { prob } = fullModel.predict(row.features);
+    const pred = prob >= 0.5 ? 1 : 0;
+    if (pred === 1 && row.label === 1) isTP++;
+    else if (pred === 1 && row.label === 0) isFP++;
+    else if (pred === 0 && row.label === 0) isTN++;
+    else isFN++;
+  });
+  const inSampleAcc = (isTP + isTN) / Math.max(1, isTP + isFP + isTN + isFN);
+
+  // Render
+  const avgAcc = results.reduce((s, r) => s + r.acc, 0) / results.length;
+  const std = Math.sqrt(results.reduce((s, r) => s + Math.pow(r.acc - avgAcc, 2), 0) / results.length);
+  const gap = inSampleAcc - avgAcc;
+  document.getElementById('kAvg').textContent = (avgAcc * 100).toFixed(1) + '%';
+  document.getElementById('kAvg').style.color = avgAcc >= 0.55 ? 'var(--green)' : avgAcc >= 0.50 ? 'var(--accent)' : 'var(--red)';
+  document.getElementById('kAvgBody').textContent = k + '-fold · ' + data.length + ' total rows';
+  document.getElementById('kStd').textContent = (std * 100).toFixed(2) + '%';
+  document.getElementById('kInsample').textContent = (inSampleAcc * 100).toFixed(1) + '%';
+  document.getElementById('kGap').textContent = (gap * 100).toFixed(1) + '%';
+  document.getElementById('kGap').style.color = gap > 0.05 ? 'var(--red)' : 'var(--green)';
+  document.getElementById('kGapBody').textContent = gap > 0.05 ? 'OVERFITTING' : 'Generalizes well';
+
+  // Folds table
+  const body = document.getElementById('foldBody');
+  body.innerHTML = '';
+  results.forEach(r => {
+    const good = r.acc >= avgAcc;
+    const col = r.acc >= 0.55 ? 'var(--green)' : r.acc >= 0.50 ? 'var(--accent)' : 'var(--red)';
+    const row = document.createElement('div');
+    row.className = 'fold-row ' + (good ? 'good' : 'bad');
+    row.innerHTML = '<div><strong>F' + r.fold + '</strong></div>'
+      + '<div><div class="fold-bar"><div style="width:' + (r.acc * 100) + '%;background:' + col + ';"></div></div></div>'
+      + '<div style="color:' + col + ';font-weight:700;">' + (r.acc * 100).toFixed(1) + '%</div>'
+      + '<div>' + (r.f1 * 100).toFixed(1) + '%</div>'
+      + '<div>' + (r.precision * 100).toFixed(1) + '%</div>'
+      + '<div>' + (r.recall * 100).toFixed(1) + '%</div>';
+    body.appendChild(row);
+  });
+
+  // Chart
+  if (foldChart) foldChart.destroy();
+  foldChart = new Chart(document.getElementById('foldChart').getContext('2d'), {
+    type: 'bar',
+    data: { labels: results.map(r => 'Fold ' + r.fold), datasets: [
+      { label: 'Accuracy', data: results.map(r => r.acc * 100), backgroundColor: results.map(r => r.acc >= avgAcc ? 'rgba(16,185,129,0.7)' : 'rgba(245,158,11,0.7)') }
+    ] },
+    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { grid: { display: false }, ticks: { color: '#9ca3af' } }, y: { min: 0, max: 100, grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#6b7280', callback: v => v + '%' } } } }
+  });
+}
+
+document.getElementById('runBtn').addEventListener('click', () => runCV(5));
+document.getElementById('run10Btn').addEventListener('click', () => runCV(10));
+</script>
+</body>
+</html>

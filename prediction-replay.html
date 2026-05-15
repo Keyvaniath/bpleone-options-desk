@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Prediction Replay — bpleone / trade</title>
+<meta name="description" content="Replay every past brain prediction vs actual outcome — see how the model's calls aged.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.replay-row { display:grid; grid-template-columns: 100px 70px 80px 100px 80px 1fr; gap:10px; padding:11px 12px; border-bottom:1px solid var(--border); font-family:var(--font-mono); font-size:11px; align-items:center; }
+.replay-row.correct { border-left:3px solid var(--green); }
+.replay-row.wrong { border-left:3px solid var(--red); }
+.replay-row.pending { border-left:3px solid var(--text-muted); opacity:0.7; }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">🎬 Prediction Replay</div>
+      <div class="page-subtitle">Every model prediction vs actual outcome · <span id="market-clock">--</span></div>
+    </div>
+    <div class="flex gap-8">
+      <button class="btn btn-secondary" id="refreshBtn">🔄</button>
+    </div>
+  </div>
+
+  <!-- Aggregate -->
+  <div class="grid grid-5 mb-24">
+    <div class="card"><div class="card-header"><div class="card-title">Total Predictions</div></div><div class="mono" style="font-size:26px;font-weight:700;" id="kTotal">--</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">Resolved</div></div><div class="mono" style="font-size:26px;font-weight:700;color:var(--accent);" id="kRes">--</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">Correct</div></div><div class="mono green-text" style="font-size:26px;font-weight:700;" id="kCorrect">--</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">Wrong</div></div><div class="mono red-text" style="font-size:26px;font-weight:700;" id="kWrong">--</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">Hit Rate</div></div><div class="mono" style="font-size:26px;font-weight:700;" id="kHR">--</div></div>
+  </div>
+
+  <!-- CONFUSION MATRIX -->
+  <div class="grid grid-12 mb-24">
+    <div class="card col-5">
+      <div class="card-header"><div class="card-title">📊 Confusion Matrix</div></div>
+      <div style="display:grid;grid-template-columns:80px 1fr 1fr;gap:6px;margin-top:14px;">
+        <div></div>
+        <div style="text-align:center;font-weight:700;color:var(--text-muted);font-size:11px;">Pred WIN</div>
+        <div style="text-align:center;font-weight:700;color:var(--text-muted);font-size:11px;">Pred LOSS</div>
+        <div style="display:flex;align-items:center;font-weight:700;color:var(--text-muted);font-size:11px;">Actual HIT</div>
+        <div style="padding:24px;text-align:center;font-family:var(--font-mono);font-size:28px;font-weight:800;color:var(--green);background:rgba(16,185,129,0.12);border-radius:8px;" id="cmTP">--</div>
+        <div style="padding:24px;text-align:center;font-family:var(--font-mono);font-size:28px;font-weight:800;color:var(--yellow);background:rgba(245,158,11,0.10);border-radius:8px;" id="cmFN">--</div>
+        <div style="display:flex;align-items:center;font-weight:700;color:var(--text-muted);font-size:11px;">Actual MISS</div>
+        <div style="padding:24px;text-align:center;font-family:var(--font-mono);font-size:28px;font-weight:800;color:var(--red);background:rgba(239,68,68,0.12);border-radius:8px;" id="cmFP">--</div>
+        <div style="padding:24px;text-align:center;font-family:var(--font-mono);font-size:28px;font-weight:800;color:var(--green);background:rgba(16,185,129,0.06);border-radius:8px;" id="cmTN">--</div>
+      </div>
+    </div>
+    <div class="card col-7">
+      <div class="card-header"><div class="card-title">📈 Cumulative Accuracy Over Time</div></div>
+      <canvas id="cumChart" height="220"></canvas>
+    </div>
+  </div>
+
+  <!-- TABLE -->
+  <div class="card" style="padding:0;">
+    <div class="card-header" style="padding:14px 16px;">
+      <div class="card-title">📋 Prediction Log</div>
+      <div class="flex gap-8" style="font-size:10px;">
+        <button class="btn btn-ghost btn-active" data-flt="all" style="padding:3px 8px;font-size:10px;">ALL</button>
+        <button class="btn btn-ghost" data-flt="correct" style="padding:3px 8px;font-size:10px;">CORRECT</button>
+        <button class="btn btn-ghost" data-flt="wrong" style="padding:3px 8px;font-size:10px;">WRONG</button>
+        <button class="btn btn-ghost" data-flt="pending" style="padding:3px 8px;font-size:10px;">PENDING</button>
+      </div>
+    </div>
+    <div class="replay-row" style="background:var(--bg-elevated);font-size:9px;color:var(--text-muted);font-weight:800;letter-spacing:0.5px;">
+      <div>TIME</div><div>SYM</div><div>PREDICTED</div><div>OUTCOME</div><div>STATUS</div><div>SETUP</div>
+    </div>
+    <div id="replayBody" style="max-height:560px;overflow-y:auto;"></div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script src="js/model.js"></script>
+<script src="js/charts.js"></script>
+<script>
+buildNav('prediction-replay');
+
+let flt = 'all';
+let cumChart;
+
+function paint() {
+  let findings = [];
+  try { findings = JSON.parse(localStorage.getItem('bpleone_brain_findings_v1') || '{"items":[]}').items; } catch (e) {}
+
+  // Each finding has modelProb (set at emit) and outcome (set 30 min later)
+  const preds = findings.filter(f => typeof f.modelProb === 'number');
+  const resolved = preds.filter(f => f.outcome === 'hit' || f.outcome === 'miss');
+  const correct = resolved.filter(f => (f.modelProb >= 0.5 ? 'hit' : 'miss') === f.outcome).length;
+  const wrong = resolved.length - correct;
+
+  document.getElementById('kTotal').textContent = preds.length;
+  document.getElementById('kRes').textContent = resolved.length;
+  document.getElementById('kCorrect').textContent = correct;
+  document.getElementById('kWrong').textContent = wrong;
+  document.getElementById('kHR').textContent = resolved.length > 0 ? ((correct / resolved.length) * 100).toFixed(1) + '%' : '—';
+  document.getElementById('kHR').style.color = resolved.length > 0 && (correct / resolved.length) >= 0.55 ? 'var(--green)' : 'var(--text-primary)';
+
+  // Confusion matrix
+  let tp = 0, fp = 0, tn = 0, fn = 0;
+  resolved.forEach(f => {
+    const pred = f.modelProb >= 0.5 ? 1 : 0;
+    const actual = f.outcome === 'hit' ? 1 : 0;
+    if (pred === 1 && actual === 1) tp++;
+    else if (pred === 1 && actual === 0) fp++;
+    else if (pred === 0 && actual === 0) tn++;
+    else fn++;
+  });
+  document.getElementById('cmTP').textContent = tp;
+  document.getElementById('cmFP').textContent = fp;
+  document.getElementById('cmTN').textContent = tn;
+  document.getElementById('cmFN').textContent = fn;
+
+  // Cumulative accuracy
+  const sorted = resolved.slice().sort((a, b) => a.ts - b.ts);
+  const cumAcc = [];
+  const labels = [];
+  let cumCorrect = 0;
+  sorted.forEach((f, i) => {
+    const pred = f.modelProb >= 0.5 ? 1 : 0;
+    const actual = f.outcome === 'hit' ? 1 : 0;
+    if (pred === actual) cumCorrect++;
+    cumAcc.push(cumCorrect / (i + 1) * 100);
+    labels.push(new Date(f.ts).toLocaleDateString());
+  });
+  if (cumChart) cumChart.destroy();
+  cumChart = new Chart(document.getElementById('cumChart').getContext('2d'), {
+    type: 'line',
+    data: { labels, datasets: [
+      { label: 'Cumulative accuracy', data: cumAcc, borderColor: 'rgba(0,212,255,1)', backgroundColor: 'rgba(0,212,255,0.08)', fill: true, borderWidth: 2, pointRadius: 0, tension: 0.2 },
+      { label: 'Baseline 50%', data: labels.map(() => 50), borderColor: 'rgba(150,150,150,0.5)', borderDash: [4,4], pointRadius: 0, borderWidth: 1 }
+    ] },
+    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: true, position: 'top', labels: { color: '#9ca3af' } } }, scales: { x: { display: false }, y: { min: 0, max: 100, grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#6b7280', callback: v => v + '%' } } } }
+  });
+
+  // Table
+  let rows = preds.slice().sort((a, b) => b.ts - a.ts);
+  if (flt === 'correct') rows = rows.filter(f => f.outcome && (f.modelProb >= 0.5 ? 'hit' : 'miss') === f.outcome);
+  else if (flt === 'wrong') rows = rows.filter(f => f.outcome && (f.modelProb >= 0.5 ? 'hit' : 'miss') !== f.outcome);
+  else if (flt === 'pending') rows = rows.filter(f => !f.outcome || f.outcome === 'flat');
+
+  const body = document.getElementById('replayBody');
+  body.innerHTML = '';
+  rows.slice(0, 100).forEach(f => {
+    const pred = f.modelProb >= 0.5 ? 'WIN' : 'LOSS';
+    const predProb = (f.modelProb * 100).toFixed(0) + '%';
+    const time = new Date(f.ts).toLocaleString();
+    let cls = 'pending', status = '⏳ PENDING';
+    if (f.outcome === 'hit' || f.outcome === 'miss') {
+      const correct = (f.modelProb >= 0.5 ? 'hit' : 'miss') === f.outcome;
+      cls = correct ? 'correct' : 'wrong';
+      status = correct ? '✓ CORRECT' : '✗ WRONG';
+    }
+    const statusCol = cls === 'correct' ? 'var(--green)' : cls === 'wrong' ? 'var(--red)' : 'var(--text-muted)';
+    const row = document.createElement('div');
+    row.className = 'replay-row ' + cls;
+    row.innerHTML = '<div style="color:var(--text-muted);font-size:10px;">' + time + '</div>'
+      + '<div><strong>' + ((f.meta && f.meta.sym) || '—') + '</strong></div>'
+      + '<div>' + pred + ' ' + predProb + '</div>'
+      + '<div style="color:' + (f.outcome === 'hit' ? 'var(--green)' : f.outcome === 'miss' ? 'var(--red)' : 'var(--text-muted)') + ';font-weight:700;">' + (f.outcome ? f.outcome.toUpperCase() : '—') + '</div>'
+      + '<div style="color:' + statusCol + ';font-weight:700;font-size:10px;">' + status + '</div>'
+      + '<div style="font-family:Inter;color:var(--text-secondary);font-size:11px;">' + ((f.meta && f.meta.setup) || f.type) + '</div>';
+    body.appendChild(row);
+  });
+}
+
+document.querySelectorAll('[data-flt]').forEach(b => b.addEventListener('click', () => {
+  document.querySelectorAll('[data-flt]').forEach(x => x.classList.remove('btn-active'));
+  b.classList.add('btn-active');
+  flt = b.dataset.flt;
+  paint();
+}));
+document.getElementById('refreshBtn').addEventListener('click', paint);
+paint();
+window.addEventListener('bpleone:brain-finding', paint);
+window.addEventListener('bpleone:model-trained', paint);
+setInterval(paint, 30000);
+</script>
+</body>
+</html>

@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Neural Net — bpleone / trade</title>
+<meta name="description" content="2-layer MLP model — non-linear feature interactions. Pure JS, in-browser, trains via backprop.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.nn-stat { padding:14px;background:var(--bg-elevated);border:1px solid var(--border);border-radius:10px;text-align:center; }
+.nn-stat .l { font-size:10px;color:var(--text-muted);font-weight:700;letter-spacing:0.5px; }
+.nn-stat .v { font-family:var(--font-mono);font-size:22px;font-weight:700;margin-top:4px; }
+.input-row { display:flex; gap:14px; flex-wrap:wrap; align-items:center; margin-bottom:14px; }
+.input-row label { font-size:12px;color:var(--text-muted);font-weight:700;min-width:160px; }
+.input-row input, .input-row select { background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:8px 12px;color:var(--text-primary);font-family:var(--font-mono);width:140px; }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">🧠 Neural Net (MLP)</div>
+      <div class="page-subtitle">2-layer multi-layer perceptron · non-linear interactions · trains via backprop · <span id="market-clock">--</span></div>
+    </div>
+    <div class="flex gap-8">
+      <a href="model-trainer.html" class="btn btn-secondary">🎓 Logistic Trainer</a>
+    </div>
+  </div>
+
+  <div class="card mb-24" style="background:linear-gradient(135deg,rgba(124,58,237,0.05),transparent);border-color:rgba(124,58,237,0.2);">
+    <div style="font-size:13px;color:var(--text-secondary);line-height:1.7;">
+      <strong style="color:#a78bfa;">Why a neural net?</strong> The logistic-regression model assumes <em>linear</em> feature relationships. The real edge in trading often comes from <strong>interactions</strong> — e.g., "high RVOL + low IV + bullish regime" is more than the sum of those features. A 2-layer MLP w/ ReLU hidden units captures these interactions automatically.
+      <div class="mt-12">Inputs: same 22 features. Hidden layer: 16 ReLU units. Output: sigmoid → P(win). Trained via backpropagation w/ SGD. Saved separately from the logistic model — use Ensemble to compare.</div>
+    </div>
+  </div>
+
+  <!-- Config -->
+  <div class="card mb-24">
+    <div class="card-header"><div class="card-title">⚙ Network Config</div></div>
+    <div class="input-row"><label>Hidden units</label><input type="number" id="hidden" value="16" min="4" max="64"></div>
+    <div class="input-row"><label>Learning rate</label><input type="number" id="lr" value="0.03" step="0.01" min="0.001" max="0.5"></div>
+    <div class="input-row"><label>Epochs</label><input type="number" id="epochs" value="5" min="1" max="20"></div>
+    <button class="btn btn-primary" id="trainBtn" style="padding:10px 22px;">▶ Train MLP</button>
+    <button class="btn btn-secondary" id="resetBtn" style="padding:10px 22px;color:var(--red);">🗑 Reset</button>
+  </div>
+
+  <!-- Stats -->
+  <div class="grid grid-4 mb-24">
+    <div class="nn-stat"><div class="l">SAMPLES TRAINED</div><div class="v" id="kN">--</div></div>
+    <div class="nn-stat"><div class="l">ACCURACY (HOLDOUT)</div><div class="v" id="kAcc">--</div></div>
+    <div class="nn-stat"><div class="l">F1 SCORE</div><div class="v" id="kF1">--</div></div>
+    <div class="nn-stat"><div class="l">TRAINING TIME</div><div class="v" id="kTime">--</div></div>
+  </div>
+
+  <!-- Loss chart -->
+  <div class="card">
+    <div class="card-header"><div class="card-title">📉 Training Loss</div></div>
+    <canvas id="lossChart" height="240"></canvas>
+  </div>
+
+  <!-- Predictions -->
+  <div class="card mt-24">
+    <div class="card-header"><div class="card-title">🎯 MLP Predictions for Current Findings (top 12)</div></div>
+    <div id="preds" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:8px;"></div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script src="js/model.js"></script>
+<script src="js/charts.js"></script>
+<script>
+buildNav('neural-net');
+
+const MLP_KEY = 'bpleone_mlp_v1';
+
+class MLP {
+  constructor(inDim, hiddenDim, lr) {
+    this.inDim = inDim;
+    this.hiddenDim = hiddenDim;
+    this.lr = lr || 0.03;
+    // He init for ReLU
+    const scale1 = Math.sqrt(2 / inDim);
+    this.W1 = []; this.b1 = new Array(hiddenDim).fill(0);
+    for (let h = 0; h < hiddenDim; h++) {
+      const row = [];
+      for (let i = 0; i < inDim; i++) row.push((Math.random() * 2 - 1) * scale1);
+      this.W1.push(row);
+    }
+    const scale2 = Math.sqrt(2 / hiddenDim);
+    this.W2 = []; this.b2 = 0;
+    for (let h = 0; h < hiddenDim; h++) this.W2.push((Math.random() * 2 - 1) * scale2);
+    this.lossHist = [];
+    this.n_trained = 0;
+  }
+
+  relu(z) { return Math.max(0, z); }
+  sigmoid(z) { z = Math.max(-30, Math.min(30, z)); return 1 / (1 + Math.exp(-z)); }
+
+  forward(x) {
+    const z1 = new Array(this.hiddenDim).fill(0);
+    const a1 = new Array(this.hiddenDim).fill(0);
+    for (let h = 0; h < this.hiddenDim; h++) {
+      let s = this.b1[h];
+      for (let i = 0; i < x.length; i++) s += this.W1[h][i] * x[i];
+      z1[h] = s;
+      a1[h] = this.relu(s);
+    }
+    let z2 = this.b2;
+    for (let h = 0; h < this.hiddenDim; h++) z2 += this.W2[h] * a1[h];
+    const out = this.sigmoid(z2);
+    return { z1, a1, z2, out };
+  }
+
+  predict(x) { return this.forward(x).out; }
+
+  train(x, y) {
+    const { z1, a1, z2, out } = this.forward(x);
+    const err = out - y; // dL/dz2 for sigmoid+BCE
+    // Update output layer
+    const dW2 = a1.map(a => a * err);
+    const db2 = err;
+    // Update hidden -> bp
+    const da1 = this.W2.map(w => w * err);
+    const dz1 = da1.map((d, h) => z1[h] > 0 ? d : 0);
+    for (let h = 0; h < this.hiddenDim; h++) {
+      for (let i = 0; i < x.length; i++) {
+        this.W1[h][i] -= this.lr * dz1[h] * x[i];
+      }
+      this.b1[h] -= this.lr * dz1[h];
+      this.W2[h] -= this.lr * dW2[h];
+    }
+    this.b2 -= this.lr * db2;
+    const loss = -(y * Math.log(Math.max(1e-9, out)) + (1 - y) * Math.log(Math.max(1e-9, 1 - out)));
+    this.lossHist.push(loss);
+    if (this.lossHist.length > 2000) this.lossHist.shift();
+    this.n_trained++;
+    return loss;
+  }
+
+  serialize() { return { W1: this.W1, b1: this.b1, W2: this.W2, b2: this.b2, lossHist: this.lossHist.slice(-500), n_trained: this.n_trained, hiddenDim: this.hiddenDim, lr: this.lr }; }
+  deserialize(d) { this.W1 = d.W1; this.b1 = d.b1; this.W2 = d.W2; this.b2 = d.b2; this.lossHist = d.lossHist || []; this.n_trained = d.n_trained || 0; this.hiddenDim = d.hiddenDim; this.lr = d.lr; }
+}
+
+function loadMLP() {
+  try {
+    const d = JSON.parse(localStorage.getItem(MLP_KEY) || 'null');
+    if (!d) return null;
+    const m = new MLP(FEATURES.length, d.hiddenDim, d.lr);
+    m.deserialize(d);
+    return m;
+  } catch (e) { return null; }
+}
+function saveMLP(m) { try { localStorage.setItem(MLP_KEY, JSON.stringify(m.serialize())); } catch (e) {} }
+
+let lossChart;
+function train() {
+  const hidden = +document.getElementById('hidden').value;
+  const lr = +document.getElementById('lr').value;
+  const epochs = +document.getElementById('epochs').value;
+  const data = ModelStore.getTrainingData();
+  if (data.length === 0) { alert('No training data. Seed first.'); return; }
+
+  const start = Date.now();
+  const m = new MLP(FEATURES.length, hidden, lr);
+  for (let e = 0; e < epochs; e++) {
+    const shuffled = data.slice().sort(() => Math.random() - 0.5);
+    shuffled.forEach(row => {
+      if (row.features && row.features.length === FEATURES.length) {
+        m.train(row.features, row.label);
+      }
+    });
+  }
+  saveMLP(m);
+  const dt = ((Date.now() - start) / 1000).toFixed(1);
+  document.getElementById('kTime').textContent = dt + 's';
+  paint();
+}
+
+function evaluateMLP(m, data) {
+  let tp = 0, fp = 0, tn = 0, fn = 0;
+  data.forEach(row => {
+    if (!row.features || row.features.length !== FEATURES.length) return;
+    const p = m.predict(row.features);
+    const pred = p >= 0.5 ? 1 : 0;
+    if (pred === 1 && row.label === 1) tp++;
+    else if (pred === 1 && row.label === 0) fp++;
+    else if (pred === 0 && row.label === 0) tn++;
+    else fn++;
+  });
+  const acc = (tp + tn) / Math.max(1, tp + fp + tn + fn);
+  const precision = (tp + fp) > 0 ? tp / (tp + fp) : 0;
+  const recall = (tp + fn) > 0 ? tp / (tp + fn) : 0;
+  const f1 = (precision + recall) > 0 ? 2 * precision * recall / (precision + recall) : 0;
+  return { acc, f1, precision, recall };
+}
+
+function paint() {
+  const m = loadMLP();
+  if (!m) {
+    document.getElementById('kN').textContent = '0';
+    document.getElementById('kAcc').textContent = '—';
+    document.getElementById('kF1').textContent = '—';
+    return;
+  }
+  document.getElementById('kN').textContent = m.n_trained;
+  const data = ModelStore.getTrainingData();
+  const ev = evaluateMLP(m, data);
+  document.getElementById('kAcc').textContent = (ev.acc * 100).toFixed(1) + '%';
+  document.getElementById('kAcc').style.color = ev.acc >= 0.55 ? 'var(--green)' : ev.acc >= 0.50 ? 'var(--accent)' : 'var(--red)';
+  document.getElementById('kF1').textContent = (ev.f1 * 100).toFixed(1) + '%';
+
+  // Loss chart
+  const losses = m.lossHist.slice(-200);
+  // Smoothed
+  const window = 20;
+  const smoothed = [];
+  for (let i = 0; i < losses.length; i++) {
+    const s = Math.max(0, i - window);
+    const slice = losses.slice(s, i + 1);
+    smoothed.push(slice.reduce((a, b) => a + b, 0) / slice.length);
+  }
+  if (lossChart) lossChart.destroy();
+  lossChart = new Chart(document.getElementById('lossChart').getContext('2d'), {
+    type: 'line',
+    data: { labels: losses.map((_, i) => i), datasets: [
+      { label: 'Loss', data: losses, borderColor: 'rgba(124,58,237,0.4)', borderWidth: 1, pointRadius: 0 },
+      { label: 'Smoothed', data: smoothed, borderColor: 'rgba(124,58,237,1)', borderWidth: 2, pointRadius: 0 }
+    ] },
+    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: true, position: 'top', labels: { color: '#9ca3af' } } }, scales: { x: { display: false }, y: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#6b7280' } } } }
+  });
+
+  // Predictions
+  const findings = (function () { try { return JSON.parse(localStorage.getItem('bpleone_brain_findings_v1') || '{"items":[]}').items; } catch (e) { return []; } })();
+  const recent = findings.filter(f => f.features && (Date.now() - f.ts) < 8 * 3600 * 1000).slice(0, 12);
+  const pEl = document.getElementById('preds');
+  pEl.innerHTML = '';
+  recent.forEach(f => {
+    const p = m.predict(f.features);
+    const col = p >= 0.7 ? 'var(--green)' : p <= 0.3 ? 'var(--red)' : 'var(--accent)';
+    const card = document.createElement('div');
+    card.style.cssText = 'padding:12px 14px;background:var(--bg-elevated);border:1px solid var(--border);border-radius:8px;border-left:3px solid ' + col + ';cursor:pointer;';
+    card.onclick = () => { window.location.href = 'trade-coach.html?sym=' + (f.meta && f.meta.sym); };
+    card.innerHTML = '<div style="display:flex;justify-content:space-between;align-items:center;"><strong>' + (f.meta && f.meta.sym) + '</strong><span class="mono" style="color:' + col + ';font-weight:700;font-size:14px;">' + (p * 100).toFixed(0) + '%</span></div>'
+      + '<div style="font-size:11px;color:var(--text-muted);margin-top:4px;">' + ((f.meta && f.meta.setup) || f.type) + '</div>';
+    pEl.appendChild(card);
+  });
+}
+
+document.getElementById('trainBtn').addEventListener('click', train);
+document.getElementById('resetBtn').addEventListener('click', () => {
+  if (!confirm('Reset the MLP model?')) return;
+  localStorage.removeItem(MLP_KEY);
+  paint();
+});
+paint();
+</script>
+</body>
+</html>
