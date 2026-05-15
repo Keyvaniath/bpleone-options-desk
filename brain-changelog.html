@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Brain Changelog — bpleone / trade</title>
+<meta name="description" content="What changed in the brain recently. Model retrains, weight shifts, new training data, drift events.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.event { display:grid;grid-template-columns:140px 1fr;gap:18px;padding:16px 0;border-bottom:1px solid var(--border); }
+.event .ts { font-size:11px;color:var(--text-muted);font-family:var(--font-mono); }
+.event .icon { display:inline-block;width:34px;height:34px;line-height:34px;text-align:center;background:var(--bg-elevated);border-radius:50%;margin-right:10px; }
+.event h4 { font-size:14px;font-weight:700;margin-bottom:6px; }
+.event p { font-size:12px;color:var(--text-secondary);line-height:1.6; }
+.event-train h4 { color:var(--green); }
+.event-drift h4 { color:var(--yellow); }
+.event-promote h4 { color:var(--accent); }
+.event-reset h4 { color:var(--red); }
+.event-seed h4 { color:#a78bfa; }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">📜 Brain Changelog</div>
+      <div class="page-subtitle">What the brain has been doing · model events · weight shifts · drift · <span id="market-clock">--</span></div>
+    </div>
+    <div class="flex gap-8">
+      <select id="filter" class="btn btn-secondary" style="background:var(--bg-elevated);border:1px solid var(--border);color:var(--text-primary);padding:8px 14px;">
+        <option value="all">All events</option>
+        <option value="train">Training only</option>
+        <option value="drift">Drift only</option>
+        <option value="promote">Version promotions</option>
+      </select>
+      <button class="btn btn-ghost" id="clearBtn">🗑 Clear log</button>
+    </div>
+  </div>
+
+  <div class="grid grid-4 mb-24">
+    <div class="card"><div class="card-header"><div class="card-title">Total events</div></div><div class="mono" style="font-size:24px;font-weight:700;" id="kTot">--</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">Retrains (7d)</div></div><div class="mono" style="font-size:24px;font-weight:700;color:var(--green);" id="kTrain">--</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">Drift events</div></div><div class="mono" style="font-size:24px;font-weight:700;color:var(--yellow);" id="kDrift">--</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">Last event</div></div><div class="mono" style="font-size:14px;font-weight:700;" id="kLast">--</div></div>
+  </div>
+
+  <div class="card mb-24">
+    <div class="card-header"><div class="card-title">📋 Event timeline</div></div>
+    <div id="events"></div>
+  </div>
+
+  <div class="card">
+    <div class="card-header"><div class="card-title">💡 What gets logged</div></div>
+    <div style="font-size:13px;color:var(--text-secondary);line-height:1.7;">
+      The brain logs an event when something materially changes its behavior:
+      <br>
+      🎓 <strong>Training:</strong> A batch of new labeled data was processed and the weights shifted. Logged with loss delta.<br>
+      ⚠ <strong>Drift:</strong> Recent hit rate diverged from lifetime average by more than 8%. Could mean regime change.<br>
+      🚀 <strong>Promotion:</strong> A new model version was promoted to production (replaced the active model).<br>
+      🌱 <strong>Seed:</strong> Synthetic training data was generated (usually on first install or after a reset).<br>
+      🔄 <strong>Reset:</strong> The brain was reset — all weights zeroed, training data preserved.<br>
+      <br>
+      Events are persisted in localStorage. Use Clear log to wipe — this won't affect the model itself, just the audit trail.
+    </div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script src="js/model.js"></script>
+<script>
+buildNav('brain-changelog');
+
+const LOG_KEY = 'bpleone_brain_changelog_v1';
+function loadLog() { try { return JSON.parse(localStorage.getItem(LOG_KEY) || '[]'); } catch(e) { return []; } }
+function saveLog(l) { try { localStorage.setItem(LOG_KEY, JSON.stringify(l.slice(0, 200))); } catch(e) {} }
+
+// Patch model events if the model module is loaded
+function logEvent(type, title, body, meta) {
+  const log = loadLog();
+  log.unshift({ id: 'e-' + Date.now() + '-' + Math.random().toString(36).slice(2, 6), ts: Date.now(), type, title, body, meta });
+  saveLog(log);
+}
+
+// Bootstrap: if log is empty, seed it from known signals
+(function bootstrap() {
+  const log = loadLog();
+  if (log.length === 0) {
+    // Reconstruct from model state
+    try {
+      const versions = JSON.parse(localStorage.getItem('bpleone_model_versions_v1') || '[]');
+      versions.forEach((v, i) => {
+        logEvent('promote', 'Model version v' + (i+1) + ' promoted', 'Active model version became v' + (i+1) + '. Loss: ' + (v.loss || '?'), { version: i+1 });
+      });
+      if (localStorage.getItem('bpleone_model_autoseeded_v1')) {
+        logEvent('seed', 'Auto-seed: 200 synthetic rows', 'On first visit, 200 synthetic training rows were generated to bootstrap the model.', { n: 200 });
+      }
+      const train = JSON.parse(localStorage.getItem('bpleone_train_v1') || '[]');
+      if (train.length > 0) {
+        const dayChunks = {};
+        train.forEach(t => {
+          const d = new Date(t.ts).toDateString();
+          dayChunks[d] = (dayChunks[d] || 0) + 1;
+        });
+        Object.entries(dayChunks).slice(-7).forEach(([day, n]) => {
+          logEvent('train', 'Daily batch — ' + day, 'Processed ' + n + ' labeled trades for online training.', { n });
+        });
+      }
+    } catch(e) {}
+  }
+})();
+
+function fmt(ts) {
+  const d = new Date(ts);
+  return d.toLocaleDateString() + '\n' + d.toLocaleTimeString([], { hour:'2-digit', minute:'2-digit' });
+}
+
+function render() {
+  const f = document.getElementById('filter').value;
+  let log = loadLog();
+  if (f !== 'all') log = log.filter(e => e.type === f);
+
+  // KPIs
+  const all = loadLog();
+  const weekAgo = Date.now() - 7 * 86400000;
+  document.getElementById('kTot').textContent = all.length;
+  document.getElementById('kTrain').textContent = all.filter(e => e.type === 'train' && e.ts >= weekAgo).length;
+  document.getElementById('kDrift').textContent = all.filter(e => e.type === 'drift').length;
+  document.getElementById('kLast').textContent = all.length > 0 ? new Date(all[0].ts).toLocaleString() : '—';
+
+  // Body
+  const wrap = document.getElementById('events');
+  if (log.length === 0) {
+    wrap.innerHTML = '<div style="text-align:center;padding:40px;color:var(--text-muted);font-size:13px;">No events match this filter.</div>';
+    return;
+  }
+  const icons = { train: '🎓', drift: '⚠', promote: '🚀', seed: '🌱', reset: '🔄' };
+  wrap.innerHTML = log.map(e =>
+    '<div class="event event-' + e.type + '">'
+    + '<div class="ts">' + fmt(e.ts).split('\n').join('<br>') + '</div>'
+    + '<div>'
+      + '<h4><span class="icon">' + (icons[e.type] || '•') + '</span>' + e.title + '</h4>'
+      + '<p>' + e.body + '</p>'
+    + '</div>'
+    + '</div>'
+  ).join('');
+}
+
+document.getElementById('filter').addEventListener('change', render);
+document.getElementById('clearBtn').addEventListener('click', () => {
+  if (!confirm('Clear changelog? This only wipes the audit trail, not the model itself.')) return;
+  saveLog([]);
+  render();
+});
+
+render();
+setInterval(render, 10000);
+</script>
+</body>
+</html>

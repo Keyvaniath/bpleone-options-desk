@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Portfolio Stress Test — bpleone / trade</title>
+<meta name="description" content="What happens to your brain-driven portfolio in a -10% SPY day? Flash crash? 2008-style drawdown? Stress-test scenarios.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<style>
+.scenario { padding:18px;background:var(--bg-elevated);border:1px solid var(--border);border-radius:12px;cursor:pointer;transition:all 0.15s; }
+.scenario:hover, .scenario.on { border-color:var(--accent); }
+.scenario.on { background:rgba(0,212,255,0.05); }
+.scenario h4 { font-size:13px;font-weight:700;margin-bottom:6px; }
+.scenario .impact { font-family:var(--font-mono);font-size:22px;font-weight:800; }
+.scenario .desc { font-size:11px;color:var(--text-muted);margin-top:4px;line-height:1.5; }
+.kpi-tile { padding:18px;background:var(--bg-elevated);border-radius:10px;text-align:center; }
+.kpi-tile .lbl { font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px; }
+.kpi-tile .val { font-family:var(--font-mono);font-size:28px;font-weight:800; }
+.row-grid { display:grid;grid-template-columns:1fr 100px 100px 100px;gap:14px;padding:11px 0;border-bottom:1px solid var(--border);font-size:12px;align-items:center; }
+.row-grid.hdr { font-size:9px;color:var(--text-muted);font-weight:800;text-transform:uppercase;letter-spacing:0.5px; }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">🩺 Portfolio Stress Test</div>
+      <div class="page-subtitle">What if the market drops? Pick a scenario · see your damage · <span id="market-clock">--</span></div>
+    </div>
+    <div class="flex gap-8">
+      <label style="font-size:11px;color:var(--text-muted);align-self:center;">Book size: $</label>
+      <input type="number" id="book" value="10000" step="1000" style="width:120px;padding:7px 10px;background:var(--bg-elevated);border:1px solid var(--border);color:var(--text-primary);border-radius:6px;font-family:var(--font-mono);">
+    </div>
+  </div>
+
+  <div class="card mb-24">
+    <div class="card-header"><div class="card-title">📉 Pick a stress scenario</div></div>
+    <div class="grid grid-3" style="gap:14px;">
+      <div class="scenario on" data-sn="mild"><h4>Mild correction</h4><div class="impact" style="color:#f97316;">SPY -5%</div><div class="desc">A normal pullback. Happens 2-3× per year. VIX ~25.</div></div>
+      <div class="scenario" data-sn="bad"><h4>Bear day</h4><div class="impact" style="color:var(--red);">SPY -10%</div><div class="desc">Single-day. Like Aug 2024, COVID-March-2020. VIX 40+.</div></div>
+      <div class="scenario" data-sn="crash"><h4>Flash crash</h4><div class="impact" style="color:var(--red);">SPY -20%</div><div class="desc">Black-swan day. 1987-style. VIX 60+.</div></div>
+      <div class="scenario" data-sn="bear8"><h4>2008-style year</h4><div class="impact" style="color:var(--red);">SPY -40%</div><div class="desc">Compressed into one window. GFC. VIX sustained 50+.</div></div>
+      <div class="scenario" data-sn="boom"><h4>Squeeze rally</h4><div class="impact" style="color:var(--green);">SPY +15%</div><div class="desc">FOMO melt-up. Tests if you sit out or chase.</div></div>
+      <div class="scenario" data-sn="vol"><h4>Vol shock</h4><div class="impact" style="color:var(--yellow);">VIX +200%</div><div class="desc">Vol explodes, no big move yet. Premium dries up.</div></div>
+    </div>
+  </div>
+
+  <div class="grid grid-4 mb-24">
+    <div class="kpi-tile"><div class="lbl">Portfolio impact</div><div class="val" id="kImp">--</div></div>
+    <div class="kpi-tile"><div class="lbl">P&L (book size)</div><div class="val" id="kPnl">--</div></div>
+    <div class="kpi-tile"><div class="lbl">Days to recover</div><div class="val" id="kRec">--</div></div>
+    <div class="kpi-tile"><div class="lbl">Max drawdown</div><div class="val" id="kDD">--</div></div>
+  </div>
+
+  <div class="grid grid-2 mb-24">
+    <div class="card">
+      <div class="card-header"><div class="card-title">📉 Portfolio path under stress</div></div>
+      <canvas id="pathChart" height="220"></canvas>
+    </div>
+    <div class="card">
+      <div class="card-header"><div class="card-title">🎯 Per-position damage</div></div>
+      <div class="row-grid hdr">
+        <div>POSITION</div><div>EXPOSURE</div><div>BETA</div><div>HIT</div>
+      </div>
+      <div id="posBody"></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-header"><div class="card-title">💡 Reading the stress test</div></div>
+    <div style="font-size:13px;color:var(--text-secondary);line-height:1.7;">
+      Stress tests answer one question: <strong>"Can I survive this?"</strong>
+      <br><br>
+      <strong>If portfolio impact &gt; 25%:</strong> Position sizes are too aggressive. Cut size or hedge.<br>
+      <strong>If recovery &gt; 60 days:</strong> Drawdown is psychologically destructive — you'll panic-sell. Reduce risk.<br>
+      <strong>If beta &gt; 1.5:</strong> Brain is concentrated in high-beta names that crash hardest. Diversify.<br>
+      <br>
+      The model can't predict black swans, but you can survive them by sizing for the worst day, not the best.
+    </div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script src="js/model.js"></script>
+<script>
+buildNav('portfolio-stress-test');
+
+const SCENARIOS = {
+  mild:  { spy: -0.05, betaMult: 1.0, days: 14, vol: 1.5 },
+  bad:   { spy: -0.10, betaMult: 1.2, days: 30, vol: 2.5 },
+  crash: { spy: -0.20, betaMult: 1.5, days: 60, vol: 4.0 },
+  bear8: { spy: -0.40, betaMult: 1.6, days: 180, vol: 3.5 },
+  boom:  { spy: 0.15,  betaMult: 0.9, days: 30, vol: 1.2 },
+  vol:   { spy: 0.00,  betaMult: 0.8, days: 21, vol: 3.0 }
+};
+
+const SYM_BETAS = { 'SPY':1.0,'QQQ':1.1,'NVDA':1.7,'TSLA':1.9,'AAPL':1.2,'MSFT':1.1,'META':1.4,'AMZN':1.3,'GOOGL':1.2,'AMD':1.8,'COIN':2.5,'MSTR':3.0,'PLTR':2.2,'SMCI':2.4,'HOOD':2.0 };
+
+let scenario = 'mild';
+
+function loadWatchlist() {
+  try {
+    const lists = JSON.parse(localStorage.getItem('bpleone_watchlist_pro_v1') || '[]');
+    if (lists.length > 0) return lists[0].syms;
+  } catch(e) {}
+  return ['SPY','QQQ','NVDA','TSLA','AAPL'];
+}
+
+function render() {
+  const s = SCENARIOS[scenario];
+  const book = parseFloat(document.getElementById('book').value) || 10000;
+  const syms = loadWatchlist().slice(0, 8);
+
+  // Per-symbol position size = book / syms.length
+  const sizePerSym = book / syms.length;
+  let totalLoss = 0;
+  const positions = syms.map(sym => {
+    const beta = SYM_BETAS[sym] || 1.0;
+    const hit = s.spy * beta * s.betaMult;
+    const lossDollars = sizePerSym * hit;
+    totalLoss += lossDollars;
+    return { sym, exposure: sizePerSym, beta, hit, lossDollars };
+  });
+
+  const impactPct = totalLoss / book;
+  document.getElementById('kImp').textContent = (impactPct >= 0 ? '+' : '') + (impactPct * 100).toFixed(1) + '%';
+  document.getElementById('kImp').style.color = impactPct >= 0 ? 'var(--green)' : 'var(--red)';
+  document.getElementById('kPnl').textContent = (totalLoss >= 0 ? '+' : '') + '$' + Math.abs(totalLoss).toFixed(0);
+  document.getElementById('kPnl').style.color = totalLoss >= 0 ? 'var(--green)' : 'var(--red)';
+  document.getElementById('kRec').textContent = impactPct < 0 ? Math.ceil(-impactPct / 0.005) + ' days' : '—';
+  document.getElementById('kDD').textContent = (Math.abs(impactPct) * 100).toFixed(1) + '%';
+
+  // Path chart — show book value declining then recovering
+  const days = s.days * 2;
+  const path = [];
+  for (let i = 0; i <= days; i++) {
+    if (i <= s.days / 4) {
+      path.push(book * (1 + impactPct * (i / (s.days / 4))));
+    } else {
+      const t = (i - s.days / 4) / (days - s.days / 4);
+      path.push(book * (1 + impactPct * (1 - t)));
+    }
+  }
+  if (window._path) window._path.destroy();
+  window._path = new Chart(document.getElementById('pathChart'), {
+    type: 'line',
+    data: {
+      labels: path.map((_, i) => 'Day ' + i),
+      datasets: [{ label: 'Book value', data: path, borderColor: impactPct < 0 ? '#ef4444' : '#10b981', backgroundColor: impactPct < 0 ? 'rgba(239,68,68,0.1)' : 'rgba(16,185,129,0.1)', tension:0.3, fill:true, pointRadius:0, borderWidth:2 }]
+    },
+    options: { responsive:true, maintainAspectRatio:false, plugins:{legend:{display:false}}, scales:{x:{ticks:{color:'#888',maxTicksLimit:10},grid:{color:'#222'}},y:{ticks:{color:'#888',callback:v=>'$'+v.toFixed(0)},grid:{color:'#222'}}} }
+  });
+
+  // Per-position body
+  document.getElementById('posBody').innerHTML = positions.map(p =>
+    '<div class="row-grid">'
+    + '<div><strong>' + p.sym + '</strong></div>'
+    + '<div style="font-family:var(--font-mono);">$' + p.exposure.toFixed(0) + '</div>'
+    + '<div style="font-family:var(--font-mono);color:' + (p.beta > 1.5 ? 'var(--red)' : 'var(--text-primary)') + ';">' + p.beta.toFixed(2) + '</div>'
+    + '<div style="font-family:var(--font-mono);color:' + (p.lossDollars < 0 ? 'var(--red)' : 'var(--green)') + ';font-weight:700;">' + (p.lossDollars >= 0 ? '+' : '-') + '$' + Math.abs(p.lossDollars).toFixed(0) + '</div>'
+    + '</div>'
+  ).join('');
+}
+
+document.querySelectorAll('.scenario').forEach(s => s.addEventListener('click', () => {
+  document.querySelectorAll('.scenario').forEach(x => x.classList.remove('on'));
+  s.classList.add('on');
+  scenario = s.dataset.sn;
+  render();
+}));
+
+document.getElementById('book').addEventListener('input', render);
+render();
+</script>
+</body>
+</html>
