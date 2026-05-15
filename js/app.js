@@ -86,7 +86,7 @@ function buildNav(activePage) {
   activePage = activePage || '';
   const playsGrp = ['totd','plays','signals','earnings','earnings-preview','pre-market','zero-dte','setup-wizard','paper-trade','game-plan','hot-movers','squeeze-radar','trade-plan'];
   const tradeGrp = ['flow','chain','ta','momentum','market-internals','smart-money','heatmap','watchlists','vol-surface','gex','tape','sectors','pairs','calendar-analyzer','vol-cone','dark-pool','short-interest','etf-flows','volume-profile','order-flow','ticker','multi-leg-builder','bracket-builder','spread-scanner','wheel','correlation'];
-  const toolsGrp = ['risk','fundamentals','backtester','edge','learn','learn-engine-explained','crypto','journal','alerts','macro','news','screener','anomalies','assistant','ai-scout','portfolio-builder','position-sizing','execution','strategies','api','seasonality','economic-events','settings','mindset','changelog','friday-summary','replay','live-positions','risk-attribution','edge-scanner','hypothetical','account'];
+  const toolsGrp = ['risk','fundamentals','backtester','edge','learn','learn-engine-explained','crypto','journal','alerts','macro','news','screener','anomalies','assistant','ai-scout','portfolio-builder','position-sizing','execution','strategies','api','seasonality','economic-events','settings','mindset','changelog','friday-summary','replay','live-positions','risk-attribution','edge-scanner','hypothetical','account','setup-combos','kelly-sizer','potd-backtest','news-reactions'];
   const isTrade = tradeGrp.indexOf(activePage) !== -1;
   const isPlays = playsGrp.indexOf(activePage) !== -1;
   const isTools = toolsGrp.indexOf(activePage) !== -1;
@@ -160,6 +160,10 @@ function buildNav(activePage) {
     + '<a href="risk-attribution.html">🎯 Risk Attribution <span class="feat-badge feat-new" style="font-size:8px;padding:0 5px;">NEW</span></a>'
     + '<a href="edge-scanner.html">🛰 Live Edge Scanner <span class="feat-badge feat-live" style="font-size:8px;padding:0 5px;">LIVE</span></a>'
     + '<a href="hypothetical.html">📝 Hypothetical Trades <span class="feat-badge feat-new" style="font-size:8px;padding:0 5px;">NEW</span></a>'
+    + '<a href="setup-combos.html">🔗 Setup Combos <span class="feat-badge feat-new" style="font-size:8px;padding:0 5px;">NEW</span></a>'
+    + '<a href="kelly-sizer.html">📐 Kelly Sizer <span class="feat-badge feat-new" style="font-size:8px;padding:0 5px;">NEW</span></a>'
+    + '<a href="potd-backtest.html">🧪 POTD Backtest <span class="feat-badge feat-new" style="font-size:8px;padding:0 5px;">NEW</span></a>'
+    + '<a href="news-reactions.html">📰 News Reactions <span class="feat-badge feat-new" style="font-size:8px;padding:0 5px;">NEW</span></a>'
     + '<a href="account.html">👤 My Desk <span class="feat-badge feat-new" style="font-size:8px;padding:0 5px;">NEW</span></a>'
     + '<a href="mindset.html">🧘 Mindset Tracker <span class="feat-badge feat-new" style="font-size:8px;padding:0 5px;">NEW</span></a>'
     + '<a href="crypto.html">₿ Crypto Desk</a>'
@@ -371,6 +375,10 @@ function buildFooter() {
     + '<li><a href="risk-attribution.html">Risk Attribution</a></li>'
     + '<li><a href="edge-scanner.html">Edge Scanner</a></li>'
     + '<li><a href="hypothetical.html">Hypothetical Trades</a></li>'
+    + '<li><a href="setup-combos.html">Setup Combos</a></li>'
+    + '<li><a href="kelly-sizer.html">Kelly Sizer</a></li>'
+    + '<li><a href="potd-backtest.html">POTD Backtest</a></li>'
+    + '<li><a href="news-reactions.html">News Reactions</a></li>'
     + '<li><a href="account.html">My Desk</a></li>'
     + '<li><a href="changelog.html">Changelog</a></li>'
     + '<li><a href="portfolio-builder.html">Portfolio</a></li>'

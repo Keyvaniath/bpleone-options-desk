@@ -1,0 +1,280 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Setup Combo Analyzer — bpleone / trade</title>
+<meta name="description" content="When 2+ setups fire on the same trade, do you win more? The combo analyzer finds the stacked patterns the brain has the strongest edge in.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.combo-card { background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 10px; padding: 18px; }
+.combo-row { display: grid; grid-template-columns: minmax(220px, 2fr) 80px 80px 80px 100px; gap: 12px; align-items: center; padding: 10px 0; border-top: 1px solid var(--border); font-size: 12px; }
+.combo-row:first-child { border-top: none; padding-top: 0; }
+.combo-tag { display: inline-block; padding: 2px 8px; border-radius: 999px; font-family: var(--font-mono); font-size: 10px; margin-right: 4px; background: var(--bg-secondary); border: 1px solid var(--border); }
+.combo-tag.bull { background: rgba(16,185,129,0.12); color: var(--green); border-color: rgba(16,185,129,0.3); }
+.combo-tag.bear { background: rgba(239,68,68,0.12); color: var(--red); border-color: rgba(239,68,68,0.3); }
+.lift-pos { color: var(--green); font-weight: 700; }
+.lift-neg { color: var(--red); font-weight: 700; }
+.lift-zero { color: var(--text-muted); }
+.metric { font-family: var(--font-mono); }
+.kpi { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 20px; }
+.kpi .tile { background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 10px; padding: 14px; text-align: center; }
+.kpi .lab { font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.6px; }
+.kpi .val { font-family: var(--font-mono); font-weight: 700; font-size: 20px; margin-top: 4px; }
+.help { font-size: 11px; color: var(--text-muted); line-height: 1.6; }
+.empty { padding: 40px; text-align: center; color: var(--text-muted); }
+.recommend-card { background: linear-gradient(135deg, rgba(0,212,255,0.06), rgba(139,92,246,0.04)); border: 1px solid rgba(0,212,255,0.18); border-radius: 12px; padding: 18px; }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">Setup Combo Analyzer <span class="feat-badge feat-new">NEW</span></div>
+      <div class="page-subtitle">When the brain spots 2+ setups firing on the same symbol, win rate goes up. Here's where your stacked edges are. · <span id="market-clock">--</span></div>
+    </div>
+    <div class="flex gap-8">
+      <a href="edge-scanner.html" class="btn btn-ghost">🛰 Live Scanner</a>
+      <a href="risk-attribution.html" class="btn btn-ghost">🎯 Attribution</a>
+      <a href="learn-engine-explained.html" class="btn btn-ghost">🧬 How learn works</a>
+    </div>
+  </div>
+
+  <!-- KPI strip -->
+  <div class="kpi">
+    <div class="tile"><div class="lab">Combos found</div><div class="val mono" id="kCombos">0</div></div>
+    <div class="tile"><div class="lab">Best combo edge</div><div class="val mono" id="kBest">—</div></div>
+    <div class="tile"><div class="lab">Avg solo win-rate</div><div class="val mono" id="kSolo">—</div></div>
+    <div class="tile"><div class="lab">Avg combo win-rate</div><div class="val mono" id="kCombo">—</div></div>
+  </div>
+
+  <!-- LIVE combos firing right now -->
+  <div class="recommend-card mb-24">
+    <div style="font-weight:700;font-size:14px;margin-bottom:8px;">🔴 LIVE — symbols stacking 2+ setups RIGHT NOW</div>
+    <div id="liveCombos" style="font-size:12px;color:var(--text-muted);">Scanning…</div>
+  </div>
+
+  <!-- Combo rankings -->
+  <div class="combo-card mb-24">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+      <div>
+        <h3 style="margin:0;font-size:15px;">📊 Historical combo performance</h3>
+        <div class="help">From every trade you've recorded with 2+ setup hits. Lift = combo win-rate − avg single-setup win-rate.</div>
+      </div>
+      <div>
+        <label style="font-size:11px;color:var(--text-muted);text-transform:uppercase;">Min sample</label>
+        <select id="minN" class="btn btn-ghost" style="margin-left:6px;">
+          <option value="2">≥2 trades</option>
+          <option value="3" selected>≥3 trades</option>
+          <option value="5">≥5 trades</option>
+          <option value="10">≥10 trades</option>
+        </select>
+      </div>
+    </div>
+    <div class="combo-row" style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;font-weight:600;padding-bottom:8px;">
+      <div>Combo</div>
+      <div style="text-align:right;">N</div>
+      <div style="text-align:right;">Win %</div>
+      <div style="text-align:right;">Avg R</div>
+      <div style="text-align:right;">Lift</div>
+    </div>
+    <div id="comboList"></div>
+    <div id="emptyCombos" class="empty" style="display:none;">
+      <p style="margin:0;">No combos found yet — you need closed trades with 2+ matching setup tags.</p>
+      <p style="margin:6px 0 0;font-size:11px;">Trade more, or open <a href="paper-trade.html" style="color:var(--accent);">paper trade</a> against trending names.</p>
+    </div>
+  </div>
+
+  <!-- Per-setup base rates (for context) -->
+  <div class="combo-card">
+    <h3 style="margin:0 0 6px;font-size:15px;">📐 Solo baseline (for comparison)</h3>
+    <div class="help">Win-rate of each individual setup when it fires alone. Combos beat these are the real edge.</div>
+    <div id="soloList" style="margin-top:14px;"></div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script src="js/ta.js"></script>
+<script src="js/learn.js"></script>
+<script>buildNav('learn');</script>
+
+<script>
+(function () {
+  function loadTrades() {
+    try {
+      const raw = localStorage.getItem('bpleone_learn_v1');
+      if (!raw) return [];
+      return (JSON.parse(raw).trades || []).filter(t => t.result && t.R != null);
+    } catch (e) { return []; }
+  }
+
+  function comboKey(tags) {
+    return tags.slice().sort().join(' + ');
+  }
+
+  function findCombos(trades, minN) {
+    const buckets = {};
+    trades.forEach(t => {
+      const tags = (t.allTags && t.allTags.length >= 2) ? t.allTags.slice(0, 4) : null;
+      if (!tags) return;
+      // Generate all 2-subsets
+      for (let i = 0; i < tags.length; i++) {
+        for (let j = i + 1; j < tags.length; j++) {
+          const key = comboKey([tags[i], tags[j]]);
+          if (!buckets[key]) buckets[key] = { tags: [tags[i], tags[j]], trades: [] };
+          buckets[key].trades.push(t);
+        }
+      }
+      // Also 3-combos if available
+      if (tags.length >= 3) {
+        for (let i = 0; i < tags.length; i++) {
+          for (let j = i + 1; j < tags.length; j++) {
+            for (let k = j + 1; k < tags.length; k++) {
+              const key = comboKey([tags[i], tags[j], tags[k]]);
+              if (!buckets[key]) buckets[key] = { tags: [tags[i], tags[j], tags[k]], trades: [] };
+              buckets[key].trades.push(t);
+            }
+          }
+        }
+      }
+    });
+    return Object.values(buckets).filter(b => b.trades.length >= minN);
+  }
+
+  function rollup(arr) {
+    if (!arr.length) return { n: 0, wins: 0, wr: 0, avgR: 0, totalR: 0 };
+    const totalR = arr.reduce((a, t) => a + +t.R, 0);
+    const wins = arr.filter(t => t.R > 0).length;
+    return { n: arr.length, wins, wr: (wins / arr.length) * 100, avgR: totalR / arr.length, totalR };
+  }
+
+  function biasFromTags(tags) {
+    const bullTags = ['volume-breakout', '52w-break', 'unusual-call', '50ma-reclaim', 'macd-cross', 'momentum-extension', 'bull-flag', 'cup-handle', 'vwap-reclaim', 'continuation-bull'];
+    const bearTags = ['flush-on-volume', 'breakdown', 'unusual-put', 'bear-flag', 'overbought-fade', 'vwap-rejection', 'continuation-bear', 'bb-stretch-up'];
+    const hasBull = tags.some(t => bullTags.indexOf(t) !== -1);
+    const hasBear = tags.some(t => bearTags.indexOf(t) !== -1);
+    if (hasBull && !hasBear) return 'bull';
+    if (hasBear && !hasBull) return 'bear';
+    return 'mixed';
+  }
+
+  function renderCombos() {
+    const trades = loadTrades();
+    const minN = parseInt(document.getElementById('minN').value, 10);
+    const combos = findCombos(trades, minN);
+    // Solo baselines
+    const soloBySetup = {};
+    trades.forEach(t => {
+      if (!t.setup) return;
+      if (!soloBySetup[t.setup]) soloBySetup[t.setup] = [];
+      soloBySetup[t.setup].push(t);
+    });
+    const soloRolls = Object.entries(soloBySetup).map(([k, arr]) => ({ k, ...rollup(arr) }));
+    const avgSoloWR = soloRolls.length ? soloRolls.reduce((a, x) => a + x.wr, 0) / soloRolls.length : 0;
+
+    // Roll combos and compute lift
+    const ranked = combos.map(c => {
+      const r = rollup(c.trades);
+      const componentWRs = c.tags.map(t => {
+        const arr = soloBySetup[t] || [];
+        return arr.length ? rollup(arr).wr : null;
+      }).filter(x => x != null);
+      const baselineWR = componentWRs.length ? componentWRs.reduce((a, x) => a + x, 0) / componentWRs.length : avgSoloWR;
+      const lift = r.wr - baselineWR;
+      return { tags: c.tags, ...r, baselineWR, lift };
+    }).sort((a, b) => b.lift - a.lift);
+
+    // KPIs
+    document.getElementById('kCombos').textContent = ranked.length;
+    document.getElementById('kBest').textContent = ranked.length ? '+' + ranked[0].lift.toFixed(0) + ' pts' : '—';
+    document.getElementById('kBest').className = 'val mono ' + (ranked.length && ranked[0].lift > 0 ? 'lift-pos' : 'lift-neg');
+    document.getElementById('kSolo').textContent = soloRolls.length ? avgSoloWR.toFixed(0) + '%' : '—';
+    const avgComboWR = ranked.length ? ranked.reduce((a, x) => a + x.wr, 0) / ranked.length : 0;
+    document.getElementById('kCombo').textContent = ranked.length ? avgComboWR.toFixed(0) + '%' : '—';
+    document.getElementById('kCombo').className = 'val mono ' + (avgComboWR > avgSoloWR ? 'lift-pos' : 'lift-neg');
+
+    // Render combo list
+    const list = document.getElementById('comboList');
+    const empty = document.getElementById('emptyCombos');
+    if (!ranked.length) { list.innerHTML = ''; empty.style.display = 'block'; }
+    else { empty.style.display = 'none'; }
+    list.innerHTML = ranked.slice(0, 40).map(c => {
+      const bias = biasFromTags(c.tags);
+      const liftCls = c.lift > 5 ? 'lift-pos' : c.lift < -5 ? 'lift-neg' : 'lift-zero';
+      return `<div class="combo-row">
+        <div>${c.tags.map(t => `<span class="combo-tag ${bias === 'bull' ? 'bull' : bias === 'bear' ? 'bear' : ''}">${t}</span>`).join('+')}</div>
+        <div class="metric" style="text-align:right;">${c.n}</div>
+        <div class="metric" style="text-align:right;">${c.wr.toFixed(0)}%</div>
+        <div class="metric" style="text-align:right;${c.avgR >= 0 ? 'color:var(--green);' : 'color:var(--red);'}">${c.avgR >= 0 ? '+' : ''}${c.avgR.toFixed(2)}R</div>
+        <div class="${liftCls}" style="text-align:right;">${c.lift >= 0 ? '+' : ''}${c.lift.toFixed(0)} pts</div>
+      </div>`;
+    }).join('');
+
+    // Solo
+    const soloHtml = soloRolls.sort((a, b) => b.wr - a.wr).map(s => {
+      return `<div class="combo-row" style="grid-template-columns:1fr 80px 80px 80px;">
+        <div><span class="combo-tag">${s.k}</span></div>
+        <div class="metric" style="text-align:right;">${s.n}</div>
+        <div class="metric" style="text-align:right;">${s.wr.toFixed(0)}%</div>
+        <div class="metric" style="text-align:right;${s.avgR >= 0 ? 'color:var(--green);' : 'color:var(--red);'}">${s.avgR >= 0 ? '+' : ''}${s.avgR.toFixed(2)}R</div>
+      </div>`;
+    }).join('');
+    document.getElementById('soloList').innerHTML = soloHtml;
+  }
+
+  function renderLiveCombos() {
+    if (typeof QUOTES === 'undefined' || typeof Learn === 'undefined') return;
+    const symbols = Object.keys(QUOTES);
+    const live = [];
+    symbols.forEach(sym => {
+      const q = QUOTES[sym];
+      if (!q || !q.last) return;
+      const features = {
+        last: q.last, prevClose: q.prevClose, dayHigh: q.dayHigh, dayLow: q.dayLow,
+        volume: q.volume, avgVolume: q.avgVolume
+      };
+      const tag = Learn.autoTagSetup(features, { symbol: sym });
+      if (tag.allHits && tag.allHits.length >= 2) {
+        live.push({ sym, tags: tag.allHits.map(h => h.tag).slice(0, 4), score: tag.score, last: q.last, chg: q.changePct });
+      }
+    });
+    live.sort((a, b) => b.score - a.score);
+    const el = document.getElementById('liveCombos');
+    if (!live.length) { el.innerHTML = '<em>No combos stacking right now. Check back after the market shakes.</em>'; return; }
+    el.innerHTML = live.slice(0, 8).map(l => {
+      const bias = biasFromTags(l.tags);
+      return `<div style="padding:10px 0;border-top:1px solid var(--border);display:grid;grid-template-columns:80px 1fr 110px 80px;gap:10px;align-items:center;">
+        <div style="font-family:var(--font-mono);font-weight:700;font-size:14px;">${l.sym}</div>
+        <div>${l.tags.map(t => `<span class="combo-tag ${bias === 'bull' ? 'bull' : bias === 'bear' ? 'bear' : ''}">${t}</span>`).join(' ')}</div>
+        <div class="metric" style="font-size:11px;color:${l.chg >= 0 ? 'var(--green)' : 'var(--red)'};">$${l.last.toFixed(2)} (${l.chg >= 0 ? '+' : ''}${(l.chg || 0).toFixed(2)}%)</div>
+        <div style="text-align:right;"><a href="hypothetical.html?sym=${l.sym}&bias=${bias}&source=signals&note=combo:${l.tags.join('+')}" style="color:var(--accent);font-size:11px;">📝 Track →</a></div>
+      </div>`;
+    }).join('');
+  }
+
+  document.getElementById('minN').addEventListener('change', renderCombos);
+  setTimeout(() => { renderCombos(); renderLiveCombos(); }, 800);
+  setInterval(renderLiveCombos, 3000);
+  if (typeof Feed !== 'undefined') {
+    let pending = false;
+    Feed.subscribe('*', () => {
+      if (pending) return;
+      pending = true;
+      requestAnimationFrame(() => { pending = false; renderLiveCombos(); });
+    });
+  }
+})();
+</script>
+</body>
+</html>

@@ -157,7 +157,9 @@
 <script src="js/app.js"></script>
 <script src="js/notify.js"></script>
 <script src="js/live.js"></script>
+<script src="js/ta.js"></script>
 <script src="js/learn.js"></script>
+<script src="js/discord.js"></script>
 <script>
 buildNav('paper-trade');
 
@@ -325,13 +327,21 @@ function openLearnTrade(sym, side, entry, stop) {
       score: 60,
       entryFeatures: features
     });
+    if (t && typeof DiscordAlerts !== 'undefined') {
+      try { DiscordAlerts.tradeOpened(t); } catch (e) {}
+    }
     return t ? t.id : null;
   } catch (e) { console.warn('Learn.recordTrade failed', e); return null; }
 }
 
 function closeLearnTrade(id, exit, reason) {
   if (!id || typeof Learn === 'undefined') return;
-  try { Learn.closeTrade(id, exit, reason || 'manual'); } catch (e) { console.warn('Learn.closeTrade failed', e); }
+  try {
+    const closed = Learn.closeTrade(id, exit, reason || 'manual');
+    if (closed && typeof DiscordAlerts !== 'undefined') {
+      try { DiscordAlerts.tradeClosed(closed); } catch (e) {}
+    }
+  } catch (e) { console.warn('Learn.closeTrade failed', e); }
 }
 
 function fill(sym, side, qty, price, type, sl, tp) {

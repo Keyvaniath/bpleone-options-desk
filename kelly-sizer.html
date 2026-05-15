@@ -1,0 +1,318 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Kelly Sizer — bpleone / trade</title>
+<meta name="description" content="The brain proposes optimal position size from learned win-rates and R-multiples per setup. Half-Kelly default for safety.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.k-card { background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 12px; padding: 22px; }
+.input-row { display: grid; grid-template-columns: 160px 1fr; gap: 12px; align-items: center; padding: 10px 0; border-top: 1px solid var(--border); }
+.input-row:first-child { border-top: none; padding-top: 0; }
+.input-row label { font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; }
+.input-row input, .input-row select { background: var(--bg-secondary); border: 1px solid var(--border); color: var(--text-primary); padding: 8px 10px; border-radius: 6px; font-family: inherit; font-size: 13px; width: 100%; box-sizing: border-box; }
+.result-card { background: linear-gradient(135deg, rgba(0,212,255,0.08), rgba(139,92,246,0.04)); border: 1px solid rgba(0,212,255,0.25); border-radius: 12px; padding: 22px; }
+.big-num { font-family: var(--font-mono); font-weight: 800; font-size: 42px; line-height: 1; }
+.tile-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin-top: 18px; }
+.tile { background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 10px; padding: 14px; }
+.tile .lab { font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; }
+.tile .val { font-family: var(--font-mono); font-weight: 700; font-size: 18px; margin-top: 4px; }
+.section-title { font-size: 15px; font-weight: 700; margin-bottom: 12px; }
+.warning { background: rgba(245,158,11,0.08); border: 1px solid rgba(245,158,11,0.2); border-radius: 8px; padding: 10px 14px; font-size: 12px; color: var(--text-muted); margin-top: 14px; }
+.warning strong { color: var(--yellow); }
+.help { font-size: 11px; color: var(--text-muted); line-height: 1.6; }
+.fraction-bar { height: 18px; background: var(--bg-secondary); border-radius: 9px; overflow: hidden; margin: 8px 0; position: relative; }
+.fraction-bar .full-kelly, .fraction-bar .half-kelly, .fraction-bar .quarter-kelly { position: absolute; top: 0; bottom: 0; }
+.fraction-bar .full-kelly { background: rgba(239,68,68,0.4); }
+.fraction-bar .half-kelly { background: rgba(245,158,11,0.5); }
+.fraction-bar .quarter-kelly { background: rgba(16,185,129,0.6); }
+.fraction-bar .marker { position: absolute; top: -2px; bottom: -2px; width: 2px; background: var(--accent); box-shadow: 0 0 4px var(--accent); }
+.setup-row { display: grid; grid-template-columns: 1fr 70px 70px 80px 80px 80px; gap: 10px; padding: 8px 0; border-top: 1px solid var(--border); font-size: 12px; align-items: center; }
+.tag { display: inline-block; padding: 2px 8px; border-radius: 4px; background: var(--bg-secondary); border: 1px solid var(--border); font-family: var(--font-mono); font-size: 10px; }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">Kelly Sizer <span class="feat-badge feat-new">NEW</span></div>
+      <div class="page-subtitle">The brain proposes how much to bet given your learned edge per setup. Defaults to ½-Kelly (safer). · <span id="market-clock">--</span></div>
+    </div>
+    <div class="flex gap-8">
+      <a href="setup-combos.html" class="btn btn-ghost">📊 Combos</a>
+      <a href="position-sizing.html" class="btn btn-ghost">📐 Manual sizer</a>
+      <a href="risk-attribution.html" class="btn btn-ghost">🎯 Attribution</a>
+    </div>
+  </div>
+
+  <!-- Help -->
+  <div class="k-card mb-24">
+    <div class="section-title">🎓 What is Kelly?</div>
+    <div class="help">
+      The <strong>Kelly criterion</strong> is the math-optimal bet size given your edge: <code>f* = W − (1−W) / R</code>
+      where W = win-rate and R = avg-win / avg-loss ratio. It's the size that <em>maximizes long-term wealth growth</em>.
+      In practice, full Kelly is too aggressive — one bad streak ruins you. Most pros bet ¼-Kelly to ½-Kelly.
+      The brain uses your <strong>learned data per setup</strong> — so the answer changes as you trade more.
+    </div>
+  </div>
+
+  <!-- Inputs -->
+  <div class="grid grid-2 mb-24">
+    <div class="k-card">
+      <div class="section-title">📝 Trade inputs</div>
+      <div class="input-row"><label>Symbol</label><input id="iSym" placeholder="SPY" style="text-transform:uppercase;"></div>
+      <div class="input-row"><label>Setup</label><select id="iSetup"><option value="">(use auto-tag from live data)</option></select></div>
+      <div class="input-row"><label>Account size ($)</label><input id="iAccount" type="number" step="1000" value="100000"></div>
+      <div class="input-row"><label>Max risk per trade (%)</label><input id="iRiskPct" type="number" step="0.1" value="1.0"></div>
+      <div class="input-row"><label>Entry price ($)</label><input id="iEntry" type="number" step="0.01"></div>
+      <div class="input-row"><label>Stop price ($)</label><input id="iStop" type="number" step="0.01"></div>
+      <div class="input-row"><label>Kelly fraction</label><select id="iFrac"><option value="0.25">¼-Kelly (conservative)</option><option value="0.5" selected>½-Kelly (default)</option><option value="0.75">¾-Kelly</option><option value="1.0">Full Kelly (aggressive)</option></select></div>
+      <div style="margin-top:12px;display:flex;gap:8px;">
+        <button id="btnCompute" class="btn btn-primary">Compute size →</button>
+        <button id="btnFromQuote" class="btn btn-ghost">Use live quote</button>
+      </div>
+    </div>
+
+    <div class="result-card">
+      <div class="section-title" style="color:var(--accent);">💰 Brain says…</div>
+      <div style="display:flex;align-items:baseline;gap:14px;flex-wrap:wrap;">
+        <div class="big-num" id="rNotional">$0</div>
+        <div style="color:var(--text-muted);font-family:var(--font-mono);" id="rShares">0 shares</div>
+      </div>
+      <div class="help" id="rExplain" style="margin-top:8px;"></div>
+
+      <div class="tile-row">
+        <div class="tile"><div class="lab">Kelly %</div><div class="val mono" id="rKelly">—</div></div>
+        <div class="tile"><div class="lab">Risk $</div><div class="val mono" id="rRiskD">—</div></div>
+        <div class="tile"><div class="lab">Expected R/trade</div><div class="val mono" id="rExp">—</div></div>
+      </div>
+
+      <div style="margin-top:16px;">
+        <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px;">Position relative to risk caps</div>
+        <div class="fraction-bar">
+          <div class="full-kelly" id="fullBar"></div>
+          <div class="half-kelly" id="halfBar"></div>
+          <div class="quarter-kelly" id="quarterBar"></div>
+          <div class="marker" id="kellyMarker"></div>
+        </div>
+        <div style="display:flex;justify-content:space-between;font-family:var(--font-mono);font-size:10px;color:var(--text-muted);">
+          <span>0%</span><span>¼K</span><span>½K</span><span>Full K</span>
+        </div>
+      </div>
+
+      <div class="warning" id="rWarning" style="display:none;"></div>
+    </div>
+  </div>
+
+  <!-- Per-setup edge table -->
+  <div class="k-card mb-24">
+    <div class="section-title">📊 Your learned edge by setup</div>
+    <div class="help">Every setup the brain has seen at least 3 closed trades for. Sorted by Kelly fraction (math-optimal long-term bet size).</div>
+    <div style="margin-top:16px;">
+      <div class="setup-row" style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;font-weight:600;">
+        <div>Setup</div>
+        <div style="text-align:right;">N</div>
+        <div style="text-align:right;">Win %</div>
+        <div style="text-align:right;">Avg R</div>
+        <div style="text-align:right;">Payoff</div>
+        <div style="text-align:right;">Kelly %</div>
+      </div>
+      <div id="setupTable"></div>
+    </div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script src="js/ta.js"></script>
+<script src="js/learn.js"></script>
+<script>buildNav('learn');</script>
+
+<script>
+(function () {
+  function loadTrades() {
+    try {
+      const raw = localStorage.getItem('bpleone_learn_v1');
+      if (!raw) return [];
+      return (JSON.parse(raw).trades || []).filter(t => t.result);
+    } catch (e) { return []; }
+  }
+
+  function rollupBySetup(trades) {
+    const groups = {};
+    trades.forEach(t => {
+      if (!t.setup) return;
+      if (!groups[t.setup]) groups[t.setup] = [];
+      groups[t.setup].push(t);
+    });
+    return Object.entries(groups).map(([setup, arr]) => {
+      const wins = arr.filter(t => t.R > 0);
+      const losses = arr.filter(t => t.R < 0);
+      const winRate = arr.length ? wins.length / arr.length : 0;
+      const avgWinR = wins.length ? wins.reduce((a, t) => a + t.R, 0) / wins.length : 0;
+      const avgLossR = losses.length ? Math.abs(losses.reduce((a, t) => a + t.R, 0) / losses.length) : 0;
+      const payoff = avgLossR > 0 ? avgWinR / avgLossR : avgWinR;
+      // Kelly: f* = W - (1-W)/R
+      let kelly = avgLossR > 0 ? winRate - (1 - winRate) / payoff : (winRate * avgWinR);
+      // Apply confidence shrinkage when n is low
+      const shrink = Math.min(1, arr.length / 30);
+      const kellyShrunk = kelly * shrink;
+      return {
+        setup, n: arr.length, winRate, avgWinR, avgLossR, payoff,
+        avgR: arr.reduce((a, t) => a + t.R, 0) / arr.length,
+        kelly, kellyShrunk
+      };
+    }).filter(s => s.n >= 3);
+  }
+
+  function populateSetupSelect() {
+    const stats = rollupBySetup(loadTrades());
+    const sel = document.getElementById('iSetup');
+    sel.innerHTML = '<option value="">(use auto-tag from live data)</option>' +
+      stats.sort((a, b) => b.kellyShrunk - a.kellyShrunk)
+        .map(s => `<option value="${s.setup}">${s.setup} · ${s.n} trades · Kelly ${(s.kellyShrunk * 100).toFixed(1)}%</option>`).join('');
+  }
+
+  function renderSetupTable() {
+    const stats = rollupBySetup(loadTrades()).sort((a, b) => b.kellyShrunk - a.kellyShrunk);
+    const html = stats.map(s => {
+      const cls = s.kellyShrunk > 0.05 ? 'lift-pos' : s.kellyShrunk <= 0 ? 'lift-neg' : '';
+      const kPct = (s.kellyShrunk * 100).toFixed(1);
+      const kColor = s.kellyShrunk > 0.05 ? 'color:var(--green);font-weight:700;' : s.kellyShrunk <= 0 ? 'color:var(--red);' : '';
+      return `<div class="setup-row">
+        <div><span class="tag">${s.setup}</span></div>
+        <div style="text-align:right;font-family:var(--font-mono);">${s.n}</div>
+        <div style="text-align:right;font-family:var(--font-mono);">${(s.winRate * 100).toFixed(0)}%</div>
+        <div style="text-align:right;font-family:var(--font-mono);${s.avgR >= 0 ? 'color:var(--green);' : 'color:var(--red);'}">${s.avgR >= 0 ? '+' : ''}${s.avgR.toFixed(2)}R</div>
+        <div style="text-align:right;font-family:var(--font-mono);">${s.payoff.toFixed(2)}x</div>
+        <div style="text-align:right;font-family:var(--font-mono);${kColor}">${kPct}%</div>
+      </div>`;
+    }).join('');
+    document.getElementById('setupTable').innerHTML = html || '<div style="padding:20px;text-align:center;color:var(--text-muted);">Not enough data yet (need 3+ trades per setup).</div>';
+  }
+
+  function pickSetupForSymbol(sym) {
+    if (!sym || typeof QUOTES === 'undefined' || !QUOTES[sym]) return null;
+    if (typeof Learn === 'undefined') return null;
+    const q = QUOTES[sym];
+    const features = { last: q.last, prevClose: q.prevClose, dayHigh: q.dayHigh, dayLow: q.dayLow, volume: q.volume, avgVolume: q.avgVolume };
+    const tag = Learn.autoTagSetup(features, { symbol: sym });
+    return tag.tag;
+  }
+
+  function compute() {
+    const sym = (document.getElementById('iSym').value || '').toUpperCase();
+    let setup = document.getElementById('iSetup').value;
+    if (!setup && sym) setup = pickSetupForSymbol(sym);
+    const account = parseFloat(document.getElementById('iAccount').value) || 100000;
+    const riskPct = parseFloat(document.getElementById('iRiskPct').value) || 1.0;
+    const entry = parseFloat(document.getElementById('iEntry').value);
+    const stop = parseFloat(document.getElementById('iStop').value);
+    const frac = parseFloat(document.getElementById('iFrac').value);
+
+    if (!isFinite(entry) || !isFinite(stop) || entry === stop) {
+      document.getElementById('rExplain').textContent = 'Enter entry & stop prices to compute size.';
+      return;
+    }
+    const stats = rollupBySetup(loadTrades());
+    let s = stats.find(x => x.setup === setup);
+    let usedFallback = false;
+    if (!s) {
+      // No per-setup data — fall back to global stats
+      const all = loadTrades();
+      const wins = all.filter(t => t.R > 0);
+      const losses = all.filter(t => t.R < 0);
+      const winRate = all.length ? wins.length / all.length : 0.5;
+      const avgWinR = wins.length ? wins.reduce((a, t) => a + t.R, 0) / wins.length : 1;
+      const avgLossR = losses.length ? Math.abs(losses.reduce((a, t) => a + t.R, 0) / losses.length) : 1;
+      const payoff = avgWinR / avgLossR;
+      const kelly = winRate - (1 - winRate) / payoff;
+      s = { setup: '(global)', n: all.length, winRate, avgWinR, avgLossR, payoff, kellyShrunk: kelly * Math.min(1, all.length / 30), avgR: all.length ? all.reduce((a, t) => a + t.R, 0) / all.length : 0 };
+      usedFallback = true;
+    }
+    const kRaw = s.kellyShrunk;
+    const kEff = Math.max(0, kRaw) * frac;          // apply fraction (½, ¼, etc.) and clip negative
+    const riskCap = (riskPct / 100);                 // hard risk cap
+    const kFinal = Math.min(kEff, riskCap);          // never exceed user's risk cap
+    const stopDist = Math.abs(entry - stop);
+    const riskDollars = account * kFinal;
+    const shares = stopDist > 0 ? Math.floor(riskDollars / stopDist) : 0;
+    const notional = shares * entry;
+
+    document.getElementById('rNotional').textContent = '$' + notional.toLocaleString(undefined, { maximumFractionDigits: 0 });
+    document.getElementById('rShares').textContent = shares + ' shares · stop ' + ((stopDist / entry) * 100).toFixed(2) + '%';
+    document.getElementById('rKelly').textContent = (kRaw * 100).toFixed(2) + '%';
+    document.getElementById('rRiskD').textContent = '$' + riskDollars.toLocaleString(undefined, { maximumFractionDigits: 0 });
+    document.getElementById('rExp').textContent = (s.avgR >= 0 ? '+' : '') + s.avgR.toFixed(2) + 'R';
+
+    let explain = `Based on <strong>${s.setup}</strong> setup (${s.n} closed trades, ${(s.winRate * 100).toFixed(0)}% win rate, ${s.payoff.toFixed(2)}x payoff).`;
+    if (usedFallback) explain += '<br>⚠ No data for this specific setup yet — using global stats. Trade more to refine.';
+    if (kRaw <= 0) explain += '<br>⚠ Kelly is <strong>≤ 0</strong> — your data says this setup has no edge. Brain says skip.';
+    if (kEff > riskCap && kEff > 0) explain += `<br>📐 Capped at your ${riskPct.toFixed(1)}% risk-per-trade limit (would have been ${(kEff * 100).toFixed(1)}%).`;
+    document.getElementById('rExplain').innerHTML = explain;
+
+    // Fraction bar: marker position relative to full Kelly = 100%
+    const maxX = Math.max(0.01, kRaw);
+    document.getElementById('fullBar').style.left = '0%';
+    document.getElementById('fullBar').style.width = '100%';
+    document.getElementById('halfBar').style.left = '0%';
+    document.getElementById('halfBar').style.width = '50%';
+    document.getElementById('quarterBar').style.left = '0%';
+    document.getElementById('quarterBar').style.width = '25%';
+    document.getElementById('kellyMarker').style.left = Math.min(100, (kFinal / maxX) * 100) + '%';
+
+    const warn = document.getElementById('rWarning');
+    if (frac >= 1.0 && kRaw > 0.1) {
+      warn.innerHTML = '<strong>Heads up:</strong> Full Kelly is mathematically optimal for long-term growth but historically suffers ~50% drawdowns even when correct. Most pros bet ¼-Kelly to ½-Kelly.';
+      warn.style.display = 'block';
+    } else if (kRaw > 0.15) {
+      warn.innerHTML = '<strong>High edge detected.</strong> Brain says you have a real signal here — but verify the sample isn\'t small.';
+      warn.style.display = 'block';
+    } else {
+      warn.style.display = 'none';
+    }
+  }
+
+  function loadFromQuote() {
+    const sym = (document.getElementById('iSym').value || '').toUpperCase();
+    if (!sym || typeof QUOTES === 'undefined' || !QUOTES[sym]) {
+      document.getElementById('rExplain').textContent = 'Enter a symbol with a live quote first.';
+      return;
+    }
+    const q = QUOTES[sym];
+    document.getElementById('iEntry').value = q.last.toFixed(2);
+    document.getElementById('iStop').value = (q.last * 0.98).toFixed(2);
+    compute();
+  }
+
+  document.getElementById('btnCompute').addEventListener('click', compute);
+  document.getElementById('btnFromQuote').addEventListener('click', loadFromQuote);
+  document.getElementById('iSym').addEventListener('blur', () => { /* refresh setup auto-pick if blank */ });
+  ['iEntry', 'iStop', 'iSetup', 'iFrac', 'iAccount', 'iRiskPct'].forEach(id => {
+    document.getElementById(id).addEventListener('change', compute);
+  });
+
+  // Auto-populate setup select and table
+  setTimeout(() => { populateSetupSelect(); renderSetupTable(); }, 600);
+
+  // Auto-populate from URL ?sym=
+  const params = new URLSearchParams(location.search);
+  if (params.has('sym')) {
+    document.getElementById('iSym').value = (params.get('sym') || '').toUpperCase();
+    setTimeout(loadFromQuote, 800);
+  }
+})();
+</script>
+</body>
+</html>

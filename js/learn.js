@@ -74,35 +74,124 @@ const Learn = (function () {
   }
 
   // Auto-tag a setup type from observable features at entry.
-  // Returns the best-matching setup label given price/volume/RSI/MACD context.
-  // ctx = { last, prevClose, dayHigh, dayLow, volume, avgVolume?, rsi?, macd?, ma50?, ma200?, ivRank?, unusual? }
-  function autoTagSetup(ctx) {
-    const reasons = [];
+  // Pulls real indicators from TA engine if available, falls back to ctx fields.
+  // Returns ALL matching tags (with scores) so callers can detect setup combos.
+  function autoTagSetup(ctx, opts) {
+    opts = opts || {};
+    // If a symbol is provided and TA is available, enrich ctx with real indicators
+    if (opts.symbol && typeof TA !== 'undefined') {
+      const snap = TA.snapshot(opts.symbol);
+      if (snap) {
+        ctx = Object.assign({}, ctx, {
+          last: snap.last || ctx.last,
+          rsi: snap.rsi != null ? snap.rsi : ctx.rsi,
+          rsi15: snap.rsi15,
+          rsiD: snap.rsiD,
+          macd: snap.macd != null ? snap.macd : ctx.macd,
+          macdHist: snap.hist,
+          macdSignal: snap.signal,
+          ema20: snap.ema20,
+          ema50: snap.ema50,
+          ema200: snap.ema200,
+          ma50: snap.sma50 || snap.ema50 || ctx.ma50,
+          ma200: snap.sma200 || snap.ema200 || ctx.ma200,
+          atr: snap.atr,
+          atrPct: snap.atrPct,
+          adx: snap.adx,
+          bbPct: snap.bbPct,
+          vwap: snap.vwap,
+          vwapDist: snap.vwapDist,
+          donchUp: snap.donchUp,
+          donchDn: snap.donchDn,
+          trend: snap.trend,
+          trendStrong: snap.trendStrong,
+          regime: snap.regime,
+          rvol: snap.rvol || ctx.rvol
+        });
+      }
+    }
+
     const pct = ctx.last && ctx.prevClose ? (ctx.last / ctx.prevClose - 1) * 100 : 0;
-    const rvol = ctx.avgVolume && ctx.volume ? ctx.volume / ctx.avgVolume : null;
+    const rvol = ctx.rvol || (ctx.avgVolume && ctx.volume ? ctx.volume / ctx.avgVolume : null);
     const above50 = ctx.ma50 ? ctx.last >= ctx.ma50 : null;
     const above200 = ctx.ma200 ? ctx.last >= ctx.ma200 : null;
     const rsi = ctx.rsi;
     const macd = ctx.macd;
+    const macdHist = ctx.macdHist;
+    const adx = ctx.adx;
+    const bbPct = ctx.bbPct;
+    const vwapDist = ctx.vwapDist;
+    const trend = ctx.trend;
+    const trendStrong = ctx.trendStrong;
+    const regime = ctx.regime;
 
-    // Sort heuristics by specificity (strongest patterns first)
-    if (rvol && rvol > 2.5 && pct > 3) { reasons.push('rvol>2.5x', 'pct>3%'); return { tag: 'volume-breakout', score: 0.92, reasons }; }
-    if (rvol && rvol > 2 && pct < -3) { reasons.push('rvol>2x', 'pct<-3%'); return { tag: 'flush-on-volume', score: 0.85, reasons }; }
-    if (ctx.unusual === 'call' && pct > 0) { reasons.push('unusual call flow'); return { tag: 'unusual-call', score: 0.80, reasons }; }
-    if (ctx.unusual === 'put' && pct < 0) { reasons.push('unusual put flow'); return { tag: 'unusual-put', score: 0.78, reasons }; }
+    // Build a list of every setup that matches — sorted by score (highest first).
+    const hits = [];
+    function add(tag, score, ...reasons) { hits.push({ tag, score, reasons }); }
+
+    // VOLUME / BREAKOUTS
+    if (rvol && rvol > 2.5 && pct > 3) add('volume-breakout', 0.92, 'rvol>2.5x', 'pct>3%');
+    if (rvol && rvol > 2 && pct < -3) add('flush-on-volume', 0.85, 'rvol>2x', 'pct<-3%');
+    if (ctx.donchUp && ctx.last >= ctx.donchUp * 0.999) add('52w-break', 0.88, 'breaking 20-bar high');
+    if (ctx.donchDn && ctx.last <= ctx.donchDn * 1.001) add('breakdown', 0.85, 'breaking 20-bar low');
+
+    // UNUSUAL OPTIONS
+    if (ctx.unusual === 'call' && pct > 0) add('unusual-call', 0.80, 'unusual call flow');
+    if (ctx.unusual === 'put' && pct < 0) add('unusual-put', 0.78, 'unusual put flow');
+
+    // MA RECLAIM
     if (above50 === true && ctx.ma50 && Math.abs(ctx.last - ctx.ma50) / ctx.ma50 < 0.005 && macd != null && macd > 0) {
-      reasons.push('within 0.5% of 50DMA', 'MACD>0');
-      return { tag: '50ma-reclaim', score: 0.82, reasons };
+      add('50ma-reclaim', 0.82, 'within 0.5% of 50DMA', 'MACD>0');
     }
-    if (macd != null && macd > 0 && rsi != null && rsi > 50 && rsi < 70 && pct > 0) { reasons.push('MACD>0', 'RSI 50-70'); return { tag: 'macd-cross', score: 0.78, reasons }; }
-    if (rsi != null && rsi > 70 && pct > 1) { reasons.push('RSI>70', 'pct>1%'); return { tag: 'momentum-extension', score: 0.72, reasons }; }
-    if (rsi != null && rsi < 30 && pct < -1) { reasons.push('RSI<30', 'pct<-1%'); return { tag: 'oversold-mean-revert', score: 0.65, reasons }; }
-    if (above200 === true && above50 === false && pct > 0) { reasons.push('above 200DMA', 'below 50DMA', 'reclaim setup'); return { tag: 'cup-handle', score: 0.70, reasons }; }
-    if (pct > 1 && rvol && rvol > 1.3) { reasons.push('momentum + above-avg volume'); return { tag: 'bull-flag', score: 0.70, reasons }; }
-    if (pct < -1 && rvol && rvol > 1.3) { reasons.push('momentum down + volume'); return { tag: 'bear-flag', score: 0.68, reasons }; }
-    if (pct > 0.5) return { tag: 'continuation-bull', score: 0.55, reasons: ['weak-signal upward'] };
-    if (pct < -0.5) return { tag: 'continuation-bear', score: 0.55, reasons: ['weak-signal downward'] };
-    return { tag: 'consolidation', score: 0.30, reasons: ['no strong feature'] };
+    if (above200 === true && above50 === false && pct > 0 && trend === 'uptrend') {
+      add('cup-handle', 0.74, 'above 200DMA', 'below 50DMA', 'long-base reclaim');
+    }
+
+    // MOMENTUM
+    if (macdHist != null && macdHist > 0 && rsi != null && rsi > 50 && rsi < 70 && pct > 0) {
+      add('macd-cross', 0.80, 'MACD hist>0', 'RSI 50-70');
+    }
+    if (rsi != null && rsi > 70 && pct > 1 && trendStrong) {
+      add('momentum-extension', 0.74, 'RSI>70', 'ADX>25', 'strong trend');
+    }
+    if (rsi != null && rsi < 30 && pct < -1) add('oversold-mean-revert', 0.65, 'RSI<30', 'pct<-1%');
+    if (rsi != null && rsi > 70 && pct > 1 && !trendStrong) {
+      add('overbought-fade', 0.55, 'RSI>70 in chop');
+    }
+
+    // BOLLINGER BAND
+    if (bbPct != null && bbPct > 1 && rsi > 65) add('bb-stretch-up', 0.62, 'price > upper BB', 'RSI>65');
+    if (bbPct != null && bbPct < 0 && rsi < 35) add('bb-stretch-down', 0.62, 'price < lower BB', 'RSI<35');
+
+    // SQUEEZE / COMPRESSION
+    if (regime === 'compressed' && adx != null && adx < 20) {
+      add('vol-squeeze', 0.68, 'ATR compressed', 'ADX<20', 'breakout setup');
+    }
+
+    // VWAP
+    if (vwapDist != null && vwapDist > 0 && vwapDist < 1 && pct > 0 && trend === 'uptrend') {
+      add('vwap-reclaim', 0.70, 'just reclaimed VWAP', 'in uptrend');
+    }
+    if (vwapDist != null && vwapDist < 0 && vwapDist > -1 && pct < 0 && trend === 'downtrend') {
+      add('vwap-rejection', 0.68, 'rejected at VWAP', 'in downtrend');
+    }
+
+    // FLAGS
+    if (pct > 1 && rvol && rvol > 1.3 && trend === 'uptrend') add('bull-flag', 0.72, 'momentum + rvol>1.3x', 'in uptrend');
+    if (pct < -1 && rvol && rvol > 1.3 && trend === 'downtrend') add('bear-flag', 0.70, 'momentum down + rvol>1.3x', 'in downtrend');
+
+    // FALLBACKS (only if nothing else fired)
+    if (!hits.length) {
+      if (pct > 0.5) hits.push({ tag: 'continuation-bull', score: 0.55, reasons: ['weak-signal upward'] });
+      else if (pct < -0.5) hits.push({ tag: 'continuation-bear', score: 0.55, reasons: ['weak-signal downward'] });
+      else hits.push({ tag: 'consolidation', score: 0.30, reasons: ['no strong feature'] });
+    }
+
+    // Sort by score desc
+    hits.sort((a, b) => b.score - a.score);
+    const top = hits[0];
+    // Return primary tag (back-compat) plus the full hit list so callers can detect combos
+    return Object.assign({}, top, { allTags: hits.map(h => h.tag), allHits: hits });
   }
 
   function recordTrade(t) {
@@ -117,10 +206,31 @@ const Learn = (function () {
     }, t);
     // If caller didn't specify setup, try auto-tagging from t.entryFeatures
     if (!trade.setup && t.entryFeatures) {
-      const auto = autoTagSetup(t.entryFeatures);
+      const auto = autoTagSetup(t.entryFeatures, { symbol: t.symbol });
       trade.setup = auto.tag;
       trade.autoTagged = true;
       trade.autoTagReasons = auto.reasons;
+      // Capture every matched setup so combo-analyzer can find them later
+      if (auto.allTags && auto.allTags.length > 1) {
+        trade.allTags = auto.allTags;
+        trade.allHits = auto.allHits;
+      }
+    }
+    // Snapshot the TA reading at entry so we can study what conditions favored each setup
+    if (t.symbol && typeof TA !== 'undefined') {
+      try {
+        const snap = TA.snapshot(t.symbol);
+        if (snap) {
+          trade.taSnap = {
+            rsi: snap.rsi, rsi15: snap.rsi15, rsiD: snap.rsiD,
+            macd: snap.macd, hist: snap.hist,
+            atr: snap.atr, atrPct: snap.atrPct, adx: snap.adx,
+            bbPct: snap.bbPct, vwapDist: snap.vwapDist,
+            trend: snap.trend, trendStrong: snap.trendStrong, regime: snap.regime,
+            rvol: snap.rvol
+          };
+        }
+      } catch (e) {}
     }
     state.trades.push(trade);
     save(state);

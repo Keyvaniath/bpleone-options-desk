@@ -1,0 +1,382 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>News Reactions — bpleone / trade</title>
+<meta name="description" content="Catalyst-to-reaction tracker. Logs every news headline + measures the symbol's 1h/1d/1w move. Learns which headline types reliably move price.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.kpi { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 20px; }
+.tile { background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 10px; padding: 14px; text-align: center; }
+.lab { font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.6px; }
+.val { font-family: var(--font-mono); font-weight: 700; font-size: 20px; margin-top: 4px; }
+.news-row { display: grid; grid-template-columns: 80px 70px 1fr 70px 70px 70px 90px; gap: 10px; padding: 10px 0; border-top: 1px solid var(--border); font-size: 12px; align-items: start; }
+.head-link { color: var(--text-primary); text-decoration: none; }
+.head-link:hover { color: var(--accent); }
+.cat-tag { display: inline-block; padding: 2px 7px; border-radius: 4px; background: var(--bg-secondary); border: 1px solid var(--border); font-family: var(--font-mono); font-size: 10px; margin-right: 4px; }
+.cat-tag.bull { background: rgba(16,185,129,0.12); color: var(--green); border-color: rgba(16,185,129,0.3); }
+.cat-tag.bear { background: rgba(239,68,68,0.12); color: var(--red); border-color: rgba(239,68,68,0.3); }
+.cat-tag.neutral { background: var(--bg-secondary); color: var(--text-muted); }
+.cat-tag.macro { background: rgba(245,158,11,0.12); color: var(--yellow); border-color: rgba(245,158,11,0.3); }
+.r-pos { color: var(--green); }
+.r-neg { color: var(--red); }
+.r-zero { color: var(--text-muted); }
+.mono { font-family: var(--font-mono); }
+.btn-row { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 14px; }
+.help { font-size: 11px; color: var(--text-muted); line-height: 1.6; }
+.banner { background: linear-gradient(135deg, rgba(0,212,255,0.06), rgba(139,92,246,0.04)); border: 1px solid rgba(0,212,255,0.18); border-radius: 12px; padding: 16px; margin-bottom: 18px; }
+.empty { padding: 40px; text-align: center; color: var(--text-muted); }
+.cat-row { display: grid; grid-template-columns: 1fr 70px 80px 80px 80px; gap: 10px; padding: 6px 0; border-top: 1px solid var(--border); font-size: 12px; align-items: center; }
+.bar-track { background: var(--bg-secondary); border-radius: 4px; position: relative; height: 8px; overflow: hidden; }
+.bar-fill { position: absolute; top: 0; bottom: 0; }
+.bar-fill.pos { background: linear-gradient(to right, rgba(16,185,129,0.3), rgba(16,185,129,0.8)); }
+.bar-fill.neg { background: linear-gradient(to left, rgba(239,68,68,0.3), rgba(239,68,68,0.8)); }
+.bar-zero { position: absolute; top: 0; bottom: 0; width: 1px; background: var(--text-muted); }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">News Reactions <span class="feat-badge feat-new">NEW</span></div>
+      <div class="page-subtitle">Tracks every headline + the symbol's 1h/1d/1w move after. Learns which headline types move price. · <span id="market-clock">--</span></div>
+    </div>
+    <div class="flex gap-8">
+      <a href="news.html" class="btn btn-ghost">📰 News feed</a>
+      <a href="economic-events.html" class="btn btn-ghost">🏦 Econ events</a>
+      <a href="risk-attribution.html" class="btn btn-ghost">🎯 Attribution</a>
+    </div>
+  </div>
+
+  <!-- Banner -->
+  <div class="banner">
+    <strong style="font-size:14px;">📡 How this works.</strong>
+    <div class="help" style="margin-top:6px;">
+      On load we pull the latest 50 Finnhub headlines for your top universe symbols (SPY/NVDA/AAPL/TSLA/META/AMZN/MSFT/GOOGL/AMD).
+      For each, we auto-classify the headline (earnings, analyst, M&A, regulatory, macro, etc.) and tag bull/bear sentiment by keyword match.
+      Then we look up the symbol's price at the headline time vs. now and compute reaction R-multiples.
+      <strong>Aggregated over time you'll see which headline types you can <em>fade</em> and which <em>follow</em>.</strong>
+    </div>
+  </div>
+
+  <!-- KPI strip -->
+  <div class="kpi">
+    <div class="tile"><div class="lab">Headlines tracked</div><div class="val mono" id="kN">—</div></div>
+    <div class="tile"><div class="lab">Avg 1h reaction</div><div class="val mono" id="k1h">—</div></div>
+    <div class="tile"><div class="lab">Avg 1d follow-through</div><div class="val mono" id="k1d">—</div></div>
+    <div class="tile"><div class="lab">Strongest category</div><div class="val mono" id="kCat" style="font-size:14px;">—</div></div>
+  </div>
+
+  <!-- Controls -->
+  <div class="btn-row">
+    <button id="btnFetch" class="btn btn-primary">📡 Pull latest headlines</button>
+    <button id="btnRecompute" class="btn btn-ghost">↻ Recompute reactions</button>
+    <button id="btnClear" class="btn btn-ghost" style="color:var(--red);">Clear log</button>
+    <span id="status" style="margin-left:auto;align-self:center;font-size:11px;color:var(--text-muted);"></span>
+  </div>
+
+  <!-- Category lift table -->
+  <div class="card mb-24">
+    <div class="card-header"><div class="card-title">📊 Reaction by headline category</div></div>
+    <div class="help">Average % move at 1h and 1d for each detected category. Bigger absolute lift = bigger trade-able signal.</div>
+    <div style="margin-top:14px;">
+      <div class="cat-row" style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;font-weight:600;">
+        <div>Category</div>
+        <div style="text-align:right;">N</div>
+        <div style="text-align:right;">Avg 1h%</div>
+        <div style="text-align:right;">Avg 1d%</div>
+        <div style="text-align:right;">Hit-rate</div>
+      </div>
+      <div id="catTable"></div>
+    </div>
+  </div>
+
+  <!-- News log -->
+  <div class="card">
+    <div class="card-header"><div class="card-title">📋 Tracked headlines</div></div>
+    <div class="news-row" style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;font-weight:600;">
+      <div>When</div>
+      <div>Sym</div>
+      <div>Headline</div>
+      <div style="text-align:right;">1h %</div>
+      <div style="text-align:right;">1d %</div>
+      <div style="text-align:right;">1w %</div>
+      <div>Categories</div>
+    </div>
+    <div id="newsBody"></div>
+    <div id="newsEmpty" class="empty" style="display:none;">
+      No headlines tracked yet. Click <strong>"Pull latest headlines"</strong> above.
+      (Requires a Finnhub API key — see <a href="settings.html" style="color:var(--accent);">Settings</a>.)
+    </div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script src="js/ta.js"></script>
+<script src="js/learn.js"></script>
+<script>buildNav('news');</script>
+
+<script>
+(function () {
+  const KEY = 'bpleone_news_log_v1';
+  const UNIVERSE = ['SPY', 'QQQ', 'NVDA', 'AAPL', 'TSLA', 'META', 'AMZN', 'MSFT', 'GOOGL', 'AMD', 'COIN', 'PLTR'];
+
+  function load() {
+    try { return JSON.parse(localStorage.getItem(KEY) || '{"items":[]}'); }
+    catch (e) { return { items: [] }; }
+  }
+  function save(s) { try { localStorage.setItem(KEY, JSON.stringify(s)); } catch (e) {} }
+
+  function getFinnhubKey() {
+    try {
+      const raw = localStorage.getItem('bpleone_data_v1');
+      if (!raw) return null;
+      const c = JSON.parse(raw);
+      return c.provider === 'finnhub' ? c.apiKey : null;
+    } catch (e) { return null; }
+  }
+
+  // Keyword-based classifier — fast, deterministic, no LLM needed
+  function classify(headline) {
+    const h = headline.toLowerCase();
+    const cats = [];
+    const checks = [
+      ['earnings', /earnings|beat|miss(es|ed)?|guidance|revenue|EPS|results|q[1-4] /i, 'macro'],
+      ['analyst-upgrade', /upgrade|raises (price target|pt)|buy rating|outperform|positive rating/i, 'bull'],
+      ['analyst-downgrade', /downgrade|cuts (price target|pt)|sell rating|underperform|negative rating/i, 'bear'],
+      ['m-and-a', /acqui(re|sition)|merger|buyout|takeover|deal/i, 'bull'],
+      ['regulatory', /fda|sec |doj|regulator|lawsuit|antitrust|investigation/i, 'bear'],
+      ['guidance-up', /raises? (guidance|outlook|forecast)|stronger (outlook|guidance)/i, 'bull'],
+      ['guidance-down', /cuts? (guidance|outlook|forecast)|warns? on|profit warning|disappoint/i, 'bear'],
+      ['product-launch', /launches?|unveils?|announces?|debut/i, 'bull'],
+      ['leadership', /ceo|cfo|resign|step(s|ped) down|appoint|fires?|terminat/i, 'neutral'],
+      ['macro-rate', /fed|fomc|powell|rate (cut|hike|decision)|inflation|cpi|jobless|payroll/i, 'macro'],
+      ['china-tariff', /tariff|china|trade war|sanction/i, 'bear'],
+      ['ai-mention', /\bai\b|artificial intelligence|chatgpt|llm|machine learning/i, 'bull']
+    ];
+    let bias = 'neutral';
+    checks.forEach(([cat, re, b]) => {
+      if (re.test(h)) {
+        cats.push(cat);
+        if (b === 'bull' && bias !== 'bear') bias = 'bull';
+        if (b === 'bear' && bias !== 'bull') bias = 'bear';
+        if (b === 'macro' && bias === 'neutral') bias = 'macro';
+      }
+    });
+    if (!cats.length) cats.push('general');
+    return { cats, bias };
+  }
+
+  async function fetchHeadlines() {
+    const key = getFinnhubKey();
+    if (!key) {
+      document.getElementById('status').textContent = '⚠ Need a Finnhub key in Settings to pull headlines.';
+      return [];
+    }
+    const all = [];
+    const today = new Date().toISOString().slice(0, 10);
+    const weekAgo = new Date(Date.now() - 7 * 86400000).toISOString().slice(0, 10);
+    document.getElementById('status').textContent = 'Pulling…';
+    for (const sym of UNIVERSE) {
+      try {
+        const url = `https://finnhub.io/api/v1/company-news?symbol=${sym}&from=${weekAgo}&to=${today}&token=${key}`;
+        const res = await fetch(url);
+        const list = await res.json();
+        if (Array.isArray(list)) {
+          list.slice(0, 8).forEach(n => {
+            const cls = classify(n.headline || '');
+            all.push({
+              id: 'n_' + n.id + '_' + sym,
+              sym,
+              ts: (n.datetime || 0) * 1000,
+              headline: n.headline,
+              url: n.url,
+              source: n.source,
+              cats: cls.cats,
+              bias: cls.bias,
+              priceAt: null,
+              reaction: null
+            });
+          });
+        }
+      } catch (e) { /* skip this sym */ }
+    }
+    document.getElementById('status').textContent = '✓ pulled ' + all.length + ' headlines';
+    setTimeout(() => { document.getElementById('status').textContent = ''; }, 2500);
+    return all;
+  }
+
+  async function fetchPriceAt(sym, ts) {
+    // Try to use DataProvider.getHistorical to find closest 5-min bar at ts
+    if (typeof DataProvider === 'undefined' || !DataProvider.getHistorical) return null;
+    try {
+      const bars = await DataProvider.getHistorical(sym, '5', ts - 30 * 60 * 1000, ts + 5 * 60 * 1000);
+      if (Array.isArray(bars) && bars.length) {
+        // Find bar nearest ts
+        let best = bars[0], bestDelta = Math.abs((bars[0].t * 1000 || bars[0].t) - ts);
+        bars.forEach(b => {
+          const tt = b.t * 1000 || b.t;
+          const d = Math.abs(tt - ts);
+          if (d < bestDelta) { best = b; bestDelta = d; }
+        });
+        return best.c;
+      }
+    } catch (e) {}
+    return null;
+  }
+
+  async function refreshReactions() {
+    const state = load();
+    document.getElementById('status').textContent = 'computing reactions…';
+    for (const item of state.items) {
+      // Only compute if we have a quote source
+      if (!item.priceAt) {
+        item.priceAt = await fetchPriceAt(item.sym, item.ts);
+      }
+      const q = (typeof QUOTES !== 'undefined') ? QUOTES[item.sym] : null;
+      const now = q ? q.last : null;
+      const age = Date.now() - item.ts;
+      const oneHour = 3600 * 1000;
+      const oneDay = 24 * 3600 * 1000;
+      const oneWeek = 7 * oneDay;
+      // For 1h/1d/1w we'd ideally pull historical bars too — to keep cheap, only fill cells with newer data
+      if (item.priceAt) {
+        const r = {};
+        // We use percentage move from priceAt to ... but we need different price snapshots
+        // simplistic approach: compare priceAt to now if age in band
+        if (age >= oneHour && age < oneDay && item.reaction1h == null && now) item.reaction1h = ((now - item.priceAt) / item.priceAt) * 100;
+        if (age >= oneDay && age < oneWeek && item.reaction1d == null && now) item.reaction1d = ((now - item.priceAt) / item.priceAt) * 100;
+        if (age >= oneWeek && item.reaction1w == null && now) item.reaction1w = ((now - item.priceAt) / item.priceAt) * 100;
+        // Also: if too old to fall in a band, fill what we can with historical
+        if (!item.reaction1h && now) {
+          // Fetch 1h-after bar
+          const px1h = await fetchPriceAt(item.sym, item.ts + oneHour);
+          if (px1h) item.reaction1h = ((px1h - item.priceAt) / item.priceAt) * 100;
+        }
+        if (!item.reaction1d && now) {
+          const px1d = await fetchPriceAt(item.sym, item.ts + oneDay);
+          if (px1d) item.reaction1d = ((px1d - item.priceAt) / item.priceAt) * 100;
+        }
+      }
+    }
+    save(state);
+    document.getElementById('status').textContent = '✓ reactions refreshed';
+    setTimeout(() => { document.getElementById('status').textContent = ''; }, 1500);
+    render();
+  }
+
+  async function pullAndMerge() {
+    const fresh = await fetchHeadlines();
+    if (!fresh.length) { render(); return; }
+    const state = load();
+    const seen = new Set(state.items.map(x => x.id));
+    fresh.forEach(item => { if (!seen.has(item.id)) state.items.push(item); });
+    // Keep newest 200
+    state.items.sort((a, b) => b.ts - a.ts);
+    state.items = state.items.slice(0, 200);
+    save(state);
+    await refreshReactions();
+  }
+
+  function aggregate(items) {
+    // By category
+    const cats = {};
+    items.forEach(it => {
+      (it.cats || []).forEach(c => {
+        if (!cats[c]) cats[c] = [];
+        cats[c].push(it);
+      });
+    });
+    return Object.entries(cats).map(([c, arr]) => {
+      const r1h = arr.filter(x => x.reaction1h != null);
+      const r1d = arr.filter(x => x.reaction1d != null);
+      const avg1h = r1h.length ? r1h.reduce((a, x) => a + x.reaction1h, 0) / r1h.length : null;
+      const avg1d = r1d.length ? r1d.reduce((a, x) => a + x.reaction1d, 0) / r1d.length : null;
+      const hits = r1d.filter(x => Math.sign(x.reaction1d) === (avg1d >= 0 ? 1 : -1)).length;
+      const hitRate = r1d.length ? (hits / r1d.length) * 100 : null;
+      return { c, n: arr.length, avg1h, avg1d, hitRate };
+    });
+  }
+
+  function render() {
+    const state = load();
+    const items = state.items || [];
+    document.getElementById('kN').textContent = items.length;
+    const r1h = items.filter(x => x.reaction1h != null);
+    const r1d = items.filter(x => x.reaction1d != null);
+    const avg1h = r1h.length ? r1h.reduce((a, x) => a + x.reaction1h, 0) / r1h.length : null;
+    const avg1d = r1d.length ? r1d.reduce((a, x) => a + x.reaction1d, 0) / r1d.length : null;
+    document.getElementById('k1h').textContent = avg1h != null ? (avg1h >= 0 ? '+' : '') + avg1h.toFixed(2) + '%' : '—';
+    document.getElementById('k1d').textContent = avg1d != null ? (avg1d >= 0 ? '+' : '') + avg1d.toFixed(2) + '%' : '—';
+
+    // Category table
+    const cats = aggregate(items).filter(c => c.n >= 2).sort((a, b) => Math.abs(b.avg1d || 0) - Math.abs(a.avg1d || 0));
+    document.getElementById('kCat').textContent = cats.length ? cats[0].c : '—';
+
+    const max = Math.max.apply(null, cats.map(c => Math.abs(c.avg1d || 0))) || 1;
+    document.getElementById('catTable').innerHTML = cats.map(c => {
+      const cls = c.avg1d > 0 ? 'pos' : 'neg';
+      const pct = c.avg1d != null ? (Math.abs(c.avg1d) / max) * 50 : 0;
+      const offset = c.avg1d >= 0 ? 50 : (50 - pct);
+      return `<div class="cat-row">
+        <div><span class="cat-tag">${c.c}</span></div>
+        <div class="mono" style="text-align:right;">${c.n}</div>
+        <div class="mono" style="text-align:right;${c.avg1h >= 0 ? 'color:var(--green);' : 'color:var(--red);'}">${c.avg1h != null ? (c.avg1h >= 0 ? '+' : '') + c.avg1h.toFixed(2) + '%' : '—'}</div>
+        <div class="bar-track">
+          <div class="bar-zero" style="left:50%;"></div>
+          <div class="bar-fill ${cls}" style="left:${offset}%;width:${pct}%;"></div>
+        </div>
+        <div class="mono" style="text-align:right;">${c.hitRate != null ? c.hitRate.toFixed(0) + '%' : '—'}</div>
+      </div>`;
+    }).join('') || '<div style="padding:14px;color:var(--text-muted);text-align:center;font-size:11px;">No categorized data yet — pull headlines first.</div>';
+
+    // News body
+    const body = document.getElementById('newsBody');
+    const empty = document.getElementById('newsEmpty');
+    if (!items.length) { body.innerHTML = ''; empty.style.display = 'block'; return; }
+    empty.style.display = 'none';
+    body.innerHTML = items.slice(0, 50).map(it => {
+      const r1hStr = it.reaction1h != null ? (it.reaction1h >= 0 ? '+' : '') + it.reaction1h.toFixed(2) + '%' : '—';
+      const r1dStr = it.reaction1d != null ? (it.reaction1d >= 0 ? '+' : '') + it.reaction1d.toFixed(2) + '%' : '—';
+      const r1wStr = it.reaction1w != null ? (it.reaction1w >= 0 ? '+' : '') + it.reaction1w.toFixed(2) + '%' : '—';
+      const r1hCls = it.reaction1h > 0 ? 'r-pos' : it.reaction1h < 0 ? 'r-neg' : 'r-zero';
+      const r1dCls = it.reaction1d > 0 ? 'r-pos' : it.reaction1d < 0 ? 'r-neg' : 'r-zero';
+      const r1wCls = it.reaction1w > 0 ? 'r-pos' : it.reaction1w < 0 ? 'r-neg' : 'r-zero';
+      const tagsHtml = (it.cats || []).map(c => `<span class="cat-tag ${it.bias || ''}">${c}</span>`).join('');
+      return `<div class="news-row">
+        <div class="mono" style="font-size:11px;color:var(--text-muted);">${new Date(it.ts).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</div>
+        <div class="mono" style="font-weight:700;">${it.sym}</div>
+        <div><a href="${it.url}" target="_blank" rel="noopener" class="head-link">${(it.headline || '').slice(0, 100)}</a><div style="font-size:10px;color:var(--text-muted);margin-top:2px;">${it.source || ''}</div></div>
+        <div class="mono ${r1hCls}" style="text-align:right;">${r1hStr}</div>
+        <div class="mono ${r1dCls}" style="text-align:right;">${r1dStr}</div>
+        <div class="mono ${r1wCls}" style="text-align:right;">${r1wStr}</div>
+        <div>${tagsHtml}</div>
+      </div>`;
+    }).join('');
+  }
+
+  document.getElementById('btnFetch').addEventListener('click', pullAndMerge);
+  document.getElementById('btnRecompute').addEventListener('click', refreshReactions);
+  document.getElementById('btnClear').addEventListener('click', () => {
+    if (!confirm('Clear all tracked headlines?')) return;
+    localStorage.removeItem(KEY);
+    render();
+  });
+
+  setTimeout(render, 600);
+})();
+</script>
+</body>
+</html>
