@@ -3,20 +3,28 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Pre-Market Briefing — bpleone / trade</title>
+<title>Pre-Market Brief — bpleone / trade</title>
+<meta name="description" content="Live pre-market session: gappers, news, earnings, key futures levels, all from real Finnhub data.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="css/style.css">
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
 <style>
-.brief-section { background:var(--bg-secondary); border:1px solid var(--border); border-radius:12px; padding:24px; margin-bottom:20px; }
-.brief-h { font-size:18px; font-weight:700; margin-bottom:14px; display:flex; align-items:center; gap:10px; }
-.brief-row { padding:10px 0; border-bottom:1px dashed var(--border); display:grid; grid-template-columns:1fr auto; gap:14px; align-items:start; font-size:13px; }
-.brief-row:last-child { border-bottom:none; }
-.brief-row .label { color:var(--text-muted); font-family:var(--font-mono); font-size:11px; text-transform:uppercase; letter-spacing:0.05em; min-width:120px; }
-.brief-row .val { line-height:1.7; }
+.kbig { padding: 14px 16px; background: var(--bg-elevated); border-radius: 10px; }
+.kbig .lab { font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; }
+.kbig .val { font-family: var(--font-mono); font-size: 24px; font-weight: 700; margin-top: 4px; }
+.session-pill { display: inline-flex; align-items: center; gap: 6px; padding: 4px 12px; border-radius: 999px; font-size: 12px; font-weight: 700; }
+.s-pre { background: rgba(245,158,11,0.18); color: var(--yellow); }
+.s-rth { background: var(--green-bg); color: var(--green); }
+.s-after { background: rgba(245,158,11,0.10); color: var(--yellow); }
+.s-closed { background: rgba(100,116,139,0.15); color: var(--text-muted); }
+.gap-row td { padding: 9px 12px; }
+.gap-row:hover { background: var(--bg-elevated); cursor: pointer; }
+.news-row { padding: 10px 12px; border-bottom: 1px solid var(--border); }
+.news-row a { color: var(--text-primary); text-decoration: none; font-size: 13px; }
+.news-row a:hover { color: var(--accent); }
+.news-row .src { font-size: 10px; color: var(--text-muted); font-family: var(--font-mono); margin-top: 2px; }
 </style>
 </head>
 <body>
@@ -25,137 +33,195 @@
 <div class="container">
   <div class="page-header">
     <div>
-      <div class="page-title">Pre-Market Briefing</div>
-      <div class="page-subtitle">Wednesday, May 14, 2026 · Published 05:30 ET · the only thing you need before the open</div>
+      <div class="page-title">Pre-Market Brief <span class="feat-badge feat-live">LIVE</span></div>
+      <div class="page-subtitle"><span id="dateMeta">—</span> · <span id="market-clock">--</span></div>
     </div>
     <div class="flex gap-8">
-      <button class="btn btn-secondary">📧 Email Me</button>
-      <button class="btn btn-primary">🔔 Subscribe</button>
+      <span id="sessPill" class="session-pill s-closed">—</span>
     </div>
   </div>
 
-  <!-- TL;DR -->
-  <div class="brief-section" style="background:linear-gradient(135deg,rgba(0,212,255,0.06),rgba(139,92,246,0.04));border-color:rgba(0,212,255,0.3);">
-    <div class="brief-h">🎯 The TL;DR</div>
-    <div style="font-size:15px;line-height:1.8;color:var(--text-secondary);">
-      Futures are <strong style="color:var(--green);">green</strong> on chip-driven optimism into <strong>NVDA Computex (May 19)</strong>. <strong style="color:var(--yellow);">CPI</strong> hits at 8:30 AM ET — consensus 3.1% YoY headline / 0.3% MoM core; this is the day's primary driver. Above 3.2% headline = SPY pullback risk; below 3.0% = rally resumption. <strong style="color:var(--accent);">Trade of the Day: NVDA</strong> long-call vertical 145/150 6/20 @ $1.85 debit (full thesis below). Watch <strong>$562</strong> on SPY as cleared-or-rejected pivot.
+  <div class="live-banner">
+    <span class="icon">🌅</span>
+    <div>Pulled from your live Finnhub feed: index futures levels, biggest gappers (vs prior close), today's economic events, and top market headlines from the last 12 hours.</div>
+  </div>
+
+  <!-- Index futures -->
+  <div class="grid grid-4 mb-24">
+    <div class="kbig"><div class="lab">SPY</div><div class="val mono" id="kSpy">—</div><div style="font-size:12px;" id="kSpyChg">—</div></div>
+    <div class="kbig"><div class="lab">QQQ</div><div class="val mono" id="kQqq">—</div><div style="font-size:12px;" id="kQqqChg">—</div></div>
+    <div class="kbig"><div class="lab">IWM</div><div class="val mono" id="kIwm">—</div><div style="font-size:12px;" id="kIwmChg">—</div></div>
+    <div class="kbig"><div class="lab">VIX</div><div class="val mono" id="kVix">—</div><div style="font-size:12px;" id="kVixReg">—</div></div>
+  </div>
+
+  <!-- Gappers -->
+  <div class="card mb-24">
+    <div class="card-header">
+      <div class="card-title">🪜 Biggest Gappers (live)</div>
+      <div class="flex gap-8">
+        <button class="btn btn-ghost btn-active" data-gap="up">Up Gaps</button>
+        <button class="btn btn-ghost" data-gap="dn">Down Gaps</button>
+      </div>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>#</th><th>Symbol</th><th>Pre-Mkt $</th><th>Prev Close</th><th>Gap %</th><th>Open</th><th>High</th><th>Low</th><th></th></tr></thead>
+        <tbody id="gapBody"><tr><td colspan="9" style="text-align:center;color:var(--text-muted);padding:30px;">Loading…</td></tr></tbody>
+      </table>
     </div>
   </div>
 
-  <div class="grid grid-12">
-    <!-- LEFT COL -->
-    <div class="col-8">
-      <div class="brief-section">
-        <div class="brief-h">📊 Overnight Action</div>
-        <div class="brief-row"><span class="label">ES Futures</span><span class="val">+18.4 (+0.32%) at 5,640. Range overnight 5,624 — 5,646. Looks set to test 5,628 day-1 resistance.</span></div>
-        <div class="brief-row"><span class="label">NQ Futures</span><span class="val green-text">+0.62%. Driven by NVDA premarket bid (+2.1%) and AMD (+1.4%).</span></div>
-        <div class="brief-row"><span class="label">Asia close</span><span class="val">Nikkei <span class="green-text">+0.68%</span>, Hang Seng <span class="red-text">-0.84%</span>, Shanghai <span class="red-text">-0.42%</span>. Property weakness in China; chip-export strength in Japan.</span></div>
-        <div class="brief-row"><span class="label">Europe open</span><span class="val">DAX <span class="green-text">+0.42%</span>, CAC <span class="green-text">+0.18%</span>, FTSE <span class="red-text">-0.18%</span>. Banks lagging.</span></div>
-        <div class="brief-row"><span class="label">VIX</span><span class="val">Front-month 14.4 (<span class="red-text">-2.5%</span>). Term structure firmly in contango — premium-seller friendly.</span></div>
-        <div class="brief-row"><span class="label">DXY / 10Y</span><span class="val">DXY 104.42 (<span class="red-text">-0.32%</span>); 10Y at 4.218% (<span class="red-text">-3 bps</span>). Both supportive of risk.</span></div>
-        <div class="brief-row"><span class="label">Crude / Gold</span><span class="val">WTI $78.42 (<span class="green-text">+1.18%</span>) on inventory draw expectations; Gold $2,398 (<span class="green-text">+0.55%</span>) firm.</span></div>
-      </div>
-
-      <div class="brief-section">
-        <div class="brief-h">⏰ Today's Catalysts</div>
-        <div class="brief-row"><span class="label">08:30 ET</span><span class="val"><strong>CPI</strong> — cons. 3.1% YoY headline / 0.3% MoM core. <strong style="color:var(--yellow);">PRIMARY CATALYST.</strong> Implied SPY move ±0.8%. Above 3.2% headline → sharp risk-off; below 3.0% → rally and rate-cut odds for July move 38% → 55%.</span></div>
-        <div class="brief-row"><span class="label">10:00 ET</span><span class="val">Eurozone GDP QoQ (prelim) — cons. 0.3%. EUR/USD bid into the print.</span></div>
-        <div class="brief-row"><span class="label">14:00 ET</span><span class="val">10-Year Treasury Auction. Watch tail/cover for demand reads on duration.</span></div>
-        <div class="brief-row"><span class="label">AMC</span><span class="val">No major mega-cap earnings tonight. CSCO reports tomorrow AMC.</span></div>
-      </div>
-
-      <div class="brief-section">
-        <div class="brief-h">🎯 Trade of the Day · NVDA</div>
-        <div style="background:var(--bg-elevated);padding:16px;border-left:3px solid var(--accent);border-radius:0 8px 8px 0;font-size:13px;line-height:1.8;color:var(--text-secondary);">
-          <strong style="color:var(--green);">Bullish bias.</strong> NVDA reclaimed 50DMA at $134.18 on 1.84x avg volume. MACD bullish cross confirmed. Daily RSI 54.2 (room to run). Computex (May 19-23) is the proximate catalyst. Bull call spread is the right structure given elevated IV.
-          <br><br>
-          <strong style="color:var(--text-primary);">Setup:</strong> Buy NVDA <strong>6/20 145 call</strong>, sell <strong>6/20 150 call</strong>, net debit ≈ <strong style="color:var(--accent);">$1.85</strong>. Max profit $315/contract (170% on debit), max loss $185. POP ≈ 48%. R:R 1.70:1.
-          <br><br>
-          <strong style="color:var(--text-primary);">Plan:</strong> Enter on the cash open if spot &gt; $138.00 and SPY holds $560+. If CPI prints &gt; 3.2%, skip the trade (vol regime change). Take profit at 75% of max (close at $3.20+ credit). Stop on close &lt; $133.80.
-        </div>
-        <div style="display:flex;gap:10px;margin-top:14px;">
-          <a href="trade-of-the-day.html" class="btn btn-primary" style="flex:1;text-align:center;">Full Thesis →</a>
-          <a href="plays.html" class="btn btn-secondary" style="flex:1;text-align:center;">All Plays</a>
-        </div>
-      </div>
-
-      <div class="brief-section">
-        <div class="brief-h">🚀 Pre-Market Movers</div>
-        <table>
-          <thead><tr><th>Symbol</th><th>Pre-Mkt</th><th>%</th><th>Volume</th><th>Catalyst</th></tr></thead>
-          <tbody>
-            <tr><td class="symbol">SMCI</td><td>$50.12</td><td class="green-text">+8.4%</td><td>4.2M</td><td>Capacity guide raise overnight</td></tr>
-            <tr><td class="symbol">NVDA</td><td>$141.18</td><td class="green-text">+2.1%</td><td>12.4M</td><td>Sell-side PT raises, Computex bid</td></tr>
-            <tr><td class="symbol">WMT</td><td>$70.40</td><td class="green-text">+3.2%</td><td>1.8M</td><td>Earnings beat, raised FY guide</td></tr>
-            <tr><td class="symbol">PLTR</td><td>$33.20</td><td class="green-text">+4.4%</td><td>3.2M</td><td>$480M Army Maven contract</td></tr>
-            <tr><td class="symbol">RIVN</td><td>$11.40</td><td class="red-text">-6.4%</td><td>2.4M</td><td>FY production guide cut</td></tr>
-            <tr><td class="symbol">TSLA</td><td>$245.18</td><td class="red-text">-1.4%</td><td>5.2M</td><td>Robotaxi reveal pushed to Q3</td></tr>
-            <tr><td class="symbol">UBER</td><td>$70.42</td><td class="green-text">+3.2%</td><td>2.8M</td><td>Foodpanda TW acquisition talks</td></tr>
-          </tbody>
-        </table>
-      </div>
+  <!-- News + Earnings -->
+  <div class="grid grid-12 mb-24">
+    <div class="card col-7">
+      <div class="card-header"><div class="card-title">📰 Top Headlines (last 12h)</div></div>
+      <div id="newsList"><div style="padding:30px;text-align:center;color:var(--text-muted);">Loading news…</div></div>
     </div>
 
-    <!-- RIGHT COL -->
-    <div class="col-4">
-      <div class="brief-section">
-        <div class="brief-h">📍 Key Levels Today</div>
-        <table style="font-size:13px;">
-          <thead><tr><th>Sym</th><th>Sup</th><th>Pivot</th><th>Res</th></tr></thead>
-          <tbody>
-            <tr><td class="symbol">SPY</td><td class="mono red-text">558.40</td><td class="mono yellow-text">562.18</td><td class="mono green-text">564.80</td></tr>
-            <tr><td class="symbol">QQQ</td><td class="mono red-text">483.20</td><td class="mono yellow-text">487.32</td><td class="mono green-text">489.40</td></tr>
-            <tr><td class="symbol">NVDA</td><td class="mono red-text">134.18</td><td class="mono yellow-text">138.27</td><td class="mono green-text">142.50</td></tr>
-            <tr><td class="symbol">META</td><td class="mono red-text">580.40</td><td class="mono yellow-text">587.42</td><td class="mono green-text">592.40</td></tr>
-            <tr><td class="symbol">VIX</td><td class="mono red-text">14.0</td><td class="mono yellow-text">14.82</td><td class="mono green-text">17.0</td></tr>
-          </tbody>
-        </table>
-      </div>
-
-      <div class="brief-section">
-        <div class="brief-h">🌡️ Sentiment Read</div>
-        <div style="font-family:var(--font-mono);font-size:12px;line-height:2;">
-          <div style="display:flex;justify-content:space-between;"><span style="color:var(--text-muted);">F&G Composite</span><span class="green-text">72 (Greed)</span></div>
-          <div style="display:flex;justify-content:space-between;"><span style="color:var(--text-muted);">PCR (Equity)</span><span class="yellow-text">0.62</span></div>
-          <div style="display:flex;justify-content:space-between;"><span style="color:var(--text-muted);">AAII Bull-Bear</span><span class="green-text">+18.4</span></div>
-          <div style="display:flex;justify-content:space-between;"><span style="color:var(--text-muted);">NAAIM</span><span class="green-text">82.4</span></div>
-          <div style="display:flex;justify-content:space-between;"><span style="color:var(--text-muted);">SPX 5d Cum Δ</span><span class="green-text">+0.42%</span></div>
-        </div>
-        <div style="font-size:12px;color:var(--text-muted);margin-top:12px;line-height:1.6;">
-          Crowd positioning is firmly long but not euphoric (NAAIM 82 vs hist max 100). Modest pullbacks should find buyers; melt-up still possible if CPI cool.
-        </div>
-      </div>
-
-      <div class="brief-section">
-        <div class="brief-h">⚠ Risks to the Bull Case</div>
-        <ul style="list-style:none;padding:0;font-size:13px;line-height:1.8;">
-          <li>• Hot CPI (>3.2% headline) reverses rate-cut narrative</li>
-          <li>• Geopolitics: Middle East oil shock risk</li>
-          <li>• 10Y back above 4.50% — equity multiple compression</li>
-          <li>• NVDA gap fill back to $132 if Computex disappoints</li>
-          <li>• Sector concentration: ~30% of SPX is 7 mega-caps</li>
-        </ul>
-      </div>
-
-      <div class="brief-section">
-        <div class="brief-h">📝 My Game Plan</div>
-        <div style="font-size:13px;line-height:1.8;color:var(--text-secondary);">
-          <strong>Pre-CPI (08:00 - 08:30):</strong> No new trades. Watch.<br>
-          <strong>CPI release:</strong> First 60 seconds = noise. Wait for IV to settle.<br>
-          <strong>09:30 - 10:30:</strong> If risk-on confirms, execute NVDA spread on dip to $138-139.<br>
-          <strong>Lunch (12:00 - 13:00):</strong> Manage. No new entries.<br>
-          <strong>Power hour:</strong> Trail stops on winners; close anything not working.
-        </div>
-      </div>
+    <div class="card col-5">
+      <div class="card-header"><div class="card-title">📅 Reporting Today</div></div>
+      <div id="earnList"><div style="padding:30px;text-align:center;color:var(--text-muted);">Loading earnings…</div></div>
     </div>
+  </div>
+
+  <div class="related-bar mt-24">
+    <span class="lbl">Related →</span>
+    <a href="game-plan.html">📋 Game Plan</a>
+    <a href="plays.html">⭐ Plays</a>
+    <a href="hot-movers.html">🔥 Hot Movers</a>
+    <a href="economic-events.html">🏦 Econ Events</a>
+    <a href="earnings-calendar.html">📅 Earnings</a>
+    <a href="trade-of-the-day.html">🎯 TOTD</a>
   </div>
 </div>
 
 <div id="site-footer"></div>
 
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
 <script src="js/app.js"></script>
 <script src="js/notify.js"></script>
 <script src="js/live.js"></script>
-<script>buildNav('pre-market');</script>
+<script>
+buildNav('pre-market');
+const $ = id => document.getElementById(id);
+let gapDir = 'up';
+
+function fmt$(v) { return (v == null || !isFinite(v)) ? '—' : '$' + Number(v).toFixed(2); }
+function pct(v) { return (v == null || !isFinite(v)) ? '—' : (v >= 0 ? '+' : '') + v.toFixed(2) + '%'; }
+
+function refreshSession() {
+  const now = new Date();
+  $('dateMeta').textContent = now.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+  const et = new Date(now.toLocaleString('en-US', { timeZone: 'America/New_York' }));
+  const d = et.getDay(), h = et.getHours(), m = et.getMinutes();
+  const isWeek = d >= 1 && d <= 5;
+  const pill = $('sessPill');
+  if (isWeek && (h < 9 || (h === 9 && m < 30)) && h >= 4) { pill.className = 'session-pill s-pre'; pill.textContent = '🌅 PRE-MARKET'; }
+  else if (isWeek && ((h === 9 && m >= 30) || (h > 9 && h < 16))) { pill.className = 'session-pill s-rth'; pill.textContent = '🟢 REGULAR HOURS'; }
+  else if (isWeek && h >= 16 && h < 20) { pill.className = 'session-pill s-after'; pill.textContent = '🌇 AFTER HOURS'; }
+  else { pill.className = 'session-pill s-closed'; pill.textContent = '🌙 CLOSED'; }
+}
+refreshSession();
+setInterval(refreshSession, 30000);
+
+function renderKpis() {
+  if (typeof QUOTES === 'undefined') return;
+  const set = (id, v) => $(id).textContent = v;
+  const setChg = (id, q, sub) => {
+    const el = $(id);
+    if (!q) { el.textContent = '—'; el.className = ''; return; }
+    el.className = (q.changePct >= 0 ? 'green-text mono' : 'red-text mono');
+    el.textContent = pct(q.changePct) + (sub ? ' · ' + sub : '');
+  };
+  ['SPY','QQQ','IWM','VIX'].forEach(s => {
+    const q = QUOTES[s];
+    if (q && q.fresh) {
+      set('k' + s.charAt(0) + s.slice(1).toLowerCase(), fmt$(q.last));
+    }
+  });
+  setChg('kSpyChg', QUOTES.SPY);
+  setChg('kQqqChg', QUOTES.QQQ);
+  setChg('kIwmChg', QUOTES.IWM);
+  const v = QUOTES.VIX;
+  if (v && v.fresh) {
+    $('kVixReg').textContent = v.last < 14 ? 'Complacent' : v.last < 20 ? 'Normal' : v.last < 30 ? 'Elevated' : 'Panic';
+    $('kVixReg').className = '';
+  }
+}
+
+function renderGappers() {
+  if (typeof QUOTES === 'undefined') return;
+  const usingMock = typeof DataProvider !== 'undefined' && DataProvider.getStatus().provider === 'mock';
+  let cands = Object.values(QUOTES).filter(q => (usingMock || q.fresh) && q.symbol !== 'VIX' && isFinite(q.changePct));
+  if (gapDir === 'up') cands.sort((a, b) => b.changePct - a.changePct);
+  else cands.sort((a, b) => a.changePct - b.changePct);
+  const top = cands.slice(0, 10);
+  $('gapBody').innerHTML = top.length ? top.map((q, i) => {
+    const cls = q.changePct >= 0 ? 'green-text' : 'red-text';
+    return `<tr class="gap-row" onclick="location.href='ticker.html?sym=${q.symbol}'">
+      <td style="color:var(--text-muted);">${i+1}</td>
+      <td class="mono"><strong>${q.symbol}</strong></td>
+      <td class="mono">${fmt$(q.last)}</td>
+      <td class="mono">${fmt$(q.prevClose)}</td>
+      <td class="mono ${cls}" style="font-weight:700;">${pct(q.changePct)}</td>
+      <td class="mono">${q.dayOpen ? fmt$(q.dayOpen) : '—'}</td>
+      <td class="mono">${q.dayHigh ? fmt$(q.dayHigh) : '—'}</td>
+      <td class="mono">${q.dayLow ? fmt$(q.dayLow) : '—'}</td>
+      <td style="font-size:11px;color:var(--accent);">→</td>
+    </tr>`;
+  }).join('') : '<tr><td colspan="9" style="text-align:center;color:var(--text-muted);padding:30px;">No data — open <a href="settings.html" style="color:var(--accent);">Settings</a> and connect Finnhub.</td></tr>';
+}
+
+async function loadNews() {
+  if (typeof DataProvider === 'undefined' || DataProvider.getConfig().provider !== 'finnhub' || !DataProvider.getConfig().apiKey) {
+    $('newsList').innerHTML = '<div style="padding:30px;text-align:center;color:var(--text-muted);">Connect Finnhub in <a href="settings.html" style="color:var(--accent);">Settings</a>.</div>';
+    return;
+  }
+  try {
+    const items = await DataProvider.getMarketNews('general');
+    if (!items.length) { $('newsList').innerHTML = '<div style="padding:30px;text-align:center;color:var(--text-muted);">No headlines.</div>'; return; }
+    items.sort((a, b) => b.datetime - a.datetime);
+    $('newsList').innerHTML = items.slice(0, 15).map(n => `<div class="news-row">
+      <a href="${n.url}" target="_blank" rel="noopener">${escapeHtml(n.headline)}</a>
+      <div class="src">${escapeHtml(n.source || '')} · ${new Date(n.datetime).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}</div>
+    </div>`).join('');
+  } catch (e) {
+    $('newsList').innerHTML = '<div style="padding:30px;text-align:center;color:var(--red);">' + e.message + '</div>';
+  }
+}
+
+async function loadEarnings() {
+  if (typeof DataProvider === 'undefined' || DataProvider.getConfig().provider !== 'finnhub' || !DataProvider.getConfig().apiKey) {
+    $('earnList').innerHTML = '<div style="padding:30px;text-align:center;color:var(--text-muted);">Connect Finnhub.</div>';
+    return;
+  }
+  try {
+    const items = await DataProvider.getEarningsCalendar(Date.now(), Date.now() + 86400000);
+    const today = new Date().toISOString().slice(0, 10);
+    const filtered = items.filter(i => i.date === today);
+    if (!filtered.length) { $('earnList').innerHTML = '<div style="padding:30px;text-align:center;color:var(--text-muted);">No earnings today.</div>'; return; }
+    $('earnList').innerHTML = filtered.slice(0, 20).map(i => `<div class="news-row" style="display:flex;justify-content:space-between;align-items:center;">
+      <span><strong class="mono">${i.symbol}</strong> ${escapeHtml(i.name || '')}</span>
+      <span style="font-size:11px;color:var(--text-muted);font-family:var(--font-mono);">${(i.hour || 'DMH').toUpperCase()}${i.epsEstimate != null ? ' · EPS est $' + (+i.epsEstimate).toFixed(2) : ''}</span>
+    </div>`).join('');
+  } catch (e) {
+    $('earnList').innerHTML = '<div style="padding:30px;text-align:center;color:var(--red);">' + e.message + '</div>';
+  }
+}
+
+function escapeHtml(s) { return String(s || '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+document.querySelectorAll('[data-gap]').forEach(b => b.addEventListener('click', () => {
+  document.querySelectorAll('[data-gap]').forEach(x => x.classList.remove('btn-active'));
+  b.classList.add('btn-active');
+  gapDir = b.dataset.gap;
+  renderGappers();
+}));
+
+renderKpis(); renderGappers();
+loadNews(); loadEarnings();
+if (typeof Feed !== 'undefined') Feed.subscribe('*', () => { renderKpis(); renderGappers(); });
+</script>
 </body>
 </html>

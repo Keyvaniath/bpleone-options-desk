@@ -4,20 +4,31 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Plays of the Day — bpleone / trade</title>
+<meta name="description" content="Live momentum-ranked trade ideas auto-built from real Finnhub ticks. Click any to drill into a full plan.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="css/style.css">
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
-<style>
-.play-card { background: linear-gradient(135deg, var(--bg-secondary), var(--bg-tertiary)); border: 1px solid var(--border); border-radius: 14px; padding: 22px; transition: all 0.2s ease; position: relative; overflow: hidden; }
-.play-card:hover { border-color: var(--accent); transform: translateY(-2px); }
-.play-card.tier-a { border-color: rgba(0,212,255,0.5); box-shadow: 0 0 25px rgba(0,212,255,0.12); }
-.play-rank { position: absolute; top: 14px; right: 14px; background: var(--bg-elevated); padding: 4px 10px; border-radius: 999px; font-family: var(--font-mono); font-size: 11px; font-weight: 700; color: var(--accent); }
-.play-score-ring { width: 60px; height: 60px; }
-.play-leg { background: var(--bg-elevated); padding: 10px 12px; border-radius: 8px; margin-top: 8px; display: flex; justify-content: space-between; align-items: center; font-family: var(--font-mono); font-size: 12px; }
-</style>
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.play-card { padding: 18px 20px; background: var(--bg-elevated); border-radius: 12px; border-left: 4px solid var(--accent); cursor: pointer; transition: transform 0.12s, border-color 0.12s; }
+.play-card:hover { transform: translateY(-2px); border-color: var(--green); }
+.play-card.bear { border-left-color: var(--red); }
+.play-card.bear:hover { border-color: var(--red); }
+.play-head { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 12px; }
+.play-sym { font-family: var(--font-mono); font-size: 22px; font-weight: 800; }
+.play-score { padding: 4px 12px; border-radius: 999px; font-size: 12px; font-weight: 700; font-family: var(--font-mono); }
+.score-90 { background: var(--green-bg); color: var(--green); }
+.score-75 { background: rgba(0,212,255,0.12); color: var(--accent); }
+.score-60 { background: rgba(245,158,11,0.12); color: var(--yellow); }
+.score-lo { background: rgba(100,116,139,0.15); color: var(--text-muted); }
+.play-row { display: flex; justify-content: space-between; padding: 4px 0; font-size: 12px; }
+.play-row .k { color: var(--text-muted); }
+.play-row .v { font-family: var(--font-mono); font-weight: 600; }
+.bias-pill { padding: 3px 9px; border-radius: 999px; font-size: 11px; font-weight: 700; }
+.bias-bull { background: var(--green-bg); color: var(--green); }
+.bias-bear { background: var(--red-bg); color: var(--red); }
+</style>
 </head>
 <body>
 <div id="site-nav"></div>
@@ -25,185 +36,188 @@
 <div class="container">
   <div class="page-header">
     <div>
-      <div class="page-title">Plays of the Day</div>
-      <div class="page-subtitle">High-conviction setups ranked by learn-adjusted score · <span id="market-clock">--</span></div>
+      <div class="page-title">Plays of the Day <span class="feat-badge feat-live">LIVE</span></div>
+      <div class="page-subtitle">Auto-built from live momentum + learn-adjusted scoring · <span id="market-clock">--</span> · <span id="kAsOf">—</span></div>
     </div>
     <div class="flex gap-8">
-      <div class="filter-group">
-        <button class="filter-btn active" data-pfilter="all">All</button>
-        <button class="filter-btn" data-pfilter="bull">Bull</button>
-        <button class="filter-btn" data-pfilter="bear">Bear</button>
-        <button class="filter-btn" data-pfilter="neutral">Neutral</button>
-      </div>
-      <select id="sortBy" style="background:var(--bg-tertiary);border:1px solid var(--border);color:var(--text-primary);padding:8px 12px;border-radius:8px;font-size:13px;">
-        <option value="score">Sort: Score</option>
-        <option value="rr">Sort: R:R</option>
-        <option value="iv">Sort: IV Rank</option>
-        <option value="dte">Sort: DTE</option>
-      </select>
+      <button class="btn btn-ghost btn-active" data-filter="all">All</button>
+      <button class="btn btn-ghost" data-filter="bull">Bullish</button>
+      <button class="btn btn-ghost" data-filter="bear">Bearish</button>
+      <button class="btn btn-secondary" id="reloadBtn">↻ Reload</button>
     </div>
   </div>
 
-  <!-- Score strip -->
-  <div class="grid grid-4" style="margin-bottom:24px;">
-    <div class="card"><div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;">Plays Active</div><div class="mono" style="font-size:24px;font-weight:800;margin-top:4px;" id="kpiActive">8</div></div>
-    <div class="card"><div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;">Avg Score</div><div class="mono yellow-text" style="font-size:24px;font-weight:800;margin-top:4px;" id="kpiAvgScore">82</div></div>
-    <div class="card"><div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;">Avg R:R</div><div class="mono" style="font-size:24px;font-weight:800;margin-top:4px;" id="kpiAvgRR">2.4 : 1</div></div>
-    <div class="card"><div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;">Learn Edge (90d)</div><div class="mono green-text" style="font-size:24px;font-weight:800;margin-top:4px;" id="kpiEdge">+0.78R</div></div>
+  <div class="live-banner">
+    <span class="icon">⚡</span>
+    <div>Every card below is computed from <strong>your live Finnhub feed</strong>: momentum percentile, %-move magnitude, derived entry/stop/target at 2.5% × ATR. Score is learn-adjusted by setup × sector × DoW × VIX regime. Click any card to open the full <a href="trade-plan.html">Trade Plan Generator</a> for that name.</div>
   </div>
 
-  <!-- Plays grid -->
-  <div class="grid grid-2" id="playsGrid">
-    <!-- populated by JS -->
+  <div class="grid grid-4 mb-24">
+    <div class="card"><div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;">Live Universe</div><div class="mono" style="font-size:24px;font-weight:700;margin-top:4px;" id="kUniverse">—</div><div style="font-size:12px;color:var(--text-muted);">Symbols with fresh ticks</div></div>
+    <div class="card"><div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;">Bullish Plays</div><div class="mono green-text" style="font-size:24px;font-weight:700;margin-top:4px;" id="kBull">—</div><div style="font-size:12px;color:var(--text-muted);">Score ≥ 60, %chg &gt; 0</div></div>
+    <div class="card"><div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;">Bearish Plays</div><div class="mono red-text" style="font-size:24px;font-weight:700;margin-top:4px;" id="kBear">—</div><div style="font-size:12px;color:var(--text-muted);">Score ≥ 60, %chg &lt; 0</div></div>
+    <div class="card"><div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;">Top Conviction</div><div class="mono yellow-text" style="font-size:24px;font-weight:700;margin-top:4px;" id="kTop">—</div><div style="font-size:12px;color:var(--text-muted);" id="kTopMeta">—</div></div>
   </div>
 
-  <!-- Legend -->
-  <div class="card" style="margin-top:24px;">
-    <div class="card-header"><div class="card-title">🧠 How Plays Are Scored</div></div>
-    <div style="font-size:13px;color:var(--text-secondary);line-height:1.8;">
-      Raw score combines (a) <strong style="color:var(--text-primary);">TA confluence</strong> — MA alignment, RSI position, MACD state, volume, pattern grade; (b) <strong style="color:var(--text-primary);">flow context</strong> — sweeps, blocks, dark-pool prints, call-put premium ratio; (c) <strong style="color:var(--text-primary);">momentum</strong> — multi-lookback RS vs SPY; and (d) <strong style="color:var(--text-primary);">vol regime</strong> — IV rank, term structure, gamma exposure.
-      <br><br>
-      <strong style="color:var(--accent);">Self-learning adjustment:</strong> each setup type carries a weight that's continuously updated from realized expectancy. After ~3 closed trades per setup, weights begin amplifying or dampening raw scores so the system rotates capital toward what's actually working in the current regime. Open the <a href="edge-analytics.html" style="color:var(--accent);">Edge Analytics</a> page to inspect the current weight matrix.
-    </div>
+  <div class="grid grid-3" id="playsGrid" style="gap:14px;">
+    <div style="grid-column:1/-1;text-align:center;color:var(--text-muted);padding:40px;">Loading live data…</div>
+  </div>
+
+  <div class="related-bar mt-24">
+    <span class="lbl">Related →</span>
+    <a href="hot-movers.html">🔥 Hot Movers</a>
+    <a href="signals.html">⚡ Signals</a>
+    <a href="trade-of-the-day.html">🎯 Trade of the Day</a>
+    <a href="ai-scout.html">🤖 AI Scout</a>
+    <a href="squeeze-radar.html">⛓ Squeeze Radar</a>
+    <a href="trade-plan.html">📋 Trade Plan</a>
   </div>
 </div>
 
 <div id="site-footer"></div>
 
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
 <script src="js/app.js"></script>
 <script src="js/notify.js"></script>
-<script src="js/charts.js"></script>
 <script src="js/live.js"></script>
 <script src="js/learn.js"></script>
 <script>
 buildNav('plays');
 
-const PLAYS = [
-  { sym:'NVDA', name:'NVIDIA',         sector:'Tech',          bias:'bull', setup:'50ma-reclaim',  raw:94, entry:138.27, stop:133.80, t1:143.50, t2:148.20, rr:2.7, dte:38, iv:38.4, ivRank:42, contract:'NVDA 6/20 145C @ $3.85', size:'1.0%', thesis:'50DMA reclaim on 1.84x avg volume. MACD bullish cross. Sweep premium $48M ahead of Computex 5/19.' },
-  { sym:'META', name:'Meta Platforms', sector:'Comm Svc',      bias:'bull', setup:'bull-flag',     raw:91, entry:587.42, stop:572.40, t1:601.80, t2:618.40, rr:2.4, dte:38, iv:32.8, ivRank:38, contract:'META 6/20 580/600 CS @ $8.20 dr', size:'0.8%', thesis:'Bull flag broke $585 on volume. Measured move $612. RSI 58 — room to run.' },
-  { sym:'AMD',  name:'Advanced Micro', sector:'Tech',          bias:'bull', setup:'macd-cross',    raw:88, entry:162.18, stop:156.40, t1:170.00, t2:178.40, rr:2.5, dte:38, iv:42.1, ivRank:48, contract:'AMD 6/20 170C @ $4.20', size:'0.8%', thesis:'Bull flag breakout day. Unusual call sweep $1.8M @ $170C. Riding the chip cycle.' },
-  { sym:'SMCI', name:'Super Micro',    sector:'Tech',          bias:'bull', setup:'volume-breakout', raw:87, entry:48.21, stop:43.20, t1:54.00, t2:62.00, rr:2.7, dte:30, iv:78.4, ivRank:84, contract:'SMCI 5/30 50C @ $2.45', size:'0.5%', thesis:'Cleared $46 resistance on 3.4x volume. RS rank #1 in scanner. High beta to NVDA.' },
-  { sym:'PLTR', name:'Palantir',       sector:'Tech',          bias:'bull', setup:'cup-handle',    raw:85, entry:31.84, stop:28.92, t1:34.50, t2:38.00, rr:2.1, dte:38, iv:62.4, ivRank:58, contract:'PLTR 6/20 35C @ $0.75', size:'0.5%', thesis:'Cup-and-handle on weekly. New 6-month high. Govt contracts pipeline.' },
-  { sym:'COIN', name:'Coinbase',       sector:'Financials',    bias:'bull', setup:'52w-break',     raw:83, entry:248.92, stop:232.40, t1:265.00, t2:278.00, rr:1.9, dte:38, iv:68.4, ivRank:62, contract:'COIN 6/20 260C @ $6.10', size:'0.5%', thesis:'Higher-high structure, BTC tailwind, narrative driver into halving aftermath.' },
-  { sym:'TSLA', name:'Tesla',          sector:'Cons Disc',     bias:'bear', setup:'200dma-break',  raw:81, entry:248.61, stop:255.40, t1:238.00, t2:228.00, rr:2.7, dte:24, iv:52.4, ivRank:46, contract:'TSLA 5/23 240P @ $3.85', size:'0.5%', thesis:'Closed below 200DMA on 1.8x volume. Bear-flag measured move to $228. Demand concerns.' },
-  { sym:'RIVN', name:'Rivian',         sector:'Cons Disc',     bias:'bear', setup:'52w-break',     raw:78, entry:12.18, stop:13.20, t1:10.80, t2:9.50, rr:2.5, dte:30, iv:78.2, ivRank:72, contract:'RIVN 5/30 11P @ $0.44', size:'0.3%', thesis:'52w low confirmed. Lower lows on weekly. Q1 production guide cut.' }
-];
+const $ = id => document.getElementById(id);
+const SECTOR = {
+  AAPL:'Technology', NVDA:'Semiconductors', AMD:'Semiconductors', MSFT:'Technology', GOOGL:'Communication',
+  META:'Communication', AMZN:'Consumer Discretionary', TSLA:'Automotive', PLTR:'Software', COIN:'Financials',
+  SMCI:'Semiconductors', SHOP:'Software', CRM:'Software', UBER:'Consumer Discretionary', RIVN:'Automotive',
+  BABA:'Consumer Discretionary', MARA:'Mining', SPY:'Index', QQQ:'Index', IWM:'Index', DIA:'Index',
+  VIX:'Volatility', GLD:'Commodities', TLT:'Treasuries', USO:'Energy', XLE:'Energy', BTC:'Crypto', ETH:'Crypto'
+};
+let activeFilter = 'all';
 
-function adjustForLearn(plays) {
-  if (typeof Learn === 'undefined') return plays;
-  const weights = Learn.getWeights();
-  return plays.map(p => ({
-    ...p,
-    score: Learn.adjustedScore(p.raw, p.setup),
-    weight: weights[p.setup] || 1.0
-  }));
+function pickSetup(q) {
+  if (q.changePct > 4) return 'breakout';
+  if (q.changePct > 2) return 'momentum';
+  if (q.changePct > 0.5) return 'bull-flag';
+  if (q.changePct < -4) return 'breakdown';
+  if (q.changePct < -2) return 'fade';
+  if (q.changePct < -0.5) return 'bear-flag';
+  return 'consolidation';
 }
 
-function scoreRing(score) {
-  const r = 22, c = 2 * Math.PI * r;
-  const pct = score / 100;
-  const offset = c * (1 - pct);
-  const color = score >= 90 ? '#10b981' : score >= 75 ? '#00d4ff' : score >= 60 ? '#f59e0b' : '#ef4444';
-  return `<svg class="play-score-ring" viewBox="0 0 50 50">
-    <circle cx="25" cy="25" r="${r}" fill="none" stroke="var(--bg-elevated)" stroke-width="4"/>
-    <circle cx="25" cy="25" r="${r}" fill="none" stroke="${color}" stroke-width="4" stroke-linecap="round"
-      stroke-dasharray="${c}" stroke-dashoffset="${offset}" transform="rotate(-90 25 25)"/>
-    <text x="25" y="29" text-anchor="middle" fill="${color}" font-family="JetBrains Mono" font-size="14" font-weight="700">${score}</text>
-  </svg>`;
+function scoreFor(q) {
+  const raw = Math.min(95, 40 + Math.abs(q.changePct) * 8);
+  let score = raw;
+  try {
+    if (typeof Learn !== 'undefined') {
+      const setup = pickSetup(q);
+      const ctx = {
+        sector: SECTOR[q.symbol] || 'Other',
+        dow: new Date().toLocaleDateString('en-US', { weekday: 'short' }),
+        regime: Learn.bucketVixRegime(Learn.currentVix())
+      };
+      score = Learn.adjustedScoreCtx(Math.round(raw), setup, ctx);
+    }
+  } catch (e) {}
+  return { raw: Math.round(raw), adjusted: Math.round(score) };
 }
 
-function renderPlays(list, sortKey) {
-  const sorted = [...list].sort((a, b) => {
-    if (sortKey === 'score') return b.score - a.score;
-    if (sortKey === 'rr') return b.rr - a.rr;
-    if (sortKey === 'iv') return b.ivRank - a.ivRank;
-    if (sortKey === 'dte') return a.dte - b.dte;
-    return 0;
-  });
-  document.getElementById('playsGrid').innerHTML = sorted.map((p, i) => {
-    const tier = p.score >= 90 ? 'tier-a' : '';
-    const biasClr = p.bias === 'bull' ? 'var(--green)' : p.bias === 'bear' ? 'var(--red)' : 'var(--yellow)';
-    const biasIcon = p.bias === 'bull' ? '▲ BULL' : p.bias === 'bear' ? '▼ BEAR' : '◆ NEUTRAL';
-    const wTag = p.weight && p.weight !== 1 ? `<span style="font-size:10px;color:${p.weight>1?'var(--green)':'var(--red)'};margin-left:6px;">×${p.weight.toFixed(2)}</span>` : '';
-    return `<div class="play-card ${tier}" data-bias="${p.bias}">
-      <div class="play-rank">#${i+1}</div>
-      <div style="display:grid;grid-template-columns:1fr auto;gap:16px;align-items:center;margin-bottom:14px;">
-        <div>
-          <div style="display:flex;align-items:center;gap:10px;">
-            <div class="mono" style="font-size:24px;font-weight:800;">${p.sym}</div>
-            <span style="font-size:11px;color:${biasClr};font-weight:700;letter-spacing:0.05em;">${biasIcon}</span>
-          </div>
-          <div style="font-size:12px;color:var(--text-muted);margin-top:2px;">${p.name} · ${p.sector} · ${p.setup}${wTag}</div>
-        </div>
-        ${scoreRing(p.score)}
-      </div>
-
-      <div style="background:rgba(0,0,0,0.18);border-left:3px solid var(--accent);padding:10px 12px;border-radius:0 6px 6px 0;font-size:12px;line-height:1.6;color:var(--text-secondary);margin-bottom:14px;">
-        ${p.thesis}
-      </div>
-
-      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px;font-family:var(--font-mono);font-size:11px;">
-        <div style="background:var(--bg-elevated);padding:6px;border-radius:4px;text-align:center;"><div style="color:var(--text-muted);font-size:9px;">ENTRY</div><div>${p.entry}</div></div>
-        <div style="background:var(--bg-elevated);padding:6px;border-radius:4px;text-align:center;"><div style="color:var(--text-muted);font-size:9px;">STOP</div><div style="color:var(--red);">${p.stop}</div></div>
-        <div style="background:var(--bg-elevated);padding:6px;border-radius:4px;text-align:center;"><div style="color:var(--text-muted);font-size:9px;">T1</div><div style="color:var(--green);">${p.t1}</div></div>
-        <div style="background:var(--bg-elevated);padding:6px;border-radius:4px;text-align:center;"><div style="color:var(--text-muted);font-size:9px;">T2</div><div style="color:var(--green);">${p.t2}</div></div>
-      </div>
-
-      <div class="play-leg">
-        <span style="color:var(--text-muted);">CONTRACT</span>
-        <span style="color:var(--accent);font-weight:700;">${p.contract}</span>
-      </div>
-
-      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:14px;font-size:11px;color:var(--text-muted);">
-        <div><span style="color:var(--text-muted);">R:R</span> <strong style="color:var(--text-primary);">${p.rr}:1</strong></div>
-        <div><span style="color:var(--text-muted);">DTE</span> <strong style="color:var(--text-primary);">${p.dte}</strong></div>
-        <div><span style="color:var(--text-muted);">IV Rank</span> <strong style="color:var(--text-primary);">${p.ivRank}</strong></div>
-        <div><span style="color:var(--text-muted);">Size</span> <strong style="color:var(--text-primary);">${p.size}</strong></div>
-      </div>
-
-      <div style="display:flex;gap:8px;margin-top:14px;">
-        <button class="btn btn-primary" style="flex:1;font-size:12px;padding:8px;" onclick="trackPlay('${p.sym}','${p.setup}','${p.sector}','${p.bias}',${p.score},${p.entry},${p.stop},${p.t1})">📥 Track</button>
-        <a href="trade-of-the-day.html" class="btn btn-secondary" style="flex:1;font-size:12px;padding:8px;text-align:center;">📊 Full Analysis</a>
-      </div>
-    </div>`;
-  }).join('');
-  // KPIs
-  document.getElementById('kpiActive').textContent = sorted.length;
-  document.getElementById('kpiAvgScore').textContent = Math.round(sorted.reduce((a,p) => a + p.score, 0) / sorted.length);
-  document.getElementById('kpiAvgRR').textContent = (sorted.reduce((a,p) => a + p.rr, 0) / sorted.length).toFixed(1) + ' : 1';
-  if (typeof Learn !== 'undefined') {
-    const s = Learn.stats();
-    document.getElementById('kpiEdge').textContent = (s.avgR >= 0 ? '+' : '') + s.avgR.toFixed(2) + 'R';
-  }
-}
-
-function trackPlay(sym, setup, sector, bias, score, entry, stop, target) {
-  if (typeof Learn === 'undefined') return;
-  Learn.recordTrade({ symbol: sym, setup, sector, bias, score, entry, stop, target });
-  alert('✓ Tracking ' + sym + '. View open trades in Edge Analytics → My Tracking.');
-}
-
-document.addEventListener('DOMContentLoaded', () => {
-  let current = adjustForLearn(PLAYS);
-  let sortKey = 'score';
-  let biasFilter = 'all';
-
-  function refresh() {
-    const list = biasFilter === 'all' ? current : current.filter(p => p.bias === biasFilter);
-    renderPlays(list, sortKey);
-  }
-  refresh();
-
-  document.getElementById('sortBy').addEventListener('change', e => { sortKey = e.target.value; refresh(); });
-  document.querySelectorAll('[data-pfilter]').forEach(btn => {
-    btn.addEventListener('click', () => {
-      document.querySelectorAll('[data-pfilter]').forEach(b => b.classList.remove('active'));
-      btn.classList.add('active');
-      biasFilter = btn.dataset.pfilter;
-      refresh();
+function build() {
+  if (typeof QUOTES === 'undefined') return [];
+  const usingMock = typeof DataProvider !== 'undefined' && DataProvider.getStatus().provider === 'mock';
+  const candidates = Object.values(QUOTES)
+    .filter(q => usingMock || q.fresh)
+    .filter(q => q.symbol !== 'VIX' && isFinite(q.changePct) && q.changePct !== 0)
+    .map(q => {
+      const setup = pickSetup(q);
+      const score = scoreFor(q);
+      const bias = q.changePct >= 0 ? 'bull' : 'bear';
+      const stopDist = Math.abs(q.last * 0.025);
+      const entry = q.last;
+      const stop = bias === 'bull' ? entry - stopDist : entry + stopDist;
+      const t1 = bias === 'bull' ? entry + stopDist * 1.5 : entry - stopDist * 1.5;
+      const t2 = bias === 'bull' ? entry + stopDist * 3.0 : entry - stopDist * 3.0;
+      return { sym: q.symbol, last: q.last, chg: q.change, chgPct: q.changePct, bias, setup, score, entry, stop, t1, t2, sector: SECTOR[q.symbol] || '—', volume: q.volume };
     });
+  candidates.sort((a, b) => b.score.adjusted - a.score.adjusted);
+  return candidates;
+}
+
+function fmt$(v) { return '$' + Number(v).toFixed(2); }
+
+function renderKpis(items) {
+  $('kUniverse').textContent = items.length;
+  $('kBull').textContent = items.filter(i => i.bias === 'bull' && i.score.adjusted >= 60).length;
+  $('kBear').textContent = items.filter(i => i.bias === 'bear' && i.score.adjusted >= 60).length;
+  const top = items[0];
+  if (top) {
+    $('kTop').textContent = top.sym;
+    $('kTopMeta').textContent = top.score.adjusted + '/100 · ' + (top.bias === 'bull' ? '+' : '') + top.chgPct.toFixed(2) + '%';
+  } else {
+    $('kTop').textContent = '—';
+    $('kTopMeta').textContent = 'waiting for live ticks';
+  }
+  $('kAsOf').textContent = 'Rebuilt ' + new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', second: '2-digit' });
+}
+
+function render() {
+  const all = build();
+  const items = all.filter(i => {
+    if (activeFilter === 'bull') return i.bias === 'bull';
+    if (activeFilter === 'bear') return i.bias === 'bear';
+    return true;
   });
-});
+  renderKpis(all);
+
+  const grid = $('playsGrid');
+  if (!items.length) {
+    grid.innerHTML = '<div style="grid-column:1/-1;text-align:center;color:var(--text-muted);padding:40px;">' +
+      (typeof DataProvider !== 'undefined' && DataProvider.getStatus().provider === 'finnhub' ? 'No fresh ticks yet — Finnhub may be slow after-hours. Try during market hours, or check <a href="settings.html" style="color:var(--accent);">Settings → Diagnostics</a>.' : 'No live data — open <a href="settings.html" style="color:var(--accent);">Settings</a> and connect a provider.') +
+      '</div>';
+    return;
+  }
+
+  grid.innerHTML = items.slice(0, 12).map(p => {
+    const cls = p.bias === 'bear' ? 'play-card bear' : 'play-card';
+    const scoreCls = p.score.adjusted >= 85 ? 'score-90' : p.score.adjusted >= 70 ? 'score-75' : p.score.adjusted >= 55 ? 'score-60' : 'score-lo';
+    const biasCls = p.bias === 'bull' ? 'bias-bull' : 'bias-bear';
+    const biasLabel = p.bias === 'bull' ? '▲ BULL' : '▼ BEAR';
+    const setupLabel = p.setup.replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+    const rr = ((Math.abs(p.t1 - p.entry)) / Math.abs(p.entry - p.stop)).toFixed(2);
+    return `<a href="trade-plan.html?sym=${p.sym}" class="${cls}" style="text-decoration:none;color:inherit;">
+      <div class="play-head">
+        <div>
+          <div class="play-sym">${p.sym}</div>
+          <div style="font-size:11px;color:var(--text-muted);margin-top:2px;">${p.sector}</div>
+        </div>
+        <span class="play-score ${scoreCls}">${p.score.adjusted}/100</span>
+      </div>
+      <div style="margin-bottom:10px;">
+        <span class="bias-pill ${biasCls}">${biasLabel}</span>
+        <span style="margin-left:6px;font-size:11px;color:var(--text-muted);">${setupLabel}</span>
+      </div>
+      <div class="play-row"><span class="k">Last</span><span class="v">${fmt$(p.last)} <span class="${p.bias === 'bull' ? 'green-text' : 'red-text'}">(${p.chgPct >= 0 ? '+' : ''}${p.chgPct.toFixed(2)}%)</span></span></div>
+      <div class="play-row"><span class="k">Entry</span><span class="v">${fmt$(p.entry)}</span></div>
+      <div class="play-row"><span class="k">Stop</span><span class="v red-text">${fmt$(p.stop)}</span></div>
+      <div class="play-row"><span class="k">Target 1</span><span class="v green-text">${fmt$(p.t1)}</span></div>
+      <div class="play-row"><span class="k">Target 2</span><span class="v green-text">${fmt$(p.t2)}</span></div>
+      <div class="play-row"><span class="k">R:R</span><span class="v">${rr} : 1</span></div>
+      <div class="play-row"><span class="k">Volume (cum)</span><span class="v">${((p.volume || 0)/1e6).toFixed(1)}M</span></div>
+      <div style="margin-top:10px;font-size:11px;color:var(--accent);">Open Trade Plan →</div>
+    </a>`;
+  }).join('');
+}
+
+document.querySelectorAll('[data-filter]').forEach(b => b.addEventListener('click', () => {
+  document.querySelectorAll('[data-filter]').forEach(x => x.classList.remove('btn-active'));
+  b.classList.add('btn-active');
+  activeFilter = b.dataset.filter;
+  render();
+}));
+$('reloadBtn').addEventListener('click', render);
+
+render();
+if (typeof Feed !== 'undefined') Feed.subscribe('*', () => render());
 </script>
 </body>
 </html>

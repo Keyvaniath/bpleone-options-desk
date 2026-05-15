@@ -4,12 +4,33 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Dashboard — bpleone / trade</title>
+<meta name="description" content="Live market dashboard: index quotes, breadth, top movers, your watchlist, news, all from real Finnhub data.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="css/style.css">
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.idx-card { padding: 16px 18px; background: var(--bg-elevated); border-radius: 10px; cursor: pointer; transition: border-color 0.15s; border: 1px solid transparent; }
+.idx-card:hover { border-color: var(--accent); }
+.idx-card .lab { font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; }
+.idx-card .price { font-family: var(--font-mono); font-size: 22px; font-weight: 700; margin-top: 4px; }
+.idx-card .chg { font-family: var(--font-mono); font-size: 12px; font-weight: 600; margin-top: 2px; }
+.mover-row td { padding: 8px 12px; }
+.mover-row:hover { background: var(--bg-elevated); cursor: pointer; }
+.news-snap { padding: 10px 12px; border-bottom: 1px solid var(--border); }
+.news-snap a { color: var(--text-primary); text-decoration: none; font-size: 13px; line-height: 1.4; }
+.news-snap a:hover { color: var(--accent); }
+.news-snap .src { font-size: 10px; color: var(--text-muted); font-family: var(--font-mono); margin-top: 2px; }
+.breadth-bar { display: flex; height: 28px; border-radius: 6px; overflow: hidden; background: var(--bg-tertiary); }
+.breadth-bar > div { display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700; color: white; }
+.quick-card { padding: 18px; background: var(--bg-elevated); border-radius: 10px; cursor: pointer; transition: all 0.15s; text-decoration: none; color: var(--text-primary); display: block; }
+.quick-card:hover { border-color: var(--accent); background: rgba(0,212,255,0.05); }
+.quick-card .icon { font-size: 28px; }
+.quick-card .name { font-weight: 700; margin-top: 8px; }
+.quick-card .desc { font-size: 11px; color: var(--text-muted); margin-top: 3px; }
+</style>
 </head>
 <body>
 <div id="site-nav"></div>
@@ -17,235 +38,198 @@
 <div class="container">
   <div class="page-header">
     <div>
-      <div class="page-title">Market Dashboard</div>
-      <div class="page-subtitle">Live overview · <span id="market-clock">--</span></div>
-    </div>
-    <div class="filter-group">
-      <button class="filter-btn active">1D</button>
-      <button class="filter-btn">1W</button>
-      <button class="filter-btn">1M</button>
-      <button class="filter-btn">YTD</button>
+      <div class="page-title">Dashboard <span class="feat-badge feat-live">LIVE</span></div>
+      <div class="page-subtitle"><span id="market-clock">--</span> · <span id="kAsOf">—</span></div>
     </div>
   </div>
 
-  <!-- Top metric strip (LIVE) -->
-  <div class="grid grid-4" style="margin-bottom:24px;">
-    <div class="card">
-      <div style="color:var(--text-muted);font-size:11px;text-transform:uppercase;letter-spacing:0.05em;">SPY · S&P 500</div>
-      <div class="mono" style="font-size:24px;font-weight:700;margin-top:4px;"><span data-live="SPY:last">$562.18</span></div>
-      <div class="mono" style="font-size:13px;"><span data-live="SPY:change" class="green-text">+4.74</span> (<span data-live="SPY:changePct" class="green-text">+0.85%</span>)</div>
-    </div>
-    <div class="card">
-      <div style="color:var(--text-muted);font-size:11px;text-transform:uppercase;letter-spacing:0.05em;">QQQ · Nasdaq 100</div>
-      <div class="mono" style="font-size:24px;font-weight:700;margin-top:4px;"><span data-live="QQQ:last">$487.32</span></div>
-      <div class="mono" style="font-size:13px;"><span data-live="QQQ:change" class="green-text">+5.40</span> (<span data-live="QQQ:changePct" class="green-text">+1.12%</span>)</div>
-    </div>
-    <div class="card">
-      <div style="color:var(--text-muted);font-size:11px;text-transform:uppercase;letter-spacing:0.05em;">VIX</div>
-      <div class="mono" style="font-size:24px;font-weight:700;margin-top:4px;"><span data-live="VIX:last">$14.82</span></div>
-      <div class="mono" style="font-size:13px;"><span data-live="VIX:change" class="red-text">-0.47</span> (<span data-live="VIX:changePct" class="red-text">-3.12%</span>)</div>
-    </div>
-    <div class="card">
-      <div style="color:var(--text-muted);font-size:11px;text-transform:uppercase;letter-spacing:0.05em;">10Y Yield</div>
-      <div class="mono" style="font-size:24px;font-weight:700;margin-top:4px;">4.218%</div>
-      <div class="mono red-text" style="font-size:13px;">-0.034 (-0.80%)</div>
-    </div>
+  <!-- Index strip -->
+  <div class="grid grid-6 mb-24" style="gap:10px;">
+    <div class="idx-card" onclick="location.href='ticker.html?sym=SPY'"><div class="lab">SPY</div><div class="price mono" id="iSpy">—</div><div class="chg" id="iSpyChg">—</div></div>
+    <div class="idx-card" onclick="location.href='ticker.html?sym=QQQ'"><div class="lab">QQQ</div><div class="price mono" id="iQqq">—</div><div class="chg" id="iQqqChg">—</div></div>
+    <div class="idx-card" onclick="location.href='ticker.html?sym=IWM'"><div class="lab">IWM</div><div class="price mono" id="iIwm">—</div><div class="chg" id="iIwmChg">—</div></div>
+    <div class="idx-card" onclick="location.href='ticker.html?sym=DIA'"><div class="lab">DIA</div><div class="price mono" id="iDia">—</div><div class="chg" id="iDiaChg">—</div></div>
+    <div class="idx-card" onclick="location.href='ticker.html?sym=VIX'"><div class="lab">VIX</div><div class="price mono" id="iVix">—</div><div class="chg" id="iVixSub">—</div></div>
+    <div class="idx-card" onclick="location.href='ticker.html?sym=BTC'"><div class="lab">BTC</div><div class="price mono" id="iBtc">—</div><div class="chg" id="iBtcChg">—</div></div>
   </div>
 
-  <div class="dashboard-grid">
-    <div>
-      <!-- SPY chart -->
-      <div class="card mb-16" style="margin-bottom:20px;">
-        <div class="card-header">
-          <div class="card-title">📊 SPY · S&P 500 ETF</div>
-          <div style="font-family:var(--font-mono);font-size:13px;"><span style="font-size:18px;font-weight:700;">$562.18</span> <span class="green-text">+0.85%</span></div>
-        </div>
-        <div class="chart-container large">
-          <canvas id="spyChart"></canvas>
-        </div>
+  <!-- Breadth + Top Movers -->
+  <div class="grid grid-12 mb-24">
+    <div class="card col-5">
+      <div class="card-header"><div class="card-title">📊 Live Breadth</div></div>
+      <div style="margin-bottom:12px;">
+        <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--text-muted);margin-bottom:4px;"><span>Advancers</span><span>Decliners</span></div>
+        <div class="breadth-bar" id="breadthBar"></div>
+        <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--text-muted);margin-top:4px;"><span id="kAdv">—</span><span id="kDec">—</span></div>
       </div>
+      <div style="font-size:13px;color:var(--text-secondary);line-height:1.6;" id="breadthNote">Computing live breadth from your Finnhub feed…</div>
+    </div>
 
-      <!-- Active signals -->
-      <div class="card">
-        <div class="card-header">
-          <div class="card-title">⚡ Active Signals · Last 60 min</div>
-          <span class="card-badge">12 new</span>
+    <div class="card col-7">
+      <div class="card-header"><div class="card-title">🏆 Top Movers (Live)</div><a href="hot-movers.html" style="font-size:11px;color:var(--accent);">All →</a></div>
+      <div class="grid grid-2" style="gap:14px;">
+        <div>
+          <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px;">Top Gainers</div>
+          <table style="font-size:12px;"><tbody id="topGain"></tbody></table>
         </div>
         <div>
-          <div class="signal-card">
-            <div class="signal-icon bullish">↑</div>
-            <div class="signal-body">
-              <div class="signal-title">NVDA · MACD Bullish Cross (Daily)</div>
-              <div class="signal-desc">Histogram flipped positive after 14-day downtrend. Confirmed by volume.</div>
-            </div>
-            <div class="signal-meta">3m ago</div>
-          </div>
-          <div class="signal-card">
-            <div class="signal-icon flow">⟶</div>
-            <div class="signal-body">
-              <div class="signal-title">AMD · Unusual Call Sweep</div>
-              <div class="signal-desc">$170C 6/20 · 4,200 contracts at ask · IV pop +3.1pts</div>
-            </div>
-            <div class="signal-meta">7m ago</div>
-          </div>
-          <div class="signal-card">
-            <div class="signal-icon bearish">↓</div>
-            <div class="signal-body">
-              <div class="signal-title">TSLA · Breakdown $245 Support</div>
-              <div class="signal-desc">Closed below 200DMA on 1.8x avg volume. Next support $238.50.</div>
-            </div>
-            <div class="signal-meta">12m ago</div>
-          </div>
-          <div class="signal-card">
-            <div class="signal-icon alert">⚠</div>
-            <div class="signal-body">
-              <div class="signal-title">SPY · IV Crush Forming</div>
-              <div class="signal-desc">VIX -3.12%, term structure flattening. Premium sellers watch.</div>
-            </div>
-            <div class="signal-meta">18m ago</div>
-          </div>
-          <div class="signal-card">
-            <div class="signal-icon bullish">↑</div>
-            <div class="signal-body">
-              <div class="signal-title">META · Bull Flag Breakout</div>
-              <div class="signal-desc">Cleared $585 with volume confirmation. Measured move $612.</div>
-            </div>
-            <div class="signal-meta">24m ago</div>
-          </div>
-          <div class="signal-card">
-            <div class="signal-icon flow">⟶</div>
-            <div class="signal-body">
-              <div class="signal-title">AAPL · Block Print Detected</div>
-              <div class="signal-desc">$220C 5/30 · 8,500 contracts traded mid-mark · $2.1M premium</div>
-            </div>
-            <div class="signal-meta">31m ago</div>
-          </div>
-        </div>
-        <div style="text-align:center;margin-top:16px;">
-          <a href="signals.html" class="btn btn-secondary">View All Signals →</a>
-        </div>
-      </div>
-    </div>
-
-    <!-- Sidebar -->
-    <div>
-      <!-- Watchlist -->
-      <div class="watchlist" style="margin-bottom:20px;">
-        <div class="card-header" style="margin-bottom:12px;">
-          <div class="card-title">⭐ Watchlist</div>
-          <button class="btn btn-ghost" style="padding:4px 8px;font-size:11px;">+ Add</button>
-        </div>
-        <div class="watchlist-item"><div><div class="wl-symbol">NVDA</div><div class="wl-name">NVIDIA</div></div><div class="wl-price" data-live="NVDA:last">$138.27</div><div class="wl-change" data-live="NVDA:changePct">+3.21%</div></div>
-        <div class="watchlist-item"><div><div class="wl-symbol">AAPL</div><div class="wl-name">Apple</div></div><div class="wl-price" data-live="AAPL:last">$218.94</div><div class="wl-change" data-live="AAPL:changePct">+1.84%</div></div>
-        <div class="watchlist-item"><div><div class="wl-symbol">META</div><div class="wl-name">Meta Platforms</div></div><div class="wl-price" data-live="META:last">$587.42</div><div class="wl-change" data-live="META:changePct">+1.67%</div></div>
-        <div class="watchlist-item"><div><div class="wl-symbol">MSFT</div><div class="wl-name">Microsoft</div></div><div class="wl-price" data-live="MSFT:last">$425.18</div><div class="wl-change" data-live="MSFT:changePct">+0.93%</div></div>
-        <div class="watchlist-item"><div><div class="wl-symbol">TSLA</div><div class="wl-name">Tesla</div></div><div class="wl-price" data-live="TSLA:last">$248.61</div><div class="wl-change" data-live="TSLA:changePct">-2.18%</div></div>
-        <div class="watchlist-item"><div><div class="wl-symbol">AMD</div><div class="wl-name">Advanced Micro</div></div><div class="wl-price" data-live="AMD:last">$162.18</div><div class="wl-change" data-live="AMD:changePct">+2.34%</div></div>
-        <div class="watchlist-item"><div><div class="wl-symbol">GOOGL</div><div class="wl-name">Alphabet</div></div><div class="wl-price" data-live="GOOGL:last">$178.32</div><div class="wl-change" data-live="GOOGL:changePct">-0.42%</div></div>
-        <div class="watchlist-item"><div><div class="wl-symbol">AMZN</div><div class="wl-name">Amazon</div></div><div class="wl-price" data-live="AMZN:last">$213.55</div><div class="wl-change" data-live="AMZN:changePct">+0.88%</div></div>
-      </div>
-
-      <!-- Flow ratio -->
-      <div class="card" style="margin-bottom:20px;">
-        <div class="card-header"><div class="card-title">📊 Market Flow</div></div>
-        <div class="chart-container small">
-          <canvas id="flowDonut"></canvas>
-        </div>
-        <div style="text-align:center;font-size:11px;color:var(--text-muted);margin-top:8px;">Premium-weighted call/put ratio · Today</div>
-      </div>
-
-      <!-- Top movers -->
-      <div class="card">
-        <div class="card-header"><div class="card-title">🚀 Top Movers</div></div>
-        <div class="watchlist-item">
-          <div><div class="wl-symbol">SMCI</div><div class="wl-name">Super Micro</div></div>
-          <div class="wl-price">$48.21</div>
-          <div class="wl-change green-text">+8.42%</div>
-        </div>
-        <div class="watchlist-item">
-          <div><div class="wl-symbol">PLTR</div><div class="wl-name">Palantir</div></div>
-          <div class="wl-price">$31.84</div>
-          <div class="wl-change green-text">+6.18%</div>
-        </div>
-        <div class="watchlist-item">
-          <div><div class="wl-symbol">COIN</div><div class="wl-name">Coinbase</div></div>
-          <div class="wl-price">$248.92</div>
-          <div class="wl-change green-text">+5.21%</div>
-        </div>
-        <div class="watchlist-item">
-          <div><div class="wl-symbol">MARA</div><div class="wl-name">Marathon Digital</div></div>
-          <div class="wl-price">$18.42</div>
-          <div class="wl-change red-text">-4.82%</div>
-        </div>
-        <div class="watchlist-item">
-          <div><div class="wl-symbol">RIVN</div><div class="wl-name">Rivian</div></div>
-          <div class="wl-price">$12.18</div>
-          <div class="wl-change red-text">-3.92%</div>
+          <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px;">Top Losers</div>
+          <table style="font-size:12px;"><tbody id="topLose"></tbody></table>
         </div>
       </div>
     </div>
   </div>
 
-  <!-- Bottom grid -->
-  <div class="grid grid-12" style="margin-top:24px;">
-    <div class="card col-6">
-      <div class="card-header">
-        <div class="card-title">📰 Market News</div>
-        <span class="card-badge">Live</span>
-      </div>
-      <div>
-        <div style="padding:12px 0;border-bottom:1px solid var(--border);">
-          <div style="font-size:11px;color:var(--text-muted);margin-bottom:4px;">14:32 ET · MARKETS</div>
-          <div style="font-weight:600;font-size:14px;">Nasdaq leads gains as megacap tech rallies into Computex week</div>
-        </div>
-        <div style="padding:12px 0;border-bottom:1px solid var(--border);">
-          <div style="font-size:11px;color:var(--text-muted);margin-bottom:4px;">14:18 ET · FED</div>
-          <div style="font-weight:600;font-size:14px;">Fed minutes show divided committee on timing of next rate move</div>
-        </div>
-        <div style="padding:12px 0;border-bottom:1px solid var(--border);">
-          <div style="font-size:11px;color:var(--text-muted);margin-bottom:4px;">13:54 ET · CHIPS</div>
-          <div style="font-weight:600;font-size:14px;">NVDA call sweeps total $48M premium ahead of Jensen keynote</div>
-        </div>
-        <div style="padding:12px 0;border-bottom:1px solid var(--border);">
-          <div style="font-size:11px;color:var(--text-muted);margin-bottom:4px;">13:21 ET · EARNINGS</div>
-          <div style="font-weight:600;font-size:14px;">Walmart beats top and bottom line, raises FY guidance</div>
-        </div>
-        <div style="padding:12px 0;">
-          <div style="font-size:11px;color:var(--text-muted);margin-bottom:4px;">12:48 ET · MACRO</div>
-          <div style="font-weight:600;font-size:14px;">Treasury yields fall as inflation expectations ease</div>
-        </div>
-      </div>
+  <!-- Quick actions -->
+  <div class="grid grid-6 mb-24" style="gap:10px;">
+    <a href="game-plan.html" class="quick-card"><div class="icon">📋</div><div class="name">Game Plan</div><div class="desc">Today's morning brief</div></a>
+    <a href="plays.html" class="quick-card"><div class="icon">⭐</div><div class="name">Plays</div><div class="desc">Live momentum ideas</div></a>
+    <a href="trade-of-the-day.html" class="quick-card"><div class="icon">🎯</div><div class="name">TOTD</div><div class="desc">Featured pick</div></a>
+    <a href="trade-plan.html" class="quick-card"><div class="icon">🗺</div><div class="name">Build Plan</div><div class="desc">Write a trade</div></a>
+    <a href="paper-trade.html" class="quick-card"><div class="icon">🎮</div><div class="name">Paper Trade</div><div class="desc">Practice</div></a>
+    <a href="ai-scout.html" class="quick-card"><div class="icon">🤖</div><div class="name">AI Scout</div><div class="desc">Claude ideas</div></a>
+  </div>
+
+  <!-- News + Mindset -->
+  <div class="grid grid-12">
+    <div class="card col-7">
+      <div class="card-header"><div class="card-title">📰 Market Headlines</div><a href="news.html" style="font-size:11px;color:var(--accent);">All →</a></div>
+      <div id="newsSnap"><div style="padding:24px;text-align:center;color:var(--text-muted);">Loading…</div></div>
     </div>
 
-    <div class="card col-6">
-      <div class="card-header"><div class="card-title">📅 Economic Calendar · This Week</div></div>
-      <table>
-        <thead><tr><th>Date</th><th>Event</th><th>Est.</th><th>Prior</th></tr></thead>
-        <tbody>
-          <tr><td>Wed 5/14</td><td style="white-space:normal;">CPI YoY</td><td>3.1%</td><td>3.2%</td></tr>
-          <tr><td>Wed 5/14</td><td style="white-space:normal;">Core CPI MoM</td><td>0.3%</td><td>0.4%</td></tr>
-          <tr><td>Thu 5/15</td><td style="white-space:normal;">Retail Sales MoM</td><td>0.4%</td><td>0.7%</td></tr>
-          <tr><td>Thu 5/15</td><td style="white-space:normal;">Initial Jobless Claims</td><td>220k</td><td>231k</td></tr>
-          <tr><td>Fri 5/16</td><td style="white-space:normal;">Building Permits</td><td>1.48M</td><td>1.47M</td></tr>
-          <tr><td>Fri 5/16</td><td style="white-space:normal;">UMich Sentiment</td><td>76.5</td><td>77.2</td></tr>
-        </tbody>
-      </table>
+    <div class="card col-5">
+      <div class="card-header"><div class="card-title">🧘 Today's Tilt Check</div><a href="mindset.html" style="font-size:11px;color:var(--accent);">Open →</a></div>
+      <div id="mindsetSnap"><div style="padding:24px;text-align:center;color:var(--text-muted);">Loading…</div></div>
     </div>
+  </div>
+
+  <div class="related-bar mt-24">
+    <span class="lbl">Related →</span>
+    <a href="pre-market.html">🌅 Pre-Market</a>
+    <a href="signals.html">⚡ Signals</a>
+    <a href="momentum.html">🚀 Momentum</a>
+    <a href="market-internals.html">📈 Internals</a>
+    <a href="watchlists.html">⭐ Watchlists</a>
   </div>
 </div>
 
 <div id="site-footer"></div>
 
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
 <script src="js/app.js"></script>
 <script src="js/notify.js"></script>
-<script src="js/charts.js"></script>
 <script src="js/live.js"></script>
+<script src="js/learn.js"></script>
 <script>
-  buildNav('dashboard');
-  document.addEventListener('DOMContentLoaded', () => {
-    renderPriceWithMAChart('spyChart', 555);
-    renderFlowDonut('flowDonut', 64, 36);
-  });
+buildNav('dashboard');
+const $ = id => document.getElementById(id);
+
+function fmt$(v) { return v == null || !isFinite(v) ? '—' : '$' + Number(v).toFixed(2); }
+function pct(v) { return v == null || !isFinite(v) ? '—' : (v >= 0 ? '+' : '') + v.toFixed(2) + '%'; }
+
+function renderIndices() {
+  if (typeof QUOTES === 'undefined') return;
+  function set(idPrefix, sym, sub) {
+    const q = QUOTES[sym];
+    if (q && q.fresh) {
+      $('i' + idPrefix).textContent = fmt$(q.last);
+      const e = $('i' + idPrefix + (sub || 'Chg'));
+      e.textContent = pct(q.changePct);
+      e.className = 'chg mono ' + (q.changePct >= 0 ? 'green-text' : 'red-text');
+    }
+  }
+  set('Spy','SPY'); set('Qqq','QQQ'); set('Iwm','IWM'); set('Dia','DIA'); set('Btc','BTC');
+  const v = QUOTES.VIX;
+  if (v && v.fresh) {
+    $('iVix').textContent = v.last.toFixed(2);
+    const sub = $('iVixSub');
+    sub.textContent = v.last < 14 ? 'Complacent' : v.last < 20 ? 'Normal' : v.last < 30 ? 'Elevated' : 'Panic';
+    sub.className = 'chg mono ' + (v.last < 20 ? 'green-text' : v.last < 30 ? 'yellow-text' : 'red-text');
+  }
+}
+
+function renderBreadth() {
+  if (typeof QUOTES === 'undefined') return;
+  const items = Object.values(QUOTES).filter(q => q.fresh && q.symbol !== 'VIX' && isFinite(q.changePct));
+  const adv = items.filter(q => q.changePct > 0).length;
+  const dec = items.filter(q => q.changePct < 0).length;
+  const total = adv + dec;
+  if (!total) { $('breadthBar').innerHTML = '<div style="flex:1;background:var(--bg-tertiary);"></div>'; return; }
+  const advPct = adv / total * 100;
+  const decPct = dec / total * 100;
+  $('breadthBar').innerHTML = `<div style="flex:${advPct};background:var(--green);">${advPct.toFixed(0)}%</div><div style="flex:${decPct};background:var(--red);">${decPct.toFixed(0)}%</div>`;
+  $('kAdv').textContent = adv + ' up';
+  $('kDec').textContent = dec + ' down';
+
+  let note;
+  if (advPct > 70) note = '<strong style="color:var(--green);">Strong breadth</strong> — broad-based buying. Trend day candidate.';
+  else if (advPct > 55) note = '<strong style="color:var(--green);">Healthy breadth.</strong> Risk-on bias.';
+  else if (advPct > 45) note = '<strong style="color:var(--yellow);">Mixed tape.</strong> Stock-by-stock environment.';
+  else if (advPct > 30) note = '<strong style="color:var(--red);">Weak breadth.</strong> Defensive — size down.';
+  else note = '<strong style="color:var(--red);">Very weak breadth.</strong> Panic conditions — wait for capitulation reversal signals.';
+  $('breadthNote').innerHTML = note;
+}
+
+function renderMovers() {
+  if (typeof QUOTES === 'undefined') return;
+  const items = Object.values(QUOTES).filter(q => q.fresh && q.symbol !== 'VIX' && isFinite(q.changePct));
+  const gainers = items.slice().sort((a, b) => b.changePct - a.changePct).slice(0, 5);
+  const losers = items.slice().sort((a, b) => a.changePct - b.changePct).slice(0, 5);
+  function row(q) { return `<tr class="mover-row" onclick="location.href='ticker.html?sym=${q.symbol}'">
+    <td class="mono"><strong>${q.symbol}</strong></td>
+    <td class="mono">${fmt$(q.last)}</td>
+    <td class="mono ${q.changePct >= 0 ? 'green-text' : 'red-text'}">${pct(q.changePct)}</td>
+  </tr>`; }
+  $('topGain').innerHTML = gainers.map(row).join('') || '<tr><td colspan="3" style="color:var(--text-muted);font-size:11px;">No data</td></tr>';
+  $('topLose').innerHTML = losers.map(row).join('') || '<tr><td colspan="3" style="color:var(--text-muted);font-size:11px;">No data</td></tr>';
+  $('kAsOf').textContent = 'Live · ' + new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', second: '2-digit' });
+}
+
+async function loadNews() {
+  if (typeof DataProvider === 'undefined' || DataProvider.getConfig().provider !== 'finnhub' || !DataProvider.getConfig().apiKey) {
+    $('newsSnap').innerHTML = '<div style="padding:24px;text-align:center;color:var(--text-muted);">Connect Finnhub in <a href="settings.html" style="color:var(--accent);">Settings</a>.</div>';
+    return;
+  }
+  try {
+    const items = await DataProvider.getMarketNews('general');
+    items.sort((a, b) => b.datetime - a.datetime);
+    $('newsSnap').innerHTML = items.slice(0, 8).map(n => `<div class="news-snap">
+      <a href="${n.url}" target="_blank" rel="noopener">${escapeHtml(n.headline)}</a>
+      <div class="src">${escapeHtml(n.source || '')} · ${new Date(n.datetime).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}</div>
+    </div>`).join('');
+  } catch (e) {
+    $('newsSnap').innerHTML = '<div style="padding:24px;text-align:center;color:var(--red);">' + e.message + '</div>';
+  }
+}
+
+function escapeHtml(s) { return String(s || '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+function renderMindset() {
+  try {
+    const today = new Date().toISOString().slice(0,10);
+    const arr = JSON.parse(localStorage.getItem('bpleone_mindset_v1') || '[]');
+    const entry = arr.find(e => e.date === today);
+    if (!entry) {
+      $('mindsetSnap').innerHTML = '<div style="padding:24px;text-align:center;color:var(--text-muted);">No check-in today. <a href="mindset.html" style="color:var(--accent);">Do one now →</a></div>';
+      return;
+    }
+    const tilt = entry.tiltScore || 0;
+    const cls = tilt < 25 ? 'green-text' : tilt < 50 ? 'yellow-text' : 'red-text';
+    const label = tilt < 25 ? 'CLEAR — trade your plan' : tilt < 50 ? 'CAUTION — size down' : tilt < 75 ? 'ELEVATED — break only' : 'STOP — don\'t trade';
+    $('mindsetSnap').innerHTML = `<div style="padding:14px;">
+      <div style="font-size:11px;color:var(--text-muted);">Mood: ${entry.mood || '—'} · Sleep: ${entry.sleep}h · Focus: ${entry.focus}/10</div>
+      <div class="mono ${cls}" style="font-size:28px;font-weight:800;margin-top:8px;">Tilt ${tilt}/100</div>
+      <div style="font-size:13px;color:var(--text-secondary);margin-top:4px;">${label}</div>
+    </div>`;
+  } catch (e) {
+    $('mindsetSnap').innerHTML = '<div style="padding:24px;text-align:center;color:var(--text-muted);"><a href="mindset.html" style="color:var(--accent);">Do today\'s check-in →</a></div>';
+  }
+}
+
+renderIndices(); renderBreadth(); renderMovers(); renderMindset();
+loadNews();
+if (typeof Feed !== 'undefined') Feed.subscribe('*', () => { renderIndices(); renderBreadth(); renderMovers(); });
 </script>
 </body>
 </html>
