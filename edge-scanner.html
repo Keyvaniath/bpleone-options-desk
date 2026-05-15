@@ -1,0 +1,318 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Live Edge Scanner — bpleone / trade</title>
+<meta name="description" content="Real-time scan across every live symbol — auto-tags setups, weights by learned expectancy, ranks by adjusted score. The brain's live opinion of the tape.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.scanner-table { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 13px; }
+.scanner-table thead th { position: sticky; top: 0; background: var(--bg-elevated); padding: 10px 12px; text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-muted); border-bottom: 1px solid var(--border); z-index: 2; cursor: pointer; user-select: none; }
+.scanner-table thead th:hover { color: var(--accent); }
+.scanner-table tbody tr { transition: background .12s ease; }
+.scanner-table tbody tr:hover { background: rgba(0,212,255,0.04); }
+.scanner-table tbody td { padding: 8px 12px; border-top: 1px solid var(--border); font-family: var(--font-mono); }
+.scanner-table tbody td.t { font-family: inherit; }
+.setup-pill { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 10px; font-weight: 600; }
+.setup-pill.s-bull { background: var(--green-bg); color: var(--green); }
+.setup-pill.s-bear { background: var(--red-bg); color: var(--red); }
+.setup-pill.s-neutral { background: var(--bg-secondary); color: var(--text-muted); }
+.score-bar { width: 60px; height: 6px; background: var(--bg-secondary); border-radius: 3px; overflow: hidden; display: inline-block; margin-left: 6px; vertical-align: middle; }
+.score-bar .fill { height: 100%; background: linear-gradient(to right, var(--accent), #8b5cf6); }
+.weight-chip { font-family: var(--font-mono); font-size: 10px; padding: 1px 6px; border-radius: 4px; background: var(--bg-secondary); border: 1px solid var(--border); }
+.weight-chip.w-pos { color: var(--green); border-color: rgba(16,185,129,0.3); }
+.weight-chip.w-neg { color: var(--red); border-color: rgba(239,68,68,0.3); }
+.r-pos { color: var(--green); }
+.r-neg { color: var(--red); }
+.r-zero { color: var(--text-muted); }
+.scan-controls { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; padding: 14px 18px; background: var(--bg-elevated); border-radius: 10px; border: 1px solid var(--border); margin-bottom: 16px; }
+.scan-controls label { font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; }
+.scan-controls select, .scan-controls input[type=number] { background: var(--bg-secondary); border: 1px solid var(--border); color: var(--text-primary); padding: 6px 10px; border-radius: 6px; font-family: inherit; font-size: 12px; }
+.kpi-mini { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 16px; }
+.kpi-mini .tile { background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; }
+.kpi-mini .lab { font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; }
+.kpi-mini .val { font-family: var(--font-mono); font-weight: 700; font-size: 18px; margin-top: 2px; }
+.legend { font-size: 11px; color: var(--text-muted); margin-top: 10px; line-height: 1.6; }
+.flash-pos { animation: flashPos .8s ease; }
+.flash-neg { animation: flashNeg .8s ease; }
+@keyframes flashPos { 0% { background: rgba(16,185,129,0.15); } 100% { background: transparent; } }
+@keyframes flashNeg { 0% { background: rgba(239,68,68,0.15); } 100% { background: transparent; } }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">Live Edge Scanner <span class="feat-badge feat-new">NEW</span> <span class="feat-badge feat-live">LIVE</span></div>
+      <div class="page-subtitle">Auto-tags every symbol on every tick. Score = base × Learn-weight. The brain's live opinion of the tape. · <span id="market-clock">--</span></div>
+    </div>
+    <div class="flex gap-8">
+      <a href="paper-trade.html" class="btn btn-primary">🎮 Paper Trade →</a>
+      <a href="live-positions.html" class="btn btn-ghost">📡 Live Positions</a>
+      <a href="risk-attribution.html" class="btn btn-ghost">🎯 Attribution</a>
+    </div>
+  </div>
+
+  <!-- KPI strip -->
+  <div class="kpi-mini">
+    <div class="tile"><div class="lab">Symbols scanned</div><div class="val mono" id="kpiSyms">0</div></div>
+    <div class="tile"><div class="lab">High-conviction (≥0.75)</div><div class="val mono" id="kpiHC">0</div></div>
+    <div class="tile"><div class="lab">Best adjusted score</div><div class="val mono" id="kpiBest">—</div></div>
+    <div class="tile"><div class="lab">Last refresh</div><div class="val mono" id="kpiLast">—</div></div>
+  </div>
+
+  <!-- Controls -->
+  <div class="scan-controls">
+    <div>
+      <div><label>Min score</label></div>
+      <input type="number" id="minScore" value="0.5" step="0.05" min="0" max="1" style="width:80px;">
+    </div>
+    <div>
+      <div><label>Bias filter</label></div>
+      <select id="biasFilter">
+        <option value="all">All</option>
+        <option value="bull">Bull only</option>
+        <option value="bear">Bear only</option>
+      </select>
+    </div>
+    <div>
+      <div><label>Sort by</label></div>
+      <select id="sortBy">
+        <option value="adjScore">Adjusted score (default)</option>
+        <option value="rawScore">Raw score</option>
+        <option value="weight">Learn weight</option>
+        <option value="changePct">Day change %</option>
+        <option value="rvol">Relative volume</option>
+        <option value="rsi">RSI</option>
+      </select>
+    </div>
+    <div>
+      <div><label>Show closed mkt?</label></div>
+      <select id="includeStale">
+        <option value="0">No (live only)</option>
+        <option value="1" selected>Yes (include cached)</option>
+      </select>
+    </div>
+    <div style="margin-left:auto;font-size:11px;color:var(--text-muted);">
+      Refresh: auto on tick + every 2s polling
+    </div>
+  </div>
+
+  <!-- Scanner table -->
+  <div class="card" style="padding:0;overflow:hidden;">
+    <div style="max-height:70vh;overflow-y:auto;">
+      <table class="scanner-table">
+        <thead>
+          <tr>
+            <th>Symbol</th>
+            <th>Setup (auto-tagged)</th>
+            <th>Bias</th>
+            <th>Last</th>
+            <th>Day %</th>
+            <th>RSI</th>
+            <th>RVol</th>
+            <th>Raw Score</th>
+            <th>× Weight</th>
+            <th style="text-align:right;">Adj Score ↓</th>
+            <th style="text-align:right;">Action</th>
+          </tr>
+        </thead>
+        <tbody id="scanBody">
+          <tr><td colspan="11" style="padding:30px;text-align:center;color:var(--text-muted);">Initializing scan…</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="legend">
+    <strong>How this works:</strong> on every tick we run <code>Learn.autoTagSetup()</code> against every symbol in QUOTES. That returns a base score (0–1) and a setup label. We multiply by the learned weight for that setup (from <code>Learn.weights</code>) to get the adjusted score. Weights start at 1.0 and drift up/down as the engine sees realized R-multiples. A setup with weight 1.3 means historical edge of +30% above baseline.
+  </div>
+
+  <!-- Weight legend -->
+  <div class="card mt-24">
+    <div class="card-header"><div class="card-title">📊 Current Learn Weights</div></div>
+    <div id="weightsLegend" style="display:flex;flex-wrap:wrap;gap:6px;"></div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script src="js/learn.js"></script>
+<script>buildNav('learn');</script>
+
+<script>
+(function () {
+  // Stable per-symbol heuristic features: RSI/MACD seeded from price drift (no real TA feed yet).
+  // The aim is consistent scoring so the rank table stays stable tick-to-tick.
+  function symbolFeatures(sym, q) {
+    if (!q) return null;
+    const pct = q.prevClose ? ((q.last - q.prevClose) / q.prevClose) * 100 : 0;
+    // Reasonable proxies until we have real TA: RSI follows pct (clipped 0-100); rvol from volume vs assumed avg
+    const rsi = Math.max(5, Math.min(95, 50 + pct * 6));
+    const macd = pct > 0.3 ? Math.abs(pct) * 0.4 : (pct < -0.3 ? -Math.abs(pct) * 0.4 : 0);
+    const assumedAvgVol = (q.avgVolume || (q.volume ? q.volume * 0.7 : null));
+    const rvol = (q.volume && assumedAvgVol) ? q.volume / assumedAvgVol : null;
+    return {
+      last: q.last,
+      prevClose: q.prevClose,
+      dayHigh: q.dayHigh,
+      dayLow: q.dayLow,
+      volume: q.volume,
+      avgVolume: assumedAvgVol,
+      rsi,
+      macd,
+      ma50: q.ma50,
+      ma200: q.ma200,
+      pct
+    };
+  }
+
+  function biasFromSetup(tag, pct) {
+    const bullTags = ['volume-breakout', 'unusual-call', '50ma-reclaim', 'macd-cross', 'momentum-extension', 'bull-flag', 'cup-handle', '52w-break', 'continuation-bull', 'gamma-squeeze'];
+    const bearTags = ['flush-on-volume', 'unusual-put', 'bear-flag', 'continuation-bear'];
+    if (bullTags.indexOf(tag) !== -1) return 'bull';
+    if (bearTags.indexOf(tag) !== -1) return 'bear';
+    if (tag === 'oversold-mean-revert') return 'bull';
+    return pct > 0 ? 'bull' : (pct < 0 ? 'bear' : 'neutral');
+  }
+
+  function loadWeights() {
+    try {
+      const raw = localStorage.getItem('bpleone_learn_v1');
+      if (!raw) return {};
+      return JSON.parse(raw).weights || {};
+    } catch (e) { return {}; }
+  }
+
+  let lastBodyHtml = '';
+  function scan() {
+    if (typeof QUOTES === 'undefined' || typeof Learn === 'undefined') return;
+    const minScore = parseFloat(document.getElementById('minScore').value) || 0;
+    const biasFilter = document.getElementById('biasFilter').value;
+    const sortBy = document.getElementById('sortBy').value;
+    const includeStale = document.getElementById('includeStale').value === '1';
+    const weights = loadWeights();
+
+    const symbols = Object.keys(QUOTES);
+    const ranked = [];
+
+    symbols.forEach(sym => {
+      const q = QUOTES[sym];
+      if (!q || !q.last) return;
+      if (!includeStale && !q.fresh) return;
+      const features = symbolFeatures(sym, q);
+      if (!features) return;
+      const tag = Learn.autoTagSetup(features);
+      const bias = biasFromSetup(tag.tag, features.pct);
+      const weight = weights[tag.tag] != null ? weights[tag.tag] : 1.0;
+      const adjScore = +(tag.score * weight).toFixed(3);
+
+      if (adjScore < minScore) return;
+      if (biasFilter === 'bull' && bias !== 'bull') return;
+      if (biasFilter === 'bear' && bias !== 'bear') return;
+
+      ranked.push({
+        sym, q,
+        last: q.last,
+        changePct: q.changePct,
+        rsi: features.rsi,
+        rvol: features.rvol,
+        macd: features.macd,
+        setup: tag.tag,
+        reasons: tag.reasons,
+        rawScore: tag.score,
+        weight,
+        adjScore,
+        bias
+      });
+    });
+
+    // Sort
+    ranked.sort((a, b) => {
+      if (sortBy === 'rawScore') return b.rawScore - a.rawScore;
+      if (sortBy === 'weight') return (b.weight || 0) - (a.weight || 0);
+      if (sortBy === 'changePct') return (b.changePct || 0) - (a.changePct || 0);
+      if (sortBy === 'rvol') return (b.rvol || 0) - (a.rvol || 0);
+      if (sortBy === 'rsi') return (b.rsi || 0) - (a.rsi || 0);
+      return b.adjScore - a.adjScore;
+    });
+
+    // KPIs
+    document.getElementById('kpiSyms').textContent = ranked.length;
+    document.getElementById('kpiHC').textContent = ranked.filter(r => r.adjScore >= 0.75).length;
+    document.getElementById('kpiBest').textContent = ranked.length ? ranked[0].sym + ' · ' + ranked[0].adjScore.toFixed(2) : '—';
+    const now = new Date();
+    document.getElementById('kpiLast').textContent = now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
+
+    // Body
+    const body = document.getElementById('scanBody');
+    if (!ranked.length) {
+      body.innerHTML = '<tr><td colspan="11" style="padding:30px;text-align:center;color:var(--text-muted);">No symbols match the current filters.</td></tr>';
+      return;
+    }
+    const html = ranked.map(r => {
+      const chgCls = r.changePct >= 0 ? 'r-pos' : 'r-neg';
+      const wCls = r.weight > 1.05 ? 'w-pos' : (r.weight < 0.95 ? 'w-neg' : '');
+      const biasCls = r.bias === 'bull' ? 's-bull' : (r.bias === 'bear' ? 's-bear' : 's-neutral');
+      const tip = r.reasons && r.reasons.length ? r.reasons.join(' · ') : '';
+      return `<tr>
+        <td class="t"><strong style="font-family:var(--font-mono);">${r.sym}</strong></td>
+        <td><span class="setup-pill ${biasCls}" title="${tip}">${r.setup}</span></td>
+        <td class="t" style="font-size:11px;color:${r.bias === 'bull' ? 'var(--green)' : r.bias === 'bear' ? 'var(--red)' : 'var(--text-muted)'};">${r.bias.toUpperCase()}</td>
+        <td>$${r.last.toFixed(2)}</td>
+        <td class="${chgCls}">${r.changePct >= 0 ? '+' : ''}${(r.changePct || 0).toFixed(2)}%</td>
+        <td>${r.rsi.toFixed(0)}</td>
+        <td>${r.rvol ? r.rvol.toFixed(2) + 'x' : '—'}</td>
+        <td>${r.rawScore.toFixed(2)}</td>
+        <td><span class="weight-chip ${wCls}">${r.weight.toFixed(2)}</span></td>
+        <td style="text-align:right;font-weight:700;">${r.adjScore.toFixed(2)}<span class="score-bar"><span class="fill" style="width:${Math.min(100, r.adjScore * 100)}%"></span></span></td>
+        <td style="text-align:right;"><a href="paper-trade.html?sym=${r.sym}" class="btn btn-ghost" style="padding:3px 10px;font-size:10px;">Trade →</a></td>
+      </tr>`;
+    }).join('');
+    if (html !== lastBodyHtml) { body.innerHTML = html; lastBodyHtml = html; }
+  }
+
+  function renderWeights() {
+    const weights = loadWeights();
+    const entries = Object.entries(weights).sort((a, b) => b[1] - a[1]);
+    const html = entries.map(([k, w]) => {
+      const cls = w > 1.05 ? 'w-pos' : (w < 0.95 ? 'w-neg' : '');
+      return `<span class="weight-chip ${cls}" style="font-size:11px;padding:3px 8px;">${k}: ${(+w).toFixed(2)}</span>`;
+    }).join('');
+    document.getElementById('weightsLegend').innerHTML = html;
+  }
+
+  // Initial render
+  setTimeout(() => { scan(); renderWeights(); }, 600);
+
+  // Refresh on tick + 2s poll
+  if (typeof Feed !== 'undefined') {
+    let pending = false;
+    Feed.subscribe('*', () => {
+      if (pending) return;
+      pending = true;
+      requestAnimationFrame(() => { pending = false; scan(); });
+    });
+  }
+  setInterval(scan, 2000);
+
+  // Re-scan on filter change
+  ['minScore', 'biasFilter', 'sortBy', 'includeStale'].forEach(id => {
+    document.getElementById(id).addEventListener('change', scan);
+    document.getElementById(id).addEventListener('input', scan);
+  });
+})();
+</script>
+</body>
+</html>

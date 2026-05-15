@@ -1,0 +1,392 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>My Desk — bpleone / trade</title>
+<meta name="description" content="Your personal trading desk identity. All features free during beta. Export, import, sync across devices.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.desk-card { background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 12px; padding: 22px; }
+.identity-block { display: flex; gap: 20px; align-items: center; }
+.avatar { width: 72px; height: 72px; border-radius: 50%; background: linear-gradient(135deg, var(--accent), var(--purple)); display: flex; align-items: center; justify-content: center; color: #052838; font-weight: 800; font-size: 28px; font-family: var(--font-mono); flex-shrink: 0; }
+.field-row { display: grid; grid-template-columns: 140px 1fr 100px; gap: 12px; align-items: center; padding: 12px 0; border-top: 1px solid var(--border); }
+.field-row:first-child { border-top: none; }
+.field-row label { font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; }
+.field-row input { background: var(--bg-secondary); border: 1px solid var(--border); color: var(--text-primary); padding: 8px 12px; border-radius: 6px; font-family: inherit; font-size: 13px; width: 100%; box-sizing: border-box; }
+.field-row .save-state { font-size: 11px; color: var(--text-muted); text-align: right; }
+.tile-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+.stat-tile { background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 8px; padding: 14px; }
+.stat-tile .lab { font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; }
+.stat-tile .val { font-family: var(--font-mono); font-weight: 700; font-size: 20px; margin-top: 4px; }
+.btn-block { padding: 10px 16px; }
+.beta-badge { display: inline-block; background: linear-gradient(135deg, #00d4ff, #8b5cf6); color: #052838; padding: 4px 12px; border-radius: 999px; font-weight: 700; font-size: 11px; letter-spacing: 0.5px; }
+.danger { background: rgba(239,68,68,0.06); border: 1px solid rgba(239,68,68,0.2); border-radius: 10px; padding: 16px; }
+.section-title { font-size: 16px; font-weight: 700; margin-bottom: 14px; }
+.checkbox-row { display: flex; align-items: center; gap: 10px; padding: 10px 0; }
+.toggle { position: relative; width: 38px; height: 22px; background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 999px; cursor: pointer; transition: all .15s ease; }
+.toggle.on { background: var(--accent); border-color: var(--accent); }
+.toggle .knob { position: absolute; width: 16px; height: 16px; background: var(--text-primary); border-radius: 50%; top: 2px; left: 2px; transition: all .15s ease; }
+.toggle.on .knob { left: 18px; background: #052838; }
+.help { color: var(--text-muted); font-size: 12px; line-height: 1.6; }
+.copy-result { display: inline-block; padding: 4px 10px; border-radius: 6px; background: var(--bg-secondary); border: 1px solid var(--border); font-family: var(--font-mono); font-size: 11px; color: var(--text-muted); }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">My Desk <span class="feat-badge feat-new">NEW</span></div>
+      <div class="page-subtitle">Your trading identity. <span class="beta-badge">FREE BETA · ALL ACCESS</span> · <span id="market-clock">--</span></div>
+    </div>
+    <div class="flex gap-8">
+      <a href="risk-attribution.html" class="btn btn-ghost">🎯 Attribution</a>
+      <a href="friday-summary.html" class="btn btn-ghost">📅 Friday Review</a>
+    </div>
+  </div>
+
+  <!-- Identity card -->
+  <div class="desk-card mb-24">
+    <div class="identity-block">
+      <div class="avatar" id="avatar">?</div>
+      <div style="flex:1;">
+        <div style="font-size:13px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px;">Trader since</div>
+        <div style="font-family:var(--font-mono);font-size:22px;font-weight:700;" id="memberSince">—</div>
+        <div style="font-size:12px;color:var(--text-muted);margin-top:6px;" id="memberId">Account ID: —</div>
+      </div>
+      <div style="text-align:right;">
+        <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;">Status</div>
+        <div style="font-family:var(--font-mono);font-size:18px;color:var(--green);">Active</div>
+      </div>
+    </div>
+
+    <div style="margin-top:24px;">
+      <div class="field-row">
+        <label>Display name</label>
+        <input id="fldName" placeholder="e.g. Brandon Pleone">
+        <div class="save-state" id="state-fldName"></div>
+      </div>
+      <div class="field-row">
+        <label>Email</label>
+        <input id="fldEmail" type="email" placeholder="optional — for desk updates only">
+        <div class="save-state" id="state-fldEmail"></div>
+      </div>
+      <div class="field-row">
+        <label>Trader handle</label>
+        <input id="fldHandle" placeholder="@yourhandle">
+        <div class="save-state" id="state-fldHandle"></div>
+      </div>
+      <div class="field-row">
+        <label>Default size ($)</label>
+        <input id="fldSize" type="number" step="100" placeholder="10000">
+        <div class="save-state" id="state-fldSize"></div>
+      </div>
+      <div class="field-row">
+        <label>Risk per trade (%)</label>
+        <input id="fldRisk" type="number" step="0.1" placeholder="1.0">
+        <div class="save-state" id="state-fldRisk"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Quick stats from Learn -->
+  <div class="desk-card mb-24">
+    <div class="section-title">📊 Your stats so far</div>
+    <div class="tile-row">
+      <div class="stat-tile"><div class="lab">Trades recorded</div><div class="val mono" id="statN">0</div></div>
+      <div class="stat-tile"><div class="lab">Total R</div><div class="val mono" id="statR">0.00R</div></div>
+      <div class="stat-tile"><div class="lab">Win rate</div><div class="val mono" id="statWR">—</div></div>
+      <div class="stat-tile"><div class="lab">Best setup</div><div class="val mono" id="statBest" style="font-size:14px;">—</div></div>
+    </div>
+    <div class="help" style="margin-top:14px;">
+      Stats pulled live from the self-learning engine. Trade more to see them shape — the brain needs ~20 trades per setup before its weights become meaningful.
+    </div>
+  </div>
+
+  <!-- Notifications -->
+  <div class="desk-card mb-24">
+    <div class="section-title">🔔 Notifications</div>
+    <div class="checkbox-row">
+      <div class="toggle" id="togBrowser"><div class="knob"></div></div>
+      <div>
+        <strong style="font-size:13px;">Browser alerts</strong>
+        <div class="help">Notification fires when a signal scores ≥0.75 or a position hits stop/target.</div>
+      </div>
+    </div>
+    <div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--border);">
+      <label style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;">Discord webhook URL (optional)</label>
+      <input id="fldDiscord" placeholder="https://discord.com/api/webhooks/..." style="background:var(--bg-secondary);border:1px solid var(--border);color:var(--text-primary);padding:8px 12px;border-radius:6px;font-family:var(--font-mono);font-size:12px;width:100%;box-sizing:border-box;margin-top:6px;">
+      <div class="help" style="margin-top:6px;">Paste your Discord webhook to receive high-conviction alerts. <a href="https://support.discord.com/hc/en-us/articles/228383668-Intro-to-Webhooks" target="_blank" rel="noopener" style="color:var(--accent);">How to create one →</a></div>
+      <div style="margin-top:8px;display:flex;gap:8px;">
+        <button id="testDiscord" class="btn btn-ghost btn-block">Send test ping</button>
+        <span id="discordResult" class="copy-result"></span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Data portability -->
+  <div class="desk-card mb-24">
+    <div class="section-title">💾 Backup &amp; sync your desk</div>
+    <div class="help" style="margin-bottom:14px;">
+      Your entire desk (trades, watchlists, learn engine, settings, journal) lives in your browser. Export to a single file to back it up or move to another device.
+    </div>
+    <div style="display:flex;gap:10px;flex-wrap:wrap;">
+      <button id="btnExport" class="btn btn-primary btn-block">⬇ Export full desk (.json)</button>
+      <label for="importFile" class="btn btn-ghost btn-block" style="cursor:pointer;">⬆ Import from file</label>
+      <input type="file" id="importFile" accept=".json" style="display:none;">
+      <button id="btnCopyShare" class="btn btn-ghost btn-block">📋 Copy share-snapshot</button>
+    </div>
+    <div id="ioStatus" style="margin-top:10px;font-family:var(--font-mono);font-size:11px;color:var(--text-muted);"></div>
+    <div class="help" style="margin-top:14px;font-size:11px;">
+      <strong>Coming soon:</strong> cloud sync across devices via free account (no payment required).
+      For now, export-import is rock-solid — the file is portable JSON.
+    </div>
+  </div>
+
+  <!-- Danger zone -->
+  <div class="danger">
+    <div class="section-title" style="color:var(--red);">⚠ Danger zone</div>
+    <div class="help" style="margin-bottom:10px;">Irreversible. Use with care.</div>
+    <div style="display:flex;gap:10px;flex-wrap:wrap;">
+      <button id="btnResetLearn" class="btn btn-ghost btn-block" style="color:var(--red);border-color:rgba(239,68,68,0.3);">Reset Learn engine (clears all trade history)</button>
+      <button id="btnResetPaper" class="btn btn-ghost btn-block" style="color:var(--red);border-color:rgba(239,68,68,0.3);">Reset paper account</button>
+      <button id="btnResetAll" class="btn btn-ghost btn-block" style="color:var(--red);border-color:rgba(239,68,68,0.3);">Wipe entire desk (factory reset)</button>
+    </div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/learn.js"></script>
+<script>buildNav('account');</script>
+
+<script>
+(function () {
+  const KEY = 'bpleone_account_v1';
+  const SCHEMA = {
+    name: '', email: '', handle: '', size: '', risk: '', discord: '',
+    notifBrowser: false, accountId: null, createdTs: null
+  };
+
+  function loadAccount() {
+    try {
+      const raw = localStorage.getItem(KEY);
+      if (raw) return Object.assign({}, SCHEMA, JSON.parse(raw));
+    } catch (e) {}
+    return Object.assign({}, SCHEMA);
+  }
+  function saveAccount(a) { try { localStorage.setItem(KEY, JSON.stringify(a)); } catch (e) {} }
+
+  let account = loadAccount();
+  if (!account.accountId) {
+    account.accountId = 'desk_' + Math.random().toString(36).slice(2, 11) + Date.now().toString(36).slice(-4);
+    account.createdTs = Date.now();
+    saveAccount(account);
+  }
+
+  // Populate fields
+  document.getElementById('fldName').value = account.name || '';
+  document.getElementById('fldEmail').value = account.email || '';
+  document.getElementById('fldHandle').value = account.handle || '';
+  document.getElementById('fldSize').value = account.size || '';
+  document.getElementById('fldRisk').value = account.risk || '';
+  document.getElementById('fldDiscord').value = account.discord || '';
+
+  // Identity rendering
+  function refreshIdentity() {
+    const name = (account.name || '').trim();
+    document.getElementById('avatar').textContent = name ? name.split(/\s+/).map(w => w[0]).slice(0, 2).join('').toUpperCase() : '?';
+    const ms = account.createdTs ? new Date(account.createdTs) : new Date();
+    document.getElementById('memberSince').textContent = ms.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+    document.getElementById('memberId').textContent = 'Account ID: ' + account.accountId;
+  }
+  refreshIdentity();
+
+  // Save on input (debounced)
+  const fieldMap = { fldName: 'name', fldEmail: 'email', fldHandle: 'handle', fldSize: 'size', fldRisk: 'risk', fldDiscord: 'discord' };
+  Object.keys(fieldMap).forEach(id => {
+    const el = document.getElementById(id);
+    let timer = null;
+    el.addEventListener('input', () => {
+      const stateEl = document.getElementById('state-' + id);
+      if (stateEl) stateEl.textContent = 'saving…';
+      clearTimeout(timer);
+      timer = setTimeout(() => {
+        account[fieldMap[id]] = el.value;
+        saveAccount(account);
+        if (stateEl) {
+          stateEl.textContent = '✓ saved';
+          setTimeout(() => { stateEl.textContent = ''; }, 1200);
+        }
+        if (id === 'fldName') refreshIdentity();
+      }, 350);
+    });
+  });
+
+  // Browser notification toggle
+  const togBrowser = document.getElementById('togBrowser');
+  function refreshTog() { togBrowser.classList.toggle('on', !!account.notifBrowser); }
+  refreshTog();
+  togBrowser.addEventListener('click', async () => {
+    if (!account.notifBrowser) {
+      if (typeof Notify !== 'undefined') {
+        const p = await Notify.request();
+        if (p === 'granted') {
+          account.notifBrowser = true;
+          saveAccount(account);
+          refreshTog();
+          Notify.fire('Desk alerts on', 'You will be pinged on high-conviction signals.');
+        }
+      }
+    } else {
+      account.notifBrowser = false;
+      saveAccount(account);
+      refreshTog();
+    }
+  });
+
+  // Discord test ping
+  document.getElementById('testDiscord').addEventListener('click', async () => {
+    const url = (document.getElementById('fldDiscord').value || '').trim();
+    const result = document.getElementById('discordResult');
+    if (!url || url.indexOf('discord.com/api/webhooks/') === -1) { result.textContent = 'Need a valid Discord webhook URL'; result.style.color = 'var(--red)'; return; }
+    result.textContent = 'sending…'; result.style.color = 'var(--text-muted)';
+    try {
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content: '✅ bpleone / trade — webhook test ping for ' + (account.name || account.accountId) + ' at ' + new Date().toLocaleString() })
+      });
+      if (res.ok) { result.textContent = '✓ delivered'; result.style.color = 'var(--green)'; }
+      else { result.textContent = '✗ failed (' + res.status + ')'; result.style.color = 'var(--red)'; }
+    } catch (e) {
+      result.textContent = '✗ network error';
+      result.style.color = 'var(--red)';
+    }
+  });
+
+  // Stats from Learn
+  function refreshStats() {
+    try {
+      const raw = localStorage.getItem('bpleone_learn_v1');
+      if (!raw) return;
+      const obj = JSON.parse(raw);
+      const closed = (obj.trades || []).filter(t => t.result);
+      const totalR = closed.reduce((a, t) => a + (+t.R || 0), 0);
+      const wins = closed.filter(t => t.R > 0).length;
+      const wr = closed.length ? (wins / closed.length) * 100 : null;
+      document.getElementById('statN').textContent = closed.length;
+      const rEl = document.getElementById('statR');
+      rEl.textContent = (totalR >= 0 ? '+' : '') + totalR.toFixed(2) + 'R';
+      rEl.style.color = totalR >= 0 ? 'var(--green)' : 'var(--red)';
+      document.getElementById('statWR').textContent = wr != null ? wr.toFixed(0) + '%' : '—';
+      // Best setup by total R
+      const bySetup = {};
+      closed.forEach(t => { if (!bySetup[t.setup]) bySetup[t.setup] = 0; bySetup[t.setup] += +t.R || 0; });
+      const best = Object.entries(bySetup).sort((a, b) => b[1] - a[1])[0];
+      document.getElementById('statBest').textContent = best ? `${best[0]} (+${best[1].toFixed(2)}R)` : '—';
+    } catch (e) {}
+  }
+  refreshStats();
+
+  // Export / Import
+  function getAllKeys() {
+    const data = {};
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (k && k.startsWith('bpleone_')) {
+        try { data[k] = JSON.parse(localStorage.getItem(k)); } catch (e) { data[k] = localStorage.getItem(k); }
+      }
+    }
+    return data;
+  }
+
+  document.getElementById('btnExport').addEventListener('click', () => {
+    const all = getAllKeys();
+    const payload = {
+      __bpleone_export: true,
+      version: 1,
+      exportedAt: new Date().toISOString(),
+      accountId: account.accountId,
+      data: all
+    };
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'bpleone-desk-' + (account.handle || account.accountId) + '-' + new Date().toISOString().slice(0, 10) + '.json';
+    a.click();
+    URL.revokeObjectURL(url);
+    const status = document.getElementById('ioStatus');
+    status.textContent = '✓ exported ' + Object.keys(all).length + ' keys at ' + new Date().toLocaleTimeString();
+  });
+
+  document.getElementById('importFile').addEventListener('change', e => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        const payload = JSON.parse(reader.result);
+        if (!payload.__bpleone_export || !payload.data) throw new Error('Not a valid bpleone export');
+        if (!confirm('Import ' + Object.keys(payload.data).length + ' keys from this file? This OVERWRITES your current desk.')) return;
+        Object.entries(payload.data).forEach(([k, v]) => {
+          try { localStorage.setItem(k, typeof v === 'string' ? v : JSON.stringify(v)); } catch (err) {}
+        });
+        document.getElementById('ioStatus').textContent = '✓ imported — reloading…';
+        setTimeout(() => location.reload(), 600);
+      } catch (err) {
+        document.getElementById('ioStatus').textContent = '✗ import failed: ' + err.message;
+      }
+    };
+    reader.readAsText(file);
+  });
+
+  document.getElementById('btnCopyShare').addEventListener('click', async () => {
+    const all = getAllKeys();
+    const closed = (all.bpleone_learn_v1 && all.bpleone_learn_v1.trades || []).filter(t => t.result);
+    const totalR = closed.reduce((a, t) => a + (+t.R || 0), 0);
+    const summary = `bpleone / trade — ${account.handle || account.name || account.accountId}
+Trades: ${closed.length} · Total R: ${totalR.toFixed(2)}R
+Top setups: ${Object.entries(closed.reduce((acc, t) => { acc[t.setup] = (acc[t.setup] || 0) + +t.R; return acc; }, {})).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([k, v]) => `${k} (+${v.toFixed(1)}R)`).join(', ')}
+options.bpleone.com`;
+    try {
+      await navigator.clipboard.writeText(summary);
+      document.getElementById('ioStatus').textContent = '✓ snapshot copied to clipboard';
+    } catch (e) {
+      document.getElementById('ioStatus').textContent = '✗ clipboard not available — see console';
+      console.log(summary);
+    }
+  });
+
+  // Danger zone
+  document.getElementById('btnResetLearn').addEventListener('click', () => {
+    if (!confirm('This wipes all trade history and learn weights. Continue?')) return;
+    if (typeof Learn !== 'undefined') try { Learn.reset(); } catch (e) {}
+    else localStorage.removeItem('bpleone_learn_v1');
+    location.reload();
+  });
+  document.getElementById('btnResetPaper').addEventListener('click', () => {
+    if (!confirm('Reset paper account to $100k and clear positions?')) return;
+    localStorage.removeItem('bpleone_paper_v1');
+    location.reload();
+  });
+  document.getElementById('btnResetAll').addEventListener('click', () => {
+    if (!confirm('FACTORY RESET your entire bpleone desk. This is irreversible. Continue?')) return;
+    if (!confirm('Are you absolutely sure? Type-confirm: this clears EVERYTHING.')) return;
+    Object.keys(localStorage).filter(k => k.startsWith('bpleone_')).forEach(k => localStorage.removeItem(k));
+    location.href = 'index.html';
+  });
+})();
+</script>
+</body>
+</html>

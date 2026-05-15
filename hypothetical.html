@@ -1,0 +1,447 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Hypothetical Trades — bpleone / trade</title>
+<meta name="description" content="Track Play-of-the-Day picks and your own hypothetical trades. Lives alongside paper trading. Feeds the learning engine without risking capital.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.hypo-form { display: grid; grid-template-columns: repeat(6, 1fr); gap: 10px; align-items: end; }
+.hypo-form > div { display: flex; flex-direction: column; }
+.hypo-form label { font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px; }
+.hypo-form input, .hypo-form select { background: var(--bg-secondary); border: 1px solid var(--border); color: var(--text-primary); padding: 8px 10px; border-radius: 6px; font-family: inherit; font-size: 13px; }
+.hypo-form .full { grid-column: 1/-1; }
+.hypo-card { background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 10px; padding: 14px; }
+.hypo-card.bull { border-left: 3px solid var(--green); }
+.hypo-card.bear { border-left: 3px solid var(--red); }
+.hypo-card.closed { opacity: 0.7; }
+.hypo-card .head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+.hypo-card .sym { font-family: var(--font-mono); font-weight: 700; font-size: 16px; }
+.kpi-strip-h { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; margin-bottom: 20px; }
+.kpi-tile { background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; }
+.kpi-tile .lab { font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.6px; }
+.kpi-tile .val { font-family: var(--font-mono); font-weight: 700; font-size: 18px; margin-top: 2px; }
+.r-pos { color: var(--green); }
+.r-neg { color: var(--red); }
+.metric-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; font-size: 11px; }
+.metric-row .lab { font-size: 9px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; }
+.metric-row .val { font-family: var(--font-mono); font-weight: 700; font-size: 13px; }
+.btn-close { padding: 4px 10px; font-size: 11px; }
+.tag { display: inline-block; padding: 1px 6px; border-radius: 4px; background: var(--bg-secondary); border: 1px solid var(--border); font-family: var(--font-mono); font-size: 10px; color: var(--text-muted); margin-right: 4px; }
+.source-tag.totd { background: rgba(0,212,255,0.12); color: var(--accent); border-color: rgba(0,212,255,0.3); }
+.source-tag.plays { background: rgba(245,158,11,0.12); color: var(--yellow); border-color: rgba(245,158,11,0.3); }
+.source-tag.custom { background: rgba(139,92,246,0.12); color: var(--purple); border-color: rgba(139,92,246,0.3); }
+.source-tag.signals { background: rgba(16,185,129,0.12); color: var(--green); border-color: rgba(16,185,129,0.3); }
+.empty { padding: 40px; text-align: center; color: var(--text-muted); }
+.filter-pill { padding: 5px 12px; border-radius: 999px; border: 1px solid var(--border); background: var(--bg-secondary); color: var(--text-muted); cursor: pointer; font-size: 11px; font-family: var(--font-mono); }
+.filter-pill.active { background: var(--accent); color: #052838; border-color: var(--accent); }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">Hypothetical Trades <span class="feat-badge feat-new">NEW</span></div>
+      <div class="page-subtitle">Track Play-of-the-Day picks and your own ideas. No real capital. Outcomes feed the self-learning brain. · <span id="market-clock">--</span></div>
+    </div>
+    <div class="flex gap-8">
+      <a href="trade-of-the-day.html" class="btn btn-ghost">🎯 Trade of the Day</a>
+      <a href="plays.html" class="btn btn-ghost">⭐ Plays</a>
+      <a href="risk-attribution.html" class="btn btn-ghost">🎯 Attribution</a>
+    </div>
+  </div>
+
+  <!-- KPI strip -->
+  <div class="kpi-strip-h">
+    <div class="kpi-tile"><div class="lab">Open</div><div class="val mono" id="kpiOpen">0</div></div>
+    <div class="kpi-tile"><div class="lab">Closed</div><div class="val mono" id="kpiClosed">0</div></div>
+    <div class="kpi-tile"><div class="lab">Total R</div><div class="val mono" id="kpiR">0.00R</div></div>
+    <div class="kpi-tile"><div class="lab">Win Rate</div><div class="val mono" id="kpiWR">—</div></div>
+    <div class="kpi-tile"><div class="lab">Best Pick</div><div class="val mono" id="kpiBest">—</div></div>
+  </div>
+
+  <!-- Ticket -->
+  <div class="card mb-24">
+    <div class="card-header"><div class="card-title">➕ Add Hypothetical Trade</div></div>
+    <p style="color:var(--text-muted);font-size:12px;margin:0 0 14px;">
+      Type a symbol you'd consider trading. We auto-tag the setup, record market context, and track MFE/MAE every tick. When you mark it closed, the brain learns from it.
+      <br>Or click <strong>"Track this trade"</strong> on any Trade-of-the-Day, Play, or Signal card to auto-populate this form.
+    </p>
+    <div class="hypo-form">
+      <div><label>Symbol</label><input id="hSym" placeholder="e.g. NVDA" style="text-transform:uppercase;"></div>
+      <div><label>Bias</label><select id="hBias"><option value="bull">LONG (bull)</option><option value="bear">SHORT (bear)</option></select></div>
+      <div><label>Entry $</label><input id="hEntry" type="number" step="0.01" placeholder="auto"></div>
+      <div><label>Stop $</label><input id="hStop" type="number" step="0.01" placeholder="auto"></div>
+      <div><label>Target $</label><input id="hTarget" type="number" step="0.01" placeholder="optional"></div>
+      <div><label>Size (notional $)</label><input id="hSize" type="number" step="100" value="10000"></div>
+      <div class="full" style="display:flex;gap:8px;align-items:end;">
+        <div style="flex:1;"><label>Source</label><select id="hSource">
+          <option value="custom">My own idea (custom)</option>
+          <option value="totd">Trade of the Day</option>
+          <option value="plays">Play of the Day</option>
+          <option value="signals">Live Signal</option>
+          <option value="totd-pick">Tracking published pick</option>
+        </select></div>
+        <div style="flex:2;"><label>Note (optional)</label><input id="hNote" placeholder="thesis in one line"></div>
+        <button id="hAdd" class="btn btn-primary" style="padding:10px 20px;">Track Trade →</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Filters -->
+  <div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap;align-items:center;">
+    <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;margin-right:8px;">Filter:</div>
+    <span class="filter-pill active" data-f="all">All</span>
+    <span class="filter-pill" data-f="open">Open</span>
+    <span class="filter-pill" data-f="closed">Closed</span>
+    <span class="filter-pill" data-f="totd">From TOTD</span>
+    <span class="filter-pill" data-f="plays">From Plays</span>
+    <span class="filter-pill" data-f="custom">Custom</span>
+    <span class="filter-pill" data-f="winners">Winners only</span>
+    <span class="filter-pill" data-f="losers">Losers only</span>
+  </div>
+
+  <!-- Trades grid -->
+  <div id="hypoGrid" class="grid grid-2"></div>
+  <div id="emptyState" class="empty" style="display:none;">
+    <h3 style="margin:0 0 8px;">No hypothetical trades yet</h3>
+    <p style="margin:0;">Add one above, or click "Track this trade" on a Play of the Day card.</p>
+  </div>
+
+  <!-- Source breakdown -->
+  <div class="card mt-24">
+    <div class="card-header"><div class="card-title">📊 P/L by source</div></div>
+    <div id="sourceBreakdown" style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;"></div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script src="js/learn.js"></script>
+<script>buildNav('hypothetical');</script>
+
+<script>
+(function () {
+  const KEY = 'bpleone_hypo_v1';
+  let state = loadState();
+  let currentFilter = 'all';
+
+  function loadState() {
+    try {
+      const raw = localStorage.getItem(KEY);
+      if (raw) return JSON.parse(raw);
+    } catch (e) {}
+    return { trades: [] };
+  }
+  function save() { try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) {} }
+
+  function autoPopulateFromURL() {
+    const params = new URLSearchParams(location.search);
+    if (params.has('sym')) document.getElementById('hSym').value = (params.get('sym') || '').toUpperCase();
+    if (params.has('entry')) document.getElementById('hEntry').value = params.get('entry');
+    if (params.has('stop')) document.getElementById('hStop').value = params.get('stop');
+    if (params.has('target')) document.getElementById('hTarget').value = params.get('target');
+    if (params.has('bias')) document.getElementById('hBias').value = params.get('bias');
+    if (params.has('source')) document.getElementById('hSource').value = params.get('source');
+    if (params.has('note')) document.getElementById('hNote').value = params.get('note');
+    if (params.has('size')) document.getElementById('hSize').value = params.get('size');
+    if (params.has('sym')) {
+      // Auto-prefill entry/stop if not given
+      setTimeout(() => {
+        const sym = (params.get('sym') || '').toUpperCase();
+        if (typeof QUOTES !== 'undefined' && QUOTES[sym]) {
+          const px = QUOTES[sym].last;
+          if (!document.getElementById('hEntry').value) document.getElementById('hEntry').value = px.toFixed(2);
+          if (!document.getElementById('hStop').value) {
+            const bias = document.getElementById('hBias').value;
+            document.getElementById('hStop').value = (bias === 'bull' ? px * 0.97 : px * 1.03).toFixed(2);
+          }
+        }
+      }, 600);
+    }
+  }
+
+  function placeTrade() {
+    const sym = (document.getElementById('hSym').value || '').trim().toUpperCase();
+    if (!sym) { alert('Enter a symbol'); return; }
+    const q = (typeof QUOTES !== 'undefined' && QUOTES[sym]) ? QUOTES[sym] : null;
+    let entry = parseFloat(document.getElementById('hEntry').value);
+    let stop = parseFloat(document.getElementById('hStop').value);
+    let target = parseFloat(document.getElementById('hTarget').value);
+    const bias = document.getElementById('hBias').value;
+    const size = parseFloat(document.getElementById('hSize').value) || 10000;
+    const source = document.getElementById('hSource').value;
+    const note = (document.getElementById('hNote').value || '').trim();
+
+    if (!isFinite(entry)) entry = q ? q.last : null;
+    if (!entry) { alert('Need an entry price or a live quote for ' + sym); return; }
+    if (!isFinite(stop)) stop = bias === 'bull' ? +(entry * 0.97).toFixed(2) : +(entry * 1.03).toFixed(2);
+
+    // Build entry features for autoTag
+    const features = q ? {
+      last: q.last, prevClose: q.prevClose, dayHigh: q.dayHigh, dayLow: q.dayLow,
+      volume: q.volume, avgVolume: q.avgVolume, rsi: q.rsi, macd: q.macd, ma50: q.ma50, ma200: q.ma200
+    } : { last: entry };
+
+    let learnId = null;
+    if (typeof Learn !== 'undefined') {
+      try {
+        const t = Learn.recordTrade({
+          symbol: sym, sector: '—',
+          bias, entry, stop,
+          score: 65,
+          entryFeatures: features,
+          notes: note,
+          source: 'hypothetical:' + source
+        });
+        learnId = t ? t.id : null;
+      } catch (e) { console.warn(e); }
+    }
+
+    state.trades.unshift({
+      id: 'h_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7),
+      learnId, sym, bias, entry, stop, target: isFinite(target) ? target : null,
+      size, source, note, openedTs: Date.now(),
+      closed: false, exit: null, closeReason: null, closedTs: null
+    });
+    save();
+    // Clear form
+    document.getElementById('hSym').value = '';
+    document.getElementById('hEntry').value = '';
+    document.getElementById('hStop').value = '';
+    document.getElementById('hTarget').value = '';
+    document.getElementById('hNote').value = '';
+    if (window.Toast) Toast.show('Tracking ' + sym + ' — added to your hypothetical book', { kind: 'success' });
+    render();
+  }
+
+  function closeHypo(idx, reason) {
+    const open = filtered().filter(t => !t.closed);
+    if (idx < 0 || idx >= open.length) return;
+    const h = open[idx];
+    const q = (typeof QUOTES !== 'undefined' && QUOTES[h.sym]) ? QUOTES[h.sym] : null;
+    const exit = q ? q.last : h.entry;
+    h.closed = true;
+    h.exit = exit;
+    h.closeReason = reason || 'manual';
+    h.closedTs = Date.now();
+    if (h.learnId && typeof Learn !== 'undefined') {
+      try { Learn.closeTrade(h.learnId, exit, h.closeReason); } catch (e) {}
+    }
+    save();
+    if (window.Toast) Toast.show('Closed ' + h.sym + ' @ $' + exit.toFixed(2), { kind: 'info' });
+    render();
+  }
+  window.closeHypo = closeHypo;
+
+  function deleteHypo(id) {
+    if (!confirm('Remove this trade from your hypothetical book? (Learn engine will still keep the record)')) return;
+    state.trades = state.trades.filter(t => t.id !== id);
+    save();
+    render();
+  }
+  window.deleteHypo = deleteHypo;
+
+  function computeStats(t) {
+    const q = (typeof QUOTES !== 'undefined' && QUOTES[t.sym]) ? QUOTES[t.sym] : null;
+    const px = t.closed ? t.exit : (q ? q.last : t.entry);
+    const moveIn = t.bias === 'bull' ? (px - t.entry) : (t.entry - px);
+    const stopDist = Math.abs(t.entry - t.stop) || 0.01;
+    const R = moveIn / stopDist;
+    const sharesEquiv = t.size / t.entry;
+    const dollarPnl = moveIn * sharesEquiv;
+
+    let mfeR = null, maeR = null, efficiency = null, setup = null, ctx = null;
+    if (t.learnId && typeof Learn !== 'undefined') {
+      try {
+        const raw = localStorage.getItem('bpleone_learn_v1');
+        if (raw) {
+          const obj = JSON.parse(raw);
+          const lt = (obj.trades || []).find(x => x.id === t.learnId);
+          if (lt) {
+            mfeR = lt.mfeR != null ? lt.mfeR : null;
+            maeR = lt.maeR != null ? lt.maeR : null;
+            efficiency = lt.efficiency != null ? lt.efficiency : null;
+            setup = lt.setup || null;
+            ctx = lt.marketCtx || null;
+          }
+        }
+      } catch (e) {}
+    }
+    return { R, dollarPnl, px, mfeR, maeR, efficiency, setup, ctx };
+  }
+
+  function filtered() {
+    const all = state.trades;
+    switch (currentFilter) {
+      case 'open': return all.filter(t => !t.closed);
+      case 'closed': return all.filter(t => t.closed);
+      case 'totd': return all.filter(t => t.source && t.source.indexOf('totd') !== -1);
+      case 'plays': return all.filter(t => t.source === 'plays');
+      case 'custom': return all.filter(t => t.source === 'custom');
+      case 'winners': return all.filter(t => t.closed && computeStats(t).R > 0);
+      case 'losers': return all.filter(t => t.closed && computeStats(t).R < 0);
+      default: return all;
+    }
+  }
+
+  function sourcePill(src) {
+    if (!src) return '';
+    const cls = src.indexOf('totd') !== -1 ? 'totd' : (src === 'plays' ? 'plays' : (src === 'signals' ? 'signals' : 'custom'));
+    const label = src.indexOf('totd') !== -1 ? '🎯 TOTD' : (src === 'plays' ? '⭐ Plays' : (src === 'signals' ? '⚡ Signal' : '✍ Custom'));
+    return `<span class="tag source-tag ${cls}">${label}</span>`;
+  }
+
+  function fmtAge(ms) {
+    const sec = Math.floor((Date.now() - ms) / 1000);
+    if (sec < 60) return sec + 's';
+    if (sec < 3600) return Math.floor(sec / 60) + 'm';
+    if (sec < 86400) return Math.floor(sec / 3600) + 'h';
+    return Math.floor(sec / 86400) + 'd';
+  }
+
+  function renderKPIs() {
+    const all = state.trades;
+    const open = all.filter(t => !t.closed);
+    const closed = all.filter(t => t.closed);
+    const totalR = closed.reduce((a, t) => a + computeStats(t).R, 0);
+    const wins = closed.filter(t => computeStats(t).R > 0).length;
+    const wr = closed.length ? (wins / closed.length) * 100 : null;
+    const best = closed.length ? closed.reduce((a, b) => computeStats(b).R > computeStats(a).R ? b : a) : null;
+
+    document.getElementById('kpiOpen').textContent = open.length;
+    document.getElementById('kpiClosed').textContent = closed.length;
+    const rEl = document.getElementById('kpiR');
+    rEl.textContent = (totalR >= 0 ? '+' : '') + totalR.toFixed(2) + 'R';
+    rEl.className = 'val mono ' + (totalR >= 0 ? 'r-pos' : 'r-neg');
+    document.getElementById('kpiWR').textContent = wr != null ? wr.toFixed(0) + '%' : '—';
+    document.getElementById('kpiBest').textContent = best ? best.sym + ' · +' + computeStats(best).R.toFixed(2) + 'R' : '—';
+  }
+
+  function renderSourceBreakdown() {
+    const closed = state.trades.filter(t => t.closed);
+    const sources = ['totd', 'plays', 'signals', 'custom'];
+    const breakdown = sources.map(s => {
+      const subset = closed.filter(t => t.source && (t.source.indexOf(s) !== -1 || (s === 'custom' && t.source === 'custom')));
+      const totalR = subset.reduce((a, t) => a + computeStats(t).R, 0);
+      const wins = subset.filter(t => computeStats(t).R > 0).length;
+      return {
+        s, n: subset.length, totalR,
+        wr: subset.length ? wins / subset.length * 100 : null
+      };
+    });
+    document.getElementById('sourceBreakdown').innerHTML = breakdown.map(b => {
+      const label = b.s === 'totd' ? '🎯 Trade of the Day' : b.s === 'plays' ? '⭐ Plays' : b.s === 'signals' ? '⚡ Signals' : '✍ Custom';
+      const cls = b.totalR > 0 ? 'r-pos' : b.totalR < 0 ? 'r-neg' : '';
+      return `<div class="kpi-tile">
+        <div class="lab">${label}</div>
+        <div class="val mono ${cls}">${b.totalR >= 0 ? '+' : ''}${b.totalR.toFixed(2)}R</div>
+        <div style="font-size:11px;color:var(--text-muted);margin-top:2px;">${b.n} closed${b.wr != null ? ' · ' + b.wr.toFixed(0) + '% W' : ''}</div>
+      </div>`;
+    }).join('');
+  }
+
+  function render() {
+    renderKPIs();
+    renderSourceBreakdown();
+    const trades = filtered();
+    const grid = document.getElementById('hypoGrid');
+    const empty = document.getElementById('emptyState');
+    if (!trades.length) { grid.innerHTML = ''; empty.style.display = 'block'; return; }
+    empty.style.display = 'none';
+
+    let openIdx = -1;
+    grid.innerHTML = trades.map(t => {
+      const s = computeStats(t);
+      const bias = t.bias;
+      const rCls = s.R >= 0 ? 'r-pos' : 'r-neg';
+      const closeBtn = !t.closed ? (() => { openIdx++; return `<button class="btn btn-ghost btn-close" onclick="closeHypo(${openIdx})">CLOSE</button>`; })() : '';
+      const delBtn = `<button class="btn btn-ghost btn-close" onclick="deleteHypo('${t.id}')">×</button>`;
+      const closedBadge = t.closed ? `<span class="tag" style="background:${s.R >= 0 ? 'var(--green-bg)' : 'var(--red-bg)'};color:${s.R >= 0 ? 'var(--green)' : 'var(--red)'};">CLOSED · ${t.closeReason}</span>` : '<span class="tag" style="background:rgba(0,212,255,0.12);color:var(--accent);">OPEN</span>';
+      return `
+        <div class="hypo-card ${bias} ${t.closed ? 'closed' : ''}">
+          <div class="head">
+            <div>
+              <span class="sym">${t.sym}</span>
+              <span class="tag" style="margin-left:6px;background:${bias === 'bull' ? 'var(--green-bg)' : 'var(--red-bg)'};color:${bias === 'bull' ? 'var(--green)' : 'var(--red)'};">${bias === 'bull' ? 'LONG' : 'SHORT'}</span>
+              ${sourcePill(t.source)}
+              ${closedBadge}
+            </div>
+            <div style="display:flex;gap:6px;align-items:center;">
+              <span style="font-family:var(--font-mono);font-size:11px;color:var(--text-muted);">⏱ ${fmtAge(t.openedTs)}</span>
+              ${closeBtn}
+              ${delBtn}
+            </div>
+          </div>
+
+          ${t.note ? `<div style="font-size:12px;color:var(--text-muted);margin-bottom:10px;font-style:italic;">"${t.note}"</div>` : ''}
+
+          <div class="metric-row">
+            <div><div class="lab">Entry</div><div class="val">$${t.entry.toFixed(2)}</div></div>
+            <div><div class="lab">${t.closed ? 'Exit' : 'Last'}</div><div class="val">$${s.px ? s.px.toFixed(2) : '—'}</div></div>
+            <div><div class="lab">R</div><div class="val ${rCls}">${s.R >= 0 ? '+' : ''}${s.R.toFixed(2)}R</div></div>
+            <div><div class="lab">$ P/L</div><div class="val ${rCls}">${s.dollarPnl >= 0 ? '+' : ''}$${s.dollarPnl.toFixed(0)}</div></div>
+          </div>
+
+          <div class="metric-row" style="margin-top:6px;">
+            <div><div class="lab">Stop</div><div class="val">$${t.stop ? t.stop.toFixed(2) : '—'}</div></div>
+            <div><div class="lab">Target</div><div class="val">${t.target ? '$' + t.target.toFixed(2) : '—'}</div></div>
+            <div><div class="lab">MFE</div><div class="val r-pos">${s.mfeR != null ? '+' + s.mfeR.toFixed(2) + 'R' : '—'}</div></div>
+            <div><div class="lab">MAE</div><div class="val r-neg">${s.maeR != null ? s.maeR.toFixed(2) + 'R' : '—'}</div></div>
+          </div>
+
+          ${s.setup || s.ctx ? `
+            <div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--border);font-size:11px;">
+              ${s.setup ? `<span class="tag">setup: ${s.setup}</span>` : ''}
+              ${s.ctx && s.ctx.vixRegime ? `<span class="tag">VIX: ${s.ctx.vixRegime}</span>` : ''}
+              ${s.ctx && s.ctx.tod ? `<span class="tag">${s.ctx.tod}</span>` : ''}
+              ${s.efficiency != null ? `<span class="tag">eff: ${(s.efficiency * 100).toFixed(0)}%</span>` : ''}
+              <span class="tag">size: $${t.size.toLocaleString()}</span>
+            </div>
+          ` : ''}
+        </div>
+      `;
+    }).join('');
+  }
+
+  // Wire
+  document.getElementById('hAdd').addEventListener('click', placeTrade);
+  document.getElementById('hSym').addEventListener('keydown', e => { if (e.key === 'Enter') placeTrade(); });
+  document.querySelectorAll('.filter-pill').forEach(p => {
+    p.addEventListener('click', () => {
+      document.querySelectorAll('.filter-pill').forEach(x => x.classList.remove('active'));
+      p.classList.add('active');
+      currentFilter = p.dataset.f;
+      render();
+    });
+  });
+
+  // Auto-populate from URL params
+  autoPopulateFromURL();
+
+  // Initial + tick refresh
+  setTimeout(render, 800);
+  if (typeof Feed !== 'undefined') {
+    let pending = false;
+    Feed.subscribe('*', () => {
+      if (pending) return;
+      pending = true;
+      requestAnimationFrame(() => { pending = false; render(); });
+    });
+  }
+  setInterval(render, 2000);
+})();
+</script>
+</body>
+</html>
