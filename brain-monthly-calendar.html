@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Brain Monthly Calendar — bpleone / trade</title>
+<meta name="description" content="GitHub-style calendar heatmap of daily model performance. See your best/worst days at a glance.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.cal-grid { display:grid;grid-template-columns:repeat(7, 1fr);gap:4px; }
+.cal-cell { aspect-ratio:1;border-radius:6px;background:var(--bg-elevated);display:flex;flex-direction:column;align-items:center;justify-content:center;cursor:pointer;transition:transform 0.1s;font-family:var(--font-mono);position:relative; }
+.cal-cell:hover { transform:scale(1.06);z-index:2; }
+.cal-cell.empty { background:transparent;cursor:default; }
+.cal-cell.future { background:var(--bg-elevated);opacity:0.3;cursor:default; }
+.cal-cell .day { font-size:12px;font-weight:700; }
+.cal-cell .pct { font-size:9px;opacity:0.85; }
+.cal-cell .badge { position:absolute;top:2px;right:2px;font-size:8px;font-weight:800; }
+.dow-header { font-size:9px;color:var(--text-muted);text-align:center;text-transform:uppercase;letter-spacing:0.5px;font-weight:700;padding-bottom:6px; }
+.legend { display:flex;gap:6px;align-items:center;font-size:10px;color:var(--text-muted); }
+.legend-swatch { width:14px;height:14px;border-radius:3px; }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">📅 Brain Monthly Calendar</div>
+      <div class="page-subtitle">Calendar heatmap · daily hit rate · click any day for details · <span id="market-clock">--</span></div>
+    </div>
+    <div class="flex gap-8">
+      <button class="btn btn-ghost" id="prevMo">◀ Prev</button>
+      <button class="btn btn-secondary" id="curMo" style="background:var(--bg-elevated);border:1px solid var(--border);color:var(--text-primary);padding:8px 14px;font-weight:700;">--</button>
+      <button class="btn btn-ghost" id="nextMo">Next ▶</button>
+    </div>
+  </div>
+
+  <div class="grid grid-4 mb-24">
+    <div class="card"><div class="card-header"><div class="card-title">Active days</div></div><div class="mono" style="font-size:24px;font-weight:700;" id="kActive">--</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">Avg hit rate</div></div><div class="mono" style="font-size:24px;font-weight:700;color:var(--accent);" id="kHit">--</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">Best day</div></div><div class="mono" style="font-size:18px;font-weight:700;color:var(--green);" id="kBest">--</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">Worst day</div></div><div class="mono" style="font-size:18px;font-weight:700;color:var(--red);" id="kWorst">--</div></div>
+  </div>
+
+  <div class="card mb-24">
+    <div class="card-header">
+      <div class="card-title" id="moTitle">--</div>
+      <div class="legend">
+        Less <span class="legend-swatch" style="background:#1f2937;"></span>
+        <span class="legend-swatch" style="background:rgba(239,68,68,0.5);"></span>
+        <span class="legend-swatch" style="background:rgba(245,158,11,0.5);"></span>
+        <span class="legend-swatch" style="background:rgba(0,212,255,0.5);"></span>
+        <span class="legend-swatch" style="background:rgba(16,185,129,0.6);"></span>
+        <span class="legend-swatch" style="background:#10b981;"></span>
+        More
+      </div>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(7, 1fr);gap:4px;margin-bottom:6px;">
+      <div class="dow-header">Sun</div><div class="dow-header">Mon</div><div class="dow-header">Tue</div><div class="dow-header">Wed</div><div class="dow-header">Thu</div><div class="dow-header">Fri</div><div class="dow-header">Sat</div>
+    </div>
+    <div class="cal-grid" id="calBody"></div>
+  </div>
+
+  <div class="card" id="detailCard" style="display:none;">
+    <div class="card-header"><div class="card-title" id="detailTitle">Day detail</div></div>
+    <div id="detailBody"></div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script src="js/model.js"></script>
+<script>
+buildNav('brain-monthly-calendar');
+
+let monthOffset = 0;
+
+function getMonth() {
+  const now = new Date();
+  now.setMonth(now.getMonth() - monthOffset);
+  return { year: now.getFullYear(), month: now.getMonth() };
+}
+
+function loadTrain() { try { return JSON.parse(localStorage.getItem('bpleone_train_v1') || '[]'); } catch(e) { return []; } }
+
+function dayStats(year, month, day) {
+  const start = new Date(year, month, day, 0, 0, 0).getTime();
+  const end = new Date(year, month, day, 23, 59, 59).getTime();
+  const t = loadTrain().filter(r => r.ts >= start && r.ts <= end);
+  if (t.length === 0) return null;
+  const wins = t.filter(r => r.y === 1).length;
+  return { n: t.length, wins, hitRate: wins / t.length, rTotal: t.reduce((a,r) => a + (r.y === 1 ? (r.r || 1.5) : -1.0), 0) };
+}
+
+function cellColor(s) {
+  if (!s) return 'var(--bg-elevated)';
+  if (s.hitRate >= 0.7) return '#10b981';
+  if (s.hitRate >= 0.6) return 'rgba(16,185,129,0.6)';
+  if (s.hitRate >= 0.5) return 'rgba(0,212,255,0.5)';
+  if (s.hitRate >= 0.4) return 'rgba(245,158,11,0.5)';
+  return 'rgba(239,68,68,0.5)';
+}
+
+function render() {
+  const { year, month } = getMonth();
+  const monthName = new Date(year, month).toLocaleString('default', { month: 'long' });
+  document.getElementById('curMo').textContent = monthName + ' ' + year;
+  document.getElementById('moTitle').textContent = monthName + ' ' + year;
+
+  const firstDay = new Date(year, month, 1).getDay();
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const now = new Date();
+  const today = now.getFullYear() === year && now.getMonth() === month ? now.getDate() : -1;
+
+  const calBody = document.getElementById('calBody');
+  calBody.innerHTML = '';
+
+  // Empty cells before day 1
+  for (let i = 0; i < firstDay; i++) calBody.innerHTML += '<div class="cal-cell empty"></div>';
+
+  let activeDays = 0, hits = 0, weights = 0;
+  let bestDay = null, worstDay = null;
+
+  for (let d = 1; d <= daysInMonth; d++) {
+    const s = dayStats(year, month, d);
+    const isFuture = today !== -1 && d > today;
+    if (s) {
+      activeDays++;
+      hits += s.hitRate * s.n;
+      weights += s.n;
+      if (!bestDay || s.hitRate > bestDay.hitRate) bestDay = { d, ...s };
+      if (!worstDay || s.hitRate < worstDay.hitRate) worstDay = { d, ...s };
+    }
+    const col = isFuture ? 'transparent' : cellColor(s);
+    const cls = 'cal-cell' + (isFuture ? ' future' : '');
+    const isToday = d === today;
+    calBody.innerHTML += '<div class="' + cls + '" style="background:' + col + ';' + (isToday ? 'box-shadow:inset 0 0 0 2px var(--accent);' : '') + '" data-day="' + d + '">'
+      + '<div class="day">' + d + '</div>'
+      + (s ? '<div class="pct">' + (s.hitRate*100).toFixed(0) + '%</div>' : '')
+      + (s && s.n >= 5 ? '<div class="badge">' + s.n + '</div>' : '')
+      + '</div>';
+  }
+
+  // Wire detail
+  calBody.querySelectorAll('.cal-cell:not(.empty):not(.future)').forEach(c => c.addEventListener('click', () => {
+    const d = parseInt(c.dataset.day);
+    const s = dayStats(year, month, d);
+    if (!s) {
+      document.getElementById('detailCard').style.display = 'block';
+      document.getElementById('detailTitle').textContent = monthName + ' ' + d + ', ' + year;
+      document.getElementById('detailBody').innerHTML = '<div style="font-size:13px;color:var(--text-muted);padding:14px 0;">No brain activity this day.</div>';
+      return;
+    }
+    const start = new Date(year, month, d, 0, 0, 0).getTime();
+    const end = new Date(year, month, d, 23, 59, 59).getTime();
+    const t = loadTrain().filter(r => r.ts >= start && r.ts <= end).sort((a,b) => b.ts - a.ts);
+    document.getElementById('detailCard').style.display = 'block';
+    document.getElementById('detailTitle').textContent = monthName + ' ' + d + ', ' + year + ' — ' + s.n + ' trades · ' + (s.hitRate*100).toFixed(0) + '% hit · ' + (s.rTotal >= 0 ? '+' : '') + s.rTotal.toFixed(1) + 'R';
+    document.getElementById('detailBody').innerHTML = t.map(r =>
+      '<div style="padding:8px 0;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;font-size:12px;">'
+      + '<div><strong>' + (r.meta?.sym || '—') + '</strong> · <span style="color:var(--text-muted);">' + (r.meta?.setup || '?') + '</span></div>'
+      + '<div style="font-family:var(--font-mono);"><span style="color:' + (r.y === 1 ? 'var(--green)' : 'var(--red)') + ';">' + (r.y === 1 ? '+' + (r.r || 1.5).toFixed(1) + 'R' : '-1.0R') + '</span> · <span style="color:var(--text-muted);">' + new Date(r.ts).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}) + '</span></div>'
+      + '</div>'
+    ).join('');
+  }));
+
+  // KPIs
+  document.getElementById('kActive').textContent = activeDays;
+  document.getElementById('kHit').textContent = weights > 0 ? (hits/weights*100).toFixed(0) + '%' : '—';
+  document.getElementById('kBest').textContent = bestDay ? monthName.slice(0,3) + ' ' + bestDay.d + ' · ' + (bestDay.hitRate*100).toFixed(0) + '%' : '—';
+  document.getElementById('kWorst').textContent = worstDay && activeDays > 1 ? monthName.slice(0,3) + ' ' + worstDay.d + ' · ' + (worstDay.hitRate*100).toFixed(0) + '%' : '—';
+}
+
+document.getElementById('prevMo').addEventListener('click', () => { monthOffset++; render(); });
+document.getElementById('nextMo').addEventListener('click', () => { if (monthOffset > 0) { monthOffset--; render(); } });
+
+render();
+</script>
+</body>
+</html>

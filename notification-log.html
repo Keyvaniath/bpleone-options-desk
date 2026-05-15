@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Notification Log — bpleone / trade</title>
+<meta name="description" content="Replay of every desktop notification the brain has fired. Verify alerts, audit miss-fires, mute symbols.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.log-row { display:grid;grid-template-columns:140px 80px 1fr 100px 90px;gap:14px;padding:11px 14px;border-bottom:1px solid var(--border);font-size:12px;align-items:center; }
+.log-row.hdr { background:var(--bg-elevated);font-size:9px;color:var(--text-muted);font-weight:800;letter-spacing:0.5px; }
+.log-row:not(.hdr):hover { background:var(--bg-elevated); }
+.log-row .ts { font-family:var(--font-mono);color:var(--text-muted);font-size:11px; }
+.log-row .title { font-weight:600; }
+.log-row .body { font-size:11px;color:var(--text-muted);font-style:italic; }
+.replay-btn, .mute-btn { padding:5px 10px;border-radius:6px;font-size:11px;cursor:pointer;border:none;font-weight:600; }
+.replay-btn { background:rgba(0,212,255,0.18);color:var(--accent); }
+.mute-btn { background:rgba(239,68,68,0.15);color:var(--red); }
+.mute-list { padding:11px 14px;background:rgba(239,68,68,0.05);border-radius:8px;font-size:12px; }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">🔔 Notification Log</div>
+      <div class="page-subtitle">All brain pushes · replay any · mute noisy symbols · <span id="market-clock">--</span></div>
+    </div>
+    <div class="flex gap-8">
+      <button class="btn btn-ghost" id="testBtn">🧪 Fire test notification</button>
+      <button class="btn btn-ghost" id="clearLogBtn">🗑 Clear log</button>
+      <button class="btn btn-primary" id="enableBtn">🔔 Enable notifications</button>
+    </div>
+  </div>
+
+  <div class="grid grid-4 mb-24">
+    <div class="card"><div class="card-header"><div class="card-title">Total fired</div></div><div class="mono" style="font-size:24px;font-weight:700;" id="kTotal">--</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">Last 24h</div></div><div class="mono" style="font-size:24px;font-weight:700;color:var(--accent);" id="k24">--</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">Top symbol</div></div><div class="mono" style="font-size:24px;font-weight:700;" id="kTop">--</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">Status</div></div><div class="mono" style="font-size:18px;font-weight:700;" id="kPerm">--</div></div>
+  </div>
+
+  <div class="card mb-24" style="padding:0;">
+    <div class="log-row hdr">
+      <div>TIMESTAMP</div><div>SYM</div><div>MESSAGE</div><div>ML</div><div>ACTIONS</div>
+    </div>
+    <div id="logBody"></div>
+  </div>
+
+  <div class="card mb-24">
+    <div class="card-header"><div class="card-title">🔇 Muted symbols</div></div>
+    <div id="mutedList"></div>
+  </div>
+
+  <div class="card">
+    <div class="card-header"><div class="card-title">💡 About notifications</div></div>
+    <div style="font-size:13px;color:var(--text-secondary);line-height:1.7;">
+      The brain fires a desktop notification when a finding has <strong>high severity AND model confidence ≥ 78%</strong>. There's a 30-minute cooldown per symbol so you don't get spammed.
+      Every fire is logged here. If a symbol is generating too many notifications, click Mute — it won't fire again until you unmute, even if it hits the threshold.
+      Replay re-fires the notification so you can verify your notification settings work.
+    </div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script src="js/model.js"></script>
+<script>
+buildNav('notification-log');
+
+const LOG_KEY = 'bpleone_notif_log_v1';
+const MUTE_KEY = 'bpleone_notif_mute_v1';
+function loadLog() { try { return JSON.parse(localStorage.getItem(LOG_KEY) || '[]'); } catch(e) { return []; } }
+function saveLog(l) { try { localStorage.setItem(LOG_KEY, JSON.stringify(l.slice(0, 500))); } catch(e) {} }
+function loadMute() { try { return JSON.parse(localStorage.getItem(MUTE_KEY) || '[]'); } catch(e) { return []; } }
+function saveMute(m) { try { localStorage.setItem(MUTE_KEY, JSON.stringify(m)); } catch(e) {} }
+
+// Patch Notify.fire to log every fire if it's available
+if (typeof Notify === 'object' && Notify.fire && !Notify._patched) {
+  const orig = Notify.fire.bind(Notify);
+  Notify.fire = function(title, body, opts) {
+    const muted = loadMute();
+    const sym = opts && opts.sym ? opts.sym : (title.match(/\b[A-Z]{2,5}\b/) || ['?'])[0];
+    if (muted.includes(sym)) return;
+    const log = loadLog();
+    log.unshift({ id: 'n-' + Date.now(), ts: Date.now(), title, body, sym, ml: opts && opts.ml });
+    saveLog(log);
+    return orig(title, body, opts);
+  };
+  Notify._patched = true;
+}
+
+function fmt(ts) {
+  const d = new Date(ts);
+  return d.toLocaleDateString() + ' ' + d.toLocaleTimeString([], { hour:'2-digit', minute:'2-digit' });
+}
+
+function render() {
+  const log = loadLog();
+  const muted = loadMute();
+
+  // KPIs
+  document.getElementById('kTotal').textContent = log.length;
+  const dayAgo = Date.now() - 86400000;
+  document.getElementById('k24').textContent = log.filter(l => l.ts >= dayAgo).length;
+  const symCounts = {};
+  log.forEach(l => { symCounts[l.sym] = (symCounts[l.sym] || 0) + 1; });
+  const topSym = Object.entries(symCounts).sort((a,b) => b[1]-a[1])[0];
+  document.getElementById('kTop').textContent = topSym ? topSym[0] + ' (' + topSym[1] + ')' : '—';
+  const perm = ('Notification' in window) ? Notification.permission : 'unsupported';
+  const permEl = document.getElementById('kPerm');
+  permEl.textContent = perm.toUpperCase();
+  permEl.style.color = perm === 'granted' ? 'var(--green)' : perm === 'denied' ? 'var(--red)' : 'var(--yellow)';
+
+  // Body
+  const body = document.getElementById('logBody');
+  if (log.length === 0) {
+    body.innerHTML = '<div style="padding:40px;text-align:center;color:var(--text-muted);font-size:13px;">No notifications yet. The brain will fire one when a finding crosses 78% confidence + high severity. Use the test button above to verify your setup.</div>';
+  } else {
+    body.innerHTML = log.slice(0, 100).map(l =>
+      '<div class="log-row">'
+      + '<div class="ts">' + fmt(l.ts) + '</div>'
+      + '<div><strong>' + (l.sym || '?') + '</strong></div>'
+      + '<div><div class="title">' + (l.title || '') + '</div>' + (l.body ? '<div class="body">' + l.body + '</div>' : '') + '</div>'
+      + '<div class="mono" style="color:var(--accent);font-weight:700;">' + (l.ml ? (l.ml*100).toFixed(0) + '%' : '—') + '</div>'
+      + '<div class="flex gap-8">'
+        + '<button class="replay-btn" data-id="' + l.id + '">↻</button>'
+        + '<button class="mute-btn" data-sym="' + l.sym + '">🔇</button>'
+      + '</div>'
+      + '</div>'
+    ).join('');
+  }
+
+  // Muted list
+  document.getElementById('mutedList').innerHTML = muted.length === 0
+    ? '<div style="font-size:12px;color:var(--text-muted);">No symbols muted.</div>'
+    : muted.map(s => '<div class="mute-list" style="margin-bottom:6px;"><strong>' + s + '</strong> <button class="btn btn-ghost unmute" data-sym="' + s + '" style="padding:3px 10px;font-size:10px;margin-left:14px;">unmute</button></div>').join('');
+
+  document.querySelectorAll('.replay-btn').forEach(b => b.addEventListener('click', () => {
+    const l = log.find(x => x.id === b.dataset.id);
+    if (l && 'Notification' in window && Notification.permission === 'granted') {
+      new Notification(l.title || 'Replay', { body: l.body || '' });
+    } else if (!l) { alert('Entry not found'); }
+    else { alert('Notifications disabled. Click "Enable notifications" first.'); }
+  }));
+  document.querySelectorAll('.mute-btn').forEach(b => b.addEventListener('click', () => {
+    const s = b.dataset.sym;
+    if (!s) return;
+    if (!muted.includes(s)) { muted.push(s); saveMute(muted); render(); }
+  }));
+  document.querySelectorAll('.unmute').forEach(b => b.addEventListener('click', () => {
+    const s = b.dataset.sym;
+    const newMute = muted.filter(x => x !== s);
+    saveMute(newMute);
+    render();
+  }));
+}
+
+document.getElementById('testBtn').addEventListener('click', () => {
+  if (!('Notification' in window)) { alert('Notifications not supported in this browser.'); return; }
+  if (Notification.permission !== 'granted') { alert('Click "Enable notifications" first.'); return; }
+  const sym = ['NVDA','SPY','TSLA','AAPL'][Math.floor(Math.random()*4)];
+  const prob = 0.78 + Math.random() * 0.2;
+  const title = '🧬 ' + sym + ' high-conviction setup';
+  const body = 'ML ' + (prob*100).toFixed(0) + '% · breakout candidate · click for plan';
+  if (typeof Notify === 'object' && Notify.fire) Notify.fire(title, body, { sym, ml: prob });
+  else new Notification(title, { body });
+});
+
+document.getElementById('clearLogBtn').addEventListener('click', () => {
+  if (!confirm('Clear notification log?')) return;
+  saveLog([]);
+  render();
+});
+
+document.getElementById('enableBtn').addEventListener('click', async () => {
+  if (!('Notification' in window)) { alert('Notifications not supported.'); return; }
+  if (Notification.permission === 'granted') { alert('Already enabled.'); return; }
+  await Notification.requestPermission();
+  render();
+});
+
+render();
+setInterval(render, 5000);
+</script>
+</body>
+</html>

@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Brain Live Feed — bpleone / trade</title>
+<meta name="description" content="Twitter-style live stream of brain findings + ML probabilities. Scannable, filterable, pin-able.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.feed-item { padding:14px 18px;border-bottom:1px solid var(--border);transition:background 0.15s; }
+.feed-item:hover { background:var(--bg-elevated); }
+.feed-item.flash { animation: flashIn 1.4s ease-out; }
+@keyframes flashIn { from { background:rgba(0,212,255,0.18); } to { background:transparent; } }
+.feed-item .head { display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;font-size:11px; }
+.feed-item .sym-tag { display:inline-block;padding:2px 8px;border-radius:4px;background:rgba(0,212,255,0.15);color:var(--accent);font-weight:700;font-size:11px;font-family:var(--font-mono); }
+.feed-item .sev-tag { font-size:9px;padding:2px 6px;border-radius:3px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px; }
+.feed-item .sev-high { background:rgba(239,68,68,0.18);color:var(--red); }
+.feed-item .sev-med  { background:rgba(245,158,11,0.18);color:var(--yellow); }
+.feed-item .sev-low  { background:rgba(100,116,139,0.18);color:var(--text-muted); }
+.feed-item .body-row { font-size:13px;line-height:1.5;color:var(--text-primary);margin:4px 0; }
+.feed-item .meta-row { display:flex;gap:14px;font-size:10px;color:var(--text-muted);margin-top:8px; }
+.feed-item .ml-chip { display:inline-flex;align-items:center;gap:4px;padding:3px 8px;border-radius:14px;font-family:var(--font-mono);font-weight:700;font-size:11px; }
+.filter-pill { display:inline-flex;align-items:center;gap:6px;padding:6px 12px;border-radius:18px;background:var(--bg-elevated);border:1px solid var(--border);cursor:pointer;font-size:11px;font-weight:600;color:var(--text-secondary); }
+.filter-pill.on { background:var(--accent);color:#000;border-color:var(--accent); }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">📡 Brain Live Feed</div>
+      <div class="page-subtitle">Stream of brain thoughts · auto-refreshes · click any to pin · <span id="market-clock">--</span></div>
+    </div>
+    <div class="flex gap-8">
+      <button class="btn btn-ghost" id="pauseBtn">⏸ Pause</button>
+      <button class="btn btn-ghost" id="clearBtn">🗑 Clear pinned</button>
+    </div>
+  </div>
+
+  <div class="card mb-24" style="padding:14px;">
+    <div class="flex gap-8" style="flex-wrap:wrap;">
+      <span class="filter-pill on" data-filter="all">📡 All</span>
+      <span class="filter-pill" data-filter="high">🔥 High severity</span>
+      <span class="filter-pill" data-filter="ml75">🧬 ML ≥ 75%</span>
+      <span class="filter-pill" data-filter="ml85">🧬 ML ≥ 85%</span>
+      <span class="filter-pill" data-filter="bull">↑ Bullish</span>
+      <span class="filter-pill" data-filter="bear">↓ Bearish</span>
+      <span class="filter-pill" data-filter="recent">⚡ Last 5 min</span>
+      <input type="text" id="symFilter" placeholder="Filter by symbol..." style="padding:6px 12px;background:var(--bg);border:1px solid var(--border);color:var(--text-primary);border-radius:18px;font-size:11px;font-family:var(--font-mono);width:140px;">
+    </div>
+  </div>
+
+  <div class="grid grid-2 mb-16" style="gap:14px;">
+    <div class="card" style="padding:14px;text-align:center;">
+      <div style="font-size:9px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.6px;">Live throughput</div>
+      <div class="mono" style="font-size:22px;font-weight:700;color:var(--accent);"><span id="throughput">--</span>/hr</div>
+    </div>
+    <div class="card" style="padding:14px;text-align:center;">
+      <div style="font-size:9px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.6px;">Currently watching</div>
+      <div class="mono" style="font-size:22px;font-weight:700;" id="watching">--</div>
+    </div>
+  </div>
+
+  <div class="grid grid-12 mb-24" style="gap:18px;">
+    <div class="col-8">
+      <div class="card" style="padding:0;">
+        <div style="padding:12px 18px;background:var(--bg-elevated);font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.6px;font-weight:700;border-bottom:1px solid var(--border);">
+          📡 Live stream <span id="liveDot" style="display:inline-block;width:8px;height:8px;background:var(--green);border-radius:50%;margin-left:6px;animation:pulse 1.6s infinite;"></span>
+        </div>
+        <div id="feed" style="max-height:80vh;overflow:auto;"></div>
+      </div>
+    </div>
+    <div class="col-4">
+      <div class="card" style="padding:0;">
+        <div style="padding:12px 18px;background:var(--bg-elevated);font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.6px;font-weight:700;border-bottom:1px solid var(--border);">
+          📌 Pinned
+        </div>
+        <div id="pinned" style="max-height:80vh;overflow:auto;"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<style>@keyframes pulse{0%{opacity:1;transform:scale(1);}50%{opacity:0.5;transform:scale(0.85);}100%{opacity:1;transform:scale(1);}}</style>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script src="js/model.js"></script>
+<script>
+buildNav('brain-live-feed');
+
+let paused = false;
+let activeFilter = 'all';
+let symFilter = '';
+let lastIds = new Set();
+let pinned = [];
+
+function loadFindings() { try { return JSON.parse(localStorage.getItem('bpleone_brain_findings_v1') || '{"items":[]}').items; } catch(e) { return []; } }
+
+function fmtTime(ts) {
+  const diff = Date.now() - ts;
+  if (diff < 60000) return Math.floor(diff/1000) + 's ago';
+  if (diff < 3600000) return Math.floor(diff/60000) + 'm ago';
+  if (diff < 86400000) return Math.floor(diff/3600000) + 'h ago';
+  return new Date(ts).toLocaleDateString();
+}
+
+function classifyDir(f) {
+  const t = (f.title || '').toLowerCase() + ' ' + (f.meta?.setup || '').toLowerCase();
+  if (t.includes('break') || t.includes('bull') || t.includes('up') || t.includes('long')) return 'bull';
+  if (t.includes('break') === false && (t.includes('bear') || t.includes('down') || t.includes('short') || t.includes('rejection'))) return 'bear';
+  return 'neutral';
+}
+
+function matchesFilter(f, prob) {
+  if (symFilter && !(f.meta?.sym || '').toLowerCase().includes(symFilter.toLowerCase())) return false;
+  if (activeFilter === 'all') return true;
+  if (activeFilter === 'high') return (f.severity || f.meta?.severity) === 'high';
+  if (activeFilter === 'ml75') return prob != null && prob >= 0.75;
+  if (activeFilter === 'ml85') return prob != null && prob >= 0.85;
+  if (activeFilter === 'bull') return classifyDir(f) === 'bull';
+  if (activeFilter === 'bear') return classifyDir(f) === 'bear';
+  if (activeFilter === 'recent') return (Date.now() - f.ts) < 5 * 60 * 1000;
+  return true;
+}
+
+function renderItem(f, isNew) {
+  let prob = null;
+  try { if (window.predictForFinding) { const p = window.predictForFinding(f); prob = p ? p.prob : null; } } catch(e) {}
+  const sev = f.severity || f.meta?.severity || 'low';
+  const sym = f.meta?.sym || '—';
+  const setup = f.meta?.setup || 'signal';
+  const dir = classifyDir(f);
+  const dirIcon = dir === 'bull' ? '↑' : dir === 'bear' ? '↓' : '•';
+  const dirCol = dir === 'bull' ? 'var(--green)' : dir === 'bear' ? 'var(--red)' : 'var(--text-muted)';
+  const mlCol = prob == null ? 'var(--text-muted)' : prob >= 0.7 ? 'var(--green)' : prob >= 0.5 ? 'var(--accent)' : 'var(--red)';
+  const mlBg = prob == null ? 'rgba(100,116,139,0.15)' : prob >= 0.7 ? 'rgba(16,185,129,0.15)' : prob >= 0.5 ? 'rgba(0,212,255,0.15)' : 'rgba(239,68,68,0.15)';
+  const q = (typeof QUOTES !== 'undefined' && QUOTES[sym]) ? QUOTES[sym] : null;
+  return '<div class="feed-item ' + (isNew ? 'flash' : '') + '" data-id="' + f.id + '">'
+    + '<div class="head">'
+    + '<div class="flex gap-8" style="align-items:center;">'
+      + '<span class="sym-tag">' + sym + '</span>'
+      + '<span style="color:' + dirCol + ';font-weight:700;font-size:13px;">' + dirIcon + '</span>'
+      + '<span style="color:var(--text-muted);">· ' + setup + '</span>'
+      + '<span class="sev-tag sev-' + sev + '">' + sev + '</span>'
+    + '</div>'
+    + '<div style="color:var(--text-muted);">' + fmtTime(f.ts) + '</div>'
+    + '</div>'
+    + '<div class="body-row">' + (f.title || 'Signal fired') + '</div>'
+    + (f.note ? '<div style="font-size:11px;color:var(--text-muted);">' + f.note + '</div>' : '')
+    + '<div class="meta-row">'
+      + '<span class="ml-chip" style="background:' + mlBg + ';color:' + mlCol + ';">🧬 ' + (prob == null ? '—' : (prob*100).toFixed(0) + '%') + '</span>'
+      + (q ? '<span style="font-family:var(--font-mono);">$' + q.last.toFixed(2) + ' <span style="color:' + (q.changePct >= 0 ? 'var(--green)' : 'var(--red)') + ';">' + (q.changePct >= 0 ? '+' : '') + q.changePct.toFixed(2) + '%</span></span>' : '')
+      + '<a href="trade-coach.html?sym=' + sym + '" style="color:var(--accent);font-weight:600;">📋 Plan</a>'
+      + '<a href="ticker.html?sym=' + sym + '" style="color:var(--accent);font-weight:600;">🔍 Focus</a>'
+      + '<span class="pin-btn" data-fid="' + f.id + '" style="cursor:pointer;color:var(--text-muted);">📌 Pin</span>'
+    + '</div>'
+    + '</div>';
+}
+
+function render() {
+  if (paused) return;
+  const all = loadFindings();
+  const recent = all.slice(0, 100);
+  const newIds = new Set();
+  recent.forEach(f => newIds.add(f.id));
+  const justAdded = recent.filter(f => !lastIds.has(f.id));
+  lastIds = newIds;
+
+  const filtered = recent.filter(f => {
+    let prob = null; try { if (window.predictForFinding) { const p = window.predictForFinding(f); prob = p ? p.prob : null; } } catch(e) {}
+    return matchesFilter(f, prob);
+  });
+
+  document.getElementById('feed').innerHTML = filtered.length === 0
+    ? '<div style="padding:60px;text-align:center;color:var(--text-muted);font-size:13px;">No findings match the current filter. Try a different filter or wait — brain is still scanning.</div>'
+    : filtered.map(f => renderItem(f, justAdded.some(x => x.id === f.id))).join('');
+
+  const oneHrAgo = Date.now() - 3600 * 1000;
+  document.getElementById('throughput').textContent = all.filter(f => f.ts >= oneHrAgo).length;
+  const syms = [...new Set(all.filter(f => f.ts >= oneHrAgo).map(f => f.meta?.sym).filter(Boolean))];
+  document.getElementById('watching').textContent = syms.length + ' syms';
+
+  // Wire pin
+  document.querySelectorAll('.pin-btn').forEach(b => b.addEventListener('click', e => {
+    e.stopPropagation();
+    const id = b.dataset.fid;
+    if (!pinned.find(p => p.id === id)) {
+      const f = all.find(x => x.id === id);
+      if (f) { pinned.unshift(f); renderPinned(); }
+    }
+  }));
+}
+
+function renderPinned() {
+  document.getElementById('pinned').innerHTML = pinned.length === 0
+    ? '<div style="padding:24px;text-align:center;color:var(--text-muted);font-size:12px;">Click 📌 on any feed item to pin it here for later.</div>'
+    : pinned.map(f => renderItem(f, false)).join('');
+}
+
+document.getElementById('pauseBtn').addEventListener('click', () => {
+  paused = !paused;
+  document.getElementById('pauseBtn').textContent = paused ? '▶ Resume' : '⏸ Pause';
+  document.getElementById('liveDot').style.background = paused ? 'var(--yellow)' : 'var(--green)';
+  if (!paused) render();
+});
+
+document.getElementById('clearBtn').addEventListener('click', () => { pinned = []; renderPinned(); });
+
+document.querySelectorAll('.filter-pill').forEach(p => p.addEventListener('click', () => {
+  document.querySelectorAll('.filter-pill').forEach(x => x.classList.remove('on'));
+  p.classList.add('on');
+  activeFilter = p.dataset.filter;
+  render();
+}));
+
+document.getElementById('symFilter').addEventListener('input', e => { symFilter = e.target.value.trim(); render(); });
+
+render();
+renderPinned();
+setInterval(render, 4000);
+</script>
+</body>
+</html>

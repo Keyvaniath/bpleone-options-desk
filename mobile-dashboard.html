@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0,user-scalable=no">
+<title>Mobile Dashboard — bpleone / trade</title>
+<meta name="description" content="One-screen mobile-optimized brain dashboard. Top pick, grade, watchlist, signals — at a glance.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.mob-card { background:var(--bg-elevated);border:1px solid var(--border);border-radius:12px;padding:14px;margin-bottom:12px; }
+.mob-hero { background:linear-gradient(135deg, rgba(0,212,255,0.12), rgba(167,139,250,0.08));border:1px solid rgba(0,212,255,0.3);text-align:center;padding:24px 14px; }
+.mob-hero h2 { font-size:32px;font-weight:800;margin:8px 0 4px;font-family:var(--font-mono); }
+.mob-hero .sub { font-size:11px;color:var(--text-muted); }
+.mob-grid-2 { display:grid;grid-template-columns:1fr 1fr;gap:10px; }
+.stat-mini { padding:12px;background:var(--bg);border-radius:8px;text-align:center; }
+.stat-mini .label { font-size:9px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px; }
+.stat-mini .val { font-size:18px;font-weight:700;font-family:var(--font-mono);margin-top:4px; }
+.mob-row { display:flex;justify-content:space-between;align-items:center;padding:11px 4px;border-bottom:1px solid var(--border);font-size:13px;cursor:pointer; }
+.mob-row:last-child { border:none; }
+.mob-row:hover { background:var(--bg); }
+.mob-row .sym { font-weight:700;font-family:var(--font-mono); }
+.mob-row .ml { padding:2px 8px;border-radius:12px;font-size:10px;font-weight:700;font-family:var(--font-mono); }
+.quick-btn { padding:14px;background:var(--bg-elevated);border:1px solid var(--border);border-radius:10px;text-align:center;text-decoration:none;color:var(--text-primary);font-size:11px;font-weight:600;display:flex;flex-direction:column;align-items:center;gap:6px; }
+.quick-btn:hover { border-color:var(--accent);color:var(--accent); }
+.quick-btn .ic { font-size:22px; }
+@media (min-width: 768px) { .mob-container { max-width: 480px;margin: 0 auto; } }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container mob-container" style="padding-top:14px;">
+  <div class="mob-card mob-hero">
+    <div class="sub">TODAY'S BRAIN GRADE</div>
+    <h2 id="todayGrade">--</h2>
+    <div class="sub" id="gradeNote">Loading...</div>
+  </div>
+
+  <div class="mob-card">
+    <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:10px;font-weight:700;">🎯 Top ML Pick</div>
+    <div id="topPick">--</div>
+  </div>
+
+  <div class="mob-grid-2 mb-12">
+    <div class="stat-mini">
+      <div class="label">Signals today</div>
+      <div class="val" id="sigCnt">--</div>
+    </div>
+    <div class="stat-mini">
+      <div class="label">High conf (≥70%)</div>
+      <div class="val" style="color:var(--accent);" id="hiCnt">--</div>
+    </div>
+    <div class="stat-mini">
+      <div class="label">Hit rate (7d)</div>
+      <div class="val" id="hitRate">--</div>
+    </div>
+    <div class="stat-mini">
+      <div class="label">Streak</div>
+      <div class="val" id="streak">--</div>
+    </div>
+  </div>
+
+  <div class="mob-card">
+    <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:10px;font-weight:700;">⭐ Top Watchlist</div>
+    <div id="watchRows"></div>
+  </div>
+
+  <div class="mob-card">
+    <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:10px;font-weight:700;">📡 Recent Signals</div>
+    <div id="signalRows"></div>
+  </div>
+
+  <div class="mob-grid-2 mb-12" style="grid-template-columns:1fr 1fr 1fr;">
+    <a href="morning-brief.html" class="quick-btn"><span class="ic">☀</span>Morning Brief</a>
+    <a href="conviction-stack.html" class="quick-btn"><span class="ic">⭐</span>Conviction</a>
+    <a href="trade-of-the-day-pro.html" class="quick-btn"><span class="ic">🎯</span>TOTD</a>
+  </div>
+  <div class="mob-grid-2 mb-12" style="grid-template-columns:1fr 1fr 1fr;">
+    <a href="model-results.html" class="quick-btn"><span class="ic">📊</span>Results</a>
+    <a href="brain-live-feed.html" class="quick-btn"><span class="ic">📡</span>Live Feed</a>
+    <a href="all-tools.html" class="quick-btn"><span class="ic">🗂</span>All Tools</a>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script src="js/model.js"></script>
+<script>
+buildNav('mobile-dashboard');
+
+function loadFindings() { try { return JSON.parse(localStorage.getItem('bpleone_brain_findings_v1') || '{"items":[]}').items; } catch(e) { return []; } }
+function loadTrain() { try { return JSON.parse(localStorage.getItem('bpleone_train_v1') || '[]'); } catch(e) { return []; } }
+
+function render() {
+  const findings = loadFindings();
+  const train = loadTrain();
+  const today0 = new Date(); today0.setHours(0,0,0,0);
+  const todayFindings = findings.filter(f => f.ts >= today0.getTime());
+
+  // ML rankings
+  const ranked = todayFindings.map(f => {
+    let prob = null; try { if (window.predictForFinding) { const p = window.predictForFinding(f); prob = p ? p.prob : null; } } catch(e) {}
+    return { ...f, prob };
+  }).filter(f => f.prob != null).sort((a,b) => b.prob - a.prob);
+
+  // Top pick
+  if (ranked.length > 0) {
+    const t = ranked[0];
+    const q = (typeof QUOTES !== 'undefined' && QUOTES[t.meta?.sym]) ? QUOTES[t.meta.sym] : null;
+    document.getElementById('topPick').innerHTML = '<div style="font-size:24px;font-weight:800;font-family:var(--font-mono);">' + (t.meta?.sym || '?') + '</div>'
+      + '<div style="font-size:12px;color:var(--text-muted);margin:4px 0;">' + (t.meta?.setup || 'signal') + '</div>'
+      + '<div style="margin-top:10px;display:flex;justify-content:space-between;align-items:center;">'
+      + '<div style="font-family:var(--font-mono);font-size:18px;font-weight:700;color:var(--accent);">' + (t.prob*100).toFixed(0) + '%</div>'
+      + (q ? '<div style="font-family:var(--font-mono);font-size:14px;">$' + q.last.toFixed(2) + ' <span style="color:' + (q.changePct >= 0 ? 'var(--green)' : 'var(--red)') + ';font-size:11px;">' + (q.changePct >= 0 ? '+' : '') + q.changePct.toFixed(2) + '%</span></div>' : '')
+      + '</div>'
+      + '<a href="trade-coach.html?sym=' + (t.meta?.sym || '') + '" class="btn btn-primary" style="margin-top:14px;width:100%;display:block;text-align:center;">📋 Open trade plan</a>';
+  } else {
+    document.getElementById('topPick').innerHTML = '<div style="text-align:center;color:var(--text-muted);font-size:13px;padding:14px 0;">No high-confidence picks yet today. Check back in a bit.</div>';
+  }
+
+  // Stats
+  document.getElementById('sigCnt').textContent = todayFindings.length;
+  document.getElementById('hiCnt').textContent = ranked.filter(f => f.prob >= 0.7).length;
+
+  const weekAgo = Date.now() - 7 * 86400000;
+  const recent = train.filter(t => t.ts >= weekAgo);
+  const hit = recent.filter(t => t.y === 1).length / Math.max(1, recent.length);
+  document.getElementById('hitRate').textContent = recent.length > 0 ? (hit*100).toFixed(0) + '%' : '—';
+  document.getElementById('hitRate').style.color = hit >= 0.55 ? 'var(--green)' : hit >= 0.45 ? 'var(--text-primary)' : 'var(--red)';
+
+  // Streak
+  const sorted = [...train].sort((a,b) => b.ts - a.ts);
+  let streak = 0, lastY = null;
+  for (const t of sorted) {
+    if (lastY == null) lastY = t.y;
+    else if (t.y !== lastY) break;
+    streak++;
+  }
+  document.getElementById('streak').textContent = streak > 0 ? streak + (lastY === 1 ? ' W' : ' L') : '—';
+  document.getElementById('streak').style.color = lastY === 1 ? 'var(--green)' : lastY === 0 ? 'var(--red)' : 'var(--text-primary)';
+
+  // Grade
+  const grade = hit >= 0.7 ? 'A' : hit >= 0.6 ? 'B' : hit >= 0.5 ? 'C' : hit >= 0.4 ? 'D' : 'F';
+  const tones = { A: 'Crushing it', B: 'Solid', C: 'Treading water', D: 'Slipping', F: 'Bad spell' };
+  document.getElementById('todayGrade').textContent = grade;
+  document.getElementById('todayGrade').style.color = grade === 'A' ? 'var(--green)' : grade === 'B' ? '#84cc16' : grade === 'C' ? 'var(--yellow)' : grade === 'D' ? '#f97316' : 'var(--red)';
+  document.getElementById('gradeNote').textContent = tones[grade] + ' · 7d hit rate ' + (hit*100).toFixed(0) + '%';
+
+  // Watchlist
+  try {
+    const lists = JSON.parse(localStorage.getItem('bpleone_watchlist_pro_v1') || '[]');
+    const syms = lists.length > 0 ? lists[0].syms.slice(0, 5) : [];
+    document.getElementById('watchRows').innerHTML = syms.map(s => {
+      const q = (typeof QUOTES !== 'undefined' && QUOTES[s]) ? QUOTES[s] : null;
+      const symFindings = todayFindings.filter(f => f.meta?.sym === s);
+      let mlProb = null;
+      if (symFindings.length > 0 && window.predictForFinding) {
+        try { const p = window.predictForFinding(symFindings[0]); mlProb = p ? p.prob : null; } catch(e) {}
+      }
+      return '<a href="trade-coach.html?sym=' + s + '" class="mob-row" style="text-decoration:none;color:inherit;">'
+        + '<div><span class="sym">' + s + '</span> ' + (q ? '<span style="font-size:11px;color:var(--text-muted);margin-left:6px;">$' + q.last.toFixed(2) + '</span>' : '') + '</div>'
+        + '<div style="display:flex;gap:8px;align-items:center;">'
+          + (q ? '<span style="font-size:11px;color:' + (q.changePct >= 0 ? 'var(--green)' : 'var(--red)') + ';">' + (q.changePct >= 0 ? '+' : '') + q.changePct.toFixed(2) + '%</span>' : '')
+          + (mlProb != null ? '<span class="ml" style="background:rgba(0,212,255,0.18);color:var(--accent);">' + (mlProb*100).toFixed(0) + '%</span>' : '')
+        + '</div>'
+        + '</a>';
+    }).join('') || '<div style="font-size:12px;color:var(--text-muted);padding:10px 0;">No watchlist symbols. <a href="watchlist-pro.html" style="color:var(--accent);">Build one →</a></div>';
+  } catch(e) {}
+
+  // Recent signals
+  document.getElementById('signalRows').innerHTML = ranked.slice(0, 6).map(f =>
+    '<a href="trade-coach.html?sym=' + (f.meta?.sym || '') + '" class="mob-row" style="text-decoration:none;color:inherit;">'
+    + '<div><span class="sym">' + (f.meta?.sym || '?') + '</span> <span style="font-size:11px;color:var(--text-muted);">' + (f.meta?.setup || 'signal') + '</span></div>'
+    + '<div style="display:flex;gap:8px;align-items:center;">'
+      + '<span style="font-size:10px;color:var(--text-muted);">' + (function(ts){ const d=Date.now()-ts; if(d<60000)return Math.floor(d/1000)+'s';if(d<3600000)return Math.floor(d/60000)+'m';return Math.floor(d/3600000)+'h'; })(f.ts) + '</span>'
+      + '<span class="ml" style="background:rgba(0,212,255,0.18);color:var(--accent);">' + (f.prob*100).toFixed(0) + '%</span>'
+    + '</div>'
+    + '</a>'
+  ).join('') || '<div style="font-size:12px;color:var(--text-muted);padding:10px 0;">Brain is quiet — no signals yet today.</div>';
+}
+
+render();
+setInterval(render, 10000);
+</script>
+</body>
+</html>

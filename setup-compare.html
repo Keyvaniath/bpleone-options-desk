@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Setup Compare — bpleone / trade</title>
+<meta name="description" content="Head-to-head matchup of any two setups. Hit rate, expectancy, model confidence, P&L curves, distribution histograms.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<style>
+.matchup { display:grid;grid-template-columns:1fr 80px 1fr;gap:14px;padding:24px 0;align-items:center; }
+.match-col { padding:20px;background:var(--bg-elevated);border-radius:12px;border:1px solid var(--border); }
+.match-col.win { border-left:4px solid var(--green); }
+.match-col.lose { border-left:4px solid var(--red);opacity:0.85; }
+.match-col h3 { font-size:14px;font-weight:700;margin-bottom:4px;text-transform:uppercase;letter-spacing:0.5px; }
+.match-col .stat { display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px dashed var(--border);font-size:12px; }
+.match-col .stat:last-child { border:none; }
+.match-col .stat .lbl { color:var(--text-muted); }
+.match-col .stat .val { font-family:var(--font-mono);font-weight:700; }
+.vs-badge { font-size:32px;font-weight:800;text-align:center;color:var(--text-muted); }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">⚔ Setup Compare</div>
+      <div class="page-subtitle">Head-to-head matchup · which setup wins more · with model confidence overlay · <span id="market-clock">--</span></div>
+    </div>
+    <div class="flex gap-8">
+      <select id="setupA" class="btn btn-secondary" style="background:var(--bg-elevated);border:1px solid var(--border);color:var(--text-primary);padding:8px 14px;"></select>
+      <span style="align-self:center;color:var(--text-muted);">vs</span>
+      <select id="setupB" class="btn btn-secondary" style="background:var(--bg-elevated);border:1px solid var(--border);color:var(--text-primary);padding:8px 14px;"></select>
+    </div>
+  </div>
+
+  <div class="matchup mb-24">
+    <div id="colA" class="match-col"></div>
+    <div class="vs-badge" id="vsBadge">VS</div>
+    <div id="colB" class="match-col"></div>
+  </div>
+
+  <div class="grid grid-2 mb-24">
+    <div class="card">
+      <div class="card-header"><div class="card-title">📈 Equity curves (1R)</div></div>
+      <canvas id="equityChart" height="220"></canvas>
+    </div>
+    <div class="card">
+      <div class="card-header"><div class="card-title">📊 Hit rate by hour</div></div>
+      <canvas id="hourChart" height="220"></canvas>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-header"><div class="card-title">🏁 Verdict</div></div>
+    <div id="verdict" style="font-size:14px;line-height:1.85;color:var(--text-primary);"></div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script src="js/model.js"></script>
+<script>
+buildNav('setup-compare');
+
+function loadTrain() { try { return JSON.parse(localStorage.getItem('bpleone_train_v1') || '[]'); } catch(e) { return []; } }
+
+function allSetups() {
+  const t = loadTrain();
+  const s = {};
+  t.forEach(r => {
+    const k = r.meta?.setup || 'unknown';
+    s[k] = (s[k] || 0) + 1;
+  });
+  return Object.entries(s).filter(([k,v]) => v >= 3).sort((a,b) => b[1] - a[1]).map(([k,v]) => ({ name: k, n: v }));
+}
+
+const setups = allSetups();
+const selA = document.getElementById('setupA');
+const selB = document.getElementById('setupB');
+setups.forEach((s, i) => {
+  const o1 = document.createElement('option');
+  o1.value = s.name; o1.textContent = s.name + ' (' + s.n + ')';
+  if (i === 0) o1.selected = true;
+  selA.appendChild(o1);
+  const o2 = document.createElement('option');
+  o2.value = s.name; o2.textContent = s.name + ' (' + s.n + ')';
+  if (i === 1) o2.selected = true;
+  selB.appendChild(o2);
+});
+
+function stats(setup) {
+  const t = loadTrain().filter(r => (r.meta?.setup || 'unknown') === setup);
+  const wins = t.filter(r => r.y === 1).length;
+  const losses = t.filter(r => r.y === 0).length;
+  const n = t.length;
+  const hitRate = n > 0 ? wins / n : 0;
+  const avgWin = wins > 0 ? t.filter(r => r.y === 1).map(r => r.r || 1.5).reduce((a,b)=>a+b,0)/wins : 0;
+  const avgLoss = losses > 0 ? 1.0 : 0;
+  const expectancy = hitRate * avgWin - (1-hitRate) * avgLoss;
+  const probs = t.map(r => { try { return window.predictForFinding ? window.predictForFinding(r).prob : null; } catch(e){return null;} }).filter(Boolean);
+  const avgProb = probs.length > 0 ? probs.reduce((a,b)=>a+b,0)/probs.length : 0;
+  const sorted = [...t].sort((a,b) => a.ts - b.ts);
+  let cum = 0;
+  const equity = sorted.map(r => { cum += (r.y === 1 ? (r.r || 1.5) : -1.0); return cum; });
+  const byHour = Array(24).fill(0).map(() => ({ n: 0, w: 0 }));
+  t.forEach(r => { const h = new Date(r.ts).getHours(); byHour[h].n++; if (r.y === 1) byHour[h].w++; });
+  return { name: setup, n, wins, losses, hitRate, avgWin, avgLoss, expectancy, avgProb, equity, byHour };
+}
+
+function render() {
+  const a = stats(selA.value);
+  const b = stats(selB.value);
+
+  const aWins = a.expectancy > b.expectancy;
+  document.getElementById('colA').className = 'match-col ' + (aWins ? 'win' : 'lose');
+  document.getElementById('colB').className = 'match-col ' + (aWins ? 'lose' : 'win');
+
+  const card = (s, isWinner) => '<h3 style="color:' + (isWinner ? 'var(--green)' : 'var(--text-primary)') + ';">' + (isWinner ? '🏆 ' : '') + s.name + '</h3>'
+    + '<div style="font-size:10px;color:var(--text-muted);margin-bottom:14px;">' + s.n + ' trades</div>'
+    + '<div class="stat"><div class="lbl">Hit rate</div><div class="val" style="color:' + (s.hitRate >= 0.55 ? 'var(--green)' : s.hitRate >= 0.45 ? 'var(--accent)' : 'var(--red)') + ';">' + (s.hitRate*100).toFixed(0) + '%</div></div>'
+    + '<div class="stat"><div class="lbl">Avg win</div><div class="val">+' + s.avgWin.toFixed(2) + 'R</div></div>'
+    + '<div class="stat"><div class="lbl">Avg loss</div><div class="val">-' + s.avgLoss.toFixed(2) + 'R</div></div>'
+    + '<div class="stat"><div class="lbl">Expectancy</div><div class="val" style="color:' + (s.expectancy > 0 ? 'var(--green)' : 'var(--red)') + ';">' + (s.expectancy >= 0 ? '+' : '') + s.expectancy.toFixed(2) + 'R</div></div>'
+    + '<div class="stat"><div class="lbl">Sample size</div><div class="val">' + s.n + '</div></div>'
+    + '<div class="stat"><div class="lbl">Model agrees</div><div class="val" style="color:var(--accent);">' + (s.avgProb*100).toFixed(0) + '%</div></div>'
+    + '<div class="stat"><div class="lbl">Total R</div><div class="val" style="color:' + (s.equity.length && s.equity[s.equity.length-1] > 0 ? 'var(--green)' : 'var(--red)') + ';">' + (s.equity.length ? s.equity[s.equity.length-1].toFixed(1) : '0') + '</div></div>';
+
+  document.getElementById('colA').innerHTML = card(a, aWins);
+  document.getElementById('colB').innerHTML = card(b, !aWins);
+
+  // Equity chart
+  const maxLen = Math.max(a.equity.length, b.equity.length);
+  if (window._eq) window._eq.destroy();
+  window._eq = new Chart(document.getElementById('equityChart'), {
+    type: 'line',
+    data: {
+      labels: Array(maxLen).fill('').map((_,i) => i + 1),
+      datasets: [
+        { label: a.name, data: a.equity, borderColor: aWins ? '#10b981' : '#00d4ff', tension:0.3, pointRadius:0 },
+        { label: b.name, data: b.equity, borderColor: !aWins ? '#10b981' : '#ef4444', tension:0.3, pointRadius:0 }
+      ]
+    },
+    options: { responsive:true, maintainAspectRatio:false, plugins:{legend:{labels:{color:'#ccc'}}}, scales:{x:{ticks:{color:'#888'},grid:{color:'#222'}},y:{ticks:{color:'#888',callback:v=>v+'R'},grid:{color:'#222'}}} }
+  });
+
+  // Hour chart
+  if (window._hr) window._hr.destroy();
+  window._hr = new Chart(document.getElementById('hourChart'), {
+    type: 'bar',
+    data: {
+      labels: Array(24).fill(0).map((_,h) => h + ':00'),
+      datasets: [
+        { label: a.name, data: a.byHour.map(x => x.n > 0 ? x.w/x.n * 100 : null), backgroundColor: '#00d4ff' },
+        { label: b.name, data: b.byHour.map(x => x.n > 0 ? x.w/x.n * 100 : null), backgroundColor: '#a78bfa' }
+      ]
+    },
+    options: { responsive:true, maintainAspectRatio:false, plugins:{legend:{labels:{color:'#ccc'}}}, scales:{x:{ticks:{color:'#888'},grid:{display:false}},y:{ticks:{color:'#888',callback:v=>v+'%'},grid:{color:'#222'},max:100}} }
+  });
+
+  // Verdict
+  let verdict = '';
+  if (a.n < 5 || b.n < 5) verdict += '<p style="color:var(--yellow);">⚠ Low sample size — at least one setup has fewer than 5 resolved trades. Take this with a big grain of salt.</p>';
+  verdict += '<p><strong style="color:' + (aWins ? 'var(--green)' : 'var(--red)') + ';">' + (aWins ? a.name : b.name) + '</strong> wins this matchup with <strong>' + Math.abs(a.expectancy - b.expectancy).toFixed(2) + 'R</strong> better expectancy per trade.</p>';
+  verdict += '<p>The losing setup (<strong>' + (aWins ? b.name : a.name) + '</strong>) had a ' + ((aWins ? b.hitRate : a.hitRate)*100).toFixed(0) + '% hit rate vs the winner\'s ' + ((aWins ? a.hitRate : b.hitRate)*100).toFixed(0) + '%.</p>';
+  if (aWins && a.avgProb > b.avgProb) verdict += '<p style="color:var(--accent);">✓ The model agreed — it rated <strong>' + a.name + '</strong> higher on average too. Trust the brain on this matchup.</p>';
+  else if (!aWins && b.avgProb > a.avgProb) verdict += '<p style="color:var(--accent);">✓ The model agreed — it rated <strong>' + b.name + '</strong> higher on average too.</p>';
+  else verdict += '<p style="color:var(--yellow);">⚠ The model disagrees with the realized outcome. Worth investigating — either the win was lucky or the model is missing something.</p>';
+  document.getElementById('verdict').innerHTML = verdict;
+}
+
+selA.addEventListener('change', render);
+selB.addEventListener('change', render);
+render();
+</script>
+</body>
+</html>
