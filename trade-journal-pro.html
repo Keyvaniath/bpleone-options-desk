@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Trade Journal PRO — bpleone / trade</title>
+<meta name="description" content="Advanced trade journal with screenshots, thesis, lessons learned, and AI-powered review.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.entry-form { padding:18px;background:var(--bg-elevated);border:1px solid var(--border);border-radius:10px; }
+.entry-form .row { display:grid; grid-template-columns: 140px 1fr; gap:12px; margin-bottom:10px; align-items:start; }
+.entry-form input, .entry-form select, .entry-form textarea { width:100%;background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:8px 12px;color:var(--text-primary);font-family:var(--font-mono);font-size:12px; }
+.entry-form textarea { font-family:Inter;min-height:60px;resize:vertical; }
+.entry-form .lbl { font-size:11px;color:var(--text-muted);font-weight:700;padding-top:8px; }
+.entry-card { padding:14px;background:var(--bg-elevated);border:1px solid var(--border);border-radius:10px;margin-bottom:10px; }
+.entry-card.win { border-left:4px solid var(--green); }
+.entry-card.loss { border-left:4px solid var(--red); }
+.entry-card.flat { border-left:4px solid var(--text-muted); }
+.tag { display:inline-block;padding:2px 6px;border-radius:3px;font-size:9px;font-weight:700;background:rgba(0,212,255,0.12);color:var(--accent);margin-right:4px; }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">📓 Trade Journal PRO</div>
+      <div class="page-subtitle">Capture every trade · thesis · lessons · screenshots · <span id="market-clock">--</span></div>
+    </div>
+    <div class="flex gap-8">
+      <button class="btn btn-secondary" id="exportBtn">📥 CSV Export</button>
+    </div>
+  </div>
+
+  <div class="grid grid-12">
+    <div class="col-5">
+      <div class="entry-form">
+        <h3 style="font-size:14px;font-weight:700;color:var(--accent);margin-bottom:14px;">➕ New Entry</h3>
+        <div class="row"><div class="lbl">Symbol</div><input id="fSym" placeholder="NVDA" style="text-transform:uppercase;"></div>
+        <div class="row"><div class="lbl">Direction</div><select id="fSide"><option>LONG</option><option>SHORT</option></select></div>
+        <div class="row"><div class="lbl">Entry</div><input id="fEntry" type="number" step="0.01"></div>
+        <div class="row"><div class="lbl">Exit</div><input id="fExit" type="number" step="0.01"></div>
+        <div class="row"><div class="lbl">Shares</div><input id="fShares" type="number" value="100"></div>
+        <div class="row"><div class="lbl">Setup</div><select id="fSetup">
+          <option>52W Breakout</option><option>Bull Flag</option><option>Cup&amp;Handle</option><option>VWAP Reclaim</option>
+          <option>BB Squeeze</option><option>Oversold Bounce</option><option>Overbought Fade</option>
+          <option>Sweep Follow</option><option>DP Cluster</option><option>Squeeze Composite</option>
+          <option>Confluence 6★</option><option>Mean Reversion</option><option>Other</option>
+        </select></div>
+        <div class="row"><div class="lbl">Thesis</div><textarea id="fThesis" placeholder="Why did you take this trade?"></textarea></div>
+        <div class="row"><div class="lbl">Lessons</div><textarea id="fLessons" placeholder="What did you learn?"></textarea></div>
+        <div class="row"><div class="lbl">Tags</div><input id="fTags" placeholder="comma,separated,tags"></div>
+        <button class="btn btn-primary mt-12" id="saveBtn" style="width:100%;padding:10px;">💾 Save Trade</button>
+      </div>
+    </div>
+
+    <div class="col-7">
+      <div class="grid grid-3 mb-24">
+        <div class="card"><div class="card-header"><div class="card-title">Trades</div></div><div class="mono" style="font-size:22px;font-weight:700;" id="kpiCount">--</div></div>
+        <div class="card"><div class="card-header"><div class="card-title">Win Rate</div></div><div class="mono" style="font-size:22px;font-weight:700;" id="kpiWR">--</div></div>
+        <div class="card"><div class="card-header"><div class="card-title">Total R</div></div><div class="mono" style="font-size:22px;font-weight:700;" id="kpiR">--</div></div>
+      </div>
+      <div id="entries"></div>
+    </div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script>
+buildNav('trade-journal-pro');
+
+const KEY = 'bpleone_journal_pro_v1';
+function load() { try { return JSON.parse(localStorage.getItem(KEY) || '[]'); } catch (e) { return []; } }
+function save(d) { try { localStorage.setItem(KEY, JSON.stringify(d)); } catch (e) {} }
+
+let entries = load();
+
+function paint() {
+  const wrap = document.getElementById('entries');
+  wrap.innerHTML = '';
+  if (entries.length === 0) {
+    wrap.innerHTML = '<div class="card" style="padding:30px;text-align:center;color:var(--text-muted);font-size:13px;">No entries yet. Log your first trade on the left.</div>';
+  } else {
+    entries.slice(0, 25).forEach((e, i) => {
+      const sideMul = e.side === 'LONG' ? 1 : -1;
+      const pnl = (e.exit - e.entry) * e.shares * sideMul;
+      const pnlR = pnl > 0 ? '+R' : pnl < 0 ? '−R' : '0';
+      const cls = pnl > 0 ? 'win' : pnl < 0 ? 'loss' : 'flat';
+      const col = pnl > 0 ? 'var(--green)' : pnl < 0 ? 'var(--red)' : 'var(--text-muted)';
+      const tags = (e.tags || '').split(',').filter(t => t.trim()).map(t => '<span class="tag">' + t.trim() + '</span>').join('');
+      const card = document.createElement('div');
+      card.className = 'entry-card ' + cls;
+      card.innerHTML = '<div style="display:flex;justify-content:space-between;align-items:start;margin-bottom:8px;">'
+        + '<div><strong style="font-size:14px;">' + e.sym + '</strong> · <span style="color:' + (e.side === 'LONG' ? 'var(--green)' : 'var(--red)') + ';font-weight:700;">' + e.side + '</span> · <span style="color:var(--text-muted);font-size:11px;">' + e.setup + '</span></div>'
+        + '<div class="mono" style="color:' + col + ';font-weight:700;font-size:14px;">' + (pnl >= 0 ? '+$' : '−$') + Math.abs(pnl).toFixed(2) + '</div>'
+        + '</div>'
+        + '<div style="font-size:11px;color:var(--text-muted);margin-bottom:6px;">'
+        + 'Entry $' + e.entry + ' → Exit $' + e.exit + ' · ' + e.shares + ' sh · ' + new Date(e.ts).toLocaleDateString() + '</div>'
+        + (e.thesis ? '<div style="font-size:12px;color:var(--text-secondary);line-height:1.5;margin-top:6px;"><strong>Thesis:</strong> ' + e.thesis + '</div>' : '')
+        + (e.lessons ? '<div style="font-size:12px;color:var(--accent);line-height:1.5;margin-top:4px;"><strong>Lesson:</strong> ' + e.lessons + '</div>' : '')
+        + (tags ? '<div style="margin-top:6px;">' + tags + '</div>' : '')
+        + '<button class="btn btn-ghost del-btn" data-i="' + i + '" style="padding:3px 8px;font-size:10px;color:var(--red);margin-top:6px;">🗑 delete</button>';
+      wrap.appendChild(card);
+    });
+  }
+
+  let pnls = entries.map(e => (e.exit - e.entry) * e.shares * (e.side === 'LONG' ? 1 : -1));
+  let wins = pnls.filter(p => p > 0).length;
+  let total = pnls.reduce((s, p) => s + p, 0);
+  document.getElementById('kpiCount').textContent = entries.length;
+  document.getElementById('kpiWR').textContent = entries.length > 0 ? Math.round((wins / entries.length) * 100) + '%' : '—';
+  document.getElementById('kpiR').textContent = (total >= 0 ? '+$' : '−$') + Math.abs(total).toFixed(0);
+  document.getElementById('kpiR').style.color = total > 0 ? 'var(--green)' : total < 0 ? 'var(--red)' : 'var(--text-primary)';
+
+  document.querySelectorAll('.del-btn').forEach(b => b.addEventListener('click', () => {
+    entries.splice(+b.dataset.i, 1); save(entries); paint();
+  }));
+}
+paint();
+
+document.getElementById('saveBtn').addEventListener('click', () => {
+  const sym = document.getElementById('fSym').value.toUpperCase().trim();
+  if (!sym) return alert('Symbol required');
+  const entry = +document.getElementById('fEntry').value;
+  const exit = +document.getElementById('fExit').value;
+  if (!entry || !exit) return alert('Entry + exit prices required');
+  entries.unshift({
+    sym,
+    side: document.getElementById('fSide').value,
+    entry, exit,
+    shares: +document.getElementById('fShares').value || 100,
+    setup: document.getElementById('fSetup').value,
+    thesis: document.getElementById('fThesis').value.trim(),
+    lessons: document.getElementById('fLessons').value.trim(),
+    tags: document.getElementById('fTags').value.trim(),
+    ts: Date.now()
+  });
+  save(entries);
+  paint();
+  ['fSym','fEntry','fExit','fThesis','fLessons','fTags'].forEach(id => document.getElementById(id).value = '');
+});
+
+document.getElementById('exportBtn').addEventListener('click', () => {
+  const csv = ['Date,Symbol,Side,Entry,Exit,Shares,P&L,Setup,Thesis,Lessons,Tags'];
+  entries.forEach(e => {
+    const sideMul = e.side === 'LONG' ? 1 : -1;
+    const pnl = (e.exit - e.entry) * e.shares * sideMul;
+    csv.push([new Date(e.ts).toISOString(), e.sym, e.side, e.entry, e.exit, e.shares, pnl.toFixed(2), e.setup, '"' + (e.thesis||'').replace(/"/g,'""') + '"', '"' + (e.lessons||'').replace(/"/g,'""') + '"', '"' + (e.tags||'') + '"'].join(','));
+  });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([csv.join('\n')], { type: 'text/csv' }));
+  a.download = 'journal-' + Date.now() + '.csv';
+  a.click();
+});
+</script>
+</body>
+</html>

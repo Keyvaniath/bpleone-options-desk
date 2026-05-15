@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Margin Calculator — bpleone / trade</title>
+<meta name="description" content="Reg-T + portfolio margin requirements calculator for stock and option positions.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.input-row { display:flex; gap:14px; flex-wrap:wrap; align-items:center; margin-bottom:14px; }
+.input-row label { font-size:12px;color:var(--text-muted);font-weight:700;width:140px; }
+.input-row input, .input-row select { background:var(--bg-elevated);border:1px solid var(--border);border-radius:6px;padding:8px 12px;color:var(--text-primary);font-family:var(--font-mono);width:160px;font-size:13px; }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">📐 Margin Calculator</div>
+      <div class="page-subtitle">Reg-T + Portfolio Margin requirements for stocks + options · <span id="market-clock">--</span></div>
+    </div>
+  </div>
+
+  <div class="grid grid-12">
+    <div class="card col-5">
+      <div class="card-header"><div class="card-title">⚙ Position Inputs</div></div>
+      <div class="input-row"><label>Type</label><select id="type">
+        <option value="long-stock">Long Stock</option>
+        <option value="short-stock">Short Stock</option>
+        <option value="long-call">Long Call</option>
+        <option value="long-put">Long Put</option>
+        <option value="short-call">Short Call (naked)</option>
+        <option value="short-put">Short Put (CSP)</option>
+        <option value="vertical-call">Vertical Call Spread</option>
+        <option value="vertical-put">Vertical Put Spread</option>
+      </select></div>
+      <div class="input-row"><label>Symbol</label><input id="sym" placeholder="NVDA" style="text-transform:uppercase;"></div>
+      <div class="input-row"><label>Stock Price ($)</label><input id="px" type="number" step="0.01" value="100"></div>
+      <div class="input-row"><label>Shares / Contracts</label><input id="qty" type="number" value="100"></div>
+      <div class="input-row" id="strikeRow"><label>Strike ($)</label><input id="strike" type="number" step="0.01" value="100"></div>
+      <div class="input-row" id="otherStrikeRow" style="display:none;"><label>Other Strike</label><input id="otherStrike" type="number" step="0.01" value="105"></div>
+      <div class="input-row" id="premRow" style="display:none;"><label>Premium ($)</label><input id="prem" type="number" step="0.01" value="2.50"></div>
+      <div class="input-row"><label>Margin Type</label><select id="marginType">
+        <option value="reg-t">Reg-T (2× equity)</option>
+        <option value="portfolio">Portfolio Margin (6×)</option>
+      </select></div>
+      <button class="btn btn-primary" id="calcBtn" style="margin-top:14px;padding:10px 24px;">Calculate →</button>
+    </div>
+
+    <div class="card col-7">
+      <div class="card-header"><div class="card-title">💵 Margin Requirement</div></div>
+      <div id="result"></div>
+    </div>
+  </div>
+
+  <div class="card mt-24">
+    <div class="card-header"><div class="card-title">🧠 Margin rules cheat sheet</div></div>
+    <div class="grid grid-2" style="gap:14px;">
+      <div>
+        <div style="font-weight:700;color:var(--accent);margin-bottom:6px;">Reg-T (standard)</div>
+        <div style="font-size:13px;color:var(--text-muted);line-height:1.6;">
+          • Long stock: 50% initial, 25% maintenance<br>
+          • Short stock: 150% initial (50% margin + 100% proceeds)<br>
+          • Long option: 100% of premium<br>
+          • Short option (naked call): max(20% × stock − OTM, 10% × stock) + premium<br>
+          • Short put (CSP): strike × 100 (cash secured)<br>
+          • Vertical spread: max loss × contracts
+        </div>
+      </div>
+      <div>
+        <div style="font-weight:700;color:var(--green);margin-bottom:6px;">Portfolio Margin (≥$125k)</div>
+        <div style="font-size:13px;color:var(--text-muted);line-height:1.6;">
+          • Risk-based: portfolio stress-tested ±15% across products<br>
+          • Often 1.5–3× more buying power than Reg-T<br>
+          • Hedged positions get net margin (e.g., long stock + put = stock − put delta)<br>
+          • Available at most major brokers w/ approval + min equity
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script>
+buildNav('margin-calc');
+
+function updateRows() {
+  const type = document.getElementById('type').value;
+  const strikeRow = document.getElementById('strikeRow');
+  const otherStrikeRow = document.getElementById('otherStrikeRow');
+  const premRow = document.getElementById('premRow');
+  const needsStrike = type.includes('call') || type.includes('put');
+  const needsTwoStrikes = type.startsWith('vertical');
+  const needsPrem = type.includes('option') || type.includes('call') || type.includes('put');
+  strikeRow.style.display = needsStrike ? '' : 'none';
+  otherStrikeRow.style.display = needsTwoStrikes ? '' : 'none';
+  premRow.style.display = needsPrem ? '' : 'none';
+}
+
+function calc() {
+  const type = document.getElementById('type').value;
+  const px = +document.getElementById('px').value || 100;
+  const qty = +document.getElementById('qty').value || 100;
+  const strike = +document.getElementById('strike').value || px;
+  const otherStrike = +document.getElementById('otherStrike').value || px + 5;
+  const prem = +document.getElementById('prem').value || 0;
+  const isPM = document.getElementById('marginType').value === 'portfolio';
+  const pmDiscount = isPM ? 0.35 : 1.0;
+
+  let initial = 0, maintenance = 0, explanation = '';
+  if (type === 'long-stock') {
+    initial = qty * px * 0.50 * pmDiscount;
+    maintenance = qty * px * 0.25 * pmDiscount;
+    explanation = 'Long stock: 50% initial / 25% maintenance under Reg-T (60% reduction with PM).';
+  } else if (type === 'short-stock') {
+    initial = qty * px * 1.50 * pmDiscount;
+    maintenance = qty * px * 1.30 * pmDiscount;
+    explanation = 'Short stock: 150% initial (100% proceeds + 50% margin). PM discount applied if hedged.';
+  } else if (type === 'long-call' || type === 'long-put') {
+    initial = qty * prem * 100;
+    maintenance = initial;
+    explanation = 'Long option: 100% of premium paid. No additional margin.';
+  } else if (type === 'short-call') {
+    const otm = Math.max(0, strike - px);
+    initial = Math.max(qty * (0.20 * px - otm) * 100, qty * 0.10 * px * 100) * pmDiscount + qty * prem * 100;
+    maintenance = initial * 0.85;
+    explanation = 'Short call (naked): max(20% × stock − OTM, 10% × stock) + premium. Significant risk — broker may require higher.';
+  } else if (type === 'short-put') {
+    initial = qty * strike * 100;
+    maintenance = initial;
+    explanation = 'Cash-secured put: full strike × contract × 100. Worst case = assigned stock.';
+  } else if (type === 'vertical-call' || type === 'vertical-put') {
+    const width = Math.abs(strike - otherStrike);
+    initial = qty * width * 100 * (isPM ? 0.6 : 1.0);
+    maintenance = initial;
+    explanation = 'Vertical spread: max loss = width × 100 × contracts. Defined risk. PM modest discount.';
+  }
+
+  document.getElementById('result').innerHTML = `
+    <div class="grid grid-2" style="gap:14px;margin-bottom:14px;">
+      <div style="padding:18px;background:var(--bg-elevated);border-radius:10px;text-align:center;">
+        <div style="font-size:11px;color:var(--text-muted);font-weight:700;letter-spacing:0.5px;">INITIAL MARGIN</div>
+        <div class="mono" style="font-size:32px;font-weight:800;color:var(--accent);margin-top:4px;">$${initial.toLocaleString(undefined, { maximumFractionDigits: 0 })}</div>
+      </div>
+      <div style="padding:18px;background:var(--bg-elevated);border-radius:10px;text-align:center;">
+        <div style="font-size:11px;color:var(--text-muted);font-weight:700;letter-spacing:0.5px;">MAINTENANCE MARGIN</div>
+        <div class="mono" style="font-size:32px;font-weight:800;color:var(--yellow);margin-top:4px;">$${maintenance.toLocaleString(undefined, { maximumFractionDigits: 0 })}</div>
+      </div>
+    </div>
+    <div style="padding:14px;background:rgba(0,212,255,0.05);border-radius:8px;font-size:13px;color:var(--text-secondary);line-height:1.6;">
+      <strong style="color:var(--accent);">How calculated:</strong> ${explanation}
+    </div>
+    <div style="margin-top:12px;padding:14px;background:var(--bg-elevated);border-radius:8px;font-size:12px;color:var(--text-muted);line-height:1.7;">
+      <strong>Notes:</strong><br>
+      • Numbers are estimates — your broker may apply higher (sometimes much higher) house margin<br>
+      • Add buffer (1.5×) before placing the trade — margin calls can liquidate without notice<br>
+      • PM (Portfolio Margin) requires ≥$125k equity at most brokers and trading approval
+    </div>
+  `;
+}
+
+document.getElementById('type').addEventListener('change', updateRows);
+document.getElementById('calcBtn').addEventListener('click', calc);
+updateRows();
+calc();
+</script>
+</body>
+</html>

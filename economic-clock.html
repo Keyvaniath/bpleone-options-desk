@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Economic Clock — bpleone / trade</title>
+<meta name="description" content="Next 30 days of economic releases · CPI, NFP, FOMC, GDP · impact estimates.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.event-row { display:grid; grid-template-columns: 110px 1fr 110px 100px 100px 100px; gap:12px; padding:14px 14px; border-bottom:1px solid var(--border); align-items:center; font-size:12px; }
+.event-row.high { border-left:4px solid var(--red); background:rgba(239,68,68,0.04); }
+.event-row.med { border-left:4px solid var(--yellow); }
+.event-row.low { border-left:4px solid var(--text-muted); opacity:0.7; }
+.event-row.today { background:rgba(0,212,255,0.06);border-color:var(--accent); }
+.imp-badge { padding:3px 8px; border-radius:3px; font-size:10px; font-weight:800; }
+.imp-h { background:rgba(239,68,68,0.18); color:var(--red); }
+.imp-m { background:rgba(245,158,11,0.18); color:var(--yellow); }
+.imp-l { background:rgba(100,116,139,0.15); color:#94a3b8; }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">🏦 Economic Clock</div>
+      <div class="page-subtitle">Next 30 days of US economic releases · impact estimates · <span id="market-clock">--</span></div>
+    </div>
+    <div class="flex gap-8"><button class="btn btn-secondary" id="refreshBtn">🔄</button></div>
+  </div>
+
+  <div class="grid grid-4 mb-24">
+    <div class="card"><div class="card-header"><div class="card-title">High-Impact (30d)</div></div><div class="mono red-text" style="font-size:26px;font-weight:700;" id="kpiHigh">--</div><div class="mono" style="font-size:11px;color:var(--text-muted);">Move-the-market events</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">Next Event</div></div><div class="mono" style="font-size:18px;font-weight:700;color:var(--accent);" id="kpiNext">--</div><div class="mono" style="font-size:11px;color:var(--text-muted);" id="kpiNextWhen">--</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">Days to FOMC</div></div><div class="mono" style="font-size:26px;font-weight:700;color:var(--yellow);" id="kpiFomc">--</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">Days to CPI</div></div><div class="mono" style="font-size:26px;font-weight:700;color:var(--yellow);" id="kpiCpi">--</div></div>
+  </div>
+
+  <div class="card mb-12" style="padding:10px 14px;">
+    <div class="flex gap-8">
+      <button class="btn btn-ghost btn-active" data-flt="all" style="padding:4px 10px;font-size:11px;">ALL</button>
+      <button class="btn btn-ghost" data-flt="high" style="padding:4px 10px;font-size:11px;">HIGH ONLY</button>
+      <button class="btn btn-ghost" data-flt="fed" style="padding:4px 10px;font-size:11px;">FED</button>
+      <button class="btn btn-ghost" data-flt="inflation" style="padding:4px 10px;font-size:11px;">INFLATION</button>
+      <button class="btn btn-ghost" data-flt="labor" style="padding:4px 10px;font-size:11px;">LABOR</button>
+    </div>
+  </div>
+
+  <div class="card" style="padding:0;">
+    <div class="event-row" style="background:var(--bg-elevated);font-size:9px;color:var(--text-muted);font-weight:800;letter-spacing:0.5px;">
+      <div>DATE / TIME</div><div>EVENT</div><div>CATEGORY</div><div>IMPACT</div><div>PRIOR</div><div>CONSENSUS</div>
+    </div>
+    <div id="eventsBody"></div>
+  </div>
+
+  <div class="card mt-24">
+    <div class="card-header"><div class="card-title">🧠 How to trade around econ events</div></div>
+    <div class="grid grid-3" style="gap:20px;">
+      <div>
+        <div style="font-weight:700;color:var(--red);margin-bottom:6px;">High-impact (FOMC, CPI, NFP)</div>
+        <div style="font-size:13px;color:var(--text-muted);line-height:1.6;">Reduce positions 30 min before. First 5-min reaction often retraces 50%. Wait for 9:35-10:00 settled level.</div>
+      </div>
+      <div>
+        <div style="font-weight:700;color:var(--yellow);margin-bottom:6px;">Medium-impact (PCE, retail sales)</div>
+        <div style="font-size:13px;color:var(--text-muted);line-height:1.6;">Tighten stops. Headline can spike intraday vol. Watch for fed-speaker follow-ups same week.</div>
+      </div>
+      <div>
+        <div style="font-weight:700;color:var(--accent);margin-bottom:6px;">Setup play: pre-CPI hedges</div>
+        <div style="font-size:13px;color:var(--text-muted);line-height:1.6;">5-day pre-CPI: buy 1-week SPY straddle when IV percentile &lt;30. Avg post-CPI move was 1.4%.</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script>
+buildNav('economic-clock');
+
+function todayAt(days, h, m) {
+  const d = new Date(); d.setDate(d.getDate() + days); d.setHours(h, m, 0, 0); return d;
+}
+
+const EVENTS = [
+  { day: 0, h: 8, m: 30, name: 'CPI Headline (YoY)', cat: 'Inflation', imp: 'H', prior: '3.1%', cons: '3.0%' },
+  { day: 0, h: 8, m: 30, name: 'Core CPI (YoY)', cat: 'Inflation', imp: 'H', prior: '3.4%', cons: '3.3%' },
+  { day: 1, h: 8, m: 30, name: 'Retail Sales (MoM)', cat: 'Consumer', imp: 'M', prior: '+0.4%', cons: '+0.3%' },
+  { day: 2, h: 10, m: 0, name: 'NAHB Housing Market Index', cat: 'Housing', imp: 'L', prior: '46', cons: '47' },
+  { day: 3, h: 8, m: 30, name: 'Housing Starts', cat: 'Housing', imp: 'M', prior: '1.36M', cons: '1.39M' },
+  { day: 4, h: 14, m: 0, name: 'FOMC Minutes', cat: 'Fed', imp: 'H', prior: '—', cons: '—' },
+  { day: 5, h: 8, m: 30, name: 'Initial Jobless Claims', cat: 'Labor', imp: 'M', prior: '218k', cons: '220k' },
+  { day: 5, h: 10, m: 0, name: 'Leading Indicators', cat: 'Macro', imp: 'L', prior: '−0.3%', cons: '−0.2%' },
+  { day: 8, h: 9, m: 45, name: 'PMI Composite Flash', cat: 'Manufacturing', imp: 'M', prior: '52.8', cons: '52.5' },
+  { day: 9, h: 10, m: 0, name: 'New Home Sales', cat: 'Housing', imp: 'M', prior: '661k', cons: '680k' },
+  { day: 10, h: 8, m: 30, name: 'Q1 GDP (advance)', cat: 'GDP', imp: 'H', prior: '+3.4%', cons: '+2.5%' },
+  { day: 11, h: 8, m: 30, name: 'PCE Headline (YoY)', cat: 'Inflation', imp: 'H', prior: '2.5%', cons: '2.4%' },
+  { day: 11, h: 8, m: 30, name: 'Core PCE (YoY)', cat: 'Inflation', imp: 'H', prior: '2.8%', cons: '2.7%' },
+  { day: 14, h: 9, m: 45, name: 'Chicago PMI', cat: 'Manufacturing', imp: 'M', prior: '41.4', cons: '44.0' },
+  { day: 15, h: 14, m: 0, name: 'FOMC Statement', cat: 'Fed', imp: 'H', prior: '5.25-5.50%', cons: '5.25-5.50%' },
+  { day: 15, h: 14, m: 30, name: 'FOMC Press Conference', cat: 'Fed', imp: 'H', prior: '—', cons: '—' },
+  { day: 16, h: 8, m: 30, name: 'ADP Employment', cat: 'Labor', imp: 'M', prior: '+184k', cons: '+175k' },
+  { day: 17, h: 8, m: 30, name: 'NFP', cat: 'Labor', imp: 'H', prior: '+303k', cons: '+240k' },
+  { day: 17, h: 8, m: 30, name: 'Unemployment Rate', cat: 'Labor', imp: 'H', prior: '3.8%', cons: '3.8%' },
+  { day: 17, h: 8, m: 30, name: 'Avg Hourly Earnings (YoY)', cat: 'Labor', imp: 'M', prior: '+4.1%', cons: '+4.0%' },
+  { day: 20, h: 10, m: 0, name: 'ISM Services PMI', cat: 'Manufacturing', imp: 'M', prior: '51.4', cons: '52.0' },
+  { day: 23, h: 8, m: 30, name: 'Trade Balance', cat: 'Trade', imp: 'L', prior: '−$68.9B', cons: '−$69.0B' },
+  { day: 25, h: 14, m: 0, name: 'Fed Beige Book', cat: 'Fed', imp: 'M', prior: '—', cons: '—' },
+  { day: 28, h: 8, m: 30, name: 'Q1 GDP (final)', cat: 'GDP', imp: 'M', prior: '+3.4%', cons: '+2.5%' },
+  { day: 29, h: 8, m: 30, name: 'Personal Income (MoM)', cat: 'Consumer', imp: 'M', prior: '+0.5%', cons: '+0.4%' }
+];
+
+let flt = 'all';
+
+function paint() {
+  const now = Date.now();
+  const eventsWithTime = EVENTS.map(e => ({ ...e, ts: todayAt(e.day, e.h, e.m).getTime() }));
+  let rows = eventsWithTime.sort((a, b) => a.ts - b.ts);
+  if (flt === 'high') rows = rows.filter(e => e.imp === 'H');
+  else if (flt === 'fed') rows = rows.filter(e => e.cat === 'Fed');
+  else if (flt === 'inflation') rows = rows.filter(e => e.cat === 'Inflation');
+  else if (flt === 'labor') rows = rows.filter(e => e.cat === 'Labor');
+
+  const body = document.getElementById('eventsBody');
+  body.innerHTML = '';
+  rows.forEach(e => {
+    const d = new Date(e.ts);
+    const dateStr = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', weekday: 'short' });
+    const timeStr = d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
+    const isToday = e.day === 0;
+    const cls = (e.imp === 'H' ? 'high' : e.imp === 'M' ? 'med' : 'low') + (isToday ? ' today' : '');
+    const impCls = e.imp === 'H' ? 'imp-h' : e.imp === 'M' ? 'imp-m' : 'imp-l';
+    const impTxt = e.imp === 'H' ? 'HIGH' : e.imp === 'M' ? 'MEDIUM' : 'LOW';
+    const row = document.createElement('div');
+    row.className = 'event-row ' + cls;
+    row.innerHTML = '<div class="mono"><div style="font-weight:700;">' + dateStr + '</div><div style="color:var(--text-muted);font-size:11px;">' + timeStr + ' ET</div></div>'
+      + '<div style="font-weight:600;">' + e.name + '</div>'
+      + '<div style="color:var(--text-muted);font-size:11px;">' + e.cat + '</div>'
+      + '<div><span class="imp-badge ' + impCls + '">' + impTxt + '</span></div>'
+      + '<div class="mono" style="color:var(--text-muted);">' + e.prior + '</div>'
+      + '<div class="mono" style="color:var(--accent);">' + e.cons + '</div>';
+    body.appendChild(row);
+  });
+
+  document.getElementById('kpiHigh').textContent = EVENTS.filter(e => e.imp === 'H').length;
+  const future = eventsWithTime.filter(e => e.ts > now);
+  if (future.length > 0) {
+    document.getElementById('kpiNext').textContent = future[0].name;
+    const daysOut = Math.ceil((future[0].ts - now) / 86400000);
+    document.getElementById('kpiNextWhen').textContent = daysOut === 0 ? 'Today' : 'in ' + daysOut + 'd';
+  }
+  const fomc = future.find(e => e.cat === 'Fed' && e.name.includes('FOMC Statement'));
+  document.getElementById('kpiFomc').textContent = fomc ? Math.ceil((fomc.ts - now) / 86400000) + 'd' : '—';
+  const cpi = future.find(e => e.cat === 'Inflation' && e.name.includes('CPI'));
+  document.getElementById('kpiCpi').textContent = cpi ? Math.ceil((cpi.ts - now) / 86400000) + 'd' : '—';
+}
+paint();
+
+document.querySelectorAll('[data-flt]').forEach(b => b.addEventListener('click', () => {
+  document.querySelectorAll('[data-flt]').forEach(x => x.classList.remove('btn-active'));
+  b.classList.add('btn-active');
+  flt = b.dataset.flt;
+  paint();
+}));
+document.getElementById('refreshBtn').addEventListener('click', paint);
+</script>
+</body>
+</html>

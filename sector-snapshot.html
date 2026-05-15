@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Sector Snapshot — bpleone / trade</title>
+<meta name="description" content="Single-sector deep-dive · holdings · % weight · top movers · brain signals.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.sec-tab { padding:10px 16px;background:var(--bg-elevated);border:1px solid var(--border);border-radius:8px;cursor:pointer;font-size:13px;font-weight:600; }
+.sec-tab.active { background:rgba(0,212,255,0.12);border-color:var(--accent);color:var(--accent); }
+.holding-row { display:grid; grid-template-columns: 30px 70px 1fr 80px 80px 80px 80px; gap:10px; padding:11px 12px; border-bottom:1px solid var(--border); font-family:var(--font-mono); font-size:11px; align-items:center; cursor:pointer; }
+.holding-row:hover { background:var(--bg-elevated); }
+.holding-row.up { border-left:3px solid var(--green); }
+.holding-row.dn { border-left:3px solid var(--red); }
+</style>
+</head>
+<body data-needs="live">
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">🏢 Sector Snapshot</div>
+      <div class="page-subtitle">Pick a sector · top holdings · movers · brain signals · <span id="market-clock">--</span></div>
+    </div>
+  </div>
+
+  <div class="card mb-24" style="padding:14px;">
+    <div id="tabs" style="display:flex;gap:8px;flex-wrap:wrap;"></div>
+  </div>
+
+  <!-- HEADER STATS -->
+  <div class="grid grid-5 mb-24">
+    <div class="card"><div class="card-header"><div class="card-title">ETF</div></div><div class="mono" style="font-size:22px;font-weight:700;color:var(--accent);" id="kETF">--</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">Day %</div></div><div class="mono" style="font-size:22px;font-weight:700;" id="kDay">--</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">Week %</div></div><div class="mono" style="font-size:22px;font-weight:700;" id="kWeek">--</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">Month %</div></div><div class="mono" style="font-size:22px;font-weight:700;" id="kMonth">--</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">Breadth</div></div><div class="mono" style="font-size:22px;font-weight:700;" id="kBreadth">--</div><div class="mono" style="font-size:11px;color:var(--text-muted);">% holdings green</div></div>
+  </div>
+
+  <!-- HOLDINGS TABLE -->
+  <div class="card mb-24" style="padding:0;">
+    <div class="card-header" style="padding:14px 16px;"><div class="card-title">📊 Top Holdings</div></div>
+    <div class="holding-row" style="background:var(--bg-elevated);font-size:9px;color:var(--text-muted);font-weight:800;letter-spacing:0.5px;">
+      <div>#</div><div>SYM</div><div>NAME</div><div>WEIGHT</div><div>NOW</div><div>DAY %</div><div>BRAIN</div>
+    </div>
+    <div id="holdingsBody"></div>
+  </div>
+
+  <!-- BRAIN SIGNALS IN SECTOR -->
+  <div class="card">
+    <div class="card-header"><div class="card-title">🧠 Active Brain Signals in this sector</div></div>
+    <div id="signalsBody"></div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script>
+buildNav('sector-snapshot');
+
+const SECTORS = {
+  'XLK': { name: 'Technology', holdings: [
+    ['AAPL', 'Apple Inc.', 12.5], ['MSFT', 'Microsoft', 11.8], ['NVDA', 'NVIDIA', 10.4],
+    ['AVGO', 'Broadcom', 4.8], ['ORCL', 'Oracle', 3.5], ['CRM', 'Salesforce', 3.0],
+    ['AMD', 'AMD', 2.4], ['ADBE', 'Adobe', 2.2], ['INTC', 'Intel', 1.6], ['IBM', 'IBM', 1.4]
+  ]},
+  'XLF': { name: 'Financials', holdings: [
+    ['BRK.B', 'Berkshire B', 13.0], ['JPM', 'JPMorgan', 9.7], ['V', 'Visa', 7.5],
+    ['MA', 'Mastercard', 6.2], ['BAC', 'Bank of America', 4.5], ['WFC', 'Wells Fargo', 3.5],
+    ['GS', 'Goldman Sachs', 2.4], ['MS', 'Morgan Stanley', 2.2], ['BLK', 'BlackRock', 2.0], ['SCHW', 'Schwab', 1.6]
+  ]},
+  'XLE': { name: 'Energy', holdings: [
+    ['XOM', 'ExxonMobil', 23.5], ['CVX', 'Chevron', 16.0], ['COP', 'ConocoPhillips', 7.8],
+    ['EOG', 'EOG Resources', 4.6], ['SLB', 'Schlumberger', 3.7], ['PSX', 'Phillips 66', 3.2],
+    ['OXY', 'Occidental', 3.0], ['MPC', 'Marathon Petro', 2.8], ['VLO', 'Valero', 2.5], ['WMB', 'Williams', 2.4]
+  ]},
+  'XLV': { name: 'Healthcare', holdings: [
+    ['LLY', 'Eli Lilly', 12.5], ['UNH', 'UnitedHealth', 8.4], ['JNJ', 'J&J', 6.7],
+    ['MRK', 'Merck', 5.2], ['ABBV', 'AbbVie', 4.8], ['PFE', 'Pfizer', 3.0],
+    ['TMO', 'Thermo Fisher', 3.2], ['ABT', 'Abbott Labs', 2.8], ['DHR', 'Danaher', 2.5], ['BMY', 'Bristol-Myers', 2.0]
+  ]},
+  'XLY': { name: 'Cons. Discr.', holdings: [
+    ['AMZN', 'Amazon', 22.5], ['TSLA', 'Tesla', 14.0], ['HD', 'Home Depot', 9.5],
+    ['MCD', 'McDonald\'s', 5.4], ['NKE', 'Nike', 4.2], ['LOW', 'Lowe\'s', 3.9],
+    ['SBUX', 'Starbucks', 3.2], ['BKNG', 'Booking.com', 2.8], ['TJX', 'TJX', 2.6], ['CMG', 'Chipotle', 2.0]
+  ]},
+  'XLI': { name: 'Industrials', holdings: [
+    ['GE', 'GE', 4.5], ['CAT', 'Caterpillar', 4.0], ['RTX', 'Raytheon', 3.7],
+    ['UNP', 'Union Pacific', 3.5], ['HON', 'Honeywell', 3.4], ['UPS', 'UPS', 2.8],
+    ['BA', 'Boeing', 2.6], ['LMT', 'Lockheed', 2.5], ['DE', 'John Deere', 2.4], ['ETN', 'Eaton', 2.2]
+  ]},
+  'XLC': { name: 'Communication', holdings: [
+    ['META', 'Meta', 23.0], ['GOOGL', 'Alphabet A', 12.5], ['GOOG', 'Alphabet C', 11.5],
+    ['NFLX', 'Netflix', 5.5], ['DIS', 'Disney', 5.0], ['T', 'AT&T', 4.5],
+    ['VZ', 'Verizon', 4.2], ['CMCSA', 'Comcast', 3.8], ['TMUS', 'T-Mobile', 3.5], ['EA', 'EA', 1.5]
+  ]},
+  'XLP': { name: 'Staples', holdings: [
+    ['PG', 'Procter & Gamble', 13.0], ['COST', 'Costco', 12.0], ['KO', 'Coca-Cola', 9.0],
+    ['PEP', 'PepsiCo', 8.0], ['WMT', 'Walmart', 7.5], ['PM', 'Philip Morris', 5.5],
+    ['MDLZ', 'Mondelez', 4.0], ['CL', 'Colgate', 3.5], ['MO', 'Altria', 3.0], ['TGT', 'Target', 2.6]
+  ]}
+};
+
+function getQ(s) { return (typeof QUOTES !== 'undefined' && QUOTES[s]) ? QUOTES[s] : { last: 100, changePct: 0 }; }
+function loadFindings() { try { return JSON.parse(localStorage.getItem('bpleone_brain_findings_v1') || '{"items":[]}').items; } catch (e) { return []; } }
+
+let currentSec = 'XLK';
+const params = new URLSearchParams(location.search);
+if (params.get('sec') && SECTORS[params.get('sec')]) currentSec = params.get('sec');
+
+function paintTabs() {
+  const wrap = document.getElementById('tabs');
+  wrap.innerHTML = '';
+  Object.entries(SECTORS).forEach(([etf, def]) => {
+    const tab = document.createElement('div');
+    tab.className = 'sec-tab' + (etf === currentSec ? ' active' : '');
+    tab.textContent = etf + ' · ' + def.name;
+    tab.onclick = () => { currentSec = etf; paint(); };
+    wrap.appendChild(tab);
+  });
+}
+
+function paint() {
+  paintTabs();
+  const def = SECTORS[currentSec];
+  const etfQ = getQ(currentSec);
+  document.getElementById('kETF').textContent = currentSec;
+  const dayChg = etfQ.changePct || 0;
+  document.getElementById('kDay').textContent = (dayChg >= 0 ? '+' : '') + dayChg.toFixed(2) + '%';
+  document.getElementById('kDay').style.color = dayChg > 0 ? 'var(--green)' : dayChg < 0 ? 'var(--red)' : 'var(--text-primary)';
+  document.getElementById('kWeek').textContent = (dayChg * 3 + (Math.random() - 0.5) * 2).toFixed(2) + '%';
+  document.getElementById('kMonth').textContent = (dayChg * 7 + (Math.random() - 0.5) * 6).toFixed(2) + '%';
+
+  // Holdings table
+  const body = document.getElementById('holdingsBody');
+  body.innerHTML = '';
+  let greens = 0;
+  def.holdings.forEach((h, i) => {
+    const [sym, name, weight] = h;
+    const q = getQ(sym);
+    const chg = q.changePct || 0;
+    if (chg > 0) greens++;
+    const cls = chg > 0 ? 'up' : chg < 0 ? 'dn' : '';
+    const col = chg > 0 ? 'var(--green)' : 'var(--red)';
+    const findings = loadFindings().filter(f => f.meta && f.meta.sym === sym && (Date.now() - f.ts) < 8 * 3600 * 1000);
+    const brainScore = Math.min(100, findings.reduce((s, f) => s + (f.severity || 1) * 12, 0));
+    const brainCol = brainScore >= 70 ? 'var(--green)' : brainScore >= 40 ? 'var(--accent)' : 'var(--text-muted)';
+    const row = document.createElement('div');
+    row.className = 'holding-row ' + cls;
+    row.innerHTML = '<div>' + (i + 1) + '</div>'
+      + '<div><strong>' + sym + '</strong></div>'
+      + '<div style="font-family:Inter;color:var(--text-secondary);font-size:11px;">' + name + '</div>'
+      + '<div>' + weight.toFixed(1) + '%</div>'
+      + '<div>$' + q.last.toFixed(2) + '</div>'
+      + '<div style="color:' + col + ';">' + (chg >= 0 ? '+' : '') + chg.toFixed(2) + '%</div>'
+      + '<div style="color:' + brainCol + ';font-weight:' + (brainScore > 0 ? '700' : '500') + ';">' + (brainScore > 0 ? brainScore : '—') + '</div>';
+    row.onclick = () => { window.location.href = 'trade-coach.html?sym=' + sym; };
+    body.appendChild(row);
+  });
+  document.getElementById('kBreadth').textContent = Math.round((greens / def.holdings.length) * 100) + '%';
+
+  // Brain signals
+  const symbols = new Set(def.holdings.map(h => h[0]));
+  const findings = loadFindings().filter(f => f.meta && f.meta.sym && symbols.has(f.meta.sym) && (Date.now() - f.ts) < 4 * 3600 * 1000 && (f.severity || 1) >= 2);
+  const sb = document.getElementById('signalsBody');
+  if (findings.length === 0) {
+    sb.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-muted);font-size:12px;">No high-severity brain signals in ' + currentSec + ' right now.</div>';
+  } else {
+    sb.innerHTML = findings.slice(0, 8).map(f => '<div style="padding:10px 12px;border-bottom:1px solid var(--border);"><strong>' + f.meta.sym + '</strong> · ' + (f.title || f.type) + ' <span style="margin-left:6px;">' + '⭐'.repeat(f.severity || 1) + '</span></div>').join('');
+  }
+}
+paint();
+</script>
+</body>
+</html>

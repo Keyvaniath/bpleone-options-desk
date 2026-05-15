@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>P&L Projector — bpleone / trade</title>
+<meta name="description" content="Monte Carlo P&L projector — see your account in 1 month / 6 months / 1 year based on your stats.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.input-row { display:flex; gap:14px; flex-wrap:wrap; align-items:center; margin-bottom:14px; }
+.input-row label { font-size:12px;color:var(--text-muted);font-weight:700; }
+.input-row input { background:var(--bg-elevated);border:1px solid var(--border);border-radius:6px;padding:8px 12px;color:var(--text-primary);font-family:var(--font-mono);width:120px; }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">📈 P&L Projector</div>
+      <div class="page-subtitle">Monte Carlo · see your account in 1m / 6m / 1y · <span id="market-clock">--</span></div>
+    </div>
+  </div>
+
+  <div class="card mb-24">
+    <div class="card-header"><div class="card-title">⚙ Parameters</div></div>
+    <div class="input-row">
+      <label>Capital</label><input type="number" id="cap" value="50000">
+      <label>Win Rate %</label><input type="number" id="wr" value="55">
+      <label>Avg Win R</label><input type="number" id="winR" value="1.5" step="0.1">
+      <label>Avg Loss R</label><input type="number" id="lossR" value="1.0" step="0.1">
+      <label>Risk %</label><input type="number" id="risk" value="1.5" step="0.1">
+      <label>Trades / Week</label><input type="number" id="tpw" value="5">
+      <button class="btn btn-primary" id="runBtn">▶ Project</button>
+    </div>
+  </div>
+
+  <!-- Result horizons -->
+  <div class="grid grid-3 mb-24">
+    <div class="card"><div class="card-header"><div class="card-title">1 Month</div></div><div class="mono" style="font-size:24px;font-weight:700;" id="m1Mean">--</div><div class="mono" style="font-size:11px;color:var(--text-muted);" id="m1Range">--</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">6 Months</div></div><div class="mono" style="font-size:24px;font-weight:700;" id="m6Mean">--</div><div class="mono" style="font-size:11px;color:var(--text-muted);" id="m6Range">--</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">1 Year</div></div><div class="mono" style="font-size:24px;font-weight:700;" id="y1Mean">--</div><div class="mono" style="font-size:11px;color:var(--text-muted);" id="y1Range">--</div></div>
+  </div>
+
+  <!-- Equity curve fan chart -->
+  <div class="card">
+    <div class="card-header"><div class="card-title">📊 Equity curve · 1000 simulated paths (10/50/90 percentiles)</div></div>
+    <canvas id="fanChart" height="280"></canvas>
+  </div>
+
+  <div class="card mt-24">
+    <div class="card-header"><div class="card-title">🧠 Reading the cone</div></div>
+    <div style="font-size:13px;color:var(--text-secondary);line-height:1.7;">
+      The fan shows the 10th, 50th (median) and 90th percentiles of 1,000 simulated equity curves given your stats. The wider the cone, the more dispersion in possible outcomes. If your 10th percentile drops below starting capital, you have meaningful drawdown risk — consider reducing per-trade size. Compare to <a href="risk-of-ruin.html" style="color:var(--accent);">Risk of Ruin</a> for explicit drawdown-to-zero probability.
+    </div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script src="js/charts.js"></script>
+<script>
+buildNav('pnl-projector');
+
+let fanChart;
+function project() {
+  const cap = +document.getElementById('cap').value;
+  const wr = +document.getElementById('wr').value / 100;
+  const winR = +document.getElementById('winR').value;
+  const lossR = +document.getElementById('lossR').value;
+  const risk = +document.getElementById('risk').value / 100;
+  const tpw = +document.getElementById('tpw').value;
+  const weeks = 52;
+  const sims = 1000;
+
+  const paths = [];
+  for (let s = 0; s < sims; s++) {
+    const path = [cap];
+    let eq = cap;
+    for (let w = 0; w < weeks; w++) {
+      for (let t = 0; t < tpw; t++) {
+        const r = eq * risk;
+        eq += Math.random() < wr ? r * winR : -r * lossR;
+        if (eq <= 0) { eq = 0; break; }
+      }
+      path.push(eq);
+    }
+    paths.push(path);
+  }
+
+  // Compute percentiles per week
+  const p10 = [], p50 = [], p90 = [];
+  for (let w = 0; w <= weeks; w++) {
+    const slice = paths.map(p => p[w]).sort((a, b) => a - b);
+    p10.push(slice[Math.floor(sims * 0.10)]);
+    p50.push(slice[Math.floor(sims * 0.50)]);
+    p90.push(slice[Math.floor(sims * 0.90)]);
+  }
+
+  // KPIs
+  function disp(idx) {
+    return { mean: Math.round(p50[idx]), p10: Math.round(p10[idx]), p90: Math.round(p90[idx]) };
+  }
+  const m1 = disp(4), m6 = disp(26), y1 = disp(52);
+  document.getElementById('m1Mean').textContent = '$' + m1.mean.toLocaleString();
+  document.getElementById('m1Range').textContent = '$' + m1.p10.toLocaleString() + ' → $' + m1.p90.toLocaleString();
+  document.getElementById('m6Mean').textContent = '$' + m6.mean.toLocaleString();
+  document.getElementById('m6Range').textContent = '$' + m6.p10.toLocaleString() + ' → $' + m6.p90.toLocaleString();
+  document.getElementById('y1Mean').textContent = '$' + y1.mean.toLocaleString();
+  document.getElementById('y1Range').textContent = '$' + y1.p10.toLocaleString() + ' → $' + y1.p90.toLocaleString();
+  document.getElementById('m1Mean').style.color = m1.mean > cap ? 'var(--green)' : 'var(--red)';
+  document.getElementById('m6Mean').style.color = m6.mean > cap ? 'var(--green)' : 'var(--red)';
+  document.getElementById('y1Mean').style.color = y1.mean > cap ? 'var(--green)' : 'var(--red)';
+
+  // Fan chart
+  const labels = [];
+  for (let w = 0; w <= weeks; w++) labels.push(w === 0 ? 'Start' : 'W' + w);
+  if (fanChart) fanChart.destroy();
+  fanChart = new Chart(document.getElementById('fanChart').getContext('2d'), {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [
+        { label: 'P90 (top 10%)', data: p90, borderColor: 'rgba(16,185,129,0.6)', backgroundColor: 'rgba(16,185,129,0.05)', fill: '-1', pointRadius: 0, borderWidth: 1.5, tension: 0.2 },
+        { label: 'Median (P50)', data: p50, borderColor: 'rgba(0,212,255,1)', backgroundColor: 'rgba(0,212,255,0.10)', fill: '-1', pointRadius: 0, borderWidth: 2.5, tension: 0.2 },
+        { label: 'P10 (bottom 10%)', data: p10, borderColor: 'rgba(239,68,68,0.6)', pointRadius: 0, borderWidth: 1.5, tension: 0.2 }
+      ]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: true, position: 'top', labels: { color: '#9ca3af', font: { size: 11 } } } },
+      scales: { x: { grid: { color: 'rgba(255,255,255,0.04)' }, ticks: { color: '#6b7280', font: { size: 9 }, maxTicksLimit: 12 } }, y: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#6b7280', callback: v => '$' + (v/1000).toFixed(0) + 'k' } } }
+    }
+  });
+}
+project();
+document.getElementById('runBtn').addEventListener('click', project);
+</script>
+</body>
+</html>

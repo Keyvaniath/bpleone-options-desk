@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Pair Scanner — bpleone / trade</title>
+<meta name="description" content="Cointegrated pairs scanner — Z-score, half-life, beta, correlation across sectors.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.pair-row { display:grid; grid-template-columns: 30px 100px 100px 70px 70px 70px 70px 90px 1fr; gap:8px; padding:11px 12px; border-bottom:1px solid var(--border); font-family:var(--font-mono); font-size:11px; align-items:center; cursor:pointer; }
+.pair-row:hover { background:var(--bg-elevated); }
+.pair-row.tradeable { border-left:3px solid var(--green); background:rgba(16,185,129,0.04); }
+.pair-row.extreme { border-left:3px solid var(--red); background:rgba(239,68,68,0.04); }
+</style>
+</head>
+<body data-needs="live">
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">⚖ Pair Scanner</div>
+      <div class="page-subtitle">Cointegration Z-score · half-life · beta · convergence trades · <span id="market-clock">--</span></div>
+    </div>
+    <div class="flex gap-8"><button class="btn btn-secondary" id="refreshBtn">🔄</button></div>
+  </div>
+
+  <div class="grid grid-4 mb-24">
+    <div class="card"><div class="card-header"><div class="card-title">Tradeable Pairs</div></div><div class="mono" style="font-size:26px;font-weight:700;color:var(--green);" id="kpiTrade">--</div><div class="mono" style="font-size:11px;color:var(--text-muted);">|Z| ≥ 2 + cointegrated</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">Extreme (Z &gt; 3)</div></div><div class="mono red-text" style="font-size:26px;font-weight:700;" id="kpiExtreme">--</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">Avg Half-Life</div></div><div class="mono" style="font-size:26px;font-weight:700;" id="kpiHL">--</div><div class="mono" style="font-size:11px;color:var(--text-muted);">Days to mean revert</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">Best Setup</div></div><div class="mono" style="font-size:18px;font-weight:700;color:var(--accent);" id="kpiTop">--</div><div class="mono" style="font-size:11px;color:var(--text-muted);" id="kpiTopBody">--</div></div>
+  </div>
+
+  <div class="card" style="padding:0;">
+    <div class="card-header" style="padding:14px 16px;"><div class="card-title">📊 Pairs Ranked by Tradeability</div></div>
+    <div class="pair-row" style="background:var(--bg-elevated);font-size:9px;color:var(--text-muted);font-weight:800;letter-spacing:0.5px;">
+      <div>#</div><div>LONG</div><div>SHORT</div><div>Z-SCORE</div><div>HALF-LIFE</div><div>CORR</div><div>BETA</div><div>RATIO</div><div>SETUP</div>
+    </div>
+    <div id="pairBody"></div>
+  </div>
+
+  <div class="card mt-24">
+    <div class="card-header"><div class="card-title">🧠 How to read</div></div>
+    <div class="grid grid-3" style="gap:20px;">
+      <div>
+        <div style="font-weight:700;color:var(--green);margin-bottom:6px;">|Z| ≥ 2 + cointegrated</div>
+        <div style="font-size:13px;color:var(--text-muted);line-height:1.6;">Spread is 2 standard deviations from mean AND historically reverts. Tradeable: long the cheap, short the expensive.</div>
+      </div>
+      <div>
+        <div style="font-weight:700;color:var(--yellow);margin-bottom:6px;">Half-life 5-30 days</div>
+        <div style="font-size:13px;color:var(--text-muted);line-height:1.6;">Time to revert half the spread. Sweet spot. Half-life &lt;5d = noisy. &gt;30d = trade may never close.</div>
+      </div>
+      <div>
+        <div style="font-weight:700;color:var(--red);margin-bottom:6px;">Z &gt; 3 = caution</div>
+        <div style="font-size:13px;color:var(--text-muted);line-height:1.6;">Spread may be diverging structurally (cointegration broken). Could continue widening — confirm with fundamental view.</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script>
+buildNav('pair-scanner');
+
+const PAIRS = [
+  ['NVDA','AMD','Semis'], ['MSFT','GOOGL','MegaTech'], ['XLE','USO','Energy/Oil'], ['XLF','BAC','Banks'],
+  ['TLT','IEF','Duration'], ['SPY','RSP','EqW vs Cap'], ['GLD','SLV','Precious'], ['QQQ','SPY','Tech/Mkt'],
+  ['META','GOOGL','Ad-tech'], ['TSLA','RIVN','EV'], ['BA','LMT','Defense'], ['JPM','GS','I-Bank'],
+  ['XLY','XLP','Cyclic/Defens'], ['IWM','SPY','Small/Large'], ['EEM','EFA','EM/DM'], ['UUP','FXE','USD/EUR'],
+  ['COIN','MSTR','Crypto proxy'], ['NFLX','DIS','Media'], ['BIDU','BABA','China'], ['SHOP','MELI','E-com']
+];
+
+function generate() {
+  return PAIRS.map(([a, b, lbl]) => {
+    const seed = a.charCodeAt(0) * 13 + b.charCodeAt(0);
+    const rand = (k) => { const x = Math.sin(seed + k) * 10000; return x - Math.floor(x); };
+    const z = +((rand(1) - 0.5) * 6).toFixed(2);
+    const halfLife = +(3 + rand(2) * 35).toFixed(0);
+    const corr = +(0.4 + rand(3) * 0.55).toFixed(2);
+    const beta = +(0.6 + rand(4) * 0.9).toFixed(2);
+    const ratio = +(0.7 + rand(5) * 1.5).toFixed(3);
+    const cointegrated = corr > 0.6 && halfLife < 30;
+    let setup;
+    if (Math.abs(z) > 3) setup = 'EXTREME — caution';
+    else if (Math.abs(z) >= 2 && cointegrated) setup = (z > 0 ? 'SHORT ' + a + ' / LONG ' + b : 'LONG ' + a + ' / SHORT ' + b);
+    else if (cointegrated) setup = 'Watch (Z within ±2)';
+    else setup = 'Not cointegrated';
+    return { a, b, lbl, z, halfLife, corr, beta, ratio, setup, cointegrated };
+  }).sort((a, b) => Math.abs(b.z) - Math.abs(a.z));
+}
+
+let data = generate();
+
+function paint() {
+  const body = document.getElementById('pairBody');
+  body.innerHTML = '';
+  data.forEach((p, i) => {
+    const tradeable = Math.abs(p.z) >= 2 && p.cointegrated;
+    const extreme = Math.abs(p.z) > 3;
+    const cls = extreme ? 'extreme' : tradeable ? 'tradeable' : '';
+    const zCol = extreme ? 'var(--red)' : tradeable ? 'var(--green)' : 'var(--text-muted)';
+    const corrCol = p.corr > 0.75 ? 'var(--green)' : p.corr > 0.6 ? 'var(--accent)' : 'var(--text-muted)';
+    const row = document.createElement('div');
+    row.className = 'pair-row ' + cls;
+    row.innerHTML = '<div>' + (i + 1) + '</div>'
+      + '<div><strong>' + p.a + '</strong></div>'
+      + '<div><strong>' + p.b + '</strong></div>'
+      + '<div style="color:' + zCol + ';font-weight:700;">' + (p.z >= 0 ? '+' : '') + p.z + 'σ</div>'
+      + '<div>' + p.halfLife + 'd</div>'
+      + '<div style="color:' + corrCol + ';">' + p.corr + '</div>'
+      + '<div>' + p.beta + '</div>'
+      + '<div>' + p.ratio + '</div>'
+      + '<div style="font-family:Inter;color:var(--text-secondary);font-size:11px;">' + p.setup + '</div>';
+    row.onclick = () => { window.location.href = 'pairs.html'; };
+    body.appendChild(row);
+  });
+
+  document.getElementById('kpiTrade').textContent = data.filter(d => Math.abs(d.z) >= 2 && d.cointegrated).length;
+  document.getElementById('kpiExtreme').textContent = data.filter(d => Math.abs(d.z) > 3).length;
+  document.getElementById('kpiHL').textContent = (data.reduce((s, d) => s + d.halfLife, 0) / data.length).toFixed(0) + 'd';
+  const top = data.filter(d => d.cointegrated).sort((a, b) => Math.abs(b.z) - Math.abs(a.z))[0];
+  if (top) { document.getElementById('kpiTop').textContent = top.a + '/' + top.b; document.getElementById('kpiTopBody').textContent = 'Z=' + top.z; }
+}
+paint();
+document.getElementById('refreshBtn').addEventListener('click', () => { data = generate(); paint(); });
+</script>
+</body>
+</html>

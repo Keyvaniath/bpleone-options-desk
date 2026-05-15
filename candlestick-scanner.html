@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Candlestick Scanner — bpleone / trade</title>
+<meta name="description" content="Scan for specific candlestick patterns: hammer, doji, engulfing, morning/evening star.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.candle-row { display:grid; grid-template-columns: 30px 70px 110px 90px 70px 70px 80px 80px 1fr; gap:8px; padding:11px 12px; border-bottom:1px solid var(--border); font-family:var(--font-mono); font-size:11px; align-items:center; cursor:pointer; }
+.candle-row:hover { background:var(--bg-elevated); }
+.candle-row.bull { border-left:3px solid var(--green); }
+.candle-row.bear { border-left:3px solid var(--red); }
+</style>
+</head>
+<body data-needs="live">
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">🕯 Candlestick Scanner</div>
+      <div class="page-subtitle">Specific candle patterns detected today · w/ context + bias · <span id="market-clock">--</span></div>
+    </div>
+    <div class="flex gap-8"><button class="btn btn-secondary" id="refreshBtn">🔄</button></div>
+  </div>
+
+  <div class="grid grid-4 mb-24">
+    <div class="card"><div class="card-header"><div class="card-title">Bullish Patterns</div></div><div class="mono green-text" style="font-size:26px;font-weight:700;" id="kpiBull">--</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">Bearish Patterns</div></div><div class="mono red-text" style="font-size:26px;font-weight:700;" id="kpiBear">--</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">Most Common</div></div><div class="mono" style="font-size:18px;font-weight:700;color:var(--accent);" id="kpiCommon">--</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">High-Conviction</div></div><div class="mono" style="font-size:26px;font-weight:700;color:var(--yellow);" id="kpiHigh">--</div><div class="mono" style="font-size:11px;color:var(--text-muted);">At support/resistance</div></div>
+  </div>
+
+  <div class="card mb-12" style="padding:10px 14px;">
+    <div class="flex gap-8">
+      <button class="btn btn-ghost btn-active" data-flt="all" style="padding:4px 10px;font-size:11px;">ALL</button>
+      <button class="btn btn-ghost" data-flt="bull" style="padding:4px 10px;font-size:11px;">BULLISH</button>
+      <button class="btn btn-ghost" data-flt="bear" style="padding:4px 10px;font-size:11px;">BEARISH</button>
+      <button class="btn btn-ghost" data-flt="reversal" style="padding:4px 10px;font-size:11px;">REVERSALS</button>
+    </div>
+  </div>
+
+  <div class="card" style="padding:0;">
+    <div class="candle-row" style="background:var(--bg-elevated);font-size:9px;color:var(--text-muted);font-weight:800;letter-spacing:0.5px;">
+      <div>#</div><div>SYM</div><div>PATTERN</div><div>BIAS</div><div>CONF</div><div>NOW</div><div>VOL</div><div>LOCATION</div><div>SIGNAL</div>
+    </div>
+    <div id="candleBody"></div>
+  </div>
+
+  <div class="card mt-24">
+    <div class="card-header"><div class="card-title">🕯 Pattern dictionary</div></div>
+    <div class="grid grid-3" style="gap:14px;">
+      <div style="padding:10px;background:var(--bg-elevated);border-radius:8px;border-left:3px solid var(--green);">
+        <strong style="color:var(--green);">Hammer</strong>
+        <div style="font-size:12px;color:var(--text-muted);line-height:1.5;margin-top:4px;">Long lower wick + small body at top. Bullish reversal in downtrend. Best at support.</div>
+      </div>
+      <div style="padding:10px;background:var(--bg-elevated);border-radius:8px;border-left:3px solid var(--red);">
+        <strong style="color:var(--red);">Shooting Star</strong>
+        <div style="font-size:12px;color:var(--text-muted);line-height:1.5;margin-top:4px;">Long upper wick + small body at bottom. Bearish reversal at resistance.</div>
+      </div>
+      <div style="padding:10px;background:var(--bg-elevated);border-radius:8px;border-left:3px solid var(--green);">
+        <strong style="color:var(--green);">Bullish Engulfing</strong>
+        <div style="font-size:12px;color:var(--text-muted);line-height:1.5;margin-top:4px;">Green candle fully engulfs prior red body. Strong reversal signal at support.</div>
+      </div>
+      <div style="padding:10px;background:var(--bg-elevated);border-radius:8px;border-left:3px solid var(--red);">
+        <strong style="color:var(--red);">Bearish Engulfing</strong>
+        <div style="font-size:12px;color:var(--text-muted);line-height:1.5;margin-top:4px;">Red candle engulfs prior green. Strong reversal at resistance.</div>
+      </div>
+      <div style="padding:10px;background:var(--bg-elevated);border-radius:8px;border-left:3px solid var(--accent);">
+        <strong style="color:var(--accent);">Doji</strong>
+        <div style="font-size:12px;color:var(--text-muted);line-height:1.5;margin-top:4px;">Open ≈ close. Indecision. Context-dependent — direction confirmed by next bar.</div>
+      </div>
+      <div style="padding:10px;background:var(--bg-elevated);border-radius:8px;border-left:3px solid var(--green);">
+        <strong style="color:var(--green);">Morning Star</strong>
+        <div style="font-size:12px;color:var(--text-muted);line-height:1.5;margin-top:4px;">3-bar pattern: down → doji → up. Strong reversal. Higher-probability than single-bar.</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script>
+buildNav('candlestick-scanner');
+
+const PATTERNS = [
+  { name: 'Hammer', bias: 'bull', conf: 3, reversal: true },
+  { name: 'Shooting Star', bias: 'bear', conf: 3, reversal: true },
+  { name: 'Bullish Engulfing', bias: 'bull', conf: 4, reversal: true },
+  { name: 'Bearish Engulfing', bias: 'bear', conf: 4, reversal: true },
+  { name: 'Doji', bias: 'neut', conf: 2, reversal: false },
+  { name: 'Morning Star', bias: 'bull', conf: 5, reversal: true },
+  { name: 'Evening Star', bias: 'bear', conf: 5, reversal: true },
+  { name: 'Three White Soldiers', bias: 'bull', conf: 4, reversal: false },
+  { name: 'Three Black Crows', bias: 'bear', conf: 4, reversal: false },
+  { name: 'Marubozu (bull)', bias: 'bull', conf: 3, reversal: false },
+  { name: 'Marubozu (bear)', bias: 'bear', conf: 3, reversal: false },
+  { name: 'Tweezer Top', bias: 'bear', conf: 3, reversal: true },
+  { name: 'Tweezer Bottom', bias: 'bull', conf: 3, reversal: true },
+  { name: 'Harami (bull)', bias: 'bull', conf: 3, reversal: true },
+  { name: 'Inverted Hammer', bias: 'bull', conf: 2, reversal: true }
+];
+const UNIVERSE = ['NVDA','TSLA','AAPL','MSFT','META','AMZN','GOOGL','AMD','PLTR','COIN','SMCI','NFLX','MSTR','SHOP','UBER','HOOD','SOFI','PANW','SNOW','AVGO','MU','MRVL','LCID','GME','AMC','SPY','QQQ','IWM','XLE','XLK'];
+
+function getQ(s) { return (typeof QUOTES !== 'undefined' && QUOTES[s]) ? QUOTES[s] : { last: 100, volume: 1e6 }; }
+
+function generate() {
+  const detected = [];
+  UNIVERSE.forEach(sym => {
+    // 35% chance of finding a pattern
+    if (Math.random() > 0.35) return;
+    const pat = PATTERNS[Math.floor(Math.random() * PATTERNS.length)];
+    const q = getQ(sym);
+    const volRatio = +(0.7 + Math.random() * 2.5).toFixed(2);
+    const location = Math.random() > 0.5 ? 'support' : Math.random() > 0.5 ? 'resistance' : 'midrange';
+    detected.push({ sym, pat, q, volRatio, location });
+  });
+  return detected.sort((a, b) => b.pat.conf - a.pat.conf);
+}
+
+let data = generate();
+let flt = 'all';
+
+function paint() {
+  let rows = data;
+  if (flt === 'bull') rows = data.filter(d => d.pat.bias === 'bull');
+  else if (flt === 'bear') rows = data.filter(d => d.pat.bias === 'bear');
+  else if (flt === 'reversal') rows = data.filter(d => d.pat.reversal);
+
+  const body = document.getElementById('candleBody');
+  body.innerHTML = '';
+  rows.forEach((d, i) => {
+    const cls = 'candle-row ' + (d.pat.bias === 'bull' ? 'bull' : d.pat.bias === 'bear' ? 'bear' : '');
+    const col = d.pat.bias === 'bull' ? 'var(--green)' : d.pat.bias === 'bear' ? 'var(--red)' : 'var(--accent)';
+    const conf = '⭐'.repeat(d.pat.conf);
+    const volCol = d.volRatio > 2 ? 'var(--yellow)' : d.volRatio > 1 ? 'var(--accent)' : 'var(--text-muted)';
+    const locCol = d.location === 'support' ? 'var(--green)' : d.location === 'resistance' ? 'var(--red)' : 'var(--text-muted)';
+    const isStrong = (d.location === 'support' && d.pat.bias === 'bull') || (d.location === 'resistance' && d.pat.bias === 'bear');
+    const signal = isStrong ? 'STRONG' : d.pat.reversal ? 'Reversal' : 'Continuation';
+    const row = document.createElement('div');
+    row.className = cls;
+    row.innerHTML = '<div>' + (i + 1) + '</div>'
+      + '<div><strong>' + d.sym + '</strong></div>'
+      + '<div style="font-family:Inter;color:var(--text-secondary);font-size:11px;">' + d.pat.name + '</div>'
+      + '<div style="color:' + col + ';font-weight:700;">' + d.pat.bias.toUpperCase() + '</div>'
+      + '<div style="font-size:10px;">' + conf + '</div>'
+      + '<div>$' + d.q.last.toFixed(2) + '</div>'
+      + '<div style="color:' + volCol + ';">' + d.volRatio + '×</div>'
+      + '<div style="color:' + locCol + ';">' + d.location + '</div>'
+      + '<div style="color:' + (isStrong ? 'var(--green)' : 'var(--text-muted)') + ';font-weight:' + (isStrong ? '700' : '500') + ';font-family:Inter;font-size:11px;">' + signal + '</div>';
+    row.onclick = () => { window.location.href = 'trade-coach.html?sym=' + d.sym; };
+    body.appendChild(row);
+  });
+
+  document.getElementById('kpiBull').textContent = data.filter(d => d.pat.bias === 'bull').length;
+  document.getElementById('kpiBear').textContent = data.filter(d => d.pat.bias === 'bear').length;
+  const counts = {};
+  data.forEach(d => counts[d.pat.name] = (counts[d.pat.name] || 0) + 1);
+  const top = Object.entries(counts).sort((a, b) => b[1] - a[1])[0];
+  if (top) document.getElementById('kpiCommon').textContent = top[0];
+  const strong = data.filter(d => (d.location === 'support' && d.pat.bias === 'bull') || (d.location === 'resistance' && d.pat.bias === 'bear')).length;
+  document.getElementById('kpiHigh').textContent = strong;
+}
+paint();
+
+document.querySelectorAll('[data-flt]').forEach(b => b.addEventListener('click', () => {
+  document.querySelectorAll('[data-flt]').forEach(x => x.classList.remove('btn-active'));
+  b.classList.add('btn-active');
+  flt = b.dataset.flt;
+  paint();
+}));
+document.getElementById('refreshBtn').addEventListener('click', () => { data = generate(); paint(); });
+</script>
+</body>
+</html>

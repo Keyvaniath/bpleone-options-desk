@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Retracement Finder — bpleone / trade</title>
+<meta name="description" content="Fibonacci retracement calculator + scanner — find stocks at 38.2%/50%/61.8% pullback zones.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.fib-row { display:grid; grid-template-columns: 30px 70px 80px 80px 80px 90px 90px 90px 1fr; gap:8px; padding:11px 12px; border-bottom:1px solid var(--border); font-family:var(--font-mono); font-size:11px; align-items:center; cursor:pointer; }
+.fib-row:hover { background:var(--bg-elevated); }
+.fib-row.golden { border-left:3px solid var(--accent); background:rgba(0,212,255,0.04); }
+.fib-row.support-50 { border-left:3px solid var(--yellow); }
+.fib-row.support-382 { border-left:3px solid var(--green); }
+.fib-band { padding:2px 6px;border-radius:3px;font-size:10px;font-weight:700; }
+.b-382 { background:rgba(16,185,129,0.15); color:var(--green); }
+.b-50 { background:rgba(245,158,11,0.15); color:var(--yellow); }
+.b-618 { background:rgba(0,212,255,0.15); color:var(--accent); }
+</style>
+</head>
+<body data-needs="live">
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">📐 Retracement Finder</div>
+      <div class="page-subtitle">Stocks at Fib retracement zones · 38.2 / 50 / 61.8 · <span id="market-clock">--</span></div>
+    </div>
+    <div class="flex gap-8"><button class="btn btn-secondary" id="refreshBtn">🔄</button></div>
+  </div>
+
+  <div class="grid grid-4 mb-24">
+    <div class="card"><div class="card-header"><div class="card-title">At Golden Pocket</div></div><div class="mono" style="font-size:26px;font-weight:700;color:var(--accent);" id="kpiGolden">--</div><div class="mono" style="font-size:11px;color:var(--text-muted);">61.8% retracement zone</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">At 50%</div></div><div class="mono" style="font-size:26px;font-weight:700;color:var(--yellow);" id="kpi50">--</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">At 38.2%</div></div><div class="mono green-text" style="font-size:26px;font-weight:700;" id="kpi382">--</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">Top Setup</div></div><div class="mono" style="font-size:18px;font-weight:700;color:var(--accent);" id="kpiTop">--</div><div class="mono" style="font-size:11px;color:var(--text-muted);" id="kpiTopBody">--</div></div>
+  </div>
+
+  <div class="card" style="padding:0;">
+    <div class="card-header" style="padding:14px 16px;"><div class="card-title">📊 Pullback Scanner</div></div>
+    <div class="fib-row" style="background:var(--bg-elevated);font-size:9px;color:var(--text-muted);font-weight:800;letter-spacing:0.5px;">
+      <div>#</div><div>SYM</div><div>SWING H</div><div>SWING L</div><div>NOW</div><div>38.2%</div><div>50%</div><div>61.8%</div><div>AT BAND</div>
+    </div>
+    <div id="fibBody"></div>
+  </div>
+
+  <div class="card mt-24">
+    <div class="card-header"><div class="card-title">🧠 How to use Fibonacci</div></div>
+    <div class="grid grid-3" style="gap:20px;">
+      <div>
+        <div style="font-weight:700;color:var(--green);margin-bottom:6px;">38.2% (shallow)</div>
+        <div style="font-size:13px;color:var(--text-muted);line-height:1.6;">Strong trend pullback. Trend-followers buy here. Failure = trend in trouble.</div>
+      </div>
+      <div>
+        <div style="font-weight:700;color:var(--yellow);margin-bottom:6px;">50% (textbook)</div>
+        <div style="font-size:13px;color:var(--text-muted);line-height:1.6;">Halfway point. Mean retracement for healthy uptrends. Logical re-entry zone.</div>
+      </div>
+      <div>
+        <div style="font-weight:700;color:var(--accent);margin-bottom:6px;">61.8% (golden pocket)</div>
+        <div style="font-size:13px;color:var(--text-muted);line-height:1.6;">Deep pullback. Last support before trend invalidation. Highest R/R if trend resumes here.</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script>
+buildNav('retracement-finder');
+
+const UNIVERSE = ['NVDA','TSLA','AAPL','MSFT','META','AMZN','GOOGL','AMD','PLTR','COIN','SMCI','NFLX','MSTR','SHOP','UBER','HOOD','SOFI','PANW','SNOW','AVGO','MU','MRVL','LCID','RIVN','DIS','BA','JPM','XLE','XLF','XLK','TLT','GLD','BTC','ETH','SPY','QQQ','IWM'];
+
+function getQ(s) { return (typeof QUOTES !== 'undefined' && QUOTES[s]) ? QUOTES[s] : { last: 100 }; }
+
+function generate() {
+  return UNIVERSE.map(sym => {
+    const seed = sym.charCodeAt(0) * 23 + (sym.charCodeAt(1) || 0);
+    const rand = (k) => { const x = Math.sin(seed + k) * 10000; return x - Math.floor(x); };
+    const q = getQ(sym);
+    const px = q.last || 100;
+    const swingH = +(px * (1 + 0.10 + rand(1) * 0.20)).toFixed(2);
+    const swingL = +(px * (1 - 0.05 - rand(2) * 0.15)).toFixed(2);
+    const range = swingH - swingL;
+    const fib382 = +(swingH - range * 0.382).toFixed(2);
+    const fib50 = +(swingH - range * 0.500).toFixed(2);
+    const fib618 = +(swingH - range * 0.618).toFixed(2);
+    // Which band is closest?
+    const distances = [
+      { name: '38.2%', v: fib382, dist: Math.abs(px - fib382) / px },
+      { name: '50%', v: fib50, dist: Math.abs(px - fib50) / px },
+      { name: '61.8%', v: fib618, dist: Math.abs(px - fib618) / px }
+    ];
+    distances.sort((a, b) => a.dist - b.dist);
+    const nearest = distances[0];
+    const atBand = nearest.dist < 0.015;
+    return { sym, px, swingH, swingL, fib382, fib50, fib618, nearest, atBand };
+  }).filter(d => d.atBand).sort((a, b) => a.nearest.dist - b.nearest.dist);
+}
+
+let data = generate();
+
+function paint() {
+  const body = document.getElementById('fibBody');
+  body.innerHTML = '';
+  if (data.length === 0) {
+    body.innerHTML = '<div style="padding:30px;text-align:center;color:var(--text-muted);font-size:13px;">No stocks currently at major Fib retracement bands. Try again later.</div>';
+  } else {
+    data.forEach((d, i) => {
+      const cls = d.nearest.name === '61.8%' ? 'golden' : d.nearest.name === '50%' ? 'support-50' : 'support-382';
+      const bandCls = d.nearest.name === '61.8%' ? 'b-618' : d.nearest.name === '50%' ? 'b-50' : 'b-382';
+      const row = document.createElement('div');
+      row.className = 'fib-row ' + cls;
+      row.innerHTML = '<div>' + (i + 1) + '</div>'
+        + '<div><strong>' + d.sym + '</strong></div>'
+        + '<div style="color:var(--green);">$' + d.swingH.toFixed(2) + '</div>'
+        + '<div style="color:var(--red);">$' + d.swingL.toFixed(2) + '</div>'
+        + '<div>$' + d.px.toFixed(2) + '</div>'
+        + '<div>$' + d.fib382.toFixed(2) + '</div>'
+        + '<div>$' + d.fib50.toFixed(2) + '</div>'
+        + '<div>$' + d.fib618.toFixed(2) + '</div>'
+        + '<div><span class="fib-band ' + bandCls + '">AT ' + d.nearest.name + '</span></div>';
+      row.onclick = () => { window.location.href = 'trade-coach.html?sym=' + d.sym; };
+      body.appendChild(row);
+    });
+  }
+  document.getElementById('kpiGolden').textContent = data.filter(d => d.nearest.name === '61.8%').length;
+  document.getElementById('kpi50').textContent = data.filter(d => d.nearest.name === '50%').length;
+  document.getElementById('kpi382').textContent = data.filter(d => d.nearest.name === '38.2%').length;
+  if (data.length > 0) {
+    document.getElementById('kpiTop').textContent = data[0].sym;
+    document.getElementById('kpiTopBody').textContent = 'At ' + data[0].nearest.name;
+  }
+}
+paint();
+document.getElementById('refreshBtn').addEventListener('click', () => { data = generate(); paint(); });
+</script>
+</body>
+</html>

@@ -99,7 +99,7 @@ function buildNav(activePage) {
   activePage = activePage || '';
   const playsGrp = ['totd','plays','signals','earnings','earnings-preview','pre-market','zero-dte','setup-wizard','paper-trade','game-plan','hot-movers','squeeze-radar','trade-plan'];
   const tradeGrp = ['flow','chain','ta','momentum','market-internals','smart-money','heatmap','watchlists','vol-surface','gex','tape','sectors','pairs','calendar-analyzer','vol-cone','dark-pool','short-interest','etf-flows','volume-profile','order-flow','ticker','multi-leg-builder','bracket-builder','spread-scanner','wheel','correlation'];
-  const toolsGrp = ['risk','fundamentals','backtester','edge','learn','learn-engine-explained','crypto','journal','alerts','macro','news','screener','anomalies','assistant','ai-scout','portfolio-builder','position-sizing','execution','strategies','api','seasonality','economic-events','settings','mindset','changelog','friday-summary','replay','live-positions','risk-attribution','edge-scanner','hypothetical','account','setup-combos','kelly-sizer','potd-backtest','news-reactions','live-train','radar','ai-cotrader','train-history','alerts-dashboard','weight-heatmap','sector-rotation','options-flow-live','earnings-playbook','daily-debrief','multi-backtest','pre-market-scanner','position-stacking','crypto-commodities','after-hours-scanner','tomorrow-playbook','earnings-tonight','global-markets','cross-asset-correlations','trade-ticket','trade-blotter','conviction-board','squeeze-radar-pro','insider-congress-flow','calendar-plays','pair-trades','iv-skew','crypto-basis','desk-split','confluence-scanner','live-pnl-heatmap','time-of-day-pnl','brain-heartbeat','discoveries','comparison','strike-chaser','yield-curve','ml-feedback','dark-pool-pro','conviction-stack','cross-asset-pulse','vol-term','squeeze-composite','big-bets','setup-library','brain-audit','liquidity-health','sector-flow','iv-crush-tracker','morning-brief','news-pulse','breadth-pro','halt-tracker','pre-market-gappers','moc-imbalance','risk-radar','crypto-derivatives','dollar-leaders','trade-coach','watchlist-pro','smart-rotation','gex-pro','correlations-live','day-trader-pro','options-skew-radar','ai-narrative','levels-engine','pdt-dashboard','catalyst-clock','flow-replay','risk-parity','algo-signals','earnings-reactor','insider-live','congress-trades','buybacks-tracker','brain-decisions','mean-reversion-scanner','trend-strength','ipo-calendar','symbol-diff','pwa-install','short-squeeze-alerts','vix-pulse','market-map','day-pnl-calendar','opex-tracker','live-watcher','paper-portfolio','alerts-builder','trade-tape'];
+  const toolsGrp = ['risk','fundamentals','backtester','edge','learn','learn-engine-explained','crypto','journal','alerts','macro','news','screener','anomalies','assistant','ai-scout','portfolio-builder','position-sizing','execution','strategies','api','seasonality','economic-events','settings','mindset','changelog','friday-summary','replay','live-positions','risk-attribution','edge-scanner','hypothetical','account','setup-combos','kelly-sizer','potd-backtest','news-reactions','live-train','radar','ai-cotrader','train-history','alerts-dashboard','weight-heatmap','sector-rotation','options-flow-live','earnings-playbook','daily-debrief','multi-backtest','pre-market-scanner','position-stacking','crypto-commodities','after-hours-scanner','tomorrow-playbook','earnings-tonight','global-markets','cross-asset-correlations','trade-ticket','trade-blotter','conviction-board','squeeze-radar-pro','insider-congress-flow','calendar-plays','pair-trades','iv-skew','crypto-basis','desk-split','confluence-scanner','live-pnl-heatmap','time-of-day-pnl','brain-heartbeat','discoveries','comparison','strike-chaser','yield-curve','ml-feedback','dark-pool-pro','conviction-stack','cross-asset-pulse','vol-term','squeeze-composite','big-bets','setup-library','brain-audit','liquidity-health','sector-flow','iv-crush-tracker','morning-brief','news-pulse','breadth-pro','halt-tracker','pre-market-gappers','moc-imbalance','risk-radar','crypto-derivatives','dollar-leaders','trade-coach','watchlist-pro','smart-rotation','gex-pro','correlations-live','day-trader-pro','options-skew-radar','ai-narrative','levels-engine','pdt-dashboard','catalyst-clock','flow-replay','risk-parity','algo-signals','earnings-reactor','insider-live','congress-trades','buybacks-tracker','brain-decisions','mean-reversion-scanner','trend-strength','ipo-calendar','symbol-diff','pwa-install','short-squeeze-alerts','vix-pulse','market-map','day-pnl-calendar','opex-tracker','live-watcher','paper-portfolio','alerts-builder','trade-tape','all-tools','pair-scanner','economic-clock','risk-of-ruin','trade-journal-pro','retracement-finder','candlestick-scanner','sector-snapshot','margin-calc','pnl-projector'];
   const isTrade = tradeGrp.indexOf(activePage) !== -1;
   const isPlays = playsGrp.indexOf(activePage) !== -1;
   const isTools = toolsGrp.indexOf(activePage) !== -1;
@@ -260,6 +260,16 @@ function buildNav(activePage) {
     + '<a href="paper-portfolio.html">🎮 Paper Portfolio <span class="feat-badge feat-new" style="font-size:8px;padding:0 5px;">NEW</span></a>'
     + '<a href="alerts-builder.html">🔔 Alerts Builder <span class="feat-badge feat-new" style="font-size:8px;padding:0 5px;">NEW</span></a>'
     + '<a href="trade-tape.html">🎞 Trade Tape <span class="feat-badge feat-live" style="font-size:8px;padding:0 5px;">LIVE</span></a>'
+    + '<a href="all-tools.html">🗂 All Tools <span class="feat-badge feat-new" style="font-size:8px;padding:0 5px;">NEW</span></a>'
+    + '<a href="pair-scanner.html">⚖ Pair Scanner <span class="feat-badge feat-pro" style="font-size:8px;padding:0 5px;">PRO</span></a>'
+    + '<a href="economic-clock.html">🏦 Economic Clock <span class="feat-badge feat-new" style="font-size:8px;padding:0 5px;">NEW</span></a>'
+    + '<a href="risk-of-ruin.html">🎲 Risk of Ruin <span class="feat-badge feat-pro" style="font-size:8px;padding:0 5px;">PRO</span></a>'
+    + '<a href="trade-journal-pro.html">📓 Journal PRO <span class="feat-badge feat-pro" style="font-size:8px;padding:0 5px;">PRO</span></a>'
+    + '<a href="retracement-finder.html">📐 Fib Retracements <span class="feat-badge feat-new" style="font-size:8px;padding:0 5px;">NEW</span></a>'
+    + '<a href="candlestick-scanner.html">🕯 Candlestick Scanner <span class="feat-badge feat-pro" style="font-size:8px;padding:0 5px;">PRO</span></a>'
+    + '<a href="sector-snapshot.html">🏢 Sector Snapshot <span class="feat-badge feat-pro" style="font-size:8px;padding:0 5px;">PRO</span></a>'
+    + '<a href="margin-calc.html">📐 Margin Calculator <span class="feat-badge feat-new" style="font-size:8px;padding:0 5px;">NEW</span></a>'
+    + '<a href="pnl-projector.html">📈 P&amp;L Projector <span class="feat-badge feat-pro" style="font-size:8px;padding:0 5px;">PRO</span></a>'
     + '<a href="position-stacking.html">🛡 Position Stacking <span class="feat-badge feat-new" style="font-size:8px;padding:0 5px;">NEW</span></a>'
     + '<a href="crypto-commodities.html">🌍 Crypto + Commodities <span class="feat-badge feat-live" style="font-size:8px;padding:0 5px;">LIVE</span></a>'
     + '<a href="edge-scanner.html">🛰 Live Edge Scanner <span class="feat-badge feat-live" style="font-size:8px;padding:0 5px;">LIVE</span></a>'
@@ -590,6 +600,16 @@ function buildFooter() {
     + '<li><a href="paper-portfolio.html">Paper Portfolio</a></li>'
     + '<li><a href="alerts-builder.html">Alerts Builder</a></li>'
     + '<li><a href="trade-tape.html">Trade Tape</a></li>'
+    + '<li><a href="all-tools.html">All Tools</a></li>'
+    + '<li><a href="pair-scanner.html">Pair Scanner</a></li>'
+    + '<li><a href="economic-clock.html">Economic Clock</a></li>'
+    + '<li><a href="risk-of-ruin.html">Risk of Ruin</a></li>'
+    + '<li><a href="trade-journal-pro.html">Journal PRO</a></li>'
+    + '<li><a href="retracement-finder.html">Fib Retracements</a></li>'
+    + '<li><a href="candlestick-scanner.html">Candlestick Scanner</a></li>'
+    + '<li><a href="sector-snapshot.html">Sector Snapshot</a></li>'
+    + '<li><a href="margin-calc.html">Margin Calculator</a></li>'
+    + '<li><a href="pnl-projector.html">P&amp;L Projector</a></li>'
     + '<li><a href="position-stacking.html">Position Stacking</a></li>'
     + '<li><a href="crypto-commodities.html">Crypto + Commodities</a></li>'
     + '<li><a href="edge-scanner.html">Edge Scanner</a></li>'

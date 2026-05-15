@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Risk of Ruin — bpleone / trade</title>
+<meta name="description" content="Monte Carlo risk-of-ruin calculator · 10,000 simulations · find your survival probability.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.input-row { display:flex;gap:14px;flex-wrap:wrap;align-items:center;margin-bottom:14px; }
+.input-row label { font-size:12px;color:var(--text-muted);font-weight:700; }
+.input-row input { background:var(--bg-elevated);border:1px solid var(--border);border-radius:6px;padding:8px 12px;color:var(--text-primary);font-family:var(--font-mono);width:120px;font-size:14px; }
+.mega-num { font-family:var(--font-mono);font-size:64px;font-weight:800;letter-spacing:-1.5px; }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">🎲 Risk of Ruin</div>
+      <div class="page-subtitle">Monte Carlo simulator · 10,000 paths · find your survival probability · <span id="market-clock">--</span></div>
+    </div>
+  </div>
+
+  <!-- INPUTS -->
+  <div class="card mb-24">
+    <div class="card-header"><div class="card-title">⚙ Parameters</div></div>
+    <div class="input-row">
+      <label>Starting Capital</label><input type="number" id="cap" value="50000">
+      <label>Per-Trade Risk %</label><input type="number" id="riskPct" value="2" step="0.1">
+      <label>Win Rate %</label><input type="number" id="winRate" value="55">
+      <label>Avg Win R</label><input type="number" id="winR" value="1.8" step="0.1">
+      <label>Avg Loss R</label><input type="number" id="lossR" value="1.0" step="0.1">
+      <label>Trades</label><input type="number" id="trades" value="500">
+      <label>Ruin Threshold $</label><input type="number" id="ruin" value="20000">
+      <button class="btn btn-primary" id="runBtn">▶ Run 10,000 Sims</button>
+    </div>
+  </div>
+
+  <!-- RESULTS -->
+  <div class="grid grid-4 mb-24">
+    <div class="card"><div class="card-header"><div class="card-title">Risk of Ruin</div></div><div class="mega-num" style="font-size:32px;" id="kpiRoR">--</div><div class="mono" style="font-size:11px;color:var(--text-muted);">P(hit ruin threshold)</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">Expected Outcome</div></div><div class="mono" style="font-size:26px;font-weight:700;" id="kpiExp">--</div><div class="mono" style="font-size:11px;color:var(--text-muted);">Mean ending capital</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">Best 5% (P95)</div></div><div class="mono green-text" style="font-size:26px;font-weight:700;" id="kpiBest">--</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">Worst 5% (P5)</div></div><div class="mono red-text" style="font-size:26px;font-weight:700;" id="kpiWorst">--</div></div>
+  </div>
+
+  <!-- DISTRIBUTION CHART -->
+  <div class="card">
+    <div class="card-header"><div class="card-title">📊 Ending capital distribution (10,000 paths)</div></div>
+    <canvas id="distChart" height="220"></canvas>
+  </div>
+
+  <!-- ADVICE -->
+  <div class="card mt-24">
+    <div class="card-header"><div class="card-title">🧠 Reading the result</div></div>
+    <div id="advice" style="font-size:13px;line-height:1.7;"></div>
+  </div>
+
+  <!-- THEORY -->
+  <div class="card mt-24">
+    <div class="card-header"><div class="card-title">📚 The math</div></div>
+    <div style="font-size:13px;color:var(--text-secondary);line-height:1.7;">
+      Each "trade" draws from your win-rate distribution: with probability <strong>p</strong> you win <strong>winR × risk</strong>, otherwise you lose <strong>lossR × risk</strong>. The simulator runs your full sequence of N trades 10,000 times and counts how often you hit the ruin threshold before finishing. Industry rule-of-thumb: risk-of-ruin should be &lt;1% for serious capital. If yours is &gt;5%, reduce per-trade risk before considering it a real edge.
+    </div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script src="js/charts.js"></script>
+<script>
+buildNav('risk-of-ruin');
+
+function simulate() {
+  const cap = +document.getElementById('cap').value;
+  const riskPct = +document.getElementById('riskPct').value / 100;
+  const wr = +document.getElementById('winRate').value / 100;
+  const winR = +document.getElementById('winR').value;
+  const lossR = +document.getElementById('lossR').value;
+  const N = Math.floor(+document.getElementById('trades').value);
+  const ruin = +document.getElementById('ruin').value;
+  const sims = 10000;
+  const endings = [];
+  let ruinHits = 0;
+  for (let s = 0; s < sims; s++) {
+    let eq = cap;
+    let hitRuin = false;
+    for (let t = 0; t < N; t++) {
+      const risk = eq * riskPct;
+      const win = Math.random() < wr;
+      eq += win ? risk * winR : -risk * lossR;
+      if (eq <= ruin) { hitRuin = true; break; }
+    }
+    if (hitRuin) ruinHits++;
+    endings.push(Math.max(0, eq));
+  }
+  endings.sort((a, b) => a - b);
+  return {
+    ror: ruinHits / sims,
+    mean: endings.reduce((s, e) => s + e, 0) / endings.length,
+    p5: endings[Math.floor(sims * 0.05)],
+    p95: endings[Math.floor(sims * 0.95)],
+    p50: endings[Math.floor(sims * 0.50)],
+    endings, ruin
+  };
+}
+
+let distChart;
+function paint() {
+  const r = simulate();
+  document.getElementById('kpiRoR').textContent = (r.ror * 100).toFixed(2) + '%';
+  document.getElementById('kpiRoR').style.color = r.ror > 0.10 ? 'var(--red)' : r.ror > 0.03 ? 'var(--yellow)' : 'var(--green)';
+  document.getElementById('kpiExp').textContent = '$' + Math.round(r.mean).toLocaleString();
+  document.getElementById('kpiBest').textContent = '$' + Math.round(r.p95).toLocaleString();
+  document.getElementById('kpiWorst').textContent = '$' + Math.round(r.p5).toLocaleString();
+
+  // Histogram bins
+  const bins = 25;
+  const min = Math.min(...r.endings);
+  const max = Math.max(...r.endings);
+  const binSize = (max - min) / bins;
+  const counts = new Array(bins).fill(0);
+  r.endings.forEach(e => {
+    const idx = Math.min(bins - 1, Math.floor((e - min) / binSize));
+    counts[idx]++;
+  });
+  const labels = counts.map((_, i) => '$' + Math.round(min + i * binSize).toLocaleString());
+  const colors = counts.map((_, i) => {
+    const v = min + i * binSize;
+    return v < r.ruin ? 'rgba(239,68,68,0.7)' : v < +document.getElementById('cap').value ? 'rgba(245,158,11,0.7)' : 'rgba(16,185,129,0.7)';
+  });
+  if (distChart) distChart.destroy();
+  distChart = new Chart(document.getElementById('distChart').getContext('2d'), {
+    type: 'bar', data: { labels, datasets: [{ data: counts, backgroundColor: colors }] },
+    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { ticks: { color: '#6b7280', font: { size: 9 }, maxTicksLimit: 12 }, grid: { display: false } }, y: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#6b7280' } } } }
+  });
+
+  // Advice
+  let advice;
+  if (r.ror < 0.01) advice = '<strong style="color:var(--green);">✅ EXCELLENT.</strong> Risk of ruin under 1%. Your edge + sizing combination is sustainable. Can size up cautiously if needed.';
+  else if (r.ror < 0.05) advice = '<strong style="color:var(--accent);">✓ OK.</strong> Risk of ruin 1-5%. Acceptable for active traders. Track real performance vs. simulated assumptions weekly.';
+  else if (r.ror < 0.20) advice = '<strong style="color:var(--yellow);">⚠ ELEVATED.</strong> Risk of ruin 5-20%. Reduce per-trade risk or improve win rate / R-multiple before pressing.';
+  else advice = '<strong style="color:var(--red);">🚨 DANGER.</strong> Risk of ruin over 20%. You\'re likely to blow up. Cut size in half AND review whether your edge assumptions are realistic.';
+  advice += ' Median outcome: $' + Math.round(r.p50).toLocaleString() + '.';
+  document.getElementById('advice').innerHTML = advice;
+}
+paint();
+document.getElementById('runBtn').addEventListener('click', paint);
+</script>
+</body>
+</html>
