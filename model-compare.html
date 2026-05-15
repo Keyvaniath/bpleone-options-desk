@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Model Compare — bpleone / trade</title>
+<meta name="description" content="Compare logistic, MLP, and rule-based predictions side-by-side. Vote across models for ensemble confidence.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.cmp-row { display:grid; grid-template-columns: 30px 70px 90px 90px 90px 90px 1fr; gap:10px; padding:11px 14px; border-bottom:1px solid var(--border); font-family:var(--font-mono); font-size:11px; align-items:center; cursor:pointer; }
+.cmp-row:hover { background:var(--bg-elevated); }
+.cmp-row.agree-win { border-left:3px solid var(--green); background:rgba(16,185,129,0.04); }
+.cmp-row.agree-loss { border-left:3px solid var(--red); background:rgba(239,68,68,0.04); }
+.cmp-row.disagree { border-left:3px solid var(--yellow); background:rgba(245,158,11,0.04); }
+.prob-pill { padding:3px 8px; border-radius:4px; font-weight:700; }
+</style>
+</head>
+<body data-needs="live">
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">⚖ Model Compare</div>
+      <div class="page-subtitle">Logistic vs MLP vs rule-based · ensemble vote · <span id="market-clock">--</span></div>
+    </div>
+    <div class="flex gap-8">
+      <button class="btn btn-secondary" id="refreshBtn">🔄 Re-predict</button>
+    </div>
+  </div>
+
+  <div class="grid grid-4 mb-24">
+    <div class="card"><div class="card-header"><div class="card-title">Findings Analyzed</div></div><div class="mono" style="font-size:26px;font-weight:700;" id="kCount">--</div><div class="mono" style="font-size:11px;color:var(--text-muted);">Last 8h</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">All Agree WIN</div></div><div class="mono green-text" style="font-size:26px;font-weight:700;" id="kAW">--</div><div class="mono" style="font-size:11px;color:var(--text-muted);">High confidence buys</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">All Agree LOSS</div></div><div class="mono red-text" style="font-size:26px;font-weight:700;" id="kAL">--</div><div class="mono" style="font-size:11px;color:var(--text-muted);">High confidence fades</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">Disagreements</div></div><div class="mono" style="font-size:26px;font-weight:700;color:var(--yellow);" id="kDis">--</div><div class="mono" style="font-size:11px;color:var(--text-muted);">Skip these</div></div>
+  </div>
+
+  <div class="card mb-24" style="background:linear-gradient(135deg,rgba(0,212,255,0.05),transparent);">
+    <div style="font-size:13px;color:var(--text-secondary);line-height:1.7;">
+      Three models predict each finding: <strong style="color:var(--accent);">Logistic</strong> (linear), <strong style="color:#a78bfa;">MLP</strong> (non-linear), <strong style="color:var(--yellow);">Rule-based</strong> (severity × brain weight). When all three agree the signal is strongest. When they disagree, treat it as noise.
+    </div>
+  </div>
+
+  <div class="card" style="padding:0;">
+    <div class="card-header" style="padding:14px 16px;"><div class="card-title">📊 Per-finding comparison</div></div>
+    <div class="cmp-row" style="background:var(--bg-elevated);font-size:9px;color:var(--text-muted);font-weight:800;letter-spacing:0.5px;">
+      <div>#</div><div>SYM</div><div>LOGISTIC</div><div>MLP</div><div>RULE</div><div>VOTE</div><div>VERDICT</div>
+    </div>
+    <div id="cmpBody"></div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script src="js/model.js"></script>
+<script>
+buildNav('model-compare');
+
+const MLP_KEY = 'bpleone_mlp_v1';
+
+function loadMLPRaw() {
+  try { return JSON.parse(localStorage.getItem(MLP_KEY) || 'null'); } catch (e) { return null; }
+}
+
+function mlpPredict(d, x) {
+  if (!d) return null;
+  const z1 = new Array(d.hiddenDim).fill(0);
+  const a1 = new Array(d.hiddenDim).fill(0);
+  for (let h = 0; h < d.hiddenDim; h++) {
+    let s = d.b1[h];
+    for (let i = 0; i < x.length; i++) s += d.W1[h][i] * x[i];
+    z1[h] = s;
+    a1[h] = Math.max(0, s);
+  }
+  let z2 = d.b2;
+  for (let h = 0; h < d.hiddenDim; h++) z2 += d.W2[h] * a1[h];
+  z2 = Math.max(-30, Math.min(30, z2));
+  return 1 / (1 + Math.exp(-z2));
+}
+
+function paint() {
+  const findings = (function () { try { return JSON.parse(localStorage.getItem('bpleone_brain_findings_v1') || '{"items":[]}').items; } catch (e) { return []; } })();
+  const recent = findings.filter(f => f.features && (Date.now() - f.ts) < 8 * 3600 * 1000);
+  const logistic = ModelStore.load();
+  const mlp = loadMLPRaw();
+  const learn = (function () { try { return JSON.parse(localStorage.getItem('bpleone_learn_v1') || '{}'); } catch (e) { return {}; } })();
+
+  const rows = recent.map(f => {
+    const lp = logistic.predict(f.features).prob;
+    const mp = mlp ? mlpPredict(mlp, f.features) : null;
+    const sym = f.meta && f.meta.sym;
+    const w = (learn.symbols && learn.symbols[sym] && learn.symbols[sym].w) || 1.0;
+    // Rule-based score: severity * weight, normalized to 0-1
+    const ruleScore = Math.min(1, ((f.severity || 1) / 3) * w * 0.7);
+    const votes = [lp >= 0.5, mp != null && mp >= 0.5, ruleScore >= 0.5];
+    const validVotes = votes.filter(v => v !== null);
+    const wins = votes.filter(v => v).length;
+    const losses = votes.length - wins;
+    const verdict = wins >= 2 ? 'WIN' : 'LOSS';
+    const agreement = (wins === votes.length || losses === votes.length);
+    return { f, lp, mp, ruleScore, votes, verdict, agreement, wins };
+  });
+
+  document.getElementById('kCount').textContent = rows.length;
+  document.getElementById('kAW').textContent = rows.filter(r => r.agreement && r.verdict === 'WIN').length;
+  document.getElementById('kAL').textContent = rows.filter(r => r.agreement && r.verdict === 'LOSS').length;
+  document.getElementById('kDis').textContent = rows.filter(r => !r.agreement).length;
+
+  // Sort: agreements first, by mean probability desc
+  rows.sort((a, b) => {
+    if (a.agreement !== b.agreement) return a.agreement ? -1 : 1;
+    const aMean = (a.lp + (a.mp || a.lp) + a.ruleScore) / 3;
+    const bMean = (b.lp + (b.mp || b.lp) + b.ruleScore) / 3;
+    return bMean - aMean;
+  });
+
+  const body = document.getElementById('cmpBody');
+  body.innerHTML = '';
+  rows.forEach((r, i) => {
+    const sym = (r.f.meta && r.f.meta.sym) || '—';
+    const setup = (r.f.meta && r.f.meta.setup) || r.f.type;
+    function probPill(p, mlpVal) {
+      if (p == null) return '<span style="color:var(--text-muted);">—</span>';
+      const v = mlpVal != null ? mlpVal : p;
+      const col = v >= 0.5 ? 'rgba(16,185,129,0.18)' : 'rgba(239,68,68,0.18)';
+      const txt = v >= 0.5 ? 'var(--green)' : 'var(--red)';
+      return '<span class="prob-pill" style="background:' + col + ';color:' + txt + ';">' + (v * 100).toFixed(0) + '%</span>';
+    }
+    const cls = r.agreement ? (r.verdict === 'WIN' ? 'agree-win' : 'agree-loss') : 'disagree';
+    const verdictCol = r.agreement ? (r.verdict === 'WIN' ? 'var(--green)' : 'var(--red)') : 'var(--yellow)';
+    const row = document.createElement('div');
+    row.className = 'cmp-row ' + cls;
+    row.innerHTML = '<div>' + (i + 1) + '</div>'
+      + '<div><strong>' + sym + '</strong></div>'
+      + '<div>' + probPill(r.lp) + '</div>'
+      + '<div>' + (r.mp != null ? probPill(null, r.mp) : '<span style="color:var(--text-muted);font-size:10px;">— train MLP</span>') + '</div>'
+      + '<div>' + probPill(r.ruleScore) + '</div>'
+      + '<div><span style="color:' + verdictCol + ';font-weight:700;">' + r.wins + '/3 ' + r.verdict + '</span></div>'
+      + '<div style="font-family:Inter;font-size:11px;color:var(--text-secondary);">' + (r.agreement ? '✓ all models agree · ' : '⚠ disagreement · ') + setup + '</div>';
+    row.onclick = () => { window.location.href = 'trade-coach.html?sym=' + sym; };
+    body.appendChild(row);
+  });
+
+  if (rows.length === 0) {
+    body.innerHTML = '<div style="padding:30px;text-align:center;color:var(--text-muted);font-size:13px;">No active findings to compare. Brain needs to be running.</div>';
+  }
+}
+
+document.getElementById('refreshBtn').addEventListener('click', paint);
+paint();
+setInterval(paint, 30000);
+</script>
+</body>
+</html>

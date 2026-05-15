@@ -8,7 +8,18 @@
 
 ## TL;DR
 
-**Built 75+ new pages + brain enhancements over 9 batches**, all wired into nav, sitemap, and pushed to `main`. Total site is now **196 pages**, all audits clean. Site is now genuinely a Bloomberg / Koyfin / Unusual Whales-tier platform.
+**Built 95+ new pages + a real ML stack + brain enhancements + nav reorg + Squarespace fix doc.** All shipped to `main`, all audits clean. Total site is now **214 pages**.
+
+### 🧬 The big new thing: ACTUAL machine learning
+
+The brain now uses a real trainable model — logistic regression w/ 22-feature SGD trained on outcome labels, plus an alternative MLP (2-layer neural network), with 18 dedicated ML pages: trainer, confidence, explorer, versions, online learning, model seed, feature store, ensemble, brain graph, neural net, k-fold CV, LR tuner, prediction replay, SHAP explanations, model compare, training scheduler, ML glossary, feature engineering docs.
+
+**End-to-end self-learning loop:**
+1. Brain emits finding → snapshots 22 features into the finding
+2. 30 min later: brain rates outcome (hit / miss / flat)
+3. Trainer pulls rated outcomes → SGD update → version bumps
+4. Future predictions use updated weights
+5. All logged + visualized + explainable
 
 ---
 

@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Training Scheduler — bpleone / trade</title>
+<meta name="description" content="Schedule automatic model retrains on a clock — keep the model fresh as new outcomes arrive.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.task-row { display:grid; grid-template-columns: 1fr 130px 110px 100px 110px 90px; gap:10px; padding:12px 14px; border-bottom:1px solid var(--border); align-items:center; font-size:12px; }
+.task-row.on { border-left:3px solid var(--green); }
+.task-row.off { border-left:3px solid var(--text-muted); opacity:0.7; }
+.toggle { width:44px;height:24px;background:var(--bg-elevated);border-radius:12px;position:relative;cursor:pointer;transition:background 0.2s; }
+.toggle.on { background:var(--green); }
+.toggle::after { content:'';position:absolute;top:3px;left:3px;width:18px;height:18px;background:#fff;border-radius:50%;transition:transform 0.2s; }
+.toggle.on::after { transform:translateX(20px); }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">⏰ Training Scheduler</div>
+      <div class="page-subtitle">Auto-retrain on a clock · keep the model fresh · <span id="market-clock">--</span></div>
+    </div>
+    <div class="flex gap-8">
+      <a href="model-trainer.html" class="btn btn-secondary">🎓 Manual Trainer</a>
+    </div>
+  </div>
+
+  <div class="card mb-24" style="background:linear-gradient(135deg,rgba(0,212,255,0.05),transparent);">
+    <div style="font-size:13px;color:var(--text-secondary);line-height:1.7;">
+      The brain already trains <strong>incrementally</strong> on every new rated outcome (every 5 min via tickMLFeedback). This page adds <strong>scheduled full-retrains</strong> + snapshots. Use it to: rebuild from scratch nightly, snapshot before market open, run k-fold CV weekly, etc.
+      <div class="mt-12">Scheduled tasks run only while a bpleone tab is open. For true 24/7 cron, point to a Cloudflare Worker that hits a webhook — see <a href="api.html" style="color:var(--accent);">API docs</a>.</div>
+    </div>
+  </div>
+
+  <div class="grid grid-4 mb-24">
+    <div class="card"><div class="card-header"><div class="card-title">Active Tasks</div></div><div class="mono" style="font-size:26px;font-weight:700;color:var(--green);" id="kActive">--</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">Runs Today</div></div><div class="mono" style="font-size:26px;font-weight:700;" id="kRuns">--</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">Last Run</div></div><div class="mono" style="font-size:18px;font-weight:700;" id="kLast">--</div><div class="mono" style="font-size:11px;color:var(--text-muted);" id="kLastBody">--</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">Next Run In</div></div><div class="mono" style="font-size:26px;font-weight:700;color:var(--accent);" id="kNext">--</div></div>
+  </div>
+
+  <div class="card" style="padding:0;">
+    <div class="card-header" style="padding:14px 16px;"><div class="card-title">📋 Scheduled Tasks</div></div>
+    <div class="task-row" style="background:var(--bg-elevated);font-size:9px;color:var(--text-muted);font-weight:800;letter-spacing:0.5px;">
+      <div>TASK</div><div>SCHEDULE</div><div>LAST RUN</div><div>RUNS</div><div>NEXT</div><div></div>
+    </div>
+    <div id="tasksBody"></div>
+  </div>
+
+  <div class="card mt-24" style="background:linear-gradient(135deg,rgba(245,158,11,0.05),transparent);border-color:rgba(245,158,11,0.2);">
+    <div class="card-header"><div class="card-title">⚠ Important</div></div>
+    <div style="font-size:13px;color:var(--text-secondary);line-height:1.7;">
+      Scheduled tasks only run when a bpleone tab is open. For unattended overnight training, keep a tab open or set up a small Cloudflare Worker that hits your data endpoints on cron. The brain's <em>incremental</em> training (every 5 min) does run automatically as long as any bpleone page is open.
+    </div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script src="js/model.js"></script>
+<script>
+buildNav('training-scheduler');
+
+const SCHED_KEY = 'bpleone_train_sched_v1';
+
+const TASKS = [
+  { id: 'full-3ep', name: 'Full retrain (3 epochs)', desc: 'Re-fit from all training data', interval: 6 * 3600 * 1000, action: () => ModelTrainer.fullRetrain(3) },
+  { id: 'snapshot', name: 'Snapshot current model', desc: 'Save a version', interval: 24 * 3600 * 1000, action: () => { const m = ModelStore.load(); ModelStore.saveVersion(m, 'auto-snapshot ' + new Date().toLocaleString()); return m; } },
+  { id: 'incremental', name: 'Incremental training batch', desc: 'Train on new outcomes', interval: 30 * 60 * 1000, action: () => ModelTrainer.trainBatch() },
+  { id: 'eval', name: 'Evaluation report', desc: 'Compute accuracy/F1', interval: 60 * 60 * 1000, action: () => ModelTrainer.evaluate() }
+];
+
+function loadSched() { try { return JSON.parse(localStorage.getItem(SCHED_KEY) || '{}'); } catch (e) { return {}; } }
+function saveSched(s) { try { localStorage.setItem(SCHED_KEY, JSON.stringify(s)); } catch (e) {} }
+
+let intervals = {};
+function startTask(task) {
+  if (intervals[task.id]) return;
+  const sched = loadSched();
+  intervals[task.id] = setInterval(() => {
+    try {
+      const result = task.action();
+      const s = loadSched();
+      if (!s[task.id]) s[task.id] = {};
+      s[task.id].lastRun = Date.now();
+      s[task.id].runs = (s[task.id].runs || 0) + 1;
+      saveSched(s);
+      paint();
+    } catch (e) { console.error('Task ' + task.id + ' failed', e); }
+  }, task.interval);
+}
+function stopTask(taskId) {
+  if (intervals[taskId]) { clearInterval(intervals[taskId]); delete intervals[taskId]; }
+}
+
+function paint() {
+  const sched = loadSched();
+  const body = document.getElementById('tasksBody');
+  body.innerHTML = '';
+  let active = 0, runsToday = 0, lastRun = 0, lastRunTask = '', nextRunIn = Infinity;
+  TASKS.forEach(t => {
+    const cfg = sched[t.id] || {};
+    const isOn = !!cfg.enabled;
+    if (isOn) active++;
+    if (cfg.lastRun && Date.now() - cfg.lastRun < 24 * 3600 * 1000) runsToday += cfg.runs || 0;
+    if (cfg.lastRun && cfg.lastRun > lastRun) { lastRun = cfg.lastRun; lastRunTask = t.name; }
+    if (isOn && cfg.lastRun) {
+      const remaining = Math.max(0, t.interval - (Date.now() - cfg.lastRun));
+      if (remaining < nextRunIn) nextRunIn = remaining;
+    } else if (isOn) {
+      if (t.interval < nextRunIn) nextRunIn = t.interval;
+    }
+    const cls = isOn ? 'on' : 'off';
+    const intervalLabel = t.interval >= 3600000 ? (t.interval / 3600000) + 'h' : (t.interval / 60000) + 'm';
+    const last = cfg.lastRun ? new Date(cfg.lastRun).toLocaleString() : 'never';
+    const nextStr = isOn && cfg.lastRun ? Math.max(0, Math.round((t.interval - (Date.now() - cfg.lastRun)) / 60000)) + 'm' : (isOn ? intervalLabel : '—');
+    const row = document.createElement('div');
+    row.className = 'task-row ' + cls;
+    row.innerHTML = '<div><div style="font-weight:700;">' + t.name + '</div><div style="font-size:11px;color:var(--text-muted);margin-top:2px;">' + t.desc + '</div></div>'
+      + '<div class="mono">every ' + intervalLabel + '</div>'
+      + '<div class="mono" style="color:var(--text-muted);font-size:10px;">' + last + '</div>'
+      + '<div class="mono">' + (cfg.runs || 0) + '</div>'
+      + '<div class="mono">' + nextStr + '</div>'
+      + '<div><div class="toggle ' + (isOn ? 'on' : '') + '" data-id="' + t.id + '"></div></div>';
+    body.appendChild(row);
+  });
+
+  document.getElementById('kActive').textContent = active;
+  document.getElementById('kRuns').textContent = runsToday;
+  document.getElementById('kLast').textContent = lastRunTask ? lastRunTask.split(' ').slice(0, 2).join(' ') : '—';
+  document.getElementById('kLastBody').textContent = lastRun ? new Date(lastRun).toLocaleTimeString() : '—';
+  document.getElementById('kNext').textContent = (active === 0 || nextRunIn === Infinity) ? '—' : (nextRunIn / 60000 < 60 ? Math.round(nextRunIn / 60000) + 'm' : Math.round(nextRunIn / 3600000) + 'h');
+
+  document.querySelectorAll('.toggle').forEach(t => t.addEventListener('click', () => {
+    const id = t.dataset.id;
+    const s = loadSched();
+    if (!s[id]) s[id] = {};
+    s[id].enabled = !s[id].enabled;
+    saveSched(s);
+    const task = TASKS.find(x => x.id === id);
+    if (s[id].enabled) startTask(task); else stopTask(id);
+    paint();
+  }));
+}
+
+// Resume any enabled tasks on page load
+const sched = loadSched();
+TASKS.forEach(t => { if (sched[t.id] && sched[t.id].enabled) startTask(t); });
+paint();
+setInterval(paint, 30000);
+</script>
+</body>
+</html>

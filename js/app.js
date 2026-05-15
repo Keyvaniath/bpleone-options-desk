@@ -102,7 +102,7 @@ function buildNav(activePage) {
   // Daily workflow group — top of funnel
   const dailyGrp = ['morning-brief','daily-debrief','tomorrow-playbook','friday-summary','catalyst-clock','ai-narrative','daily-stats','conviction-stack','game-plan'];
   // Brain & ML group
-  const brainGrp = ['brain-heartbeat','brain-audit','brain-decisions','discoveries','ml-feedback','edge-analytics','edge','learn-dashboard','learn','learn-engine-explained','live-train','train-history','weight-heatmap','assistant','ai-scout','ai-cotrader','setup-library','position-stacking','model-trainer','model-explorer','model-versions','feature-store','online-learning','model-confidence','feature-engineering','model-seed','brain-graph','ensemble','neural-net','cross-validation','learning-rate-tuner','prediction-replay','model-explain'];
+  const brainGrp = ['brain-heartbeat','brain-audit','brain-decisions','discoveries','ml-feedback','edge-analytics','edge','learn-dashboard','learn','learn-engine-explained','live-train','train-history','weight-heatmap','assistant','ai-scout','ai-cotrader','setup-library','position-stacking','model-trainer','model-explorer','model-versions','feature-store','online-learning','model-confidence','feature-engineering','model-seed','brain-graph','ensemble','neural-net','cross-validation','learning-rate-tuner','prediction-replay','model-explain','model-compare','training-scheduler','ml-glossary'];
   // Scanners group
   const scanGrp = ['algo-signals','mean-reversion-scanner','trend-strength','confluence-scanner','radar','edge-scanner','hot-movers','squeeze-radar-pro','squeeze-composite','short-squeeze-alerts','pre-market-scanner','pre-market-gappers','after-hours-scanner','earnings-tonight','earnings-reactor','earnings-calendar','earnings','earnings-playbook','earnings-preview','screener','anomalies','ipo-calendar','pair-scanner','candlestick-scanner','news-reactions','comparison','symbol-diff','insider-live','congress-trades','insider-congress-flow','buybacks-tracker','dollar-leaders','sweep-counter','retracement-finder','pivot-finder','levels-engine'];
   // Markets group
@@ -231,6 +231,9 @@ function buildNav(activePage) {
     + '<a href="learning-rate-tuner.html">⚙ LR Tuner <span class="feat-badge feat-pro" style="font-size:8px;padding:0 5px;">ML</span></a>'
     + '<a href="prediction-replay.html">🎬 Prediction Replay <span class="feat-badge feat-new" style="font-size:8px;padding:0 5px;">ML</span></a>'
     + '<a href="model-explain.html">🔬 Model Explain <span class="feat-badge feat-pro" style="font-size:8px;padding:0 5px;">SHAP</span></a>'
+    + '<a href="model-compare.html">⚖ Model Compare <span class="feat-badge feat-pro" style="font-size:8px;padding:0 5px;">ML</span></a>'
+    + '<a href="training-scheduler.html">⏰ Training Scheduler <span class="feat-badge feat-pro" style="font-size:8px;padding:0 5px;">PRO</span></a>'
+    + '<a href="ml-glossary.html">📖 ML Glossary <span class="feat-badge feat-new" style="font-size:8px;padding:0 5px;">DOCS</span></a>'
     + '<a href="brain-heartbeat.html">🫀 Brain Heartbeat <span class="feat-badge feat-live" style="font-size:8px;padding:0 5px;">LIVE</span></a>'
     + '<a href="brain-audit.html">🩺 Brain Audit</a>'
     + '<a href="brain-decisions.html">📜 Brain Decisions</a>'
