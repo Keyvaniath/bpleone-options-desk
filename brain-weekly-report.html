@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Brain Weekly Report — bpleone / trade</title>
+<meta name="description" content="Auto-generated end-of-week summary of model performance, top calls, drift, and what to fix.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<style>
+.hero-grade { font-family:var(--font-mono);font-size:96px;font-weight:800;line-height:1;text-align:center; }
+.stat-card { padding:18px;background:var(--bg-elevated);border-radius:10px;border:1px solid var(--border); }
+.stat-card .label { font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.6px;color:var(--text-muted);margin-bottom:8px; }
+.stat-card .val { font-family:var(--font-mono);font-size:24px;font-weight:700; }
+.stat-card .sub { font-size:11px;color:var(--text-muted);margin-top:4px; }
+.callout { padding:16px;border-radius:10px;border-left:3px solid var(--accent);background:var(--bg-elevated);margin-bottom:12px; }
+.callout.good { border-left-color:var(--green); }
+.callout.bad { border-left-color:var(--red); }
+.callout.warn { border-left-color:var(--yellow); }
+.callout h4 { font-size:13px;font-weight:700;margin-bottom:6px; }
+.callout p { font-size:12px;color:var(--text-secondary);line-height:1.6; }
+.print-page { background:white;color:#111;padding:48px;margin:24px auto;max-width:1000px;border-radius:16px;display:none; }
+@media print { body * { visibility:hidden; } .print-page, .print-page * { visibility:visible; } .print-page { position:absolute;top:0;left:0;display:block;margin:0;padding:24px;color:#111;background:white; } }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">📰 Brain Weekly Report</div>
+      <div class="page-subtitle">Auto-generated · week of <span id="weekRange">--</span> · <span id="market-clock">--</span></div>
+    </div>
+    <div class="flex gap-8">
+      <button class="btn btn-ghost" id="prevWk">◀ Prev week</button>
+      <button class="btn btn-ghost" id="nextWk">Next week ▶</button>
+      <button class="btn btn-primary" id="printBtn">🖨 Print / PDF</button>
+    </div>
+  </div>
+
+  <div class="card mb-24" style="text-align:center;padding:34px;">
+    <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:1px;margin-bottom:10px;">Weekly Brain Grade</div>
+    <div class="hero-grade" id="weekGrade">--</div>
+    <div id="weekTone" style="font-size:13px;color:var(--text-secondary);margin-top:14px;max-width:600px;margin-left:auto;margin-right:auto;line-height:1.6;"></div>
+  </div>
+
+  <div class="grid grid-4 mb-24">
+    <div class="stat-card"><div class="label">Total signals</div><div class="val" id="kSig">--</div><div class="sub" id="kSigSub"></div></div>
+    <div class="stat-card"><div class="label">Hit rate</div><div class="val" id="kHit">--</div><div class="sub" id="kHitSub"></div></div>
+    <div class="stat-card"><div class="label">Avg confidence</div><div class="val" id="kConf">--</div><div class="sub" id="kConfSub"></div></div>
+    <div class="stat-card"><div class="label">Sim P&L</div><div class="val" id="kPnl">--</div><div class="sub" id="kPnlSub"></div></div>
+  </div>
+
+  <div class="grid grid-2 mb-24">
+    <div class="card">
+      <div class="card-header"><div class="card-title">📈 Daily hit rate</div></div>
+      <canvas id="hitChart" height="160"></canvas>
+    </div>
+    <div class="card">
+      <div class="card-header"><div class="card-title">🎯 Confidence vs outcome</div></div>
+      <canvas id="confChart" height="160"></canvas>
+    </div>
+  </div>
+
+  <div class="grid grid-2 mb-24">
+    <div class="card">
+      <div class="card-header"><div class="card-title">🌟 Top calls this week</div></div>
+      <div id="topCalls"></div>
+    </div>
+    <div class="card">
+      <div class="card-header"><div class="card-title">🤕 Worst misses</div></div>
+      <div id="worstCalls"></div>
+    </div>
+  </div>
+
+  <div class="card mb-24">
+    <div class="card-header"><div class="card-title">🤖 What the brain says (auto-narrative)</div></div>
+    <div id="narrative" style="font-size:14px;line-height:1.85;color:var(--text-primary);"></div>
+  </div>
+
+  <div class="card mb-24">
+    <div class="card-header"><div class="card-title">🚨 Action items</div></div>
+    <div id="actionItems"></div>
+  </div>
+
+  <div class="card">
+    <div class="card-header"><div class="card-title">📤 Share this report</div></div>
+    <div style="font-size:13px;color:var(--text-secondary);line-height:1.7;margin-bottom:14px;">
+      Copy the narrative + stats below into a Slack/Discord/email update. The model auto-updates the report every Sunday — you can scroll back through prior weeks with the arrow buttons.
+    </div>
+    <textarea id="shareText" style="width:100%;height:200px;font-family:var(--font-mono);font-size:11px;padding:12px;background:var(--bg);border:1px solid var(--border);border-radius:8px;color:var(--text-primary);resize:vertical;"></textarea>
+    <div class="flex gap-8 mt-12">
+      <button class="btn btn-primary" id="copyBtn">📋 Copy to clipboard</button>
+      <button class="btn btn-ghost" id="emailBtn">✉ Email myself</button>
+    </div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script src="js/model.js"></script>
+<script>
+buildNav('brain-weekly-report');
+
+let weekOffset = 0;
+
+function weekRange() {
+  const now = new Date();
+  now.setDate(now.getDate() - (weekOffset * 7));
+  const dow = now.getDay();
+  const start = new Date(now); start.setDate(now.getDate() - dow); start.setHours(0,0,0,0);
+  const end = new Date(start); end.setDate(start.getDate() + 7);
+  return { start: start.getTime(), end: end.getTime(), startStr: start.toLocaleDateString(), endStr: new Date(end - 1).toLocaleDateString() };
+}
+
+function loadFindings() { try { return JSON.parse(localStorage.getItem('bpleone_brain_findings_v1') || '{"items":[]}').items; } catch (e) { return []; } }
+function loadTraining() { try { return JSON.parse(localStorage.getItem('bpleone_train_v1') || '[]'); } catch (e) { return []; } }
+
+function render() {
+  const wk = weekRange();
+  document.getElementById('weekRange').textContent = wk.startStr + ' – ' + wk.endStr;
+
+  const findings = loadFindings().filter(f => f.ts >= wk.start && f.ts < wk.end);
+  const train = loadTraining().filter(t => t.ts >= wk.start && t.ts < wk.end);
+
+  // Stats
+  const n = findings.length;
+  const wins = train.filter(t => t.y === 1).length;
+  const hitRate = train.length > 0 ? wins / train.length : 0;
+  const probs = findings.map(f => { try { return window.predictForFinding ? window.predictForFinding(f).prob : null; } catch(e){return null;} }).filter(Boolean);
+  const avgConf = probs.length > 0 ? probs.reduce((a,b)=>a+b,0)/probs.length : 0;
+  const wonRs = train.filter(t => t.y === 1).map(t => t.r || 1.5);
+  const lostRs = train.filter(t => t.y === 0).length;
+  const simPnl = wonRs.reduce((a,b)=>a+b,0) - lostRs * 1.0;
+
+  // Grade
+  const grade = hitRate >= 0.70 ? 'A' : hitRate >= 0.60 ? 'B' : hitRate >= 0.50 ? 'C' : hitRate >= 0.40 ? 'D' : 'F';
+  const gradeCol = grade === 'A' ? 'var(--green)' : grade === 'B' ? '#84cc16' : grade === 'C' ? 'var(--yellow)' : grade === 'D' ? '#f97316' : 'var(--red)';
+  document.getElementById('weekGrade').textContent = grade;
+  document.getElementById('weekGrade').style.color = gradeCol;
+  const tones = {
+    A: 'Stellar week. The model called this market well. Don\'t get cocky — write down what worked.',
+    B: 'Solid week. Above-baseline. Keep the routine, refine edge cases.',
+    C: 'Neutral. Model is treading water. Look at the misses below — is there a regime change?',
+    D: 'Tough week. Check drift. Avoid revenge-trading the misses.',
+    F: 'Bad week. Consider pausing live trading. Re-seed if needed.'
+  };
+  document.getElementById('weekTone').textContent = tones[grade];
+
+  document.getElementById('kSig').textContent = n;
+  document.getElementById('kSigSub').textContent = (n / 7).toFixed(1) + ' / day';
+  document.getElementById('kHit').textContent = (hitRate * 100).toFixed(0) + '%';
+  document.getElementById('kHit').style.color = hitRate >= 0.55 ? 'var(--green)' : hitRate >= 0.45 ? 'var(--text-primary)' : 'var(--red)';
+  document.getElementById('kHitSub').textContent = wins + ' / ' + train.length + ' labeled';
+  document.getElementById('kConf').textContent = (avgConf * 100).toFixed(0) + '%';
+  document.getElementById('kConfSub').textContent = probs.length + ' predictions';
+  document.getElementById('kPnl').textContent = (simPnl >= 0 ? '+' : '') + simPnl.toFixed(1) + 'R';
+  document.getElementById('kPnl').style.color = simPnl > 0 ? 'var(--green)' : simPnl < 0 ? 'var(--red)' : 'var(--text-primary)';
+  document.getElementById('kPnlSub').textContent = '1R risk per trade';
+
+  // Daily hit chart
+  const days = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+  const dailyHit = days.map((_, di) => {
+    const dayTrain = train.filter(t => new Date(t.ts).getDay() === di);
+    if (dayTrain.length === 0) return null;
+    return dayTrain.filter(t => t.y === 1).length / dayTrain.length;
+  });
+  const dailyCnt = days.map((_, di) => train.filter(t => new Date(t.ts).getDay() === di).length);
+  if (window._hitChart) window._hitChart.destroy();
+  window._hitChart = new Chart(document.getElementById('hitChart'), {
+    type: 'bar',
+    data: { labels: days, datasets: [{
+      label: 'Hit %',
+      data: dailyHit.map(h => h === null ? 0 : h * 100),
+      backgroundColor: dailyHit.map(h => h === null ? '#333' : h >= 0.55 ? '#10b981' : h >= 0.45 ? '#f59e0b' : '#ef4444')
+    }] },
+    options: { responsive:true, maintainAspectRatio:false, plugins:{legend:{display:false}}, scales:{y:{ticks:{color:'#888',callback:v=>v+'%'},grid:{color:'#222'},max:100},x:{ticks:{color:'#888'},grid:{display:false}}} }
+  });
+
+  // Conf bucket chart
+  const buckets = [0.4, 0.5, 0.6, 0.7, 0.8, 0.9];
+  const bucketHits = buckets.map((b, i) => {
+    const bMax = buckets[i+1] || 1;
+    const bTrain = train.filter(t => {
+      try { const p = window.predictForFinding ? window.predictForFinding(t).prob : null; return p != null && p >= b && p < bMax; } catch(e){return false;}
+    });
+    if (bTrain.length === 0) return null;
+    return bTrain.filter(t => t.y === 1).length / bTrain.length;
+  });
+  if (window._confChart) window._confChart.destroy();
+  window._confChart = new Chart(document.getElementById('confChart'), {
+    type: 'line',
+    data: {
+      labels: buckets.map((b,i) => (b*100).toFixed(0) + '-' + ((buckets[i+1]||1)*100).toFixed(0) + '%'),
+      datasets: [{ label: 'Hit %', data: bucketHits.map(h => h === null ? null : h * 100), borderColor:'#00d4ff', backgroundColor:'rgba(0,212,255,0.1)', tension:0.3, fill:true, spanGaps:true }]
+    },
+    options: { responsive:true, maintainAspectRatio:false, plugins:{legend:{display:false}}, scales:{y:{ticks:{color:'#888',callback:v=>v+'%'},grid:{color:'#222'},max:100,min:0},x:{ticks:{color:'#888'},grid:{display:false}}} }
+  });
+
+  // Top calls / worst misses
+  const ranked = train.map(t => {
+    let p = null; try { p = window.predictForFinding ? window.predictForFinding(t).prob : null; } catch(e){}
+    return { ...t, p };
+  }).filter(t => t.p != null);
+  const topWins = ranked.filter(t => t.y === 1).sort((a,b) => b.p - a.p).slice(0, 5);
+  const worstMisses = ranked.filter(t => t.y === 0).sort((a,b) => b.p - a.p).slice(0, 5);
+
+  const fmtCall = t => '<div style="padding:10px 0;border-bottom:1px solid var(--border);font-size:12px;display:flex;justify-content:space-between;align-items:center;">'
+    + '<div><strong>' + (t.meta?.sym || '—') + '</strong> <span style="color:var(--text-muted);">· ' + (t.meta?.setup || 'signal') + '</span></div>'
+    + '<div style="font-family:var(--font-mono);"><span style="color:' + (t.y === 1 ? 'var(--green)' : 'var(--red)') + ';">' + (t.y === 1 ? 'WIN' : 'LOSS') + '</span> · <span style="color:var(--accent);">' + (t.p*100).toFixed(0) + '%</span></div>'
+    + '</div>';
+  document.getElementById('topCalls').innerHTML = topWins.length ? topWins.map(fmtCall).join('') : '<div style="font-size:12px;color:var(--text-muted);padding:14px 0;">No wins yet this week.</div>';
+  document.getElementById('worstCalls').innerHTML = worstMisses.length ? worstMisses.map(fmtCall).join('') : '<div style="font-size:12px;color:var(--text-muted);padding:14px 0;">No high-confidence misses — clean week.</div>';
+
+  // Narrative
+  const narrative = [];
+  narrative.push('<p>Week of <strong>' + wk.startStr + '</strong> closed with grade <strong style="color:' + gradeCol + ';">' + grade + '</strong>. The brain processed <strong>' + n + '</strong> signals across the market.</p>');
+  if (train.length > 0) narrative.push('<p>Of the <strong>' + train.length + '</strong> trades that resolved, the model called <strong>' + (hitRate*100).toFixed(0) + '%</strong> correctly with an average confidence of <strong>' + (avgConf*100).toFixed(0) + '%</strong>. Simulated P&L at 1R risk came in at <strong style="color:' + (simPnl >= 0 ? 'var(--green)' : 'var(--red)') + ';">' + (simPnl >= 0 ? '+' : '') + simPnl.toFixed(1) + 'R</strong>.</p>');
+  if (topWins.length) narrative.push('<p>Biggest win: <strong>' + topWins[0].meta?.sym + '</strong> on a <strong>' + topWins[0].meta?.setup + '</strong> setup the model rated at <strong>' + (topWins[0].p*100).toFixed(0) + '%</strong> confidence.</p>');
+  if (worstMisses.length && worstMisses[0].p > 0.7) narrative.push('<p style="color:var(--yellow);">⚠ The model was overconfident on <strong>' + worstMisses[0].meta?.sym + '</strong> — flagged it at <strong>' + (worstMisses[0].p*100).toFixed(0) + '%</strong> but it lost. Worth a postmortem.</p>');
+  if (avgConf > 0.7 && hitRate < 0.55) narrative.push('<p style="color:var(--red);">⚠ Confidence high but hit rate weak — calibration drift. Re-train recommended.</p>');
+  if (n > 0 && train.length / n < 0.3) narrative.push('<p style="color:var(--text-muted);">Most signals are still unresolved (' + ((train.length/n)*100).toFixed(0) + '% labeled). Check back later for the final score.</p>');
+  document.getElementById('narrative').innerHTML = narrative.join('');
+
+  // Action items
+  const actions = [];
+  if (grade === 'F' || grade === 'D') actions.push({ tone: 'bad', t: 'Pause live trading', b: 'Hit rate is below 50%. Use paper only this week. Open <a href="model-postmortem.html" style="color:var(--accent);">Postmortem</a> to find the failure pattern.' });
+  if (avgConf > 0.7 && hitRate < 0.55) actions.push({ tone: 'warn', t: 'Recalibrate', b: 'Model is overconfident. Run a full retrain on Training Center.' });
+  if (worstMisses.length && worstMisses.filter(m => m.p > 0.75).length >= 2) actions.push({ tone: 'warn', t: 'Investigate high-conf misses', b: 'Two or more setups the model loved still lost. Are they all the same setup type or symbol?' });
+  if (topWins.length >= 3 && hitRate > 0.6) actions.push({ tone: 'good', t: 'Keep the routine', b: 'You\'re in a groove. Don\'t change feature weights or thresholds this week.' });
+  if (train.length < 5) actions.push({ tone: 'warn', t: 'Low sample size', b: 'Less than 5 labeled trades this week. Resolve outcomes in Journal PRO so the brain has data to learn from.' });
+  if (!actions.length) actions.push({ tone: 'good', t: 'Nothing urgent', b: 'Brain is healthy. Keep watching, keep labeling.' });
+  document.getElementById('actionItems').innerHTML = actions.map(a =>
+    '<div class="callout ' + a.tone + '"><h4>' + a.t + '</h4><p>' + a.b + '</p></div>'
+  ).join('');
+
+  // Share text
+  const share = '═══ BPLEONE BRAIN — WEEKLY REPORT ═══\n'
+    + 'Week of ' + wk.startStr + ' – ' + wk.endStr + '\n\n'
+    + 'GRADE: ' + grade + '\n'
+    + 'Signals: ' + n + ' (' + (n/7).toFixed(1) + '/day)\n'
+    + 'Hit rate: ' + (hitRate*100).toFixed(0) + '% (' + wins + '/' + train.length + ')\n'
+    + 'Avg confidence: ' + (avgConf*100).toFixed(0) + '%\n'
+    + 'Sim P&L: ' + (simPnl >= 0 ? '+' : '') + simPnl.toFixed(1) + 'R\n\n'
+    + 'TOP CALLS:\n' + topWins.slice(0,3).map(t => '  · ' + t.meta?.sym + ' / ' + t.meta?.setup + ' — ' + (t.p*100).toFixed(0) + '% → WIN').join('\n') + '\n\n'
+    + 'WORST MISSES:\n' + worstMisses.slice(0,3).map(t => '  · ' + t.meta?.sym + ' / ' + t.meta?.setup + ' — ' + (t.p*100).toFixed(0) + '% → LOSS').join('\n') + '\n\n'
+    + 'ACTIONS: ' + actions.map(a => a.t).join(' · ') + '\n'
+    + '\nGenerated by bpleone/trade brain';
+  document.getElementById('shareText').value = share;
+}
+
+document.getElementById('prevWk').addEventListener('click', () => { weekOffset++; render(); });
+document.getElementById('nextWk').addEventListener('click', () => { if (weekOffset > 0) { weekOffset--; render(); } });
+document.getElementById('printBtn').addEventListener('click', () => window.print());
+document.getElementById('copyBtn').addEventListener('click', () => {
+  const t = document.getElementById('shareText');
+  t.select();
+  document.execCommand('copy');
+  document.getElementById('copyBtn').textContent = '✓ Copied!';
+  setTimeout(() => { document.getElementById('copyBtn').textContent = '📋 Copy to clipboard'; }, 1500);
+});
+document.getElementById('emailBtn').addEventListener('click', () => {
+  const body = encodeURIComponent(document.getElementById('shareText').value);
+  const subj = encodeURIComponent('Brain Weekly Report — ' + weekRange().startStr);
+  window.location.href = 'mailto:?subject=' + subj + '&body=' + body;
+});
+
+render();
+</script>
+</body>
+</html>

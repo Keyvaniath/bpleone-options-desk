@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Alert Rules PRO — bpleone / trade</title>
+<meta name="description" content="Visual rule builder for ML-triggered alerts. Combine confidence, severity, symbols, setups, and price thresholds.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.rule-card { padding:18px;background:var(--bg-elevated);border-radius:10px;border:1px solid var(--border);margin-bottom:12px; }
+.rule-card.on { border-left:4px solid var(--green); }
+.rule-card.off { border-left:4px solid var(--text-muted);opacity:0.6; }
+.rule-header { display:flex;justify-content:space-between;align-items:center;margin-bottom:12px; }
+.rule-header h4 { font-size:14px;font-weight:700; }
+.cond-row { display:grid;grid-template-columns:170px 110px 1fr 36px;gap:10px;margin-bottom:8px;align-items:center;font-size:12px; }
+.cond-row select, .cond-row input { padding:7px 10px;background:var(--bg);border:1px solid var(--border);color:var(--text-primary);border-radius:6px;font-size:12px;font-family:var(--font-mono); }
+.cond-row .x { cursor:pointer;color:var(--red);text-align:center;font-size:18px;font-weight:700; }
+.matches { padding:10px;background:rgba(0,212,255,0.05);border-radius:6px;font-size:11px;margin-top:10px;color:var(--text-secondary); }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">⚡ Alert Rules PRO</div>
+      <div class="page-subtitle">Build complex ML-driven alert rules · all-AND or any-OR · live test against findings · <span id="market-clock">--</span></div>
+    </div>
+    <div class="flex gap-8">
+      <button class="btn btn-ghost" id="testAllBtn">▶ Test all rules</button>
+      <button class="btn btn-primary" id="newRuleBtn">+ New rule</button>
+    </div>
+  </div>
+
+  <div class="card mb-24" style="background:linear-gradient(135deg,rgba(0,212,255,0.05),transparent);">
+    <div style="font-size:13px;color:var(--text-secondary);line-height:1.7;">
+      Each rule is a list of conditions joined by AND (all must match) or OR (any can match). When the brain emits a finding that matches your rule, you get a desktop push notification + an entry in the alerts feed. Rules are persisted in localStorage and evaluated on every brain tick.
+    </div>
+  </div>
+
+  <div id="rules"></div>
+
+  <div class="card mt-24">
+    <div class="card-header"><div class="card-title">📜 Available fields</div></div>
+    <div class="grid grid-2" style="gap:14px;font-size:12px;">
+      <div>
+        <strong style="color:var(--accent);">Model fields:</strong><br>
+        <code style="color:var(--text-muted);">ml.prob</code> — predicted win probability (0–1)<br>
+        <code style="color:var(--text-muted);">ml.confidence</code> — same as prob<br>
+        <code style="color:var(--text-muted);">ml.top_feature</code> — top driver name<br>
+      </div>
+      <div>
+        <strong style="color:var(--accent);">Finding fields:</strong><br>
+        <code style="color:var(--text-muted);">sym</code> — symbol (e.g. NVDA)<br>
+        <code style="color:var(--text-muted);">setup</code> — setup name (breakout, pullback, ...)<br>
+        <code style="color:var(--text-muted);">severity</code> — high / med / low<br>
+        <code style="color:var(--text-muted);">price.last</code> — current price<br>
+        <code style="color:var(--text-muted);">price.change_pct</code> — % change today<br>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script src="js/model.js"></script>
+<script>
+buildNav('alert-rules-pro');
+
+const KEY = 'bpleone_alert_rules_v1';
+const FIELDS = [
+  { v: 'ml.prob', l: 'ML confidence', t: 'num' },
+  { v: 'severity', l: 'Severity', t: 'sev' },
+  { v: 'sym', l: 'Symbol', t: 'str' },
+  { v: 'setup', l: 'Setup type', t: 'str' },
+  { v: 'price.last', l: 'Last price', t: 'num' },
+  { v: 'price.change_pct', l: '% change today', t: 'num' }
+];
+const OPS_NUM = ['>=', '>', '<=', '<', '=='];
+const OPS_STR = ['==', '!=', 'contains', 'starts'];
+const OPS_SEV = ['==', '!='];
+
+function loadRules() { try { return JSON.parse(localStorage.getItem(KEY) || '[]'); } catch(e) { return []; } }
+function saveRules(r) { try { localStorage.setItem(KEY, JSON.stringify(r)); } catch(e) {} }
+
+let rules = loadRules();
+if (rules.length === 0) {
+  rules = [
+    { id: 'r1', name: 'High-conviction NVDA', enabled: true, logic: 'AND', conds: [
+      { field: 'sym', op: '==', val: 'NVDA' },
+      { field: 'ml.prob', op: '>=', val: 0.7 }
+    ]},
+    { id: 'r2', name: 'Any 80%+ breakout', enabled: true, logic: 'AND', conds: [
+      { field: 'setup', op: 'contains', val: 'breakout' },
+      { field: 'ml.prob', op: '>=', val: 0.8 }
+    ]}
+  ];
+  saveRules(rules);
+}
+
+function evalRule(rule, finding) {
+  let mlProb = null;
+  try {
+    if (window.predictForFinding) { const p = window.predictForFinding(finding); mlProb = p ? p.prob : null; }
+  } catch (e) {}
+  const get = (f) => {
+    if (f === 'ml.prob' || f === 'ml.confidence') return mlProb;
+    if (f === 'severity') return finding.severity || finding.meta?.severity || 'med';
+    if (f === 'sym') return finding.meta?.sym || finding.sym || '';
+    if (f === 'setup') return finding.meta?.setup || finding.setup || '';
+    if (f === 'price.last') return finding.meta?.last || (typeof QUOTES !== 'undefined' && QUOTES[finding.meta?.sym] ? QUOTES[finding.meta?.sym].last : null);
+    if (f === 'price.change_pct') return finding.meta?.changePct || (typeof QUOTES !== 'undefined' && QUOTES[finding.meta?.sym] ? QUOTES[finding.meta?.sym].changePct : null);
+    return null;
+  };
+  const checkCond = (c) => {
+    const left = get(c.field);
+    const right = c.val;
+    if (left == null) return false;
+    if (c.op === '==') return String(left).toLowerCase() === String(right).toLowerCase();
+    if (c.op === '!=') return String(left).toLowerCase() !== String(right).toLowerCase();
+    if (c.op === '>=') return Number(left) >= Number(right);
+    if (c.op === '>')  return Number(left) >  Number(right);
+    if (c.op === '<=') return Number(left) <= Number(right);
+    if (c.op === '<')  return Number(left) <  Number(right);
+    if (c.op === 'contains') return String(left).toLowerCase().includes(String(right).toLowerCase());
+    if (c.op === 'starts')   return String(left).toLowerCase().startsWith(String(right).toLowerCase());
+    return false;
+  };
+  if (!rule.conds || rule.conds.length === 0) return false;
+  return rule.logic === 'OR' ? rule.conds.some(checkCond) : rule.conds.every(checkCond);
+}
+
+function loadFindings() { try { return JSON.parse(localStorage.getItem('bpleone_brain_findings_v1') || '{"items":[]}').items; } catch(e) { return []; } }
+
+function render() {
+  const wrap = document.getElementById('rules');
+  wrap.innerHTML = '';
+  const findings = loadFindings().filter(f => (Date.now() - f.ts) < 12 * 3600 * 1000);
+
+  rules.forEach((rule, ri) => {
+    const matches = findings.filter(f => evalRule(rule, f)).length;
+    const c = document.createElement('div');
+    c.className = 'rule-card ' + (rule.enabled ? 'on' : 'off');
+    let html = '<div class="rule-header">'
+      + '<h4 contenteditable data-ri="' + ri + '" data-fld="name">' + rule.name + '</h4>'
+      + '<div class="flex gap-8">'
+        + '<label style="font-size:11px;display:flex;gap:6px;align-items:center;"><input type="checkbox" data-ri="' + ri + '" data-fld="enabled" ' + (rule.enabled ? 'checked' : '') + '> Enabled</label>'
+        + '<select data-ri="' + ri + '" data-fld="logic" style="padding:5px 8px;background:var(--bg);border:1px solid var(--border);color:var(--text-primary);border-radius:5px;font-size:11px;">'
+          + '<option value="AND"' + (rule.logic === 'AND' ? ' selected' : '') + '>Match ALL</option>'
+          + '<option value="OR"'  + (rule.logic === 'OR'  ? ' selected' : '') + '>Match ANY</option>'
+        + '</select>'
+        + '<button class="btn btn-ghost del-rule" data-ri="' + ri + '" style="padding:4px 10px;font-size:11px;color:var(--red);">🗑</button>'
+      + '</div></div>';
+    rule.conds.forEach((cond, ci) => {
+      const fld = FIELDS.find(f => f.v === cond.field) || FIELDS[0];
+      const ops = fld.t === 'num' ? OPS_NUM : fld.t === 'sev' ? OPS_SEV : OPS_STR;
+      const valInput = fld.t === 'sev'
+        ? '<select data-ri="' + ri + '" data-ci="' + ci + '" data-fld="val">'
+          + ['high','med','low'].map(s => '<option value="' + s + '"' + (cond.val === s ? ' selected' : '') + '>' + s + '</option>').join('')
+          + '</select>'
+        : '<input type="' + (fld.t === 'num' ? 'number' : 'text') + '" data-ri="' + ri + '" data-ci="' + ci + '" data-fld="val" value="' + cond.val + '" step="0.01">';
+      html += '<div class="cond-row">'
+        + '<select data-ri="' + ri + '" data-ci="' + ci + '" data-fld="field">'
+          + FIELDS.map(f => '<option value="' + f.v + '"' + (cond.field === f.v ? ' selected' : '') + '>' + f.l + '</option>').join('')
+        + '</select>'
+        + '<select data-ri="' + ri + '" data-ci="' + ci + '" data-fld="op">'
+          + ops.map(o => '<option value="' + o + '"' + (cond.op === o ? ' selected' : '') + '>' + o + '</option>').join('')
+        + '</select>'
+        + valInput
+        + '<span class="x del-cond" data-ri="' + ri + '" data-ci="' + ci + '">×</span>'
+      + '</div>';
+    });
+    html += '<div class="flex gap-8 mt-8"><button class="btn btn-ghost add-cond" data-ri="' + ri + '" style="padding:5px 12px;font-size:11px;">+ Add condition</button></div>';
+    html += '<div class="matches"><strong style="color:var(--accent);">' + matches + '</strong> match' + (matches === 1 ? '' : 'es') + ' in the last 12h of brain findings</div>';
+    c.innerHTML = html;
+    wrap.appendChild(c);
+  });
+
+  // Wire change handlers
+  wrap.querySelectorAll('select[data-ri], input[data-ri]').forEach(el => {
+    el.addEventListener('change', () => {
+      const ri = +el.dataset.ri, ci = el.dataset.ci != null ? +el.dataset.ci : null, fld = el.dataset.fld;
+      const val = el.type === 'checkbox' ? el.checked : el.type === 'number' ? parseFloat(el.value) : el.value;
+      if (ci != null) rules[ri].conds[ci][fld] = val;
+      else rules[ri][fld] = val;
+      saveRules(rules);
+      render();
+    });
+  });
+  wrap.querySelectorAll('h4[contenteditable]').forEach(h => {
+    h.addEventListener('blur', () => {
+      const ri = +h.dataset.ri;
+      rules[ri].name = h.textContent.trim() || 'Untitled rule';
+      saveRules(rules);
+    });
+  });
+  wrap.querySelectorAll('.del-cond').forEach(b => b.addEventListener('click', () => {
+    const ri = +b.dataset.ri, ci = +b.dataset.ci;
+    rules[ri].conds.splice(ci, 1);
+    saveRules(rules);
+    render();
+  }));
+  wrap.querySelectorAll('.add-cond').forEach(b => b.addEventListener('click', () => {
+    const ri = +b.dataset.ri;
+    rules[ri].conds.push({ field: 'ml.prob', op: '>=', val: 0.7 });
+    saveRules(rules);
+    render();
+  }));
+  wrap.querySelectorAll('.del-rule').forEach(b => b.addEventListener('click', () => {
+    if (!confirm('Delete this rule?')) return;
+    const ri = +b.dataset.ri;
+    rules.splice(ri, 1);
+    saveRules(rules);
+    render();
+  }));
+}
+
+document.getElementById('newRuleBtn').addEventListener('click', () => {
+  rules.push({
+    id: 'r' + Date.now(),
+    name: 'New rule',
+    enabled: true,
+    logic: 'AND',
+    conds: [{ field: 'ml.prob', op: '>=', val: 0.75 }]
+  });
+  saveRules(rules);
+  render();
+});
+
+document.getElementById('testAllBtn').addEventListener('click', () => {
+  const findings = loadFindings().filter(f => (Date.now() - f.ts) < 24 * 3600 * 1000);
+  let report = 'TEST RESULTS (last 24h of brain findings: ' + findings.length + ')\n\n';
+  rules.forEach(r => {
+    const m = findings.filter(f => evalRule(r, f));
+    report += '• ' + r.name + ' (' + (r.enabled ? 'ON' : 'OFF') + '): ' + m.length + ' match' + (m.length === 1 ? '' : 'es');
+    if (m.length > 0) report += '\n    e.g. ' + (m[0].meta?.sym || '?') + ' / ' + (m[0].meta?.setup || '?');
+    report += '\n';
+  });
+  alert(report);
+});
+
+render();
+setInterval(render, 8000);
+</script>
+</body>
+</html>

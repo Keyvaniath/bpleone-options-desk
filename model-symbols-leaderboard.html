@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Model Symbols Leaderboard — bpleone / trade</title>
+<meta name="description" content="Which symbols does the model crush, and which ones embarrass it? Per-symbol hit rate, expectancy, and confidence.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<style>
+.lb-row { display:grid;grid-template-columns:36px 80px 72px 72px 72px 72px 72px 90px 1fr;gap:10px;padding:11px 12px;border-bottom:1px solid var(--border);font-family:var(--font-mono);font-size:11px;align-items:center; }
+.lb-row.hdr { background:var(--bg-elevated);font-size:9px;color:var(--text-muted);font-weight:800;letter-spacing:0.5px; }
+.lb-row:not(.hdr):hover { background:var(--bg-elevated); }
+.bar { height:6px;background:var(--bg);border-radius:3px;overflow:hidden;position:relative; }
+.bar-fill { height:100%;border-radius:3px; }
+.medal { display:inline-block;width:24px;height:24px;line-height:24px;text-align:center;border-radius:50%;font-weight:700; }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">🏆 Model Symbols Leaderboard</div>
+      <div class="page-subtitle">Per-symbol model performance · trust the leaders · postmortem the bottom · <span id="market-clock">--</span></div>
+    </div>
+    <div class="flex gap-8">
+      <select id="sortBy" class="btn btn-secondary" style="padding:7px 12px;background:var(--bg-elevated);border:1px solid var(--border);color:var(--text-primary);">
+        <option value="expectancy">Sort: Expectancy</option>
+        <option value="hitRate">Sort: Hit rate</option>
+        <option value="n">Sort: Sample size</option>
+        <option value="avgProb">Sort: Avg confidence</option>
+        <option value="weight">Sort: Learned weight</option>
+      </select>
+      <select id="minN" class="btn btn-secondary" style="padding:7px 12px;background:var(--bg-elevated);border:1px solid var(--border);color:var(--text-primary);">
+        <option value="1">Min: 1 trade</option>
+        <option value="3">Min: 3 trades</option>
+        <option value="5" selected>Min: 5 trades</option>
+        <option value="10">Min: 10 trades</option>
+      </select>
+    </div>
+  </div>
+
+  <div class="grid grid-4 mb-24">
+    <div class="card"><div class="card-header"><div class="card-title">Tracked symbols</div></div><div class="mono" style="font-size:24px;font-weight:700;" id="kTotal">--</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">A-grade syms</div></div><div class="mono" style="font-size:24px;font-weight:700;color:var(--green);" id="kAGrade">--</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">F-grade syms</div></div><div class="mono" style="font-size:24px;font-weight:700;color:var(--red);" id="kFGrade">--</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">Best-of-best</div></div><div class="mono" style="font-size:24px;font-weight:700;color:var(--accent);" id="kKing">--</div></div>
+  </div>
+
+  <div class="grid grid-2 mb-24">
+    <div class="card">
+      <div class="card-header"><div class="card-title">🏅 Top 10 by expectancy</div></div>
+      <canvas id="topChart" height="200"></canvas>
+    </div>
+    <div class="card">
+      <div class="card-header"><div class="card-title">🩻 Bottom 10 by expectancy</div></div>
+      <canvas id="bottomChart" height="200"></canvas>
+    </div>
+  </div>
+
+  <div class="card" style="padding:0;">
+    <div class="lb-row hdr">
+      <div>#</div><div>SYM</div><div>N</div><div>HIT %</div><div>AVG R</div><div>EXP</div><div>MODEL</div><div>WEIGHT</div><div>PERFORMANCE</div>
+    </div>
+    <div id="lbBody"></div>
+  </div>
+
+  <div class="card mt-24">
+    <div class="card-header"><div class="card-title">🎯 Action playbook</div></div>
+    <div style="font-size:13px;color:var(--text-secondary);line-height:1.7;">
+      <strong>A-grade symbols (green):</strong> The model is wired for these. Trade them with full size. Confidence + hit rate are both high.<br>
+      <strong>C-grade (yellow):</strong> Coin-flip territory. Either skip or take half-size and use them to train. Most symbols are here.<br>
+      <strong>F-grade (red):</strong> The model gets these wrong. Either the setup doesn't apply to that symbol, or there's an external factor (earnings, M&A) the brain can't see. Don't blindly follow the model here — or remove them from your watchlist.<br>
+      <strong>Low sample size:</strong> Be patient. Wait until you have 10+ trades per symbol before drawing conclusions. Filter with the Min dropdown.
+    </div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script src="js/model.js"></script>
+<script>
+buildNav('model-symbols-leaderboard');
+
+function loadTrain() { try { return JSON.parse(localStorage.getItem('bpleone_train_v1') || '[]'); } catch(e) { return []; } }
+function loadLearn() { try { return JSON.parse(localStorage.getItem('bpleone_learn_v1') || '{}'); } catch(e) { return {}; } }
+
+function compute() {
+  const train = loadTrain();
+  const learn = loadLearn();
+  const bySym = {};
+  train.forEach(t => {
+    const s = t.meta?.sym || 'UNK';
+    if (!bySym[s]) bySym[s] = { sym: s, trades: [], wins: 0, losses: 0, rTotal: 0, probs: [] };
+    bySym[s].trades.push(t);
+    if (t.y === 1) { bySym[s].wins++; bySym[s].rTotal += (t.r || 1.5); }
+    else { bySym[s].losses++; bySym[s].rTotal += -1.0; }
+    try {
+      if (window.predictForFinding) {
+        const p = window.predictForFinding(t);
+        if (p) bySym[s].probs.push(p.prob);
+      }
+    } catch(e) {}
+  });
+  Object.values(bySym).forEach(s => {
+    s.n = s.trades.length;
+    s.hitRate = s.n > 0 ? s.wins / s.n : 0;
+    s.avgR = s.n > 0 ? s.rTotal / s.n : 0;
+    s.expectancy = s.avgR;
+    s.avgProb = s.probs.length > 0 ? s.probs.reduce((a,b)=>a+b,0)/s.probs.length : 0;
+    s.weight = (learn.symbols && learn.symbols[s.sym] && learn.symbols[s.sym].w) || 1.0;
+    s.grade = s.expectancy >= 0.5 ? 'A' : s.expectancy >= 0.2 ? 'B' : s.expectancy >= -0.2 ? 'C' : s.expectancy >= -0.5 ? 'D' : 'F';
+  });
+  return Object.values(bySym);
+}
+
+function render() {
+  const sortBy = document.getElementById('sortBy').value;
+  const minN = parseInt(document.getElementById('minN').value);
+  let data = compute().filter(s => s.n >= minN);
+  data.sort((a, b) => (b[sortBy] || 0) - (a[sortBy] || 0));
+
+  // KPIs
+  document.getElementById('kTotal').textContent = data.length;
+  document.getElementById('kAGrade').textContent = data.filter(s => s.grade === 'A').length;
+  document.getElementById('kFGrade').textContent = data.filter(s => s.grade === 'F').length;
+  document.getElementById('kKing').textContent = data.length ? data[0].sym : '—';
+
+  // Body
+  const body = document.getElementById('lbBody');
+  body.innerHTML = '';
+  data.forEach((s, i) => {
+    const r = document.createElement('div');
+    r.className = 'lb-row';
+    const gradeCol = s.grade === 'A' ? 'var(--green)' : s.grade === 'B' ? '#84cc16' : s.grade === 'C' ? 'var(--yellow)' : s.grade === 'D' ? '#f97316' : 'var(--red)';
+    const medal = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : (i + 1);
+    const barWidth = Math.max(2, Math.min(100, (s.hitRate * 100)));
+    const barCol = s.hitRate >= 0.6 ? '#10b981' : s.hitRate >= 0.5 ? '#00d4ff' : s.hitRate >= 0.4 ? '#f59e0b' : '#ef4444';
+    r.innerHTML = '<div>' + medal + '</div>'
+      + '<div style="font-weight:700;color:' + gradeCol + ';font-size:13px;">' + s.sym + ' <small style="font-size:9px;color:' + gradeCol + ';">' + s.grade + '</small></div>'
+      + '<div>' + s.n + '</div>'
+      + '<div style="color:' + (s.hitRate >= 0.55 ? 'var(--green)' : s.hitRate >= 0.45 ? 'var(--text-primary)' : 'var(--red)') + ';">' + (s.hitRate*100).toFixed(0) + '%</div>'
+      + '<div style="color:' + (s.avgR > 0 ? 'var(--green)' : 'var(--red)') + ';">' + (s.avgR >= 0 ? '+' : '') + s.avgR.toFixed(2) + '</div>'
+      + '<div style="color:' + gradeCol + ';font-weight:700;">' + (s.expectancy >= 0 ? '+' : '') + s.expectancy.toFixed(2) + 'R</div>'
+      + '<div style="color:var(--accent);">' + (s.avgProb*100).toFixed(0) + '%</div>'
+      + '<div style="color:' + (s.weight > 1.05 ? 'var(--green)' : s.weight < 0.95 ? 'var(--red)' : 'var(--text-muted)') + ';">' + s.weight.toFixed(2) + 'x</div>'
+      + '<div><div class="bar"><div class="bar-fill" style="width:' + barWidth + '%;background:' + barCol + ';"></div></div></div>';
+    body.appendChild(r);
+  });
+
+  // Charts
+  const top = data.slice(0, 10);
+  const bot = [...data].sort((a,b) => a.expectancy - b.expectancy).slice(0, 10);
+  if (window._topChart) window._topChart.destroy();
+  if (window._bottomChart) window._bottomChart.destroy();
+  window._topChart = new Chart(document.getElementById('topChart'), {
+    type: 'bar',
+    data: { labels: top.map(t => t.sym), datasets: [{ data: top.map(t => t.expectancy), backgroundColor: top.map(t => t.expectancy > 0 ? '#10b981' : '#ef4444') }] },
+    options: { indexAxis:'y', responsive:true, maintainAspectRatio:false, plugins:{legend:{display:false}}, scales:{x:{ticks:{color:'#888'},grid:{color:'#222'}},y:{ticks:{color:'#888'},grid:{display:false}}} }
+  });
+  window._bottomChart = new Chart(document.getElementById('bottomChart'), {
+    type: 'bar',
+    data: { labels: bot.map(t => t.sym), datasets: [{ data: bot.map(t => t.expectancy), backgroundColor: bot.map(t => t.expectancy > 0 ? '#10b981' : '#ef4444') }] },
+    options: { indexAxis:'y', responsive:true, maintainAspectRatio:false, plugins:{legend:{display:false}}, scales:{x:{ticks:{color:'#888'},grid:{color:'#222'}},y:{ticks:{color:'#888'},grid:{display:false}}} }
+  });
+}
+
+document.getElementById('sortBy').addEventListener('change', render);
+document.getElementById('minN').addEventListener('change', render);
+render();
+setInterval(render, 15000);
+</script>
+</body>
+</html>

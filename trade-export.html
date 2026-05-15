@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Trade Export — bpleone / trade</title>
+<meta name="description" content="Export model picks, alerts, and signal history as CSV / JSON / TradingView watchlist files.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.fmt-card { padding:24px;background:var(--bg-elevated);border:1px solid var(--border);border-radius:12px;cursor:pointer;transition:all 0.15s; }
+.fmt-card:hover { border-color:var(--accent);transform:translateY(-2px);box-shadow:0 8px 24px rgba(0,212,255,0.1); }
+.fmt-card .ic { font-size:32px;margin-bottom:10px; }
+.fmt-card h4 { font-size:14px;font-weight:700;margin-bottom:4px; }
+.fmt-card p { font-size:11px;color:var(--text-muted);line-height:1.5; }
+.preview-box { padding:14px;background:var(--bg);border:1px solid var(--border);border-radius:8px;font-family:var(--font-mono);font-size:10px;color:var(--text-secondary);max-height:300px;overflow:auto;white-space:pre; }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">📤 Trade Export</div>
+      <div class="page-subtitle">Export model picks, alerts, signals to CSV / JSON / TradingView · paste into broker / spreadsheet · <span id="market-clock">--</span></div>
+    </div>
+    <div class="flex gap-8">
+      <button class="btn btn-ghost" id="refreshBtn">🔄 Refresh</button>
+    </div>
+  </div>
+
+  <div class="card mb-24">
+    <div class="card-header"><div class="card-title">🎯 What to export</div></div>
+    <div class="grid grid-2" style="gap:14px;">
+      <div>
+        <label style="font-size:11px;color:var(--text-muted);text-transform:uppercase;font-weight:700;display:block;margin-bottom:6px;">Source</label>
+        <select id="src" style="width:100%;padding:10px;background:var(--bg);border:1px solid var(--border);color:var(--text-primary);border-radius:6px;font-size:13px;">
+          <option value="ml_top">Top ML picks (highest confidence)</option>
+          <option value="findings">Brain findings (all signals)</option>
+          <option value="train">Training data (resolved trades)</option>
+          <option value="journal">Journal entries</option>
+          <option value="watchlist">Watchlist symbols</option>
+          <option value="alerts">Triggered alerts</option>
+        </select>
+      </div>
+      <div>
+        <label style="font-size:11px;color:var(--text-muted);text-transform:uppercase;font-weight:700;display:block;margin-bottom:6px;">Time window</label>
+        <select id="win" style="width:100%;padding:10px;background:var(--bg);border:1px solid var(--border);color:var(--text-primary);border-radius:6px;font-size:13px;">
+          <option value="1">Last 1 day</option>
+          <option value="3">Last 3 days</option>
+          <option value="7" selected>Last 7 days</option>
+          <option value="30">Last 30 days</option>
+          <option value="all">All time</option>
+        </select>
+      </div>
+      <div>
+        <label style="font-size:11px;color:var(--text-muted);text-transform:uppercase;font-weight:700;display:block;margin-bottom:6px;">Min ML confidence</label>
+        <input type="number" id="minConf" min="0" max="1" step="0.05" value="0.6" style="width:100%;padding:10px;background:var(--bg);border:1px solid var(--border);color:var(--text-primary);border-radius:6px;font-size:13px;font-family:var(--font-mono);">
+      </div>
+      <div>
+        <label style="font-size:11px;color:var(--text-muted);text-transform:uppercase;font-weight:700;display:block;margin-bottom:6px;">Row limit</label>
+        <input type="number" id="limit" value="100" style="width:100%;padding:10px;background:var(--bg);border:1px solid var(--border);color:var(--text-primary);border-radius:6px;font-size:13px;font-family:var(--font-mono);">
+      </div>
+    </div>
+  </div>
+
+  <div class="grid grid-4 mb-24">
+    <div class="fmt-card" data-fmt="csv">
+      <div class="ic">📊</div><h4>CSV</h4><p>Open in Excel, Sheets, Numbers. Full columns including timestamps, ML prob, severity, and metadata.</p>
+    </div>
+    <div class="fmt-card" data-fmt="json">
+      <div class="ic">📦</div><h4>JSON</h4><p>Structured payload for APIs, scripts, or import into other tools. Includes all metadata.</p>
+    </div>
+    <div class="fmt-card" data-fmt="tv">
+      <div class="ic">📈</div><h4>TradingView</h4><p>Watchlist text file. Just symbols, one per line. Drop into TradingView import.</p>
+    </div>
+    <div class="fmt-card" data-fmt="md">
+      <div class="ic">📝</div><h4>Markdown</h4><p>Plain-text bullet list. Paste into Notion / Obsidian / Slack / Discord / chat with friends.</p>
+    </div>
+  </div>
+
+  <div class="card mb-24">
+    <div class="card-header">
+      <div class="card-title">👁 Preview · <span id="rowCount" style="color:var(--accent);font-family:var(--font-mono);">-- rows</span></div>
+      <button class="btn btn-primary" id="downloadBtn" disabled>⬇ Download</button>
+    </div>
+    <div class="preview-box" id="preview">Click a format above to generate.</div>
+  </div>
+
+  <div class="card">
+    <div class="card-header"><div class="card-title">🧠 Tips</div></div>
+    <div style="font-size:13px;color:var(--text-secondary);line-height:1.7;">
+      <strong>CSV → broker:</strong> Most brokers (Alpaca, Tradier, IBKR) accept CSV uploads for batch order entry. Filter to your highest-confidence picks first.<br>
+      <strong>TradingView format:</strong> Save the .txt, open TradingView → watchlist menu → Import. Symbols appear as a saved list.<br>
+      <strong>Markdown → Discord:</strong> Paste into a code block (triple backticks) and it looks clean. Good for sharing with trading buddies.<br>
+      <strong>JSON → cron job:</strong> If you're building automation, fetch this format and feed it into your script (n8n / Zapier / custom Python).
+    </div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script src="js/model.js"></script>
+<script>
+buildNav('trade-export');
+
+let currentFmt = 'csv';
+let currentData = null;
+
+function getRows() {
+  const src = document.getElementById('src').value;
+  const winStr = document.getElementById('win').value;
+  const minConf = parseFloat(document.getElementById('minConf').value) || 0;
+  const limit = parseInt(document.getElementById('limit').value) || 100;
+  const since = winStr === 'all' ? 0 : Date.now() - parseInt(winStr) * 24 * 3600 * 1000;
+
+  let raw = [];
+  if (src === 'findings' || src === 'ml_top') {
+    try { raw = JSON.parse(localStorage.getItem('bpleone_brain_findings_v1') || '{"items":[]}').items; } catch(e) { raw = []; }
+  } else if (src === 'train') {
+    try { raw = JSON.parse(localStorage.getItem('bpleone_train_v1') || '[]'); } catch(e) {}
+  } else if (src === 'journal') {
+    try { raw = JSON.parse(localStorage.getItem('bpleone_journal_pro_v1') || '[]'); } catch(e) {}
+  } else if (src === 'watchlist') {
+    try {
+      const lists = JSON.parse(localStorage.getItem('bpleone_watchlist_pro_v1') || '[]');
+      const syms = new Set();
+      lists.forEach(l => (l.syms || []).forEach(s => syms.add(s)));
+      raw = [...syms].map(s => ({ ts: Date.now(), meta: { sym: s, setup: 'watchlist' } }));
+    } catch(e) {}
+  } else if (src === 'alerts') {
+    try { raw = JSON.parse(localStorage.getItem('bpleone_alerts_log_v1') || '[]'); } catch(e) {}
+  }
+
+  let rows = raw.filter(r => (r.ts || 0) >= since);
+  // Attach ML prob
+  rows = rows.map(r => {
+    let prob = null;
+    try { if (window.predictForFinding) { const p = window.predictForFinding(r); prob = p ? p.prob : null; } } catch(e) {}
+    return { ...r, _prob: prob };
+  });
+  if (minConf > 0) rows = rows.filter(r => r._prob != null && r._prob >= minConf);
+  if (src === 'ml_top') rows.sort((a,b) => (b._prob||0) - (a._prob||0));
+  else rows.sort((a,b) => (b.ts||0) - (a.ts||0));
+  rows = rows.slice(0, limit);
+  return rows;
+}
+
+function toCSV(rows) {
+  const hdr = ['timestamp','symbol','setup','severity','ml_prob','price','change_pct','note'];
+  const lines = [hdr.join(',')];
+  rows.forEach(r => {
+    const sym = r.meta?.sym || r.sym || '';
+    const setup = r.meta?.setup || r.setup || '';
+    const sev = r.severity || r.meta?.severity || '';
+    const prob = r._prob != null ? r._prob.toFixed(4) : '';
+    const price = r.meta?.last || (typeof QUOTES !== 'undefined' && QUOTES[sym] ? QUOTES[sym].last : '');
+    const chg = r.meta?.changePct || (typeof QUOTES !== 'undefined' && QUOTES[sym] ? QUOTES[sym].changePct : '');
+    const note = (r.title || r.note || '').replace(/[\n\r,"]/g, ' ');
+    lines.push([new Date(r.ts).toISOString(), sym, setup, sev, prob, price, chg, '"'+note+'"'].join(','));
+  });
+  return lines.join('\n');
+}
+
+function toJSON(rows) {
+  return JSON.stringify({
+    generated: new Date().toISOString(),
+    source: document.getElementById('src').value,
+    count: rows.length,
+    rows: rows.map(r => ({
+      ts: r.ts, sym: r.meta?.sym, setup: r.meta?.setup, severity: r.severity,
+      ml_prob: r._prob, price: r.meta?.last, note: r.title || r.note
+    }))
+  }, null, 2);
+}
+
+function toTV(rows) {
+  const syms = [...new Set(rows.map(r => r.meta?.sym || r.sym).filter(Boolean))];
+  return syms.join(',\n');
+}
+
+function toMD(rows) {
+  let md = '# bpleone — Trade Export\n\n';
+  md += '_Generated ' + new Date().toLocaleString() + '_\n\n';
+  rows.forEach((r, i) => {
+    const prob = r._prob != null ? ' (' + (r._prob*100).toFixed(0) + '% ML)' : '';
+    md += '- **' + (r.meta?.sym || r.sym || '?') + '** · ' + (r.meta?.setup || '?') + prob + '\n';
+    if (r.title) md += '  - ' + r.title + '\n';
+  });
+  return md;
+}
+
+function render() {
+  const rows = getRows();
+  currentData = rows;
+  document.getElementById('rowCount').textContent = rows.length + ' rows';
+  let preview = '';
+  if (currentFmt === 'csv') preview = toCSV(rows);
+  else if (currentFmt === 'json') preview = toJSON(rows);
+  else if (currentFmt === 'tv') preview = toTV(rows);
+  else if (currentFmt === 'md') preview = toMD(rows);
+  document.getElementById('preview').textContent = preview.length > 4000 ? preview.slice(0, 4000) + '\n... (' + (preview.length - 4000) + ' more chars in download)' : preview;
+  document.getElementById('downloadBtn').disabled = rows.length === 0;
+}
+
+document.querySelectorAll('.fmt-card').forEach(c => c.addEventListener('click', () => {
+  currentFmt = c.dataset.fmt;
+  document.querySelectorAll('.fmt-card').forEach(x => x.style.borderColor = 'var(--border)');
+  c.style.borderColor = 'var(--accent)';
+  render();
+}));
+
+document.getElementById('downloadBtn').addEventListener('click', () => {
+  if (!currentData) return;
+  let content = '', ext = currentFmt, mime = 'text/plain';
+  if (currentFmt === 'csv') { content = toCSV(currentData); mime = 'text/csv'; }
+  else if (currentFmt === 'json') { content = toJSON(currentData); mime = 'application/json'; }
+  else if (currentFmt === 'tv') { content = toTV(currentData); ext = 'txt'; }
+  else if (currentFmt === 'md') { content = toMD(currentData); ext = 'md'; }
+  const blob = new Blob([content], { type: mime });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'bpleone-export-' + new Date().toISOString().slice(0,10) + '.' + ext;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+});
+
+['src','win','minConf','limit'].forEach(id => document.getElementById(id).addEventListener('change', render));
+document.getElementById('refreshBtn').addEventListener('click', render);
+
+// Pre-select CSV
+document.querySelector('.fmt-card[data-fmt=csv]').click();
+</script>
+</body>
+</html>

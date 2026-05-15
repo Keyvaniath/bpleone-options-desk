@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Model What-If — bpleone / trade</title>
+<meta name="description" content="Manually adjust feature inputs and watch the model probability change in real time. Build intuition for what the brain cares about.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<style>
+.feat-row { display:grid;grid-template-columns:200px 1fr 80px 70px;gap:14px;padding:10px 0;border-bottom:1px solid var(--border);align-items:center;font-size:12px; }
+.feat-row .name { font-weight:600;color:var(--text-primary); }
+.feat-row .name small { display:block;font-weight:400;color:var(--text-muted);font-size:10px;margin-top:2px; }
+.feat-row input[type=range] { width:100%; }
+.feat-row .val { font-family:var(--font-mono);text-align:right;color:var(--accent);font-weight:700; }
+.feat-row .contrib { font-family:var(--font-mono);text-align:right;font-size:11px;font-weight:600; }
+.prob-display { font-family:var(--font-mono);font-size:84px;font-weight:800;line-height:1; }
+.verdict-tag { display:inline-block;padding:6px 14px;border-radius:18px;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.6px; }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">🎛 Model What-If</div>
+      <div class="page-subtitle">Drag the sliders · watch the prediction shift · build intuition for what the brain weighs · <span id="market-clock">--</span></div>
+    </div>
+    <div class="flex gap-8">
+      <button class="btn btn-ghost" id="resetBtn">↺ Reset to neutral</button>
+      <button class="btn btn-ghost" id="bullBtn">↑ Pure bull setup</button>
+      <button class="btn btn-ghost" id="bearBtn">↓ Pure bear setup</button>
+      <button class="btn btn-primary" id="saveBtn">💾 Save as training row</button>
+    </div>
+  </div>
+
+  <div class="grid grid-2 mb-24">
+    <div class="card" style="text-align:center;padding:34px;">
+      <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:1px;margin-bottom:14px;">Predicted win probability</div>
+      <div class="prob-display" id="probDisp">--</div>
+      <div style="margin-top:14px;" id="verdictWrap"></div>
+      <div style="margin-top:12px;font-size:11px;color:var(--text-muted);" id="kellyDisp"></div>
+    </div>
+    <div class="card">
+      <div class="card-header"><div class="card-title">📊 Top contributors</div></div>
+      <canvas id="contribChart" height="220"></canvas>
+    </div>
+  </div>
+
+  <div class="card mb-24">
+    <div class="card-header"><div class="card-title">🎚 Feature dials</div></div>
+    <div style="padding:6px 0 12px 0;color:var(--text-muted);font-size:11px;line-height:1.6;">
+      Each dial is one input feature. Sliding changes the prediction live. The <strong>Contribution</strong> column shows each feature's signed contribution to the logit (raw output before sigmoid) — positive (green) pushes toward WIN, negative (red) pushes toward LOSS.
+    </div>
+    <div id="dials"></div>
+  </div>
+
+  <div class="card">
+    <div class="card-header"><div class="card-title">💡 Using what-if</div></div>
+    <div style="font-size:13px;color:var(--text-secondary);line-height:1.7;">
+      <strong>Build intuition:</strong> Slide one feature at a time. Watch which ones move the prediction the most — those are the brain's favorite features.<br>
+      <strong>Stress-test a scenario:</strong> Set up a realistic bull or bear configuration. Does the brain agree? If not, the model may have miscalibrated weights.<br>
+      <strong>Generate training data:</strong> When the brain disagrees with your view, set the dials to match your view and click "Save as training row" with your label — the brain learns from this disagreement.
+    </div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script src="js/model.js"></script>
+<script>
+buildNav('model-what-if');
+
+const FEATURES = (window.FEATURES || []).slice();
+if (FEATURES.length === 0) {
+  // Fallback if model.js features aren't exposed
+  ['rsi','macd_hist','vol_z','atr_pct','price_z','dist_ma20','dist_ma50','trend_score','breadth','vix_level','put_call','setup_strength','sector_rs','beta','liq_score','hour_norm','dow','severity_score','recency','prior_hit','dist_high','momentum'].forEach(n => FEATURES.push({ name: n, min: 0, max: 1 }));
+}
+
+let values = {};
+FEATURES.forEach(f => { values[f.name] = 0.5; });
+
+function neutral() {
+  FEATURES.forEach(f => { values[f.name] = 0.5; });
+  render();
+}
+function bull() {
+  FEATURES.forEach(f => {
+    if (['rsi','macd_hist','trend_score','momentum','setup_strength','sector_rs','breadth','prior_hit','severity_score'].includes(f.name)) values[f.name] = 0.85;
+    else if (['vix_level','put_call'].includes(f.name)) values[f.name] = 0.25;
+    else values[f.name] = 0.55;
+  });
+  render();
+}
+function bear() {
+  FEATURES.forEach(f => {
+    if (['rsi','macd_hist','trend_score','momentum','setup_strength','sector_rs','breadth','prior_hit'].includes(f.name)) values[f.name] = 0.15;
+    else if (['vix_level','put_call','severity_score'].includes(f.name)) values[f.name] = 0.85;
+    else values[f.name] = 0.45;
+  });
+  render();
+}
+
+function getModel() {
+  try {
+    if (window.ModelStore && window.ModelStore.load) {
+      const m = window.ModelStore.load();
+      if (m) return m;
+    }
+  } catch (e) {}
+  return null;
+}
+
+function predict() {
+  const m = getModel();
+  if (!m) return null;
+  // Build feature vector in canonical order
+  const x = FEATURES.map(f => values[f.name]);
+  // Simple logistic regression: sum(w_i * x_i) + bias, then sigmoid
+  if (m.weights && m.weights.length) {
+    const w = m.weights;
+    let z = 0;
+    for (let i = 0; i < x.length; i++) {
+      const wi = w[i] || 0;
+      z += wi * x[i];
+    }
+    z += (m.bias || w[w.length - 1] || 0);
+    const prob = 1 / (1 + Math.exp(-z));
+    const contribs = x.map((v, i) => ({ name: FEATURES[i].name, c: (w[i] || 0) * v, w: w[i] || 0, val: v }));
+    return { prob, z, contribs };
+  }
+  return null;
+}
+
+function render() {
+  const dials = document.getElementById('dials');
+  dials.innerHTML = '';
+  const pred = predict();
+
+  FEATURES.forEach(f => {
+    const row = document.createElement('div');
+    row.className = 'feat-row';
+    const v = values[f.name];
+    const c = pred ? pred.contribs.find(c => c.name === f.name) : null;
+    const contribStr = c ? (c.c >= 0 ? '+' : '') + c.c.toFixed(3) : '—';
+    const contribCol = c ? (c.c > 0.05 ? 'var(--green)' : c.c < -0.05 ? 'var(--red)' : 'var(--text-muted)') : 'var(--text-muted)';
+    row.innerHTML = '<div class="name">' + f.name + '<small>' + (f.desc || 'feature input') + '</small></div>'
+      + '<div><input type="range" min="0" max="1" step="0.01" value="' + v + '" data-name="' + f.name + '"></div>'
+      + '<div class="val">' + v.toFixed(2) + '</div>'
+      + '<div class="contrib" style="color:' + contribCol + ';">' + contribStr + '</div>';
+    dials.appendChild(row);
+  });
+
+  dials.querySelectorAll('input[type=range]').forEach(r => {
+    r.addEventListener('input', () => {
+      values[r.dataset.name] = parseFloat(r.value);
+      render();
+    });
+  });
+
+  // Display prob
+  if (pred) {
+    const p = pred.prob;
+    const pct = (p * 100).toFixed(1);
+    document.getElementById('probDisp').textContent = pct + '%';
+    document.getElementById('probDisp').style.color = p >= 0.65 ? 'var(--green)' : p >= 0.5 ? 'var(--accent)' : p >= 0.35 ? 'var(--yellow)' : 'var(--red)';
+    const verdict = p >= 0.7 ? { l:'STRONG BUY', col:'var(--green)' } : p >= 0.55 ? { l:'BUY', col:'#84cc16' } : p >= 0.45 ? { l:'NEUTRAL', col:'var(--text-muted)' } : p >= 0.3 ? { l:'AVOID', col:'#f97316' } : { l:'STRONG AVOID', col:'var(--red)' };
+    document.getElementById('verdictWrap').innerHTML = '<span class="verdict-tag" style="background:' + verdict.col + '20;color:' + verdict.col + ';border:1px solid ' + verdict.col + ';">' + verdict.l + '</span>';
+    const edge = 2 * p - 1;
+    const kelly = Math.max(0, edge * 0.25);
+    document.getElementById('kellyDisp').textContent = 'Edge: ' + (edge*100).toFixed(0) + '% · 1/4-Kelly: ' + (kelly*100).toFixed(1) + '% of bankroll';
+
+    // Contrib chart
+    const top = [...pred.contribs].sort((a,b) => Math.abs(b.c) - Math.abs(a.c)).slice(0, 10);
+    if (window._contribChart) window._contribChart.destroy();
+    window._contribChart = new Chart(document.getElementById('contribChart'), {
+      type: 'bar',
+      data: {
+        labels: top.map(t => t.name),
+        datasets: [{
+          data: top.map(t => t.c),
+          backgroundColor: top.map(t => t.c > 0 ? '#10b981' : '#ef4444')
+        }]
+      },
+      options: {
+        indexAxis: 'y',
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: { legend: { display: false } },
+        scales: { x: { ticks: { color: '#888' }, grid: { color: '#222' } }, y: { ticks: { color: '#888' }, grid: { display: false } } }
+      }
+    });
+  } else {
+    document.getElementById('probDisp').textContent = '—';
+    document.getElementById('verdictWrap').innerHTML = '<span style="font-size:12px;color:var(--yellow);">No trained model — visit <a href="model-seed.html" style="color:var(--accent);">Model Seed</a> first.</span>';
+  }
+}
+
+document.getElementById('resetBtn').addEventListener('click', neutral);
+document.getElementById('bullBtn').addEventListener('click', bull);
+document.getElementById('bearBtn').addEventListener('click', bear);
+document.getElementById('saveBtn').addEventListener('click', () => {
+  const lbl = prompt('Label this scenario (W = win, L = loss):');
+  if (!lbl) return;
+  const y = lbl.toLowerCase().startsWith('w') ? 1 : 0;
+  try {
+    const train = JSON.parse(localStorage.getItem('bpleone_train_v1') || '[]');
+    const x = FEATURES.map(f => values[f.name]);
+    train.push({ id: 'wif-' + Date.now(), ts: Date.now(), x, y, source: 'what-if', meta: { sym: 'WHAT-IF', setup: 'manual' } });
+    localStorage.setItem('bpleone_train_v1', JSON.stringify(train));
+    alert('✓ Saved as ' + (y === 1 ? 'WIN' : 'LOSS') + '. Run a retrain on the Training Center to incorporate.');
+  } catch (e) { alert('Save failed: ' + e.message); }
+});
+
+render();
+</script>
+</body>
+</html>

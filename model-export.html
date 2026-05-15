@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Model Export / Import — bpleone / trade</title>
+<meta name="description" content="Backup or migrate your trained ML model and training data as a JSON snapshot.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.snap-row { display:grid;grid-template-columns:140px 1fr 100px;gap:14px;padding:11px 0;border-bottom:1px solid var(--border);font-size:12px;align-items:center; }
+.snap-row .lbl { color:var(--text-muted);font-weight:600;text-transform:uppercase;letter-spacing:0.6px;font-size:10px; }
+.snap-row .val { font-family:var(--font-mono);color:var(--text-primary); }
+.snap-row .sz { font-family:var(--font-mono);text-align:right;color:var(--accent);font-weight:700; }
+.dropzone { border:2px dashed var(--border);border-radius:12px;padding:38px;text-align:center;cursor:pointer;transition:all 0.15s; }
+.dropzone:hover { border-color:var(--accent);background:rgba(0,212,255,0.04); }
+.dropzone.over { border-color:var(--green);background:rgba(16,185,129,0.08); }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">💾 Model Export / Import</div>
+      <div class="page-subtitle">Backup trained weights + training data · migrate between devices · <span id="market-clock">--</span></div>
+    </div>
+    <div class="flex gap-8">
+      <button class="btn btn-ghost" id="refreshBtn">🔄 Refresh</button>
+      <button class="btn btn-primary" id="exportBtn">⬇ Download Backup</button>
+    </div>
+  </div>
+
+  <div class="grid grid-2 mb-24">
+    <div class="card">
+      <div class="card-header"><div class="card-title">📦 Current snapshot</div></div>
+      <div id="snap"></div>
+    </div>
+    <div class="card">
+      <div class="card-header"><div class="card-title">📤 Import / restore</div></div>
+      <div id="dz" class="dropzone">
+        <div style="font-size:38px;margin-bottom:10px;">📁</div>
+        <div style="font-weight:700;margin-bottom:6px;">Drop a backup .json here</div>
+        <div style="font-size:11px;color:var(--text-muted);">or click to browse</div>
+        <input type="file" id="fileInput" accept=".json,application/json" style="display:none;">
+      </div>
+      <div id="importStatus" style="margin-top:14px;font-size:12px;"></div>
+    </div>
+  </div>
+
+  <div class="card mb-24">
+    <div class="card-header"><div class="card-title">⚙ Export options</div></div>
+    <div class="grid grid-3" style="gap:14px;">
+      <label style="display:flex;gap:8px;align-items:center;font-size:12px;cursor:pointer;"><input type="checkbox" id="optModel" checked> Trained weights + bias</label>
+      <label style="display:flex;gap:8px;align-items:center;font-size:12px;cursor:pointer;"><input type="checkbox" id="optTrain" checked> Training rows</label>
+      <label style="display:flex;gap:8px;align-items:center;font-size:12px;cursor:pointer;"><input type="checkbox" id="optVersions" checked> Saved versions</label>
+      <label style="display:flex;gap:8px;align-items:center;font-size:12px;cursor:pointer;"><input type="checkbox" id="optLearn" checked> Per-symbol weights</label>
+      <label style="display:flex;gap:8px;align-items:center;font-size:12px;cursor:pointer;"><input type="checkbox" id="optFindings"> Brain findings history</label>
+      <label style="display:flex;gap:8px;align-items:center;font-size:12px;cursor:pointer;"><input type="checkbox" id="optJournal"> Journal entries</label>
+      <label style="display:flex;gap:8px;align-items:center;font-size:12px;cursor:pointer;"><input type="checkbox" id="optWatchlist" checked> Watchlists</label>
+      <label style="display:flex;gap:8px;align-items:center;font-size:12px;cursor:pointer;"><input type="checkbox" id="optAlerts"> Alert rules</label>
+      <label style="display:flex;gap:8px;align-items:center;font-size:12px;cursor:pointer;"><input type="checkbox" id="optHistory"> Training history (grades)</label>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-header"><div class="card-title">🔑 What's in a backup</div></div>
+    <div style="font-size:13px;color:var(--text-secondary);line-height:1.7;">
+      A backup is a single <code>.json</code> file containing every localStorage key the brain depends on. Restoring it on a fresh device gives you the same predictions instantly — no re-training required. Useful for: switching browsers, migrating to a new laptop, sharing your trained brain with a collaborator, or rolling back after a bad training session.
+      <br><br>
+      Backups are tagged with the schema version (<code>v1</code>). Imports refuse to apply if the schema version doesn't match, so you can't accidentally corrupt your state with an incompatible file.
+    </div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script src="js/model.js"></script>
+<script>
+buildNav('model-export');
+
+const KEYS = {
+  optModel:     ['bpleone_model_v1'],
+  optTrain:     ['bpleone_train_v1'],
+  optVersions:  ['bpleone_model_versions_v1'],
+  optLearn:     ['bpleone_learn_v1'],
+  optFindings:  ['bpleone_brain_findings_v1'],
+  optJournal:   ['bpleone_journal_pro_v1', 'bpleone_journal_v1'],
+  optWatchlist: ['bpleone_watchlist_pro_v1'],
+  optAlerts:    ['bpleone_alerts_v1', 'bpleone_alert_rules_v1'],
+  optHistory:   ['bpleone_training_history_v1', 'bpleone_grade_history_v1']
+};
+
+function sizeOf(key) {
+  try {
+    const v = localStorage.getItem(key);
+    if (!v) return 0;
+    return new Blob([v]).size;
+  } catch (e) { return 0; }
+}
+function fmtSize(b) {
+  if (b < 1024) return b + ' B';
+  if (b < 1024 * 1024) return (b / 1024).toFixed(1) + ' KB';
+  return (b / 1024 / 1024).toFixed(2) + ' MB';
+}
+function countOf(key) {
+  try {
+    const v = JSON.parse(localStorage.getItem(key) || 'null');
+    if (Array.isArray(v)) return v.length;
+    if (v && v.items && Array.isArray(v.items)) return v.items.length;
+    if (v && v.rows && Array.isArray(v.rows)) return v.rows.length;
+    if (v && typeof v === 'object') return Object.keys(v).length;
+    return v == null ? 0 : 1;
+  } catch (e) { return 0; }
+}
+
+function renderSnap() {
+  const wrap = document.getElementById('snap');
+  let html = '';
+  const labels = {
+    optModel: 'Trained model',
+    optTrain: 'Training rows',
+    optVersions: 'Versions',
+    optLearn: 'Per-symbol',
+    optFindings: 'Findings',
+    optJournal: 'Journal',
+    optWatchlist: 'Watchlists',
+    optAlerts: 'Alerts',
+    optHistory: 'Grade history'
+  };
+  let totalSize = 0;
+  Object.keys(KEYS).forEach(o => {
+    let sz = 0, count = 0;
+    KEYS[o].forEach(k => { sz += sizeOf(k); count += countOf(k); });
+    totalSize += sz;
+    html += '<div class="snap-row">'
+      + '<div class="lbl">' + labels[o] + '</div>'
+      + '<div class="val">' + (count > 0 ? count + ' items' : '—') + '</div>'
+      + '<div class="sz">' + fmtSize(sz) + '</div>'
+      + '</div>';
+  });
+  html += '<div class="snap-row" style="border-bottom:none;border-top:2px solid var(--border);margin-top:6px;padding-top:14px;">'
+    + '<div class="lbl" style="color:var(--accent);">Total</div>'
+    + '<div class="val"></div>'
+    + '<div class="sz">' + fmtSize(totalSize) + '</div>'
+    + '</div>';
+  wrap.innerHTML = html;
+}
+renderSnap();
+
+document.getElementById('refreshBtn').addEventListener('click', renderSnap);
+
+document.getElementById('exportBtn').addEventListener('click', () => {
+  const dump = {
+    schema: 'bpleone_brain_v1',
+    exportedAt: new Date().toISOString(),
+    userAgent: navigator.userAgent,
+    payload: {}
+  };
+  Object.keys(KEYS).forEach(o => {
+    const cb = document.getElementById(o);
+    if (cb && cb.checked) {
+      KEYS[o].forEach(k => {
+        const v = localStorage.getItem(k);
+        if (v) dump.payload[k] = v;
+      });
+    }
+  });
+  const json = JSON.stringify(dump, null, 2);
+  const blob = new Blob([json], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+  a.download = 'bpleone-brain-' + stamp + '.json';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+});
+
+const dz = document.getElementById('dz');
+const fi = document.getElementById('fileInput');
+dz.addEventListener('click', () => fi.click());
+['dragenter','dragover'].forEach(e => dz.addEventListener(e, ev => { ev.preventDefault(); dz.classList.add('over'); }));
+['dragleave','drop'].forEach(e => dz.addEventListener(e, ev => { ev.preventDefault(); dz.classList.remove('over'); }));
+dz.addEventListener('drop', ev => { if (ev.dataTransfer.files.length) handleFile(ev.dataTransfer.files[0]); });
+fi.addEventListener('change', ev => { if (ev.target.files.length) handleFile(ev.target.files[0]); });
+
+function handleFile(file) {
+  const status = document.getElementById('importStatus');
+  status.innerHTML = '<span style="color:var(--text-muted);">Reading ' + file.name + '...</span>';
+  const r = new FileReader();
+  r.onload = () => {
+    try {
+      const data = JSON.parse(r.result);
+      if (data.schema !== 'bpleone_brain_v1') {
+        status.innerHTML = '<span style="color:var(--red);">✗ Wrong schema: ' + (data.schema || 'missing') + '. Expected bpleone_brain_v1.</span>';
+        return;
+      }
+      const keys = Object.keys(data.payload || {});
+      if (!keys.length) {
+        status.innerHTML = '<span style="color:var(--yellow);">⚠ File has no payload data.</span>';
+        return;
+      }
+      if (!confirm('Restore ' + keys.length + ' state keys from ' + file.name + '?\n\nThis will OVERWRITE your current brain state. The action cannot be undone — export your current state first if you want a rollback option.')) {
+        status.innerHTML = '<span style="color:var(--text-muted);">Cancelled.</span>';
+        return;
+      }
+      keys.forEach(k => localStorage.setItem(k, data.payload[k]));
+      status.innerHTML = '<span style="color:var(--green);">✓ Restored ' + keys.length + ' keys from ' + new Date(data.exportedAt).toLocaleString() + '. Reload pages to see updates.</span>';
+      renderSnap();
+    } catch (e) {
+      status.innerHTML = '<span style="color:var(--red);">✗ Parse error: ' + e.message + '</span>';
+    }
+  };
+  r.readAsText(file);
+}
+</script>
+</body>
+</html>
