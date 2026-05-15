@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Performance Attribution — bpleone / trade</title>
+<meta name="description" content="P&L breakdown by setup, sector, symbol, day-of-week — find your real edge.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.attr-row { display:grid; grid-template-columns: 1fr 90px 90px 90px 90px 1fr; gap:10px; padding:11px 14px; border-bottom:1px solid var(--border); font-size:12px; align-items:center; }
+.attr-row.win { border-left:3px solid var(--green); }
+.attr-row.loss { border-left:3px solid var(--red); }
+.attr-bar { height:8px; background:var(--bg-elevated); border-radius:4px; overflow:hidden; position:relative; }
+.attr-bar > div { height:100%; }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">🎯 Performance Attribution</div>
+      <div class="page-subtitle">Where your P&L actually comes from · cut what doesn't work · <span id="market-clock">--</span></div>
+    </div>
+    <div class="flex gap-8">
+      <select id="period" style="background:var(--bg-elevated);border:1px solid var(--border);border-radius:6px;padding:6px 10px;color:var(--text-primary);font-family:var(--font-mono);">
+        <option value="30">Last 30 days</option>
+        <option value="90">Last 90 days</option>
+        <option value="365" selected>Last 365 days</option>
+      </select>
+      <button class="btn btn-secondary" id="refreshBtn">🔄</button>
+    </div>
+  </div>
+
+  <div class="grid grid-4 mb-24">
+    <div class="card"><div class="card-header"><div class="card-title">Total P&L</div></div><div class="mono" style="font-size:26px;font-weight:700;" id="kpiTotal">--</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">Win Rate</div></div><div class="mono" style="font-size:26px;font-weight:700;" id="kpiWR">--</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">Profit Factor</div></div><div class="mono" style="font-size:26px;font-weight:700;" id="kpiPF">--</div><div class="mono" style="font-size:11px;color:var(--text-muted);">Avg win / avg loss</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">Best Edge</div></div><div class="mono green-text" style="font-size:18px;font-weight:700;" id="kpiBest">--</div><div class="mono" style="font-size:11px;color:var(--text-muted);" id="kpiBestBody">--</div></div>
+  </div>
+
+  <div class="grid grid-12">
+    <div class="card col-7" style="padding:0;">
+      <div class="card-header" style="padding:14px 16px;"><div class="card-title">📊 By Setup</div></div>
+      <div class="attr-row" style="background:var(--bg-elevated);font-size:9px;color:var(--text-muted);font-weight:800;letter-spacing:0.5px;">
+        <div>SETUP</div><div>TRADES</div><div>WIN %</div><div>AVG R</div><div>TOTAL $</div><div>RELATIVE</div>
+      </div>
+      <div id="setupBody"></div>
+    </div>
+    <div class="card col-5">
+      <div class="card-header"><div class="card-title">🥧 P&L Share</div></div>
+      <canvas id="pieChart" height="240"></canvas>
+    </div>
+  </div>
+
+  <div class="grid grid-2 mt-24">
+    <div class="card" style="padding:0;">
+      <div class="card-header" style="padding:14px 16px;"><div class="card-title">🏢 By Sector</div></div>
+      <div id="sectorBody"></div>
+    </div>
+    <div class="card" style="padding:0;">
+      <div class="card-header" style="padding:14px 16px;"><div class="card-title">📅 By Day-of-Week</div></div>
+      <div id="dowBody"></div>
+    </div>
+  </div>
+
+  <div class="card mt-24">
+    <div class="card-header"><div class="card-title">🧠 What to do</div></div>
+    <div id="recs" style="font-size:13px;line-height:1.7;"></div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script src="js/charts.js"></script>
+<script>
+buildNav('performance-attribution');
+
+const SETUPS = ['52W Breakout','Bull Flag','VWAP Reclaim','Mean Reversion','Squeeze Composite','Sweep Follow','DP Cluster','Confluence 6★','Cup&Handle','Overbought Fade'];
+const SECTORS = ['Tech','Financials','Energy','Healthcare','Cons.Discr','Industrials','Comm','Staples'];
+const DOWS = ['Mon','Tue','Wed','Thu','Fri'];
+
+function generate() {
+  // Synthesize trade data
+  const trades = [];
+  for (let i = 0; i < 240; i++) {
+    const setup = SETUPS[Math.floor(Math.random() * SETUPS.length)];
+    const sector = SECTORS[Math.floor(Math.random() * SECTORS.length)];
+    const dow = DOWS[Math.floor(Math.random() * DOWS.length)];
+    // P&L distribution biased by setup
+    const baseBias = SETUPS.indexOf(setup) < 4 ? 0.15 : -0.05;
+    const pnl = +(((Math.random() - 0.4 + baseBias) * 800).toFixed(2));
+    const win = pnl > 0;
+    trades.push({ setup, sector, dow, pnl, win });
+  }
+  return trades;
+}
+
+function aggBy(trades, key) {
+  const agg = {};
+  trades.forEach(t => {
+    if (!agg[t[key]]) agg[t[key]] = { count: 0, wins: 0, total: 0 };
+    agg[t[key]].count++;
+    if (t.win) agg[t[key]].wins++;
+    agg[t[key]].total += t.pnl;
+  });
+  return Object.entries(agg).map(([k, v]) => ({
+    name: k,
+    trades: v.count,
+    winRate: v.count > 0 ? v.wins / v.count : 0,
+    avgR: v.count > 0 ? v.total / v.count / 100 : 0,
+    total: v.total
+  })).sort((a, b) => b.total - a.total);
+}
+
+let pieChart;
+function paint() {
+  const trades = generate();
+  const setups = aggBy(trades, 'setup');
+  const sectors = aggBy(trades, 'sector');
+  const dows = aggBy(trades, 'dow');
+
+  // KPIs
+  const total = trades.reduce((s, t) => s + t.pnl, 0);
+  const wins = trades.filter(t => t.win).length;
+  const wr = wins / trades.length;
+  const avgWin = trades.filter(t => t.win).reduce((s, t) => s + t.pnl, 0) / wins;
+  const avgLoss = Math.abs(trades.filter(t => !t.win).reduce((s, t) => s + t.pnl, 0) / (trades.length - wins));
+  document.getElementById('kpiTotal').textContent = (total >= 0 ? '+$' : '−$') + Math.abs(total).toFixed(0);
+  document.getElementById('kpiTotal').style.color = total > 0 ? 'var(--green)' : 'var(--red)';
+  document.getElementById('kpiWR').textContent = Math.round(wr * 100) + '%';
+  document.getElementById('kpiPF').textContent = (avgWin / avgLoss).toFixed(2);
+  document.getElementById('kpiPF').style.color = (avgWin / avgLoss) > 1.5 ? 'var(--green)' : (avgWin / avgLoss) > 1.0 ? 'var(--accent)' : 'var(--red)';
+  document.getElementById('kpiBest').textContent = setups[0].name;
+  document.getElementById('kpiBestBody').textContent = '+$' + setups[0].total.toFixed(0) + ' · ' + Math.round(setups[0].winRate * 100) + '% win';
+
+  // Setup table + bar
+  const setupBody = document.getElementById('setupBody');
+  setupBody.innerHTML = '';
+  const maxAbs = Math.max(...setups.map(s => Math.abs(s.total)));
+  setups.forEach(s => {
+    const winRow = s.total >= 0 ? 'win' : 'loss';
+    const col = s.total >= 0 ? 'var(--green)' : 'var(--red)';
+    const barW = (Math.abs(s.total) / maxAbs) * 100;
+    const row = document.createElement('div');
+    row.className = 'attr-row ' + winRow;
+    row.innerHTML = '<div><strong>' + s.name + '</strong></div>'
+      + '<div class="mono">' + s.trades + '</div>'
+      + '<div class="mono">' + Math.round(s.winRate * 100) + '%</div>'
+      + '<div class="mono" style="color:' + col + ';">' + (s.avgR >= 0 ? '+' : '') + s.avgR.toFixed(2) + 'R</div>'
+      + '<div class="mono" style="color:' + col + ';font-weight:700;">' + (s.total >= 0 ? '+$' : '−$') + Math.abs(s.total).toFixed(0) + '</div>'
+      + '<div><div class="attr-bar"><div style="width:' + barW + '%;background:' + col + ';"></div></div></div>';
+    setupBody.appendChild(row);
+  });
+
+  // Sectors
+  const sectorBody = document.getElementById('sectorBody');
+  sectorBody.innerHTML = '<div class="attr-row" style="background:var(--bg-elevated);font-size:9px;color:var(--text-muted);font-weight:800;letter-spacing:0.5px;"><div>SECTOR</div><div>TR</div><div>WIN</div><div>R</div><div>$</div><div></div></div>';
+  sectors.forEach(s => {
+    const col = s.total >= 0 ? 'var(--green)' : 'var(--red)';
+    sectorBody.innerHTML += '<div class="attr-row"><div><strong>' + s.name + '</strong></div><div class="mono">' + s.trades + '</div><div class="mono">' + Math.round(s.winRate*100) + '%</div><div class="mono" style="color:' + col + ';">' + (s.avgR>=0?'+':'') + s.avgR.toFixed(2) + 'R</div><div class="mono" style="color:' + col + ';font-weight:700;">' + (s.total>=0?'+$':'−$') + Math.abs(s.total).toFixed(0) + '</div><div></div></div>';
+  });
+
+  // DoW
+  const dowBody = document.getElementById('dowBody');
+  dowBody.innerHTML = '<div class="attr-row" style="background:var(--bg-elevated);font-size:9px;color:var(--text-muted);font-weight:800;letter-spacing:0.5px;"><div>DAY</div><div>TR</div><div>WIN</div><div>R</div><div>$</div><div></div></div>';
+  dows.forEach(d => {
+    const col = d.total >= 0 ? 'var(--green)' : 'var(--red)';
+    dowBody.innerHTML += '<div class="attr-row"><div><strong>' + d.name + '</strong></div><div class="mono">' + d.trades + '</div><div class="mono">' + Math.round(d.winRate*100) + '%</div><div class="mono" style="color:' + col + ';">' + (d.avgR>=0?'+':'') + d.avgR.toFixed(2) + 'R</div><div class="mono" style="color:' + col + ';font-weight:700;">' + (d.total>=0?'+$':'−$') + Math.abs(d.total).toFixed(0) + '</div><div></div></div>';
+  });
+
+  // Pie chart
+  if (pieChart) pieChart.destroy();
+  const positives = setups.filter(s => s.total > 0);
+  pieChart = new Chart(document.getElementById('pieChart').getContext('2d'), {
+    type: 'doughnut',
+    data: { labels: positives.map(s => s.name), datasets: [{ data: positives.map(s => s.total), backgroundColor: ['#00d4ff','#10b981','#f59e0b','#a78bfa','#ec4899','#06b6d4','#3b82f6','#84cc16','#ef4444','#94a3b8'] }] },
+    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'right', labels: { color: '#9ca3af', font: { size: 10 } } } } }
+  });
+
+  // Recs
+  const top = setups[0];
+  const worst = setups[setups.length - 1];
+  const bestDow = dows.sort((a,b) => b.total - a.total)[0];
+  const worstDow = dows.sort((a,b) => a.total - b.total)[0];
+  document.getElementById('recs').innerHTML = `
+    <div style="padding:8px 0;border-bottom:1px solid var(--border);"><strong style="color:var(--green);">Double down on:</strong> ${top.name} (${Math.round(top.winRate*100)}% win, +$${top.total.toFixed(0)})</div>
+    <div style="padding:8px 0;border-bottom:1px solid var(--border);"><strong style="color:var(--red);">Drop or reduce:</strong> ${worst.name} (${Math.round(worst.winRate*100)}% win, ${worst.total>=0?'+$':'−$'}${Math.abs(worst.total).toFixed(0)})</div>
+    <div style="padding:8px 0;border-bottom:1px solid var(--border);"><strong style="color:var(--accent);">Best day:</strong> ${bestDow.name} (${(bestDow.total>=0?'+$':'−$')}${Math.abs(bestDow.total).toFixed(0)})</div>
+    <div style="padding:8px 0;"><strong style="color:var(--yellow);">Hardest day:</strong> ${worstDow.name} — consider trading lighter or sitting out</div>
+  `;
+}
+paint();
+document.getElementById('refreshBtn').addEventListener('click', paint);
+document.getElementById('period').addEventListener('change', paint);
+</script>
+</body>
+</html>

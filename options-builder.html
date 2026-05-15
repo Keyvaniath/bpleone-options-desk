@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Options Builder — bpleone / trade</title>
+<meta name="description" content="AI-suggested options structures based on your view (bullish/bearish/neutral) + IV regime.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.struct-card { padding:18px;background:var(--bg-elevated);border:1px solid var(--border);border-radius:12px;cursor:pointer;transition:transform 0.15s, border-color 0.15s; }
+.struct-card:hover { transform:translateY(-2px);border-color:var(--accent); }
+.struct-card.recommended { border-left:4px solid var(--green);background:rgba(16,185,129,0.04); }
+.struct-card h3 { font-size:16px;font-weight:700;margin-bottom:6px; }
+.struct-card .desc { font-size:12px;color:var(--text-muted);line-height:1.5;margin-bottom:10px; }
+.struct-card .meta { display:flex;gap:14px;flex-wrap:wrap;font-size:11px;font-family:var(--font-mono); }
+.struct-card .pill { padding:3px 8px;border-radius:3px;font-size:9px;font-weight:700; }
+.input-shell { display:grid; grid-template-columns: 1fr 1fr 1fr; gap:14px; }
+.input-shell label { font-size:11px;color:var(--text-muted);font-weight:700;display:block;margin-bottom:4px; }
+.input-shell select, .input-shell input { width:100%;background:var(--bg-elevated);border:1px solid var(--border);border-radius:6px;padding:10px;color:var(--text-primary);font-family:var(--font-mono); }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">🛠 Options Builder</div>
+      <div class="page-subtitle">AI-suggested structures · pick your view · we build the trade · <span id="market-clock">--</span></div>
+    </div>
+  </div>
+
+  <!-- Wizard inputs -->
+  <div class="card mb-24">
+    <div class="card-header"><div class="card-title">🎯 Your view</div></div>
+    <div class="input-shell">
+      <div><label>Symbol</label><input id="sym" value="NVDA" style="text-transform:uppercase;"></div>
+      <div><label>Direction</label><select id="dir"><option value="bull">Bullish</option><option value="bear">Bearish</option><option value="neutral">Neutral / range-bound</option></select></div>
+      <div><label>Conviction</label><select id="conv"><option value="strong">Strong / high</option><option value="med">Moderate</option><option value="weak">Weak / hedged</option></select></div>
+      <div><label>IV Regime</label><select id="iv"><option value="high">High (IV %ile &gt; 70)</option><option value="mid">Medium</option><option value="low">Low (IV %ile &lt; 30)</option></select></div>
+      <div><label>Time horizon</label><select id="time"><option value="day">Day (0DTE)</option><option value="week">Week</option><option value="month" selected>1 month</option><option value="quarter">Quarter</option></select></div>
+      <div><label>Max risk ($)</label><input id="risk" type="number" value="500"></div>
+    </div>
+    <button class="btn btn-primary" id="buildBtn" style="margin-top:14px;padding:10px 28px;">🛠 Build structures</button>
+  </div>
+
+  <!-- Suggested structures -->
+  <div id="suggestions"></div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script>
+buildNav('options-builder');
+
+function build() {
+  const sym = document.getElementById('sym').value.toUpperCase().trim() || 'NVDA';
+  const dir = document.getElementById('dir').value;
+  const conv = document.getElementById('conv').value;
+  const iv = document.getElementById('iv').value;
+  const time = document.getElementById('time').value;
+  const risk = +document.getElementById('risk').value;
+
+  const structs = [];
+
+  // Bullish structures
+  if (dir === 'bull') {
+    if (iv === 'high') {
+      structs.push({ name: 'Bull Call Spread', recommended: true,
+        desc: 'Buy ATM call + sell OTM call. Caps profit but reduces vega exposure when IV is rich. Defined risk.',
+        meta: ['DR Debit ~$' + (risk*0.6).toFixed(0), 'Max profit ~$' + (risk*1.5).toFixed(0), 'BE near +1.5% from spot'] });
+      structs.push({ name: 'Short Put (CSP)', recommended: false,
+        desc: 'Sell put at desired entry strike. Collect premium while waiting for entry. Risk = assignment.',
+        meta: ['Premium ~$' + (risk*0.4).toFixed(0), 'POP ~70%', 'Strike 5% OTM'] });
+    } else if (iv === 'low') {
+      structs.push({ name: 'Long Call', recommended: true,
+        desc: 'Cheap convexity. Low IV means option value is right-priced. Pure directional bet.',
+        meta: ['Debit ~$' + risk + ' max', 'Unlimited upside', 'BE +3-5% from spot'] });
+      structs.push({ name: 'Risk Reversal', recommended: false,
+        desc: 'Buy OTM call + sell OTM put. Net cheap or free. Aggressive structure — risk to downside.',
+        meta: ['Net cost ~$0', 'Synthetic long stock', 'Risk = put strike − put premium'] });
+    } else {
+      structs.push({ name: 'Long Call', recommended: true, desc: 'Standard bullish structure when IV is moderate. Full participation in upside.', meta: ['ATM debit ~$' + risk, 'Unlimited upside', 'Decay ~$10/day'] });
+      structs.push({ name: 'Bull Call Spread', recommended: false, desc: 'Capped but cheaper than long call. Good 2:1 R/R.', meta: ['Debit ~$' + (risk*0.7).toFixed(0), 'Max profit 2× debit', 'BE +2%'] });
+    }
+  }
+  // Bearish
+  else if (dir === 'bear') {
+    if (iv === 'high') {
+      structs.push({ name: 'Bear Put Spread', recommended: true,
+        desc: 'Buy ATM put + sell OTM put. Reduces high-IV cost. Defined risk.',
+        meta: ['Debit ~$' + (risk*0.5).toFixed(0), 'Max profit ~$' + (risk*1.7).toFixed(0), '2.4:1 R/R'] });
+      structs.push({ name: 'Short Call Vertical', recommended: false,
+        desc: 'Sell OTM call + buy further OTM call. Credit spread w/ defined risk. Best for slow grinds down.',
+        meta: ['Credit ~$' + (risk*0.35).toFixed(0), 'Width $5', 'POP ~65%'] });
+    } else if (iv === 'low') {
+      structs.push({ name: 'Long Put', recommended: true,
+        desc: 'Cheap convexity to the downside. Best when you expect a sharp move down.',
+        meta: ['Debit ~$' + risk, 'Profit to zero', 'Theta drag low'] });
+    } else {
+      structs.push({ name: 'Long Put', recommended: true, desc: 'Standard bearish play at moderate IV.', meta: ['ATM debit ~$' + risk, 'Profit to zero', 'BE −2-3%'] });
+      structs.push({ name: 'Bear Put Spread', recommended: false, desc: 'Cheaper, capped downside profit.', meta: ['Debit ~$' + (risk*0.7).toFixed(0), 'Max profit 2× debit', 'BE −2%'] });
+    }
+  }
+  // Neutral
+  else {
+    if (iv === 'high') {
+      structs.push({ name: 'Iron Condor', recommended: true,
+        desc: 'Sell OTM call + sell OTM put + buy further OTM wings. Profit if stock stays in range. Best when IV inflated.',
+        meta: ['Credit ~$' + (risk*0.4).toFixed(0), 'Max loss = width − credit', '80% POP if 1σ wings'] });
+      structs.push({ name: 'Short Strangle', recommended: false,
+        desc: 'Sell OTM call + sell OTM put (unhedged). Undefined risk. Only if you can manage gamma.',
+        meta: ['Credit ~$' + (risk*0.6).toFixed(0), 'Undefined risk', 'Best in 70+ IV %ile'] });
+    } else if (iv === 'low') {
+      structs.push({ name: 'Long Straddle', recommended: true,
+        desc: 'Buy ATM call + put. Profits from big move either way. Low IV = cheap convexity.',
+        meta: ['Debit ~$' + risk, 'BE ±5% from spot', 'Profit if vol expands'] });
+      structs.push({ name: 'Calendar Spread', recommended: false,
+        desc: 'Sell near-term option + buy further-out option. Profits from time decay if stock pins.',
+        meta: ['Debit ~$' + (risk*0.5).toFixed(0), 'Best at strike pin', 'Vega positive'] });
+    } else {
+      structs.push({ name: 'Iron Butterfly', recommended: true, desc: 'Sell ATM straddle + buy wings. Profits if stock pins.', meta: ['Credit ~$' + (risk*0.5).toFixed(0), 'Max profit at strike', '50% POP'] });
+      structs.push({ name: 'Long Strangle', recommended: false, desc: 'Cheaper than straddle, wider BE.', meta: ['Debit ~$' + (risk*0.7).toFixed(0), 'Profits on vol expansion'] });
+    }
+  }
+
+  // Render
+  const out = document.getElementById('suggestions');
+  out.innerHTML = '<div style="font-size:14px;color:var(--accent);font-weight:700;margin-bottom:14px;">🎯 Suggested structures for ' + sym + ' (' + dir + ' · ' + iv + ' IV · ' + time + ')</div>';
+  const grid = document.createElement('div');
+  grid.className = 'grid grid-2';
+  grid.style.gap = '14px';
+  structs.forEach(s => {
+    const card = document.createElement('div');
+    card.className = 'struct-card' + (s.recommended ? ' recommended' : '');
+    const recBadge = s.recommended ? '<span class="pill" style="background:rgba(16,185,129,0.18);color:var(--green);">★ RECOMMENDED</span>' : '';
+    card.innerHTML = '<div style="display:flex;justify-content:space-between;align-items:start;margin-bottom:8px;">'
+      + '<h3>' + s.name + '</h3>' + recBadge + '</div>'
+      + '<div class="desc">' + s.desc + '</div>'
+      + '<div class="meta">' + s.meta.map(m => '<span style="color:var(--text-secondary);">' + m + '</span>').join(' · ') + '</div>'
+      + '<div class="mt-12"><a href="pnl-diagram.html" class="btn btn-ghost" style="padding:6px 14px;font-size:11px;">📊 Open in P&L Diagram</a> <a href="options-pricer.html" class="btn btn-ghost" style="padding:6px 14px;font-size:11px;">🧮 Price legs</a></div>';
+    grid.appendChild(card);
+  });
+  out.appendChild(grid);
+}
+build();
+
+document.getElementById('buildBtn').addEventListener('click', build);
+['sym','dir','conv','iv','time','risk'].forEach(id => document.getElementById(id).addEventListener('input', build));
+</script>
+</body>
+</html>

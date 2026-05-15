@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Heat Clock — bpleone / trade</title>
+<meta name="description" content="24-hour sector heat clock — see when sectors are most active globally.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.clock-cell { padding:7px 4px; text-align:center; font-family:var(--font-mono); font-size:10px; font-weight:700; border-radius:3px; }
+.clock-grid { display:grid; grid-template-columns: 90px repeat(24, 1fr); gap:2px; align-items:center; }
+.session-pill { display:inline-block; padding:5px 12px; border-radius:6px; font-size:11px; font-weight:700; margin-right:6px; }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">🕐 Heat Clock</div>
+      <div class="page-subtitle">24h sector heat by global session · when assets move · <span id="market-clock">--</span></div>
+    </div>
+    <div class="flex gap-8"><button class="btn btn-secondary" id="refreshBtn">🔄</button></div>
+  </div>
+
+  <!-- Session info -->
+  <div class="card mb-24">
+    <div style="display:flex;gap:14px;flex-wrap:wrap;align-items:center;">
+      <span style="font-size:11px;color:var(--text-muted);font-weight:700;">SESSIONS (ET):</span>
+      <span class="session-pill" style="background:rgba(0,212,255,0.15);color:var(--accent);">🇺🇸 NYSE 9:30-16:00</span>
+      <span class="session-pill" style="background:rgba(245,158,11,0.15);color:var(--yellow);">🇬🇧 LSE 3:00-11:30</span>
+      <span class="session-pill" style="background:rgba(124,58,237,0.15);color:#a78bfa;">🇯🇵 TSE 19:00-2:00</span>
+      <span class="session-pill" style="background:rgba(16,185,129,0.15);color:var(--green);">🇩🇪 DAX 3:00-11:30</span>
+      <span class="session-pill" style="background:rgba(239,68,68,0.15);color:var(--red);">🇨🇳 SSE 20:30-3:00</span>
+    </div>
+  </div>
+
+  <!-- Heat clock -->
+  <div class="card">
+    <div class="card-header"><div class="card-title">🌡 Activity Heat by Hour (ET)</div></div>
+    <div id="clockGrid" class="clock-grid"></div>
+    <div class="mono mt-12" style="font-size:11px;color:var(--text-muted);">Darker = more activity. Click a sector row to drill in.</div>
+  </div>
+
+  <!-- Insights -->
+  <div class="grid grid-3 mt-24">
+    <div class="card"><div class="card-header"><div class="card-title">🌅 Highest morning activity</div></div><div id="morn" style="font-size:13px;color:var(--text-secondary);line-height:1.7;"></div></div>
+    <div class="card"><div class="card-header"><div class="card-title">☀ Midday lull</div></div><div id="mid" style="font-size:13px;color:var(--text-secondary);line-height:1.7;"></div></div>
+    <div class="card"><div class="card-header"><div class="card-title">🌙 After-hours moves</div></div><div id="aft" style="font-size:13px;color:var(--text-secondary);line-height:1.7;"></div></div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script>
+buildNav('heat-clock');
+
+const SECTORS = [
+  { name: 'US Equities', etf: 'SPY' },
+  { name: 'Tech', etf: 'XLK' },
+  { name: 'Financials', etf: 'XLF' },
+  { name: 'Energy', etf: 'XLE' },
+  { name: 'Healthcare', etf: 'XLV' },
+  { name: 'Crypto', etf: 'BTC' },
+  { name: 'EU Stocks', etf: 'EFA' },
+  { name: 'Asia Stocks', etf: 'EWJ' },
+  { name: 'Treasuries', etf: 'TLT' },
+  { name: 'Gold', etf: 'GLD' },
+  { name: 'Oil', etf: 'USO' },
+  { name: 'USD', etf: 'UUP' }
+];
+
+function colorFor(intensity) {
+  // intensity in 0..1
+  const r = Math.round(20 + intensity * 200);
+  const g = Math.round(40 + intensity * 80);
+  const b = Math.round(60 + (1 - intensity) * 100);
+  return `rgb(${r},${g},${b})`;
+}
+
+function activity(sec, hour) {
+  // Different sectors have different peak hours
+  const seed = sec.etf.charCodeAt(0) * 7 + hour;
+  const rand = (k) => { const x = Math.sin(seed + k) * 10000; return x - Math.floor(x); };
+  let base = 0.15;
+  // US session 9:30 (≈9) - 16:00 (16)
+  if (sec.etf === 'SPY' || sec.etf === 'XLK' || sec.etf === 'XLF' || sec.etf === 'XLE' || sec.etf === 'XLV') {
+    if (hour >= 9 && hour <= 16) base = 0.7 + rand(0) * 0.25;
+    else if (hour === 8 || hour === 17 || hour === 18) base = 0.35;
+    else base = 0.10;
+  }
+  // EU session 3-11
+  else if (sec.etf === 'EFA' || sec.etf === 'UUP') {
+    if (hour >= 3 && hour <= 11) base = 0.65 + rand(0) * 0.25;
+    else if (hour >= 9 && hour <= 16) base = 0.5;
+    else base = 0.12;
+  }
+  // Asia 19-2
+  else if (sec.etf === 'EWJ') {
+    if (hour >= 19 || hour <= 2) base = 0.6 + rand(0) * 0.3;
+    else if (hour >= 9 && hour <= 16) base = 0.3;
+    else base = 0.10;
+  }
+  // Crypto 24/7
+  else if (sec.etf === 'BTC') {
+    base = 0.4 + rand(0) * 0.3;
+  }
+  // Commodities
+  else if (sec.etf === 'GLD' || sec.etf === 'USO') {
+    if (hour >= 8 && hour <= 14) base = 0.55 + rand(0) * 0.2;
+    else base = 0.20;
+  }
+  // Treasuries
+  else if (sec.etf === 'TLT') {
+    if (hour >= 8 && hour <= 16) base = 0.45 + rand(0) * 0.2;
+    else base = 0.10;
+  }
+  return Math.max(0.05, Math.min(1, base));
+}
+
+function paint() {
+  const grid = document.getElementById('clockGrid');
+  grid.innerHTML = '';
+  // Header row (hours)
+  grid.innerHTML += '<div class="clock-cell" style="color:var(--text-muted);"></div>';
+  for (let h = 0; h < 24; h++) {
+    grid.innerHTML += '<div class="clock-cell" style="color:var(--text-muted);font-size:9px;">' + h + '</div>';
+  }
+  SECTORS.forEach(sec => {
+    grid.innerHTML += '<div class="clock-cell" style="color:var(--text-secondary);text-align:right;padding-right:8px;font-family:Inter;font-size:11px;font-weight:600;cursor:pointer;" onclick="window.location.href=\'trade-coach.html?sym=' + sec.etf + '\'">' + sec.name + '</div>';
+    for (let h = 0; h < 24; h++) {
+      const a = activity(sec, h);
+      grid.innerHTML += '<div class="clock-cell" style="background:' + colorFor(a) + ';color:#fff;">' + Math.round(a * 100) + '</div>';
+    }
+  });
+
+  // Insights
+  document.getElementById('morn').innerHTML = 'US session opens (9:30-10:30 ET) = highest cross-sector activity. Best for trend-day entries. Avoid first 5 min (open auction noise).';
+  document.getElementById('mid').innerHTML = '11:30-13:30 ET typically lowest US-session activity. Choppy. Best for vol-selling or sitting on hands. Lunch zone.';
+  document.getElementById('aft').innerHTML = 'After-hours (16:00-18:00 ET) for earnings reactions. Asia open at 19:00 ET for crypto + Japan exposure. Wider spreads — size down.';
+}
+paint();
+document.getElementById('refreshBtn').addEventListener('click', paint);
+</script>
+</body>
+</html>

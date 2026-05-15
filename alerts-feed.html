@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Alerts Feed — bpleone / trade</title>
+<meta name="description" content="Live stream of every brain finding + custom alert · single source of truth.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.alert-feed-item { display:grid; grid-template-columns: 80px 80px 1fr 100px; gap:12px; padding:12px 14px; border-bottom:1px solid var(--border); align-items:center; cursor:pointer; }
+.alert-feed-item:hover { background:var(--bg-elevated); }
+.alert-feed-item.high { border-left:3px solid var(--red); }
+.alert-feed-item.med { border-left:3px solid var(--yellow); }
+.alert-feed-item.low { border-left:3px solid var(--accent); }
+.flash { animation: aflash 0.7s ease; }
+@keyframes aflash { 0% { background: rgba(0,212,255,0.2); } 100% { background: transparent; } }
+</style>
+</head>
+<body data-needs="live">
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">🔔 Alerts Feed</div>
+      <div class="page-subtitle">Live stream · brain findings + custom alerts · <span id="market-clock">--</span></div>
+    </div>
+    <div class="flex gap-8">
+      <button class="btn btn-secondary" id="pauseBtn">⏸ Pause</button>
+      <button class="btn btn-secondary" id="clearBtn">🗑 Clear View</button>
+    </div>
+  </div>
+
+  <div class="grid grid-4 mb-24">
+    <div class="card"><div class="card-header"><div class="card-title">Total (today)</div></div><div class="mono" style="font-size:26px;font-weight:700;" id="kpiTotal">--</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">High Severity</div></div><div class="mono red-text" style="font-size:26px;font-weight:700;" id="kpiHigh">--</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">Symbols</div></div><div class="mono" style="font-size:26px;font-weight:700;color:var(--accent);" id="kpiSyms">--</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">Most Active</div></div><div class="mono" style="font-size:18px;font-weight:700;color:var(--yellow);" id="kpiTop">--</div><div class="mono" style="font-size:11px;color:var(--text-muted);" id="kpiTopBody">--</div></div>
+  </div>
+
+  <div class="card mb-12" style="padding:10px 14px;">
+    <div class="flex gap-8" style="flex-wrap:wrap;align-items:center;">
+      <button class="btn btn-ghost btn-active" data-flt="all" style="padding:4px 10px;font-size:11px;">ALL</button>
+      <button class="btn btn-ghost" data-flt="high" style="padding:4px 10px;font-size:11px;">⭐⭐⭐</button>
+      <button class="btn btn-ghost" data-flt="bull" style="padding:4px 10px;font-size:11px;">BULL</button>
+      <button class="btn btn-ghost" data-flt="bear" style="padding:4px 10px;font-size:11px;">BEAR</button>
+      <input type="text" id="symFlt" placeholder="Symbol filter..." style="background:var(--bg-elevated);border:1px solid var(--border);border-radius:6px;padding:4px 10px;color:var(--text-primary);font-family:var(--font-mono);text-transform:uppercase;width:140px;margin-left:auto;">
+    </div>
+  </div>
+
+  <div class="card" style="padding:0;">
+    <div class="alert-feed-item" style="background:var(--bg-elevated);font-size:9px;color:var(--text-muted);font-weight:800;letter-spacing:0.5px;">
+      <div>TIME</div><div>SYM</div><div>ALERT</div><div>SEVERITY</div>
+    </div>
+    <div id="feedBody" style="max-height:660px;overflow-y:auto;"></div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script>
+buildNav('alerts-feed');
+
+function loadFindings() { try { return JSON.parse(localStorage.getItem('bpleone_brain_findings_v1') || '{"items":[]}').items; } catch (e) { return []; } }
+
+let paused = false;
+let flt = 'all';
+let symFlt = '';
+
+function biasOf(f) {
+  const t = ((f.meta && (f.meta.bias || f.meta.setup)) || f.type || '').toLowerCase();
+  if (/bull|long|breakout|reclaim|cup|flag|momentum|oversold|call/.test(t)) return 'bull';
+  if (/bear|short|breakdown|rejection|overbought|put/.test(t)) return 'bear';
+  return 'neutral';
+}
+
+function matches(f) {
+  if (flt === 'high' && (f.severity || 1) < 3) return false;
+  if (flt === 'bull' && biasOf(f) !== 'bull') return false;
+  if (flt === 'bear' && biasOf(f) !== 'bear') return false;
+  if (symFlt && f.meta && f.meta.sym !== symFlt) return false;
+  return true;
+}
+
+function paint() {
+  const findings = loadFindings();
+  const today = findings.filter(f => (Date.now() - f.ts) < 24 * 3600 * 1000);
+  document.getElementById('kpiTotal').textContent = today.length;
+  document.getElementById('kpiHigh').textContent = today.filter(f => (f.severity || 1) >= 3).length;
+  const syms = new Set();
+  const counts = {};
+  today.forEach(f => {
+    const sym = f.meta && f.meta.sym;
+    if (sym) { syms.add(sym); counts[sym] = (counts[sym] || 0) + 1; }
+  });
+  document.getElementById('kpiSyms').textContent = syms.size;
+  const top = Object.entries(counts).sort((a, b) => b[1] - a[1])[0];
+  if (top) {
+    document.getElementById('kpiTop').textContent = top[0];
+    document.getElementById('kpiTopBody').textContent = top[1] + ' alerts';
+  }
+
+  const body = document.getElementById('feedBody');
+  body.innerHTML = '';
+  today.filter(matches).slice(0, 80).forEach(f => {
+    const sev = f.severity || 1;
+    const cls = sev >= 3 ? 'high' : sev >= 2 ? 'med' : 'low';
+    const time = new Date(f.ts).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
+    const stars = '⭐'.repeat(sev);
+    const bias = biasOf(f);
+    const biasCol = bias === 'bull' ? 'var(--green)' : bias === 'bear' ? 'var(--red)' : 'var(--accent)';
+    const item = document.createElement('div');
+    item.className = 'alert-feed-item ' + cls;
+    item.onclick = () => {
+      const sym = f.meta && f.meta.sym;
+      if (sym) window.location.href = 'trade-coach.html?sym=' + sym;
+    };
+    item.innerHTML = '<div class="mono" style="color:var(--text-muted);font-size:11px;">' + time + '</div>'
+      + '<div><strong>' + ((f.meta && f.meta.sym) || 'MKT') + '</strong></div>'
+      + '<div><div style="font-weight:600;font-size:13px;">' + (f.title || f.type) + '</div>'
+      + '<div style="font-size:11px;color:var(--text-muted);margin-top:2px;line-height:1.4;">' + (f.body || '').slice(0, 140) + '</div></div>'
+      + '<div style="text-align:right;"><div style="font-size:13px;">' + stars + '</div><div style="font-size:9px;color:' + biasCol + ';font-weight:700;letter-spacing:0.5px;">' + bias.toUpperCase() + '</div></div>';
+    body.appendChild(item);
+  });
+}
+paint();
+
+document.getElementById('pauseBtn').addEventListener('click', () => {
+  paused = !paused;
+  document.getElementById('pauseBtn').textContent = paused ? '▶ Resume' : '⏸ Pause';
+});
+document.getElementById('clearBtn').addEventListener('click', () => { document.getElementById('feedBody').innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-muted);font-size:12px;">View cleared. Continues populating below as new alerts fire.</div>'; });
+document.querySelectorAll('[data-flt]').forEach(b => b.addEventListener('click', () => {
+  document.querySelectorAll('[data-flt]').forEach(x => x.classList.remove('btn-active'));
+  b.classList.add('btn-active');
+  flt = b.dataset.flt;
+  paint();
+}));
+document.getElementById('symFlt').addEventListener('input', e => { symFlt = e.target.value.toUpperCase().trim(); paint(); });
+
+// Listen for new brain findings
+window.addEventListener('bpleone:brain-finding', () => { if (!paused) paint(); });
+setInterval(paint, 5000);
+</script>
+</body>
+</html>
