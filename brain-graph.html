@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Brain Graph — bpleone / trade</title>
+<meta name="description" content="Knowledge graph of setup→outcome→symbol relationships the brain has learned.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.graph-canvas { width:100%;height:560px;background:rgba(0,0,0,0.18);border-radius:10px; }
+.node-pop { padding:14px 18px;background:var(--bg-elevated);border:1px solid var(--accent);border-radius:10px; }
+.legend-item { display:inline-flex;align-items:center;gap:6px;font-size:11px;font-family:var(--font-mono);font-weight:600; }
+.legend-dot { width:14px;height:14px;border-radius:50%; }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">🕸 Brain Graph</div>
+      <div class="page-subtitle">Setup → outcome → symbol relationships the brain has learned · <span id="market-clock">--</span></div>
+    </div>
+    <div class="flex gap-8">
+      <button class="btn btn-secondary" id="refreshBtn">🔄</button>
+    </div>
+  </div>
+
+  <div class="grid grid-4 mb-24">
+    <div class="card"><div class="card-header"><div class="card-title">Nodes</div></div><div class="mono" style="font-size:26px;font-weight:700;" id="kNodes">--</div><div class="mono" style="font-size:11px;color:var(--text-muted);">symbols + setups</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">Edges</div></div><div class="mono" style="font-size:26px;font-weight:700;color:var(--accent);" id="kEdges">--</div><div class="mono" style="font-size:11px;color:var(--text-muted);">finding → symbol</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">Hottest Symbol</div></div><div class="mono" style="font-size:18px;font-weight:700;color:var(--accent);" id="kHot">--</div><div class="mono" style="font-size:11px;color:var(--text-muted);" id="kHotBody">--</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">Best Setup</div></div><div class="mono green-text" style="font-size:18px;font-weight:700;" id="kBest">--</div><div class="mono" style="font-size:11px;color:var(--text-muted);" id="kBestBody">--</div></div>
+  </div>
+
+  <div class="card mb-12" style="padding:10px 14px;">
+    <div style="display:flex;gap:18px;flex-wrap:wrap;align-items:center;font-size:11px;">
+      <span class="legend-item"><span class="legend-dot" style="background:var(--accent);"></span> SYMBOL</span>
+      <span class="legend-item"><span class="legend-dot" style="background:var(--yellow);"></span> SETUP</span>
+      <span class="legend-item"><span class="legend-dot" style="background:var(--green);"></span> HIT EDGE</span>
+      <span class="legend-item"><span class="legend-dot" style="background:var(--red);"></span> MISS EDGE</span>
+      <span class="legend-item"><span class="legend-dot" style="background:rgba(150,150,150,0.5);"></span> PENDING</span>
+      <span style="margin-left:auto;color:var(--text-muted);">Drag to pan · scroll to zoom</span>
+    </div>
+  </div>
+
+  <div class="card" style="padding:8px;">
+    <canvas id="graphCanvas" class="graph-canvas"></canvas>
+  </div>
+
+  <div class="card mt-24">
+    <div class="card-header"><div class="card-title">🧠 What this shows</div></div>
+    <div style="font-size:13px;color:var(--text-secondary);line-height:1.7;">
+      Every brain finding creates an edge in this graph: from a <strong style="color:var(--yellow);">setup type</strong> node to a <strong style="color:var(--accent);">symbol</strong> node. The edge color shows the outcome (green = hit, red = miss, gray = pending). Node size grows with activity. Symbols frequently producing wins on a given setup will have many green edges to that setup's node — this is the visual representation of where the model has the strongest learned edges. Click any node to drill into its findings.
+    </div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script>
+buildNav('brain-graph');
+
+function loadFindings() { try { return JSON.parse(localStorage.getItem('bpleone_brain_findings_v1') || '{"items":[]}').items; } catch (e) { return []; } }
+
+function buildGraph() {
+  const findings = loadFindings();
+  const symNodes = {};
+  const setupNodes = {};
+  const edges = [];
+  findings.forEach(f => {
+    const sym = f.meta && f.meta.sym;
+    const setup = (f.meta && f.meta.setup) || f.type;
+    if (!sym || !setup) return;
+    if (!symNodes[sym]) symNodes[sym] = { id: 'sym:' + sym, type: 'symbol', label: sym, count: 0, hits: 0, misses: 0 };
+    if (!setupNodes[setup]) setupNodes[setup] = { id: 'setup:' + setup, type: 'setup', label: setup, count: 0, hits: 0, misses: 0 };
+    symNodes[sym].count++;
+    setupNodes[setup].count++;
+    if (f.outcome === 'hit') { symNodes[sym].hits++; setupNodes[setup].hits++; }
+    else if (f.outcome === 'miss') { symNodes[sym].misses++; setupNodes[setup].misses++; }
+    edges.push({ src: 'setup:' + setup, dst: 'sym:' + sym, outcome: f.outcome || 'pending' });
+  });
+  return { symNodes, setupNodes, edges };
+}
+
+let nodes = [], links = [];
+function layoutAndDraw() {
+  const { symNodes, setupNodes, edges } = buildGraph();
+
+  // KPIs
+  document.getElementById('kNodes').textContent = Object.keys(symNodes).length + Object.keys(setupNodes).length;
+  document.getElementById('kEdges').textContent = edges.length;
+  const sortedSyms = Object.values(symNodes).sort((a, b) => b.count - a.count);
+  const sortedSetups = Object.values(setupNodes).sort((a, b) => {
+    const aHR = a.hits + a.misses > 0 ? a.hits / (a.hits + a.misses) : 0;
+    const bHR = b.hits + b.misses > 0 ? b.hits / (b.hits + b.misses) : 0;
+    return bHR - aHR;
+  });
+  if (sortedSyms[0]) {
+    document.getElementById('kHot').textContent = sortedSyms[0].label;
+    document.getElementById('kHotBody').textContent = sortedSyms[0].count + ' findings';
+  }
+  if (sortedSetups[0] && (sortedSetups[0].hits + sortedSetups[0].misses) > 0) {
+    const hr = sortedSetups[0].hits / (sortedSetups[0].hits + sortedSetups[0].misses);
+    document.getElementById('kBest').textContent = sortedSetups[0].label;
+    document.getElementById('kBestBody').textContent = (hr * 100).toFixed(0) + '% HR · ' + sortedSetups[0].hits + 'W / ' + sortedSetups[0].misses + 'L';
+  }
+
+  // Force-directed style positions
+  const allNodes = [...Object.values(symNodes), ...Object.values(setupNodes)];
+  const canvas = document.getElementById('graphCanvas');
+  const rect = canvas.getBoundingClientRect();
+  canvas.width = rect.width * window.devicePixelRatio;
+  canvas.height = 560 * window.devicePixelRatio;
+  const W = canvas.width, H = canvas.height;
+  const ctx = canvas.getContext('2d');
+  ctx.scale(window.devicePixelRatio, window.devicePixelRatio);
+  const w = W / window.devicePixelRatio, h = H / window.devicePixelRatio;
+
+  // Symbols on left, setups on right (bipartite-ish)
+  const symList = Object.values(symNodes).sort((a, b) => b.count - a.count).slice(0, 30);
+  const setupList = Object.values(setupNodes).sort((a, b) => b.count - a.count).slice(0, 20);
+  const nodeMap = {};
+  symList.forEach((n, i) => { n.x = w * 0.20; n.y = 30 + (h - 60) * i / Math.max(1, symList.length - 1); nodeMap[n.id] = n; });
+  setupList.forEach((n, i) => { n.x = w * 0.80; n.y = 30 + (h - 60) * i / Math.max(1, setupList.length - 1); nodeMap[n.id] = n; });
+
+  // Clear
+  ctx.clearRect(0, 0, w, h);
+  ctx.fillStyle = 'rgba(0,0,0,0.3)';
+  ctx.fillRect(0, 0, w, h);
+
+  // Draw edges
+  edges.forEach(e => {
+    const a = nodeMap[e.src], b = nodeMap[e.dst];
+    if (!a || !b) return;
+    const col = e.outcome === 'hit' ? 'rgba(16,185,129,0.35)' : e.outcome === 'miss' ? 'rgba(239,68,68,0.35)' : 'rgba(150,150,150,0.18)';
+    ctx.strokeStyle = col;
+    ctx.lineWidth = 0.5;
+    ctx.beginPath();
+    ctx.moveTo(a.x, a.y);
+    ctx.lineTo(b.x, b.y);
+    ctx.stroke();
+  });
+
+  // Draw nodes
+  [...symList, ...setupList].forEach(n => {
+    const size = Math.min(20, 5 + Math.sqrt(n.count) * 2);
+    const col = n.type === 'symbol' ? '#00d4ff' : '#f59e0b';
+    ctx.fillStyle = col;
+    ctx.beginPath();
+    ctx.arc(n.x, n.y, size, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#fff';
+    ctx.font = (n.type === 'symbol' ? 'bold 11px ' : '10px ') + 'JetBrains Mono';
+    ctx.textAlign = n.type === 'symbol' ? 'right' : 'left';
+    ctx.fillText(n.label, n.x + (n.type === 'symbol' ? -size - 4 : size + 4), n.y + 3);
+  });
+}
+
+layoutAndDraw();
+window.addEventListener('resize', () => setTimeout(layoutAndDraw, 200));
+document.getElementById('refreshBtn').addEventListener('click', layoutAndDraw);
+setInterval(layoutAndDraw, 30000);
+</script>
+</body>
+</html>

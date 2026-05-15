@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Ensemble — bpleone / trade</title>
+<meta name="description" content="Run two competing models in parallel — automatic A/B comparison and promotion.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.model-col { padding:18px;background:var(--bg-elevated);border:1px solid var(--border);border-radius:12px; }
+.model-col.A { border-left:4px solid var(--accent); }
+.model-col.B { border-left:4px solid var(--yellow); }
+.model-col.winner { background:rgba(16,185,129,0.06);border-left-color:var(--green); }
+.metric-grid { display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px; }
+.metric { padding:8px 10px;background:rgba(0,0,0,0.2);border-radius:6px;text-align:center; }
+.metric .l { font-size:9px;color:var(--text-muted);font-weight:700;letter-spacing:0.5px; }
+.metric .v { font-family:var(--font-mono);font-size:18px;font-weight:700;margin-top:4px; }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">⚔ Ensemble</div>
+      <div class="page-subtitle">Run two competing model variants · auto A/B · promote the winner · <span id="market-clock">--</span></div>
+    </div>
+    <div class="flex gap-8">
+      <button class="btn btn-primary" id="trainBothBtn">▶ Train Both</button>
+      <button class="btn btn-secondary" id="resetBothBtn">🔄 Reset Both</button>
+    </div>
+  </div>
+
+  <div class="card mb-24" style="background:linear-gradient(135deg,rgba(0,212,255,0.05),transparent);">
+    <div style="font-size:13px;color:var(--text-secondary);line-height:1.7;">
+      Two models train on the <strong>same labeled data</strong> with different hyperparameters. The one with higher hold-out accuracy gets promoted to production. Useful for tuning learning rate, feature subsets, or testing new training strategies without breaking the live model.
+    </div>
+  </div>
+
+  <!-- A/B COLUMNS -->
+  <div class="grid grid-2 mb-24" id="abCols"></div>
+
+  <!-- COMPARISON CHART -->
+  <div class="card">
+    <div class="card-header"><div class="card-title">📊 Loss Comparison Over Training</div></div>
+    <canvas id="cmpChart" height="220"></canvas>
+  </div>
+
+  <!-- WINNER ACTION -->
+  <div class="card mt-24" id="winnerCard" style="display:none;">
+    <div class="card-header"><div class="card-title">🏆 Promote Winner</div></div>
+    <div id="winnerBody"></div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script src="js/model.js"></script>
+<script src="js/charts.js"></script>
+<script>
+buildNav('ensemble');
+
+// Ensemble pair stored separately so they don't disturb the production model
+const ENS_KEY = 'bpleone_ensemble_v1';
+function loadEnsemble() {
+  try { return JSON.parse(localStorage.getItem(ENS_KEY) || 'null') || { A: null, B: null, history: [] }; }
+  catch (e) { return { A: null, B: null, history: [] }; }
+}
+function saveEnsemble(e) { try { localStorage.setItem(ENS_KEY, JSON.stringify(e)); } catch (er) {} }
+
+let cmpChart;
+
+function trainBoth() {
+  const data = ModelStore.getTrainingData();
+  if (data.length === 0) { alert('No training data. Visit Model Seed to generate or wait for brain outcomes.'); return; }
+
+  const modelA = new Model(); modelA.lr = 0.05;
+  const modelB = new Model(); modelB.lr = 0.10; // higher LR for B
+  const lossA = [], lossB = [];
+
+  // Train 3 epochs
+  for (let e = 0; e < 3; e++) {
+    const shuffled = data.slice().sort(() => Math.random() - 0.5);
+    shuffled.forEach(row => {
+      if (row.features && row.features.length === FEATURES.length) {
+        const ra = modelA.train(row.features, row.label);
+        const rb = modelB.train(row.features, row.label);
+        lossA.push(ra.loss);
+        lossB.push(rb.loss);
+      }
+    });
+  }
+
+  // Evaluate both on full data
+  function evalModel(m) {
+    let tp = 0, fp = 0, tn = 0, fn = 0;
+    data.forEach(row => {
+      const { prob } = m.predict(row.features);
+      const pred = prob >= 0.5 ? 1 : 0;
+      if (pred === 1 && row.label === 1) tp++;
+      else if (pred === 1 && row.label === 0) fp++;
+      else if (pred === 0 && row.label === 0) tn++;
+      else fn++;
+    });
+    const total = tp + fp + tn + fn;
+    return {
+      acc: total > 0 ? (tp + tn) / total : 0,
+      precision: (tp + fp) > 0 ? tp / (tp + fp) : 0,
+      recall: (tp + fn) > 0 ? tp / (tp + fn) : 0,
+      f1: 0
+    };
+  }
+  const evA = evalModel(modelA); evA.f1 = (evA.precision + evA.recall) > 0 ? 2 * evA.precision * evA.recall / (evA.precision + evA.recall) : 0;
+  const evB = evalModel(modelB); evB.f1 = (evB.precision + evB.recall) > 0 ? 2 * evB.precision * evB.recall / (evB.precision + evB.recall) : 0;
+
+  const ens = loadEnsemble();
+  ens.A = { model: modelA.serialize(), eval: evA, lossHistory: lossA, lr: 0.05, label: 'Standard LR' };
+  ens.B = { model: modelB.serialize(), eval: evB, lossHistory: lossB, lr: 0.10, label: 'Aggressive LR' };
+  ens.history.unshift({ ts: Date.now(), evA, evB, samples: data.length });
+  if (ens.history.length > 20) ens.history.length = 20;
+  saveEnsemble(ens);
+  paint();
+}
+
+function paint() {
+  const ens = loadEnsemble();
+  const cols = document.getElementById('abCols');
+  cols.innerHTML = '';
+  if (!ens.A || !ens.B) {
+    cols.innerHTML = '<div class="card" style="padding:30px;text-align:center;color:var(--text-muted);font-size:13px;">No ensemble runs yet. Click <strong>▶ Train Both</strong> to launch a comparison.</div>';
+    return;
+  }
+  const winnerName = ens.A.eval.f1 >= ens.B.eval.f1 ? 'A' : 'B';
+  ['A', 'B'].forEach(name => {
+    const m = ens[name];
+    const isWin = name === winnerName;
+    const col = document.createElement('div');
+    col.className = 'model-col ' + name + (isWin ? ' winner' : '');
+    col.innerHTML = '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">'
+      + '<div style="font-size:18px;font-weight:800;color:var(--accent);">Model ' + name + (isWin ? ' 🏆' : '') + '</div>'
+      + '<div style="font-size:11px;color:var(--text-muted);">LR=' + m.lr + ' · ' + m.label + '</div></div>'
+      + '<div class="metric-grid">'
+      + '<div class="metric"><div class="l">ACCURACY</div><div class="v" style="color:var(--' + (m.eval.acc > 0.55 ? 'green' : m.eval.acc > 0.5 ? 'accent' : 'red') + ');">' + (m.eval.acc * 100).toFixed(1) + '%</div></div>'
+      + '<div class="metric"><div class="l">F1</div><div class="v">' + (m.eval.f1 * 100).toFixed(1) + '</div></div>'
+      + '<div class="metric"><div class="l">PRECISION</div><div class="v">' + (m.eval.precision * 100).toFixed(1) + '%</div></div>'
+      + '<div class="metric"><div class="l">RECALL</div><div class="v">' + (m.eval.recall * 100).toFixed(1) + '%</div></div>'
+      + '</div>';
+    cols.appendChild(col);
+  });
+
+  // Comparison chart
+  if (cmpChart) cmpChart.destroy();
+  const lossA = ens.A.lossHistory.slice(-200), lossB = ens.B.lossHistory.slice(-200);
+  const labels = lossA.map((_, i) => i);
+  cmpChart = new Chart(document.getElementById('cmpChart').getContext('2d'), {
+    type: 'line',
+    data: { labels, datasets: [
+      { label: 'Model A', data: lossA, borderColor: 'rgba(0,212,255,1)', borderWidth: 2, pointRadius: 0, tension: 0.2 },
+      { label: 'Model B', data: lossB, borderColor: 'rgba(245,158,11,1)', borderWidth: 2, pointRadius: 0, tension: 0.2 }
+    ] },
+    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: true, position: 'top', labels: { color: '#9ca3af' } } }, scales: { x: { display: false }, y: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#6b7280' } } } }
+  });
+
+  // Winner action
+  const wEl = document.getElementById('winnerCard');
+  const wB = document.getElementById('winnerBody');
+  wEl.style.display = 'block';
+  const winner = ens[winnerName];
+  wB.innerHTML = '<div style="font-size:14px;color:var(--green);font-weight:700;margin-bottom:10px;">Model ' + winnerName + ' won by F1 (' + (winner.eval.f1 * 100).toFixed(1) + '%).</div>'
+    + '<div style="font-size:13px;color:var(--text-muted);margin-bottom:14px;">Promoting Model ' + winnerName + ' replaces the current production weights. The other (loser) is discarded.</div>'
+    + '<button class="btn btn-primary" id="promoteBtn">⬆ Promote Model ' + winnerName + ' to production</button>';
+  document.getElementById('promoteBtn').addEventListener('click', () => {
+    if (!confirm('Promote Model ' + winnerName + ' to production?')) return;
+    const m = new Model(); m.deserialize(winner.model); m.version = ModelStore.load().version + 1;
+    ModelStore.save(m);
+    ModelStore.saveVersion(m, 'ensemble ' + winnerName + ' winner · F1 ' + (winner.eval.f1 * 100).toFixed(1) + '%');
+    alert('✓ Model ' + winnerName + ' promoted. View on Model Versions.');
+  });
+}
+
+document.getElementById('trainBothBtn').addEventListener('click', trainBoth);
+document.getElementById('resetBothBtn').addEventListener('click', () => {
+  if (!confirm('Reset both ensemble models?')) return;
+  saveEnsemble({ A: null, B: null, history: [] });
+  paint();
+});
+paint();
+</script>
+</body>
+</html>
