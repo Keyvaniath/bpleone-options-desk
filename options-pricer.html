@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Options Pricer — bpleone / trade</title>
+<meta name="description" content="Black-Scholes options pricer with full Greeks, IV solver, and scenario analysis.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.input-row { display:flex; gap:14px; flex-wrap:wrap; align-items:center; margin-bottom:14px; }
+.input-row label { font-size:12px;color:var(--text-muted);font-weight:700;min-width:120px; }
+.input-row input, .input-row select { background:var(--bg-elevated);border:1px solid var(--border);border-radius:6px;padding:8px 12px;color:var(--text-primary);font-family:var(--font-mono);width:120px; }
+.greek-card { padding:14px;background:var(--bg-elevated);border-radius:10px;border:1px solid var(--border);text-align:center; }
+.greek-card .l { font-size:10px;color:var(--text-muted);font-weight:700;letter-spacing:0.5px; }
+.greek-card .v { font-family:var(--font-mono);font-size:24px;font-weight:700;margin-top:4px; }
+.greek-card .desc { font-size:11px;color:var(--text-muted);margin-top:2px; }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">🧮 Options Pricer</div>
+      <div class="page-subtitle">Black-Scholes · all Greeks · IV solver · scenario analysis · <span id="market-clock">--</span></div>
+    </div>
+  </div>
+
+  <div class="grid grid-12 mb-24">
+    <div class="card col-5">
+      <div class="card-header"><div class="card-title">⚙ Inputs</div></div>
+      <div class="input-row"><label>Stock Price (S)</label><input type="number" id="S" value="100" step="0.01"></div>
+      <div class="input-row"><label>Strike (K)</label><input type="number" id="K" value="100" step="0.5"></div>
+      <div class="input-row"><label>Days to Expiry</label><input type="number" id="dte" value="30"></div>
+      <div class="input-row"><label>Risk-free Rate %</label><input type="number" id="r" value="5.25" step="0.05"></div>
+      <div class="input-row"><label>IV %</label><input type="number" id="iv" value="35" step="0.5"></div>
+      <div class="input-row"><label>Type</label><select id="cp"><option value="call">Call</option><option value="put">Put</option></select></div>
+      <div class="input-row"><label>Market Premium</label><input type="number" id="mktPrem" value="" step="0.01" placeholder="(optional for IV solve)"></div>
+      <button class="btn btn-primary" id="calcBtn" style="padding:10px 24px;margin-top:14px;">▶ Calculate</button>
+      <button class="btn btn-secondary" id="solveBtn" style="padding:10px 24px;margin-top:14px;">🔍 Solve IV</button>
+    </div>
+
+    <div class="col-7">
+      <!-- Result -->
+      <div class="card">
+        <div class="card-header"><div class="card-title">💰 Theoretical Price</div></div>
+        <div style="text-align:center;padding:14px;">
+          <div class="mono" style="font-size:48px;font-weight:800;color:var(--accent);" id="theoPrice">--</div>
+          <div style="font-size:12px;color:var(--text-muted);margin-top:4px;" id="theoSub">--</div>
+        </div>
+      </div>
+      <!-- Greeks -->
+      <div class="grid grid-3 mt-24">
+        <div class="greek-card"><div class="l">DELTA</div><div class="v" id="gDelta">--</div><div class="desc">P&L per $1 stock move</div></div>
+        <div class="greek-card"><div class="l">GAMMA</div><div class="v" id="gGamma">--</div><div class="desc">Δ change per $1</div></div>
+        <div class="greek-card"><div class="l">VEGA</div><div class="v" id="gVega">--</div><div class="desc">P&L per 1 vol pt</div></div>
+        <div class="greek-card"><div class="l">THETA</div><div class="v" id="gTheta">--</div><div class="desc">$/day decay</div></div>
+        <div class="greek-card"><div class="l">RHO</div><div class="v" id="gRho">--</div><div class="desc">$/1% rate</div></div>
+        <div class="greek-card"><div class="l">P(ITM)</div><div class="v" id="gPITM">--</div><div class="desc">% prob in-the-money</div></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Scenario chart -->
+  <div class="card">
+    <div class="card-header"><div class="card-title">📊 P&L by spot price at expiry vs. now</div></div>
+    <canvas id="scenChart" height="240"></canvas>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script src="js/charts.js"></script>
+<script>
+buildNav('options-pricer');
+
+// Black-Scholes
+function normCDF(x) {
+  const a1 = 0.254829592, a2 = -0.284496736, a3 = 1.421413741;
+  const a4 = -1.453152027, a5 = 1.061405429, p = 0.3275911;
+  const sign = x < 0 ? -1 : 1; x = Math.abs(x) / Math.sqrt(2);
+  const t = 1 / (1 + p * x);
+  const y = 1 - (((((a5*t + a4)*t) + a3)*t + a2)*t + a1)*t * Math.exp(-x*x);
+  return 0.5 * (1 + sign*y);
+}
+function normPDF(x) { return Math.exp(-x*x/2) / Math.sqrt(2*Math.PI); }
+
+function bs(S, K, T, r, sigma, isCall) {
+  const d1 = (Math.log(S/K) + (r + sigma*sigma/2)*T) / (sigma*Math.sqrt(T));
+  const d2 = d1 - sigma*Math.sqrt(T);
+  const price = isCall
+    ? S*normCDF(d1) - K*Math.exp(-r*T)*normCDF(d2)
+    : K*Math.exp(-r*T)*normCDF(-d2) - S*normCDF(-d1);
+  return { price, d1, d2 };
+}
+
+function greeks(S, K, T, r, sigma, isCall) {
+  const { price, d1, d2 } = bs(S, K, T, r, sigma, isCall);
+  const delta = isCall ? normCDF(d1) : normCDF(d1) - 1;
+  const gamma = normPDF(d1) / (S * sigma * Math.sqrt(T));
+  const vega = S * normPDF(d1) * Math.sqrt(T) / 100; // per 1 vol point
+  const theta = (-(S*normPDF(d1)*sigma)/(2*Math.sqrt(T)) - (isCall ? 1 : -1) * r*K*Math.exp(-r*T) * normCDF(isCall ? d2 : -d2)) / 365;
+  const rho = (isCall ? K*T*Math.exp(-r*T)*normCDF(d2) : -K*T*Math.exp(-r*T)*normCDF(-d2)) / 100;
+  const pITM = isCall ? normCDF(d2) : normCDF(-d2);
+  return { price, delta, gamma, vega, theta, rho, pITM };
+}
+
+function solveIV(S, K, T, r, isCall, mktPrice) {
+  let lo = 0.01, hi = 5.0;
+  for (let i = 0; i < 100; i++) {
+    const mid = (lo + hi) / 2;
+    const p = bs(S, K, T, r, mid, isCall).price;
+    if (Math.abs(p - mktPrice) < 0.001) return mid;
+    if (p < mktPrice) lo = mid; else hi = mid;
+  }
+  return (lo + hi) / 2;
+}
+
+let scenChart;
+function calc() {
+  const S = +document.getElementById('S').value;
+  const K = +document.getElementById('K').value;
+  const dte = +document.getElementById('dte').value;
+  const T = dte / 365;
+  const r = +document.getElementById('r').value / 100;
+  const sigma = +document.getElementById('iv').value / 100;
+  const isCall = document.getElementById('cp').value === 'call';
+  const g = greeks(S, K, T, r, sigma, isCall);
+
+  document.getElementById('theoPrice').textContent = '$' + g.price.toFixed(2);
+  document.getElementById('theoSub').textContent = isCall ? 'Call' : 'Put' + ' · ' + dte + 'd · IV ' + (sigma*100).toFixed(1) + '%';
+  document.getElementById('gDelta').textContent = g.delta.toFixed(4);
+  document.getElementById('gGamma').textContent = g.gamma.toFixed(4);
+  document.getElementById('gVega').textContent = '$' + g.vega.toFixed(2);
+  document.getElementById('gTheta').textContent = '$' + g.theta.toFixed(2);
+  document.getElementById('gRho').textContent = '$' + g.rho.toFixed(2);
+  document.getElementById('gPITM').textContent = (g.pITM * 100).toFixed(1) + '%';
+
+  // Scenario chart
+  const labels = [], expPnl = [], nowPnl = [];
+  for (let pct = -25; pct <= 25; pct++) {
+    const newS = S * (1 + pct / 100);
+    labels.push(pct + '%');
+    // P&L at expiry
+    expPnl.push(isCall ? Math.max(0, newS - K) - g.price : Math.max(0, K - newS) - g.price);
+    // P&L today (revalue option at new S)
+    const newG = greeks(newS, K, T, r, sigma, isCall);
+    nowPnl.push(newG.price - g.price);
+  }
+  if (scenChart) scenChart.destroy();
+  scenChart = new Chart(document.getElementById('scenChart').getContext('2d'), {
+    type: 'line',
+    data: { labels, datasets: [
+      { label: 'P&L at expiry', data: expPnl, borderColor: 'rgba(0,212,255,1)', backgroundColor: 'rgba(0,212,255,0.05)', fill: true, borderWidth: 2, pointRadius: 0, tension: 0.1 },
+      { label: 'P&L now (intraday)', data: nowPnl, borderColor: 'rgba(245,158,11,0.8)', borderWidth: 2, borderDash: [4,4], pointRadius: 0, tension: 0.1 }
+    ] },
+    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: true, position: 'top', labels: { color: '#9ca3af', font: { size: 11 } } } }, scales: { x: { grid: { color: 'rgba(255,255,255,0.04)' }, ticks: { color: '#6b7280' } }, y: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#6b7280', callback: v => '$' + v.toFixed(0) } } } }
+  });
+}
+
+function solveIVHandler() {
+  const S = +document.getElementById('S').value;
+  const K = +document.getElementById('K').value;
+  const dte = +document.getElementById('dte').value;
+  const T = dte / 365;
+  const r = +document.getElementById('r').value / 100;
+  const isCall = document.getElementById('cp').value === 'call';
+  const mkt = +document.getElementById('mktPrem').value;
+  if (!mkt) { alert('Enter Market Premium first'); return; }
+  const iv = solveIV(S, K, T, r, isCall, mkt);
+  document.getElementById('iv').value = (iv * 100).toFixed(2);
+  calc();
+}
+
+calc();
+document.getElementById('calcBtn').addEventListener('click', calc);
+document.getElementById('solveBtn').addEventListener('click', solveIVHandler);
+['S','K','dte','r','iv','cp'].forEach(id => document.getElementById(id).addEventListener('input', calc));
+</script>
+</body>
+</html>

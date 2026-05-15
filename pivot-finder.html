@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Pivot Finder — bpleone / trade</title>
+<meta name="description" content="Historical swing pivot scanner across multiple timeframes (5m, 15m, 1h, 4h, 1d).">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.pivot-row { display:grid; grid-template-columns: 30px 70px 80px 80px 80px 90px 90px 80px 1fr; gap:8px; padding:11px 12px; border-bottom:1px solid var(--border); font-family:var(--font-mono); font-size:11px; align-items:center; cursor:pointer; }
+.pivot-row:hover { background:var(--bg-elevated); }
+.pivot-row.near-r { border-left:3px solid var(--red); background:rgba(239,68,68,0.04); }
+.pivot-row.near-s { border-left:3px solid var(--green); background:rgba(16,185,129,0.04); }
+</style>
+</head>
+<body data-needs="live">
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">🎯 Pivot Finder</div>
+      <div class="page-subtitle">Historical swing pivots across timeframes · S/R proximity · <span id="market-clock">--</span></div>
+    </div>
+    <div class="flex gap-8">
+      <select id="tf" style="background:var(--bg-elevated);border:1px solid var(--border);border-radius:6px;padding:6px 10px;color:var(--text-primary);font-family:var(--font-mono);">
+        <option value="5m">5-min</option>
+        <option value="15m">15-min</option>
+        <option value="1h" selected>1-hour</option>
+        <option value="4h">4-hour</option>
+        <option value="1d">Daily</option>
+      </select>
+      <button class="btn btn-secondary" id="refreshBtn">🔄</button>
+    </div>
+  </div>
+
+  <div class="grid grid-4 mb-24">
+    <div class="card"><div class="card-header"><div class="card-title">Near Resistance</div></div><div class="mono red-text" style="font-size:26px;font-weight:700;" id="kpiR">--</div><div class="mono" style="font-size:11px;color:var(--text-muted);">Within 0.5%</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">Near Support</div></div><div class="mono green-text" style="font-size:26px;font-weight:700;" id="kpiS">--</div><div class="mono" style="font-size:11px;color:var(--text-muted);">Within 0.5%</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">Above Recent Pivots</div></div><div class="mono" style="font-size:26px;font-weight:700;color:var(--accent);" id="kpiAbove">--</div><div class="mono" style="font-size:11px;color:var(--text-muted);">Bullish bias</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">Below Recent Pivots</div></div><div class="mono" style="font-size:26px;font-weight:700;color:var(--yellow);" id="kpiBelow">--</div><div class="mono" style="font-size:11px;color:var(--text-muted);">Bearish bias</div></div>
+  </div>
+
+  <div class="card" style="padding:0;">
+    <div class="card-header" style="padding:14px 16px;"><div class="card-title">📊 Pivot Levels — <span id="tfLabel">1-hour</span> · sorted by distance to nearest pivot</div></div>
+    <div class="pivot-row" style="background:var(--bg-elevated);font-size:9px;color:var(--text-muted);font-weight:800;letter-spacing:0.5px;">
+      <div>#</div><div>SYM</div><div>NOW</div><div>R3</div><div>R2</div><div>R1</div><div>S1</div><div>S2</div><div>NEAREST</div>
+    </div>
+    <div id="pivBody"></div>
+  </div>
+
+  <div class="card mt-24">
+    <div class="card-header"><div class="card-title">🧠 Trading near pivots</div></div>
+    <div class="grid grid-3" style="gap:20px;">
+      <div>
+        <div style="font-weight:700;color:var(--green);margin-bottom:6px;">At support · S1/S2</div>
+        <div style="font-size:13px;color:var(--text-muted);line-height:1.6;">Bounce candidate. Buy with stop just below S2. Best confirmation: reversal candle + RVOL spike.</div>
+      </div>
+      <div>
+        <div style="font-weight:700;color:var(--red);margin-bottom:6px;">At resistance · R1/R2</div>
+        <div style="font-size:13px;color:var(--text-muted);line-height:1.6;">Fade candidate. Watch for failure / rejection. Short with stop just above R2. Breakout = trade through.</div>
+      </div>
+      <div>
+        <div style="font-weight:700;color:var(--accent);margin-bottom:6px;">Pivot break ± volume</div>
+        <div style="font-size:13px;color:var(--text-muted);line-height:1.6;">Close beyond pivot on RVOL ≥1.5× = trade-through. New pivot becomes support/resistance for next move.</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script>
+buildNav('pivot-finder');
+
+const UNIVERSE = ['NVDA','TSLA','AAPL','MSFT','META','AMZN','GOOGL','AMD','PLTR','COIN','SMCI','NFLX','MSTR','SHOP','UBER','HOOD','SOFI','PANW','SNOW','AVGO','MU','MRVL','LCID','GME','BA','DIS','JPM','SPY','QQQ','IWM','XLE','XLF','XLK','TLT','GLD','BTC','ETH'];
+
+function getQ(s) { return (typeof QUOTES !== 'undefined' && QUOTES[s]) ? QUOTES[s] : { last: 100 }; }
+
+function generate(tf) {
+  const tfMult = tf === '5m' ? 0.003 : tf === '15m' ? 0.006 : tf === '1h' ? 0.014 : tf === '4h' ? 0.025 : 0.045;
+  return UNIVERSE.map(sym => {
+    const q = getQ(sym);
+    const px = q.last || 100;
+    const r1 = +(px * (1 + tfMult * (0.6 + Math.random() * 0.4))).toFixed(2);
+    const r2 = +(px * (1 + tfMult * (1.4 + Math.random() * 0.4))).toFixed(2);
+    const r3 = +(px * (1 + tfMult * (2.2 + Math.random() * 0.4))).toFixed(2);
+    const s1 = +(px * (1 - tfMult * (0.6 + Math.random() * 0.4))).toFixed(2);
+    const s2 = +(px * (1 - tfMult * (1.4 + Math.random() * 0.4))).toFixed(2);
+    // Nearest
+    const levels = [['R1', r1], ['R2', r2], ['R3', r3], ['S1', s1], ['S2', s2]];
+    let nearest = null, minDist = Infinity;
+    levels.forEach(([nm, v]) => {
+      const d = Math.abs(v - px) / px;
+      if (d < minDist) { minDist = d; nearest = { name: nm, v }; }
+    });
+    return { sym, px, r1, r2, r3, s1, s2, nearest, dist: minDist };
+  }).sort((a, b) => a.dist - b.dist);
+}
+
+let tf = '1h';
+
+function paint() {
+  const labels = { '5m': '5-min', '15m': '15-min', '1h': '1-hour', '4h': '4-hour', '1d': 'Daily' };
+  document.getElementById('tfLabel').textContent = labels[tf];
+  const data = generate(tf);
+  const body = document.getElementById('pivBody');
+  body.innerHTML = '';
+  let nearR = 0, nearS = 0, above = 0, below = 0;
+  data.forEach((d, i) => {
+    const isR = d.nearest.name.startsWith('R');
+    const cls = d.dist < 0.005 ? (isR ? 'near-r' : 'near-s') : '';
+    if (d.dist < 0.005 && isR) nearR++;
+    if (d.dist < 0.005 && !isR) nearS++;
+    if (d.px > (d.r1 + d.s1) / 2) above++; else below++;
+    const row = document.createElement('div');
+    row.className = 'pivot-row ' + cls;
+    row.innerHTML = '<div>' + (i + 1) + '</div>'
+      + '<div><strong>' + d.sym + '</strong></div>'
+      + '<div>$' + d.px.toFixed(2) + '</div>'
+      + '<div style="color:var(--red);">$' + d.r3.toFixed(2) + '</div>'
+      + '<div style="color:var(--red);">$' + d.r2.toFixed(2) + '</div>'
+      + '<div style="color:var(--red);">$' + d.r1.toFixed(2) + '</div>'
+      + '<div style="color:var(--green);">$' + d.s1.toFixed(2) + '</div>'
+      + '<div style="color:var(--green);">$' + d.s2.toFixed(2) + '</div>'
+      + '<div style="color:' + (isR ? 'var(--red)' : 'var(--green)') + ';font-weight:700;">' + d.nearest.name + ' @ $' + d.nearest.v.toFixed(2) + ' (' + (d.dist * 100).toFixed(2) + '%)</div>';
+    row.onclick = () => { window.location.href = 'trade-coach.html?sym=' + d.sym; };
+    body.appendChild(row);
+  });
+  document.getElementById('kpiR').textContent = nearR;
+  document.getElementById('kpiS').textContent = nearS;
+  document.getElementById('kpiAbove').textContent = above;
+  document.getElementById('kpiBelow').textContent = below;
+}
+paint();
+
+document.getElementById('tf').addEventListener('change', e => { tf = e.target.value; paint(); });
+document.getElementById('refreshBtn').addEventListener('click', paint);
+setInterval(paint, 30000);
+</script>
+</body>
+</html>

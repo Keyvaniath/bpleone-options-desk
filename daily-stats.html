@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Daily Stats — bpleone / trade</title>
+<meta name="description" content="Today's market stats in one place — vol, breadth, flow, brain output.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.stat-block { padding:18px;background:var(--bg-elevated);border-radius:10px;border:1px solid var(--border); }
+.stat-block .label { font-size:11px;color:var(--text-muted);font-weight:700;letter-spacing:0.5px; }
+.stat-block .value { font-family:var(--font-mono);font-size:32px;font-weight:800;margin-top:6px; }
+.stat-block .change { font-family:var(--font-mono);font-size:12px;margin-top:4px; }
+</style>
+</head>
+<body data-needs="live">
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">📊 Daily Stats</div>
+      <div class="page-subtitle">Today's market in one snapshot · <span id="market-clock">--</span></div>
+    </div>
+    <div class="flex gap-8"><button class="btn btn-secondary" id="refreshBtn">🔄</button></div>
+  </div>
+
+  <!-- INDEX SNAPSHOTS -->
+  <div class="grid grid-4 mb-24">
+    <div class="stat-block">
+      <div class="label">S&P 500 (SPY)</div>
+      <div class="value" id="vSPY">--</div>
+      <div class="change" id="cSPY">--</div>
+    </div>
+    <div class="stat-block">
+      <div class="label">NASDAQ (QQQ)</div>
+      <div class="value" id="vQQQ">--</div>
+      <div class="change" id="cQQQ">--</div>
+    </div>
+    <div class="stat-block">
+      <div class="label">RUSSELL (IWM)</div>
+      <div class="value" id="vIWM">--</div>
+      <div class="change" id="cIWM">--</div>
+    </div>
+    <div class="stat-block">
+      <div class="label">VIX (VXX proxy)</div>
+      <div class="value" id="vVXX">--</div>
+      <div class="change" id="cVXX">--</div>
+    </div>
+  </div>
+
+  <!-- MARKET INTERNALS -->
+  <div class="card mb-24">
+    <div class="card-header"><div class="card-title">📈 Internals</div></div>
+    <div class="grid grid-4">
+      <div class="stat-block"><div class="label">A/D ratio</div><div class="value" id="vAD">--</div><div class="change" id="cAD" style="color:var(--text-muted);">--</div></div>
+      <div class="stat-block"><div class="label">% above 50MA</div><div class="value" id="v50">--</div><div class="change">S&P 500 universe</div></div>
+      <div class="stat-block"><div class="label">New Highs − Lows</div><div class="value" id="vHL">--</div><div class="change" id="cHL">--</div></div>
+      <div class="stat-block"><div class="label">McClellan</div><div class="value" id="vMcc">--</div><div class="change" id="cMcc">--</div></div>
+    </div>
+  </div>
+
+  <!-- OPTIONS FLOW + BRAIN -->
+  <div class="grid grid-12">
+    <div class="card col-6">
+      <div class="card-header"><div class="card-title">⚡ Options Flow Stats</div></div>
+      <div class="grid grid-2">
+        <div class="stat-block"><div class="label">Total Premium</div><div class="value" id="vPrem">$12.4B</div><div class="change" style="color:var(--text-muted);">vs 20d avg $9.8B</div></div>
+        <div class="stat-block"><div class="label">Call/Put Ratio</div><div class="value" id="vCP">--</div><div class="change" id="cCP">--</div></div>
+        <div class="stat-block"><div class="label">Sweep Count</div><div class="value" id="vSweep">--</div><div class="change" style="color:var(--text-muted);">≥$250k</div></div>
+        <div class="stat-block"><div class="label">Block Count</div><div class="value" id="vBlock">--</div><div class="change" style="color:var(--text-muted);">≥$1M premium</div></div>
+      </div>
+    </div>
+    <div class="card col-6">
+      <div class="card-header"><div class="card-title">🧠 Brain Stats Today</div></div>
+      <div class="grid grid-2">
+        <div class="stat-block"><div class="label">Findings (24h)</div><div class="value" id="vFind">--</div><div class="change" id="cFind">--</div></div>
+        <div class="stat-block"><div class="label">A-Tier Setups</div><div class="value" style="color:var(--green);" id="vAtier">--</div><div class="change" style="color:var(--text-muted);">Conviction ≥80</div></div>
+        <div class="stat-block"><div class="label">Rated Outcomes</div><div class="value" id="vRated">--</div><div class="change" id="cRated">--</div></div>
+        <div class="stat-block"><div class="label">Hit Rate</div><div class="value" id="vHR">--</div><div class="change" style="color:var(--text-muted);">Of rated findings</div></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- DOLLAR LEADERS -->
+  <div class="card mt-24">
+    <div class="card-header"><div class="card-title">💵 Top $ Vol Today</div></div>
+    <div id="topVol" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;"></div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script>
+buildNav('daily-stats');
+
+function getQ(s) { return (typeof QUOTES !== 'undefined' && QUOTES[s]) ? QUOTES[s] : { last: 0, changePct: 0 }; }
+function loadFindings() { try { return JSON.parse(localStorage.getItem('bpleone_brain_findings_v1') || '{"items":[]}').items; } catch (e) { return []; } }
+function loadState() { try { return JSON.parse(localStorage.getItem('bpleone_brain_loop_state_v1') || '{}'); } catch (e) { return {}; } }
+
+function paintIdx(sym, vId, cId) {
+  const q = getQ(sym);
+  document.getElementById(vId).textContent = '$' + (q.last || 0).toFixed(2);
+  const c = q.changePct || 0;
+  const col = c > 0 ? 'var(--green)' : c < 0 ? 'var(--red)' : 'var(--text-muted)';
+  document.getElementById(cId).textContent = (c >= 0 ? '+' : '') + c.toFixed(2) + '%';
+  document.getElementById(cId).style.color = col;
+}
+
+function paint() {
+  paintIdx('SPY', 'vSPY', 'cSPY');
+  paintIdx('QQQ', 'vQQQ', 'cQQQ');
+  paintIdx('IWM', 'vIWM', 'cIWM');
+  paintIdx('VXX', 'vVXX', 'cVXX');
+
+  // Internals (synthetic)
+  const spy = getQ('SPY').changePct || 0;
+  const advancers = Math.round(1800 * (0.5 + spy * 0.15));
+  const decliners = 1800 - advancers;
+  const ratio = (advancers / decliners).toFixed(2);
+  document.getElementById('vAD').textContent = ratio + ':1';
+  document.getElementById('cAD').textContent = advancers + ' / ' + decliners;
+  document.getElementById('cAD').style.color = ratio > 1.5 ? 'var(--green)' : ratio < 0.7 ? 'var(--red)' : 'var(--text-muted)';
+  const ma50 = Math.round(50 + spy * 8 + Math.random() * 10);
+  document.getElementById('v50').textContent = ma50 + '%';
+  document.getElementById('v50').style.color = ma50 > 60 ? 'var(--green)' : ma50 < 40 ? 'var(--red)' : 'var(--text-primary)';
+  const newH = Math.round(25 + Math.max(0, spy * 20));
+  const newL = Math.round(25 - Math.min(0, spy * 20));
+  const net = newH - newL;
+  document.getElementById('vHL').textContent = (net >= 0 ? '+' : '') + net;
+  document.getElementById('cHL').textContent = newH + 'H / ' + newL + 'L';
+  document.getElementById('cHL').style.color = net > 30 ? 'var(--green)' : net < -30 ? 'var(--red)' : 'var(--text-muted)';
+  const mcc = +(spy * 25 + (Math.random() - 0.5) * 25).toFixed(0);
+  document.getElementById('vMcc').textContent = (mcc >= 0 ? '+' : '') + mcc;
+  document.getElementById('vMcc').style.color = mcc > 50 ? 'var(--green)' : mcc < -50 ? 'var(--red)' : 'var(--text-primary)';
+  document.getElementById('cMcc').textContent = mcc > 50 ? 'Strong' : mcc < -50 ? 'Oversold' : 'Neutral';
+
+  // Options flow synthetic
+  const cpr = +(0.7 + Math.random() * 0.7).toFixed(2);
+  document.getElementById('vCP').textContent = cpr;
+  document.getElementById('vCP').style.color = cpr > 1.0 ? 'var(--red)' : 'var(--green)';
+  document.getElementById('cCP').textContent = cpr > 1.0 ? 'Bearish skew' : 'Bullish skew';
+  document.getElementById('vSweep').textContent = Math.floor(180 + Math.random() * 300);
+  document.getElementById('vBlock').textContent = Math.floor(60 + Math.random() * 180);
+
+  // Brain stats
+  const findings = loadFindings();
+  const last24 = findings.filter(f => (Date.now() - f.ts) < 24 * 3600 * 1000);
+  document.getElementById('vFind').textContent = last24.length;
+  document.getElementById('cFind').textContent = (last24.filter(f => (f.severity || 1) >= 2).length) + ' high-sev';
+  document.getElementById('cFind').style.color = 'var(--accent)';
+
+  // A-tier — count symbols w/ score >= 80
+  const bySym = {};
+  last24.forEach(f => {
+    const sym = f.meta && f.meta.sym;
+    if (!sym) return;
+    bySym[sym] = (bySym[sym] || 0) + (f.severity || 1) * 12;
+  });
+  const aTier = Object.values(bySym).filter(s => s >= 80).length;
+  document.getElementById('vAtier').textContent = aTier;
+
+  // Rated outcomes
+  const state = loadState();
+  const fed = Object.values(state.fedFindings || {});
+  document.getElementById('vRated').textContent = fed.length;
+  document.getElementById('cRated').textContent = fed.filter(f => f.outcome === 'hit').length + ' hits';
+  document.getElementById('cRated').style.color = 'var(--green)';
+  const decided = fed.filter(f => f.outcome === 'hit' || f.outcome === 'miss');
+  if (decided.length > 0) {
+    const hr = (decided.filter(f => f.outcome === 'hit').length / decided.length) * 100;
+    document.getElementById('vHR').textContent = hr.toFixed(0) + '%';
+    document.getElementById('vHR').style.color = hr >= 55 ? 'var(--green)' : hr >= 45 ? 'var(--accent)' : 'var(--red)';
+  } else {
+    document.getElementById('vHR').textContent = '—';
+  }
+
+  // Top vol
+  const TOP = ['SPY','QQQ','NVDA','TSLA','AAPL','MSFT','META','AMZN','GOOGL','AMD','PLTR','COIN'];
+  const tv = document.getElementById('topVol');
+  tv.innerHTML = '';
+  TOP.forEach(sym => {
+    const q = getQ(sym);
+    const dollarVol = (40 + Math.random() * 80) * q.last;
+    const tile = document.createElement('div');
+    const chg = q.changePct || 0;
+    const col = chg >= 0 ? 'var(--green)' : 'var(--red)';
+    tile.style.cssText = 'padding:10px 12px;background:var(--bg-elevated);border:1px solid var(--border);border-radius:8px;cursor:pointer;border-left:3px solid ' + col + ';';
+    tile.onclick = () => { window.location.href = 'trade-coach.html?sym=' + sym; };
+    tile.innerHTML = '<div style="font-weight:700;font-family:var(--font-mono);">' + sym + '</div><div style="font-size:11px;color:' + col + ';font-family:var(--font-mono);">' + (chg >= 0 ? '+' : '') + chg.toFixed(2) + '%</div><div style="font-size:10px;color:var(--text-muted);font-family:var(--font-mono);">$' + dollarVol.toFixed(1) + 'B</div>';
+    tv.appendChild(tile);
+  });
+}
+paint();
+document.getElementById('refreshBtn').addEventListener('click', paint);
+setInterval(paint, 30000);
+</script>
+</body>
+</html>

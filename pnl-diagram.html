@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>P&L Diagram — bpleone / trade</title>
+<meta name="description" content="Multi-leg options payoff diagram with breakevens, max profit/loss, POP.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.leg-row { display:grid; grid-template-columns: 80px 80px 80px 80px 80px 60px 50px; gap:8px; padding:9px 10px; align-items:center; }
+.leg-row select, .leg-row input { background:var(--bg-elevated);border:1px solid var(--border);border-radius:6px;padding:6px 10px;color:var(--text-primary);font-family:var(--font-mono);font-size:11px;width:100%; }
+.preset-btn { padding:6px 12px;background:var(--bg-elevated);border:1px solid var(--border);border-radius:6px;cursor:pointer;font-size:11px;font-weight:600;font-family:var(--font-mono); }
+.preset-btn:hover { background:rgba(0,212,255,0.1);border-color:var(--accent);color:var(--accent); }
+.stat-card { padding:14px;background:var(--bg-elevated);border-radius:10px;text-align:center; }
+.stat-card .l { font-size:10px;color:var(--text-muted);font-weight:700;letter-spacing:0.5px; }
+.stat-card .v { font-family:var(--font-mono);font-size:22px;font-weight:700;margin-top:4px; }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">📊 P&L Diagram</div>
+      <div class="page-subtitle">Multi-leg payoff · breakevens · max profit/loss · POP · <span id="market-clock">--</span></div>
+    </div>
+  </div>
+
+  <!-- Presets -->
+  <div class="card mb-24" style="padding:12px 14px;">
+    <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;">
+      <span style="font-size:11px;color:var(--text-muted);font-weight:700;">PRESETS:</span>
+      <button class="preset-btn" data-preset="long-call">Long Call</button>
+      <button class="preset-btn" data-preset="long-put">Long Put</button>
+      <button class="preset-btn" data-preset="bull-call">Bull Call Spread</button>
+      <button class="preset-btn" data-preset="bear-put">Bear Put Spread</button>
+      <button class="preset-btn" data-preset="iron-condor">Iron Condor</button>
+      <button class="preset-btn" data-preset="straddle">Long Straddle</button>
+      <button class="preset-btn" data-preset="strangle">Long Strangle</button>
+      <button class="preset-btn" data-preset="calendar">Calendar Spread</button>
+      <button class="preset-btn" data-preset="butterfly">Long Butterfly</button>
+      <button class="preset-btn" data-preset="csp">Cash-Secured Put</button>
+    </div>
+  </div>
+
+  <div class="grid grid-12">
+    <div class="card col-5">
+      <div class="card-header"><div class="card-title">⚙ Legs</div></div>
+      <div style="font-size:10px;color:var(--text-muted);font-weight:700;letter-spacing:0.5px;display:grid;grid-template-columns: 80px 80px 80px 80px 80px 60px 50px;gap:8px;padding:6px 10px;">
+        <div>SIDE</div><div>TYPE</div><div>STRIKE</div><div>PREMIUM</div><div>QTY</div><div></div><div></div>
+      </div>
+      <div id="legsWrap"></div>
+      <button class="btn btn-ghost" id="addLegBtn" style="margin-top:10px;padding:6px 14px;font-size:12px;">+ Add Leg</button>
+
+      <div class="input-row" style="margin-top:18px;display:flex;gap:14px;align-items:center;">
+        <label style="font-size:12px;color:var(--text-muted);font-weight:700;">Stock Price</label>
+        <input type="number" id="px" value="100" step="0.01" style="background:var(--bg-elevated);border:1px solid var(--border);border-radius:6px;padding:8px 12px;color:var(--text-primary);font-family:var(--font-mono);width:100px;">
+        <button class="btn btn-primary" id="calcBtn" style="padding:8px 18px;">Calculate</button>
+      </div>
+    </div>
+
+    <div class="col-7">
+      <div class="card">
+        <div class="card-header"><div class="card-title">📈 Payoff at Expiry</div></div>
+        <canvas id="payoffChart" height="240"></canvas>
+      </div>
+      <div class="grid grid-4 mt-24">
+        <div class="stat-card"><div class="l">MAX PROFIT</div><div class="v" style="color:var(--green);" id="kMaxProfit">--</div></div>
+        <div class="stat-card"><div class="l">MAX LOSS</div><div class="v" style="color:var(--red);" id="kMaxLoss">--</div></div>
+        <div class="stat-card"><div class="l">BREAKEVEN</div><div class="v" id="kBE">--</div></div>
+        <div class="stat-card"><div class="l">NET DEBIT/CR</div><div class="v" id="kNet">--</div></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script src="js/charts.js"></script>
+<script>
+buildNav('pnl-diagram');
+
+const PRESETS = {
+  'long-call': [{ side: 'B', type: 'C', K: 100, prem: 3.00, qty: 1 }],
+  'long-put': [{ side: 'B', type: 'P', K: 100, prem: 3.00, qty: 1 }],
+  'bull-call': [{ side: 'B', type: 'C', K: 100, prem: 5.00, qty: 1 }, { side: 'S', type: 'C', K: 110, prem: 1.50, qty: 1 }],
+  'bear-put': [{ side: 'B', type: 'P', K: 100, prem: 5.00, qty: 1 }, { side: 'S', type: 'P', K: 90, prem: 1.50, qty: 1 }],
+  'iron-condor': [{ side: 'S', type: 'P', K: 95, prem: 2.00, qty: 1 }, { side: 'B', type: 'P', K: 90, prem: 1.00, qty: 1 }, { side: 'S', type: 'C', K: 105, prem: 2.00, qty: 1 }, { side: 'B', type: 'C', K: 110, prem: 1.00, qty: 1 }],
+  'straddle': [{ side: 'B', type: 'C', K: 100, prem: 4.00, qty: 1 }, { side: 'B', type: 'P', K: 100, prem: 4.00, qty: 1 }],
+  'strangle': [{ side: 'B', type: 'C', K: 105, prem: 2.50, qty: 1 }, { side: 'B', type: 'P', K: 95, prem: 2.50, qty: 1 }],
+  'calendar': [{ side: 'S', type: 'C', K: 100, prem: 3.00, qty: 1 }, { side: 'B', type: 'C', K: 100, prem: 5.00, qty: 1 }],
+  'butterfly': [{ side: 'B', type: 'C', K: 95, prem: 6.00, qty: 1 }, { side: 'S', type: 'C', K: 100, prem: 3.00, qty: 2 }, { side: 'B', type: 'C', K: 105, prem: 1.00, qty: 1 }],
+  'csp': [{ side: 'S', type: 'P', K: 95, prem: 2.50, qty: 1 }]
+};
+
+let legs = PRESETS['bull-call'].slice();
+
+function renderLegs() {
+  const wrap = document.getElementById('legsWrap');
+  wrap.innerHTML = '';
+  legs.forEach((leg, i) => {
+    const row = document.createElement('div');
+    row.className = 'leg-row';
+    row.innerHTML = `
+      <select data-i="${i}" data-field="side"><option value="B" ${leg.side==='B'?'selected':''}>BUY</option><option value="S" ${leg.side==='S'?'selected':''}>SELL</option></select>
+      <select data-i="${i}" data-field="type"><option value="C" ${leg.type==='C'?'selected':''}>CALL</option><option value="P" ${leg.type==='P'?'selected':''}>PUT</option></select>
+      <input type="number" step="0.5" data-i="${i}" data-field="K" value="${leg.K}">
+      <input type="number" step="0.01" data-i="${i}" data-field="prem" value="${leg.prem}">
+      <input type="number" data-i="${i}" data-field="qty" value="${leg.qty}">
+      <span class="mono" style="font-size:10px;color:var(--text-muted);">×100</span>
+      <button class="btn btn-ghost rm" data-i="${i}" style="padding:3px 8px;color:var(--red);font-size:10px;">✕</button>
+    `;
+    wrap.appendChild(row);
+  });
+  document.querySelectorAll('#legsWrap select, #legsWrap input').forEach(el => el.addEventListener('input', e => {
+    const i = +e.target.dataset.i;
+    const field = e.target.dataset.field;
+    const val = (field === 'K' || field === 'prem' || field === 'qty') ? +e.target.value : e.target.value;
+    legs[i][field] = val;
+    calc();
+  }));
+  document.querySelectorAll('.rm').forEach(b => b.addEventListener('click', () => {
+    legs.splice(+b.dataset.i, 1);
+    renderLegs();
+    calc();
+  }));
+}
+
+function payoff(legs, S) {
+  let total = 0;
+  legs.forEach(leg => {
+    let intrinsic = leg.type === 'C' ? Math.max(0, S - leg.K) : Math.max(0, leg.K - S);
+    const sign = leg.side === 'B' ? 1 : -1;
+    total += sign * (intrinsic - leg.prem) * leg.qty * 100;
+  });
+  return total;
+}
+
+let payoffChart;
+function calc() {
+  const S = +document.getElementById('px').value;
+  // Net debit/credit
+  let net = 0;
+  legs.forEach(l => net += (l.side === 'B' ? -1 : 1) * l.prem * l.qty * 100);
+
+  // Payoff curve
+  const labels = [], data = [];
+  for (let pct = -50; pct <= 50; pct += 1) {
+    const sp = S * (1 + pct / 100);
+    labels.push(sp.toFixed(0));
+    data.push(payoff(legs, sp));
+  }
+  const maxP = Math.max(...data);
+  const minP = Math.min(...data);
+  // Find breakevens (sign changes)
+  const breakevens = [];
+  for (let i = 1; i < data.length; i++) {
+    if (Math.sign(data[i]) !== Math.sign(data[i-1])) {
+      const sp = +labels[i];
+      breakevens.push(sp);
+    }
+  }
+
+  if (payoffChart) payoffChart.destroy();
+  payoffChart = new Chart(document.getElementById('payoffChart').getContext('2d'), {
+    type: 'line',
+    data: { labels, datasets: [{ label: 'P&L', data, borderColor: 'rgba(0,212,255,1)', backgroundColor: data.map(v => v >= 0 ? 'rgba(16,185,129,0.3)' : 'rgba(239,68,68,0.3)'), fill: true, pointRadius: 0, borderWidth: 2, tension: 0 }] },
+    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { grid: { color: 'rgba(255,255,255,0.04)' }, ticks: { color: '#6b7280', font: { size: 9 }, maxTicksLimit: 12 } }, y: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#6b7280', callback: v => '$' + v.toFixed(0) } } } }
+  });
+
+  document.getElementById('kMaxProfit').textContent = maxP > 5000 ? '∞' : '$' + maxP.toFixed(0);
+  document.getElementById('kMaxLoss').textContent = '$' + minP.toFixed(0);
+  document.getElementById('kBE').textContent = breakevens.length > 0 ? breakevens.map(b => '$' + b).join(' / ') : '—';
+  document.getElementById('kNet').textContent = (net >= 0 ? '+$' : '−$') + Math.abs(net).toFixed(0) + (net >= 0 ? ' (CR)' : ' (DR)');
+}
+
+document.querySelectorAll('[data-preset]').forEach(b => b.addEventListener('click', () => {
+  legs = JSON.parse(JSON.stringify(PRESETS[b.dataset.preset]));
+  renderLegs();
+  calc();
+}));
+document.getElementById('addLegBtn').addEventListener('click', () => {
+  legs.push({ side: 'B', type: 'C', K: 100, prem: 3.00, qty: 1 });
+  renderLegs();
+  calc();
+});
+document.getElementById('calcBtn').addEventListener('click', calc);
+document.getElementById('px').addEventListener('input', calc);
+renderLegs();
+calc();
+</script>
+</body>
+</html>

@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Watchlist Share — bpleone / trade</title>
+<meta name="description" content="Generate shareable URLs for your watchlists and import lists from URLs.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.share-box { padding:18px;background:var(--bg-elevated);border:1px solid var(--border);border-radius:10px;margin-bottom:18px; }
+.url-display { background:var(--bg);padding:12px 14px;border-radius:6px;font-family:var(--font-mono);font-size:11px;color:var(--accent);word-break:break-all;border:1px solid var(--border);margin:10px 0; }
+.list-chip { display:inline-block;padding:6px 12px;background:rgba(0,212,255,0.12);color:var(--accent);border-radius:6px;font-size:12px;font-weight:600;margin-right:6px;cursor:pointer; }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">🔗 Watchlist Share</div>
+      <div class="page-subtitle">Export + import watchlists via URLs · <span id="market-clock">--</span></div>
+    </div>
+  </div>
+
+  <!-- Share existing -->
+  <div class="share-box">
+    <div style="font-weight:700;color:var(--accent);margin-bottom:10px;">📤 Share your watchlists</div>
+    <div id="lists"></div>
+  </div>
+
+  <!-- Import from URL -->
+  <div class="share-box">
+    <div style="font-weight:700;color:var(--accent);margin-bottom:10px;">📥 Import a watchlist URL</div>
+    <input type="text" id="urlInput" placeholder="Paste shared URL here..." style="width:100%;padding:12px;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text-primary);font-family:var(--font-mono);font-size:12px;">
+    <div class="flex gap-8" style="margin-top:10px;">
+      <button class="btn btn-primary" id="importBtn">📥 Import</button>
+      <input type="text" id="newName" placeholder="Save as list name" style="flex:1;padding:8px 12px;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text-primary);font-size:12px;">
+    </div>
+    <div id="importPreview" style="margin-top:10px;"></div>
+  </div>
+
+  <!-- Build new from comma list -->
+  <div class="share-box">
+    <div style="font-weight:700;color:var(--accent);margin-bottom:10px;">✏ Build a new watchlist + shareable URL</div>
+    <input type="text" id="buildName" placeholder="List name" style="width:100%;padding:8px 12px;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text-primary);font-size:12px;margin-bottom:8px;">
+    <textarea id="buildSyms" placeholder="Paste comma-separated tickers (e.g. NVDA, TSLA, SPY, ...)" style="width:100%;padding:10px;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text-primary);font-family:var(--font-mono);font-size:12px;min-height:80px;text-transform:uppercase;"></textarea>
+    <button class="btn btn-primary mt-12" id="buildBtn">🔗 Generate URL</button>
+    <div id="buildOutput" style="margin-top:10px;"></div>
+  </div>
+
+  <div class="card">
+    <div class="card-header"><div class="card-title">🧠 How it works</div></div>
+    <div style="font-size:13px;color:var(--text-secondary);line-height:1.7;">
+      Watchlists are stored in your localStorage and synced to URL parameters when shared. Share the URL — anyone opening it gets the list pre-loaded in their Watchlist PRO. No backend; no signups; the data lives in the URL itself (Base64 encoded). Up to ~50 symbols per list before URL gets unwieldy.
+    </div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script>
+buildNav('watchlist-share');
+
+const KEY = 'bpleone_watchlist_pro_v1';
+function load() {
+  try {
+    const v = JSON.parse(localStorage.getItem(KEY) || 'null');
+    if (v && Array.isArray(v) && v.length > 0) return v;
+  } catch (e) {}
+  return [{ name: 'Default', syms: ['SPY','QQQ','NVDA','AAPL'] }];
+}
+
+const baseURL = location.origin + location.pathname.replace('watchlist-share.html', 'watchlist-pro.html');
+
+function paintLists() {
+  const lists = load();
+  const wrap = document.getElementById('lists');
+  wrap.innerHTML = '';
+  lists.forEach((l, i) => {
+    const encoded = btoa(JSON.stringify({ n: l.name, s: l.syms }));
+    const url = baseURL + '?list=' + encoded;
+    const box = document.createElement('div');
+    box.style.cssText = 'padding:12px;background:var(--bg);border-radius:8px;border:1px solid var(--border);margin-bottom:10px;';
+    box.innerHTML = '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;"><strong>' + l.name + '</strong> <span style="font-size:11px;color:var(--text-muted);">' + l.syms.length + ' symbols</span></div>'
+      + '<div style="margin-bottom:8px;font-size:11px;">' + l.syms.slice(0, 12).map(s => '<span class="list-chip">' + s + '</span>').join('') + (l.syms.length > 12 ? '<span style="color:var(--text-muted);font-size:11px;">+ ' + (l.syms.length - 12) + ' more</span>' : '') + '</div>'
+      + '<div class="url-display">' + url + '</div>'
+      + '<button class="btn btn-secondary copy-btn" data-url="' + url.replace(/"/g, '&quot;') + '" style="padding:6px 14px;font-size:11px;">📋 Copy URL</button>';
+    wrap.appendChild(box);
+  });
+
+  document.querySelectorAll('.copy-btn').forEach(b => b.addEventListener('click', () => {
+    navigator.clipboard.writeText(b.dataset.url);
+    const orig = b.textContent;
+    b.textContent = '✓ Copied!';
+    setTimeout(() => b.textContent = orig, 1500);
+  }));
+}
+paintLists();
+
+document.getElementById('importBtn').addEventListener('click', () => {
+  const url = document.getElementById('urlInput').value.trim();
+  if (!url) return alert('Paste a URL first');
+  try {
+    const params = new URLSearchParams(url.split('?')[1] || '');
+    const enc = params.get('list');
+    if (!enc) return alert('Not a valid share URL');
+    const list = JSON.parse(atob(enc));
+    const lists = load();
+    const newName = document.getElementById('newName').value.trim() || list.n;
+    lists.push({ name: newName, syms: list.s });
+    localStorage.setItem(KEY, JSON.stringify(lists));
+    document.getElementById('importPreview').innerHTML = '<div style="padding:10px;background:rgba(16,185,129,0.1);border-radius:6px;color:var(--green);">✓ Imported "' + newName + '" with ' + list.s.length + ' symbols. <a href="watchlist-pro.html" style="color:var(--green);text-decoration:underline;">View in Watchlist PRO →</a></div>';
+    paintLists();
+  } catch (e) {
+    alert('Invalid URL: ' + e.message);
+  }
+});
+
+document.getElementById('buildBtn').addEventListener('click', () => {
+  const name = document.getElementById('buildName').value.trim() || 'My List';
+  const syms = document.getElementById('buildSyms').value.split(/[,\n\s]+/).map(s => s.toUpperCase().trim()).filter(s => s);
+  if (syms.length === 0) return alert('Enter at least one symbol');
+  const encoded = btoa(JSON.stringify({ n: name, s: syms }));
+  const url = baseURL + '?list=' + encoded;
+  document.getElementById('buildOutput').innerHTML = '<div class="url-display">' + url + '</div>'
+    + '<button class="btn btn-secondary" id="copyOut" style="padding:6px 14px;font-size:11px;">📋 Copy URL</button>'
+    + '<button class="btn btn-primary" id="saveOut" style="padding:6px 14px;font-size:11px;margin-left:6px;">💾 Save to my lists</button>';
+  document.getElementById('copyOut').addEventListener('click', () => {
+    navigator.clipboard.writeText(url);
+    document.getElementById('copyOut').textContent = '✓ Copied!';
+  });
+  document.getElementById('saveOut').addEventListener('click', () => {
+    const lists = load();
+    lists.push({ name, syms });
+    localStorage.setItem(KEY, JSON.stringify(lists));
+    paintLists();
+    document.getElementById('saveOut').textContent = '✓ Saved!';
+  });
+});
+</script>
+</body>
+</html>

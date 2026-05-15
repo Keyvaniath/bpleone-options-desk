@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>VWAP P&L — bpleone / trade</title>
+<meta name="description" content="VWAP execution analysis · arrival cost · slippage · implementation shortfall.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.input-row { display:flex; gap:14px; flex-wrap:wrap; align-items:center; margin-bottom:14px; }
+.input-row label { font-size:12px;color:var(--text-muted);font-weight:700;min-width:140px; }
+.input-row input, .input-row select { background:var(--bg-elevated);border:1px solid var(--border);border-radius:6px;padding:8px 12px;color:var(--text-primary);font-family:var(--font-mono);width:140px; }
+</style>
+</head>
+<body data-needs="live">
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">📈 VWAP P&L</div>
+      <div class="page-subtitle">Execution quality vs VWAP · arrival cost · slippage · <span id="market-clock">--</span></div>
+    </div>
+  </div>
+
+  <div class="grid grid-12">
+    <div class="card col-5">
+      <div class="card-header"><div class="card-title">⚙ Execution Inputs</div></div>
+      <div class="input-row"><label>Symbol</label><input id="sym" value="NVDA" style="text-transform:uppercase;"></div>
+      <div class="input-row"><label>Side</label><select id="side"><option>BUY</option><option>SELL</option></select></div>
+      <div class="input-row"><label>Shares</label><input type="number" id="shares" value="1000"></div>
+      <div class="input-row"><label>Arrival Price ($)</label><input type="number" id="arrival" step="0.01" value="100.00"></div>
+      <div class="input-row"><label>Fill Price ($)</label><input type="number" id="fill" step="0.01" value="100.15"></div>
+      <div class="input-row"><label>Session VWAP ($)</label><input type="number" id="vwap" step="0.01" value="100.05"></div>
+      <div class="input-row"><label>Close Price ($)</label><input type="number" id="close" step="0.01" value="100.40"></div>
+      <button class="btn btn-primary" id="calcBtn" style="margin-top:14px;padding:10px 24px;">Analyze</button>
+    </div>
+
+    <div class="col-7">
+      <div class="grid grid-2 mb-24">
+        <div class="card"><div class="card-header"><div class="card-title">vs VWAP</div></div><div class="mono" style="font-size:22px;font-weight:700;" id="kVwap">--</div><div class="mono" style="font-size:11px;color:var(--text-muted);" id="kVwapBody">--</div></div>
+        <div class="card"><div class="card-header"><div class="card-title">vs Arrival</div></div><div class="mono" style="font-size:22px;font-weight:700;" id="kArrival">--</div><div class="mono" style="font-size:11px;color:var(--text-muted);" id="kArrivalBody">--</div></div>
+      </div>
+      <div class="grid grid-2">
+        <div class="card"><div class="card-header"><div class="card-title">vs Close</div></div><div class="mono" style="font-size:22px;font-weight:700;" id="kClose">--</div></div>
+        <div class="card"><div class="card-header"><div class="card-title">Implementation Shortfall (bps)</div></div><div class="mono" style="font-size:22px;font-weight:700;" id="kIS">--</div></div>
+      </div>
+
+      <div class="card mt-24">
+        <div class="card-header"><div class="card-title">📊 Execution Quality Curve</div></div>
+        <canvas id="curveChart" height="200"></canvas>
+      </div>
+    </div>
+  </div>
+
+  <div class="card mt-24">
+    <div class="card-header"><div class="card-title">🧠 How to read</div></div>
+    <div class="grid grid-3" style="gap:20px;">
+      <div>
+        <div style="font-weight:700;color:var(--green);margin-bottom:6px;">vs VWAP</div>
+        <div style="font-size:13px;color:var(--text-muted);line-height:1.6;">Did you beat the day's volume-weighted price? Buying below VWAP / selling above VWAP = good execution. Most institutional benchmarks use this.</div>
+      </div>
+      <div>
+        <div style="font-weight:700;color:var(--accent);margin-bottom:6px;">vs Arrival</div>
+        <div style="font-size:13px;color:var(--text-muted);line-height:1.6;">Tracks how much price moved while you were executing. Negative = you chased.</div>
+      </div>
+      <div>
+        <div style="font-weight:700;color:var(--yellow);margin-bottom:6px;">Implementation Shortfall</div>
+        <div style="font-size:13px;color:var(--text-muted);line-height:1.6;">Total cost vs theoretical "decision price" execution. Including market impact + opportunity cost. Gold-standard transaction-cost metric.</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script src="js/charts.js"></script>
+<script>
+buildNav('vwap-pnl');
+
+let curveChart;
+function calc() {
+  const side = document.getElementById('side').value;
+  const shares = +document.getElementById('shares').value;
+  const arrival = +document.getElementById('arrival').value;
+  const fill = +document.getElementById('fill').value;
+  const vwap = +document.getElementById('vwap').value;
+  const close = +document.getElementById('close').value;
+  const isBuy = side === 'BUY';
+
+  const vwapBps = ((fill - vwap) / vwap) * 10000 * (isBuy ? 1 : -1);
+  const vwapDollar = (fill - vwap) * shares * (isBuy ? -1 : 1);
+  const arrivalBps = ((fill - arrival) / arrival) * 10000 * (isBuy ? 1 : -1);
+  const arrivalDollar = (fill - arrival) * shares * (isBuy ? -1 : 1);
+  const closeDollar = (close - fill) * shares * (isBuy ? 1 : -1);
+  const closeBps = ((close - fill) / fill) * 10000 * (isBuy ? 1 : -1);
+  const isShortfall = arrivalBps;
+
+  document.getElementById('kVwap').textContent = (vwapDollar >= 0 ? '+$' : '−$') + Math.abs(vwapDollar).toFixed(0);
+  document.getElementById('kVwap').style.color = vwapDollar >= 0 ? 'var(--green)' : 'var(--red)';
+  document.getElementById('kVwapBody').textContent = (vwapBps >= 0 ? '+' : '') + vwapBps.toFixed(1) + ' bps · ' + (vwapDollar >= 0 ? 'beat' : 'missed') + ' VWAP';
+
+  document.getElementById('kArrival').textContent = (arrivalDollar >= 0 ? '+$' : '−$') + Math.abs(arrivalDollar).toFixed(0);
+  document.getElementById('kArrival').style.color = arrivalDollar >= 0 ? 'var(--green)' : 'var(--red)';
+  document.getElementById('kArrivalBody').textContent = (arrivalBps >= 0 ? '+' : '') + arrivalBps.toFixed(1) + ' bps from arrival';
+
+  document.getElementById('kClose').textContent = (closeDollar >= 0 ? '+$' : '−$') + Math.abs(closeDollar).toFixed(0);
+  document.getElementById('kClose').style.color = closeDollar >= 0 ? 'var(--green)' : 'var(--red)';
+  document.getElementById('kIS').textContent = (isShortfall >= 0 ? '+' : '') + isShortfall.toFixed(1) + ' bps';
+  document.getElementById('kIS').style.color = isShortfall < 5 ? 'var(--green)' : isShortfall < 20 ? 'var(--accent)' : isShortfall < 50 ? 'var(--yellow)' : 'var(--red)';
+
+  // Curve
+  const labels = ['Arrival', 'VWAP', 'Fill', 'Close'];
+  const data = [arrival, vwap, fill, close];
+  if (curveChart) curveChart.destroy();
+  curveChart = new Chart(document.getElementById('curveChart').getContext('2d'), {
+    type: 'line',
+    data: { labels, datasets: [{ label: 'Price', data, borderColor: 'rgba(0,212,255,1)', backgroundColor: 'rgba(0,212,255,0.08)', fill: true, borderWidth: 2.5, pointRadius: 7, pointBackgroundColor: ['rgba(245,158,11,0.9)','rgba(124,58,237,0.9)','rgba(239,68,68,0.9)','rgba(16,185,129,0.9)'], tension: 0.1 }] },
+    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { grid: { color: 'rgba(255,255,255,0.04)' }, ticks: { color: '#9ca3af' } }, y: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#9ca3af', callback: v => '$' + v.toFixed(2) } } } }
+  });
+}
+calc();
+document.getElementById('calcBtn').addEventListener('click', calc);
+['side','shares','arrival','fill','vwap','close'].forEach(id => document.getElementById(id).addEventListener('input', calc));
+</script>
+</body>
+</html>

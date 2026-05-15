@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Sweep Counter — bpleone / trade</title>
+<meta name="description" content="Today's sweep count by symbol with trend chart and bull/bear breakdown.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.sweep-row { display:grid; grid-template-columns: 30px 70px 80px 80px 80px 90px 110px 1fr; gap:8px; padding:11px 12px; border-bottom:1px solid var(--border); font-family:var(--font-mono); font-size:11px; align-items:center; cursor:pointer; }
+.sweep-row:hover { background:var(--bg-elevated); }
+.sweep-row.heavy { border-left:3px solid #a78bfa; background:rgba(124,58,237,0.04); }
+.sweep-row.bull { border-left:3px solid var(--green); }
+.sweep-row.bear { border-left:3px solid var(--red); }
+.spark-bar { display:flex; gap:1px; align-items:flex-end; height:18px; }
+.spark-bar > div { flex:1; min-width:2px; }
+</style>
+</head>
+<body data-needs="chain">
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">⚡ Sweep Counter</div>
+      <div class="page-subtitle">Today's sweep count by symbol · directional bias · <span id="market-clock">--</span></div>
+    </div>
+    <div class="flex gap-8"><button class="btn btn-secondary" id="refreshBtn">🔄</button></div>
+  </div>
+
+  <div class="grid grid-4 mb-24">
+    <div class="card"><div class="card-header"><div class="card-title">Total Sweeps</div></div><div class="mono" style="font-size:26px;font-weight:700;color:var(--accent);" id="kpiTotal">--</div><div class="mono" style="font-size:11px;color:var(--text-muted);">Across universe</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">Bull Sweeps</div></div><div class="mono green-text" style="font-size:26px;font-weight:700;" id="kpiBull">--</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">Bear Sweeps</div></div><div class="mono red-text" style="font-size:26px;font-weight:700;" id="kpiBear">--</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">Heaviest Symbol</div></div><div class="mono" style="font-size:18px;font-weight:700;color:#a78bfa;" id="kpiTop">--</div><div class="mono" style="font-size:11px;color:var(--text-muted);" id="kpiTopBody">--</div></div>
+  </div>
+
+  <!-- Intraday histogram -->
+  <div class="card mb-24">
+    <div class="card-header"><div class="card-title">📊 Sweeps Through the Day</div></div>
+    <canvas id="todChart" height="180"></canvas>
+  </div>
+
+  <div class="card" style="padding:0;">
+    <div class="card-header" style="padding:14px 16px;"><div class="card-title">🎯 Sweep Leaderboard</div></div>
+    <div class="sweep-row" style="background:var(--bg-elevated);font-size:9px;color:var(--text-muted);font-weight:800;letter-spacing:0.5px;">
+      <div>#</div><div>SYM</div><div>SWEEPS</div><div>CALLS</div><div>PUTS</div><div>$ PREMIUM</div><div>BIAS</div><div>INTRADAY</div>
+    </div>
+    <div id="sweepBody"></div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script>
+buildNav('sweep-counter');
+
+const UNIVERSE = ['NVDA','TSLA','AAPL','MSFT','META','AMZN','GOOGL','AMD','PLTR','COIN','SMCI','NFLX','MSTR','SHOP','UBER','HOOD','SOFI','PANW','SNOW','AVGO','MU','MRVL','LCID','GME','PFE','BA','DIS','JPM','SPY','QQQ','IWM'];
+
+function generate() {
+  return UNIVERSE.map(sym => {
+    const seed = sym.charCodeAt(0) * 19 + (sym.charCodeAt(1) || 0);
+    const rand = (k) => { const x = Math.sin(seed + k) * 10000; return x - Math.floor(x); };
+    const total = Math.floor(5 + rand(1) * 80);
+    const callPct = 0.30 + rand(2) * 0.50;
+    const calls = Math.round(total * callPct);
+    const puts = total - calls;
+    const premium = total * (0.5 + rand(3) * 4) * 1e6; // $
+    // Intraday bars
+    const intraday = [];
+    for (let i = 0; i < 13; i++) intraday.push(Math.floor(rand(4 + i) * total / 3));
+    return { sym, total, calls, puts, premium, intraday };
+  }).sort((a, b) => b.total - a.total);
+}
+
+let data = generate();
+let todChart;
+
+function paint() {
+  const body = document.getElementById('sweepBody');
+  body.innerHTML = '';
+  data.slice(0, 24).forEach((d, i) => {
+    const callPct = (d.calls / d.total) * 100;
+    const bias = callPct > 60 ? 'BULL' : callPct < 40 ? 'BEAR' : 'NEUT';
+    const biasCol = bias === 'BULL' ? 'var(--green)' : bias === 'BEAR' ? 'var(--red)' : 'var(--text-muted)';
+    const cls = d.total > 40 ? 'heavy' : bias === 'BULL' ? 'bull' : bias === 'BEAR' ? 'bear' : '';
+    const maxBar = Math.max(...d.intraday);
+    let bars = '<div class="spark-bar">';
+    d.intraday.forEach(v => {
+      const h = maxBar > 0 ? (v / maxBar) * 100 : 0;
+      bars += '<div style="height:' + h + '%;background:var(--accent);opacity:0.7;"></div>';
+    });
+    bars += '</div>';
+    const row = document.createElement('div');
+    row.className = 'sweep-row ' + cls;
+    row.innerHTML = '<div>' + (i + 1) + '</div>'
+      + '<div><strong>' + d.sym + '</strong></div>'
+      + '<div style="font-weight:700;color:var(--accent);">' + d.total + '</div>'
+      + '<div style="color:var(--green);">' + d.calls + '</div>'
+      + '<div style="color:var(--red);">' + d.puts + '</div>'
+      + '<div>$' + (d.premium / 1e6).toFixed(1) + 'M</div>'
+      + '<div style="color:' + biasCol + ';font-weight:700;">' + bias + '</div>'
+      + '<div>' + bars + '</div>';
+    row.onclick = () => { window.location.href = 'trade-coach.html?sym=' + d.sym; };
+    body.appendChild(row);
+  });
+
+  document.getElementById('kpiTotal').textContent = data.reduce((s, d) => s + d.total, 0);
+  document.getElementById('kpiBull').textContent = data.filter(d => d.calls > d.puts * 1.3).length;
+  document.getElementById('kpiBear').textContent = data.filter(d => d.puts > d.calls * 1.3).length;
+  document.getElementById('kpiTop').textContent = data[0].sym;
+  document.getElementById('kpiTopBody').textContent = data[0].total + ' sweeps · $' + (data[0].premium / 1e6).toFixed(1) + 'M';
+
+  // Intraday chart
+  const buckets = ['9:30','10:00','10:30','11:00','11:30','12:00','12:30','13:00','13:30','14:00','14:30','15:00','15:30'];
+  const totals = buckets.map((_, i) => data.reduce((s, d) => s + (d.intraday[i] || 0), 0));
+  if (todChart) todChart.destroy();
+  todChart = new Chart(document.getElementById('todChart').getContext('2d'), {
+    type: 'bar', data: { labels: buckets, datasets: [{ data: totals, backgroundColor: 'rgba(0,212,255,0.6)' }] },
+    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { grid: { display: false }, ticks: { color: '#6b7280', font: { size: 9 } } }, y: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#6b7280' } } } }
+  });
+}
+paint();
+document.getElementById('refreshBtn').addEventListener('click', () => { data = generate(); paint(); });
+</script>
+</body>
+</html>

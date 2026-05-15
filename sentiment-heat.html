@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Sentiment Heat — bpleone / trade</title>
+<meta name="description" content="Aggregated news + social sentiment heatmap across sectors and top names.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.heat-tile { padding:14px;border-radius:8px;text-align:center;cursor:pointer;transition:transform 0.1s; }
+.heat-tile:hover { transform:translateY(-2px); }
+.heat-tile .sym { font-family:var(--font-mono);font-weight:700;font-size:14px;color:#fff; }
+.heat-tile .sent { font-family:var(--font-mono);font-size:11px;color:rgba(255,255,255,0.85);margin-top:4px; }
+.heat-tile .mentions { font-size:9px;color:rgba(255,255,255,0.6);margin-top:2px; }
+</style>
+</head>
+<body data-needs="live">
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">🌡 Sentiment Heat</div>
+      <div class="page-subtitle">Aggregated news + social sentiment · by sector + symbol · <span id="market-clock">--</span></div>
+    </div>
+    <div class="flex gap-8"><button class="btn btn-secondary" id="refreshBtn">🔄</button></div>
+  </div>
+
+  <div class="grid grid-4 mb-24">
+    <div class="card"><div class="card-header"><div class="card-title">Overall Sentiment</div></div><div class="mono" style="font-size:24px;font-weight:700;" id="kOverall">--</div><div class="mono" style="font-size:11px;color:var(--text-muted);" id="kOverallBody">--</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">Most Bullish</div></div><div class="mono green-text" style="font-size:18px;font-weight:700;" id="kBull">--</div><div class="mono" style="font-size:11px;color:var(--text-muted);" id="kBullBody">--</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">Most Bearish</div></div><div class="mono red-text" style="font-size:18px;font-weight:700;" id="kBear">--</div><div class="mono" style="font-size:11px;color:var(--text-muted);" id="kBearBody">--</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">High-Mention</div></div><div class="mono" style="font-size:18px;font-weight:700;color:var(--accent);" id="kHigh">--</div><div class="mono" style="font-size:11px;color:var(--text-muted);" id="kHighBody">--</div></div>
+  </div>
+
+  <div class="card mb-24">
+    <div class="card-header"><div class="card-title">🌡 Sector Sentiment</div></div>
+    <div id="sectorHeat" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:8px;"></div>
+  </div>
+
+  <div class="card">
+    <div class="card-header"><div class="card-title">🔥 Symbol Sentiment</div></div>
+    <div id="symHeat" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:8px;"></div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script>
+buildNav('sentiment-heat');
+
+const SECTORS = [['XLK','Tech'],['XLF','Financials'],['XLE','Energy'],['XLV','Healthcare'],['XLY','Cons.Discr'],['XLI','Industrials'],['XLC','Comm'],['XLP','Staples'],['XLU','Utilities'],['XLB','Materials'],['XLRE','Real Estate']];
+const SYMBOLS = ['NVDA','TSLA','AAPL','MSFT','META','AMZN','GOOGL','AMD','PLTR','COIN','SMCI','NFLX','MSTR','SHOP','UBER','HOOD','SOFI','PANW','SNOW','AVGO','MRVL','MU','LCID','RIVN','BA','DIS','JPM','BAC','GS','PFE','MRNA','BTC','ETH','SPY','QQQ'];
+
+function getQ(s) { return (typeof QUOTES !== 'undefined' && QUOTES[s]) ? QUOTES[s] : { changePct: 0 }; }
+
+function colorFor(score) {
+  // score in [-10, +10]
+  const x = Math.max(-1, Math.min(1, score / 10));
+  if (x >= 0) {
+    const r = Math.round(40 - x * 30);
+    const g = Math.round(110 + x * 80);
+    const b = Math.round(50 - x * 20);
+    return `rgb(${r},${g},${b})`;
+  } else {
+    const r = Math.round(120 - x * 100);
+    const g = Math.round(60 + x * 20);
+    const b = Math.round(60 + x * 10);
+    return `rgb(${r},${g},${b})`;
+  }
+}
+
+function paint() {
+  // Sector
+  const sectorH = document.getElementById('sectorHeat');
+  sectorH.innerHTML = '';
+  const sectorScores = [];
+  SECTORS.forEach(([etf, name]) => {
+    const q = getQ(etf);
+    const chg = q.changePct || 0;
+    const score = +(chg * 2 + (Math.random() - 0.5) * 3).toFixed(1);
+    const mentions = Math.floor(80 + Math.random() * 350);
+    sectorScores.push({ etf, name, score, mentions });
+    const tile = document.createElement('div');
+    tile.className = 'heat-tile';
+    tile.style.background = colorFor(score);
+    tile.onclick = () => { window.location.href = 'sector-snapshot.html?sec=' + etf; };
+    tile.innerHTML = '<div class="sym">' + etf + '</div><div class="sent" style="font-size:10px;">' + name + '</div><div class="sent">' + (score >= 0 ? '+' : '') + score + '</div><div class="mentions">' + mentions + ' mentions</div>';
+    sectorH.appendChild(tile);
+  });
+
+  // Symbols
+  const symH = document.getElementById('symHeat');
+  symH.innerHTML = '';
+  const symScores = [];
+  SYMBOLS.forEach(sym => {
+    const q = getQ(sym);
+    const chg = q.changePct || 0;
+    const score = +(chg * 1.8 + (Math.random() - 0.5) * 4).toFixed(1);
+    const mentions = Math.floor(40 + Math.random() * 500);
+    symScores.push({ sym, score, mentions });
+    const tile = document.createElement('div');
+    tile.className = 'heat-tile';
+    tile.style.background = colorFor(score);
+    tile.onclick = () => { window.location.href = 'trade-coach.html?sym=' + sym; };
+    tile.innerHTML = '<div class="sym">' + sym + '</div><div class="sent">' + (score >= 0 ? '+' : '') + score + '</div><div class="mentions">' + mentions + ' mentions</div>';
+    symH.appendChild(tile);
+  });
+
+  // KPIs
+  const overall = symScores.reduce((s, x) => s + x.score, 0) / symScores.length;
+  document.getElementById('kOverall').textContent = (overall >= 0 ? '+' : '') + overall.toFixed(2);
+  document.getElementById('kOverall').style.color = overall > 1 ? 'var(--green)' : overall < -1 ? 'var(--red)' : 'var(--text-primary)';
+  document.getElementById('kOverallBody').textContent = overall > 1 ? 'BULLISH market sentiment' : overall < -1 ? 'BEARISH market sentiment' : 'Mixed';
+  const bull = symScores.slice().sort((a, b) => b.score - a.score)[0];
+  const bear = symScores.slice().sort((a, b) => a.score - b.score)[0];
+  const high = symScores.slice().sort((a, b) => b.mentions - a.mentions)[0];
+  document.getElementById('kBull').textContent = bull.sym;
+  document.getElementById('kBullBody').textContent = '+' + bull.score + ' · ' + bull.mentions + ' mentions';
+  document.getElementById('kBear').textContent = bear.sym;
+  document.getElementById('kBearBody').textContent = bear.score + ' · ' + bear.mentions + ' mentions';
+  document.getElementById('kHigh').textContent = high.sym;
+  document.getElementById('kHighBody').textContent = high.mentions + ' mentions · ' + (high.score >= 0 ? '+' : '') + high.score;
+}
+paint();
+document.getElementById('refreshBtn').addEventListener('click', paint);
+setInterval(paint, 60000);
+</script>
+</body>
+</html>

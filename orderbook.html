@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Order Book — bpleone / trade</title>
+<meta name="description" content="Level 2 order book visualization with depth chart and imbalance detector.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.ob-row { display:grid; grid-template-columns: 1fr 100px 100px; gap:8px; padding:5px 12px; font-family:var(--font-mono); font-size:12px; align-items:center; position:relative; }
+.ob-row.bid { background:linear-gradient(to left, rgba(16,185,129,0.18), transparent); }
+.ob-row.ask { background:linear-gradient(to right, rgba(239,68,68,0.18), transparent); }
+.ob-row .px { color:var(--text-primary); font-weight:600; text-align:center; }
+.ob-row .bid-sz { color:var(--green); text-align:left; }
+.ob-row .ask-sz { color:var(--red); text-align:right; }
+.spread-row { padding:10px 12px; background:rgba(0,212,255,0.06); border-top:1px solid var(--border); border-bottom:1px solid var(--border); display:flex; justify-content:center; gap:14px; font-family:var(--font-mono); font-size:12px; }
+</style>
+</head>
+<body data-needs="live">
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">📚 Order Book</div>
+      <div class="page-subtitle">Level 2 depth · imbalance · pressure · <span id="market-clock">--</span></div>
+    </div>
+    <div class="flex gap-8">
+      <input type="text" id="symInput" value="SPY" style="background:var(--bg-elevated);border:1px solid var(--border);border-radius:8px;padding:6px 10px;color:var(--text-primary);font-family:var(--font-mono);text-transform:uppercase;width:120px;">
+      <button class="btn btn-primary" id="loadBtn">Load</button>
+    </div>
+  </div>
+
+  <div class="grid grid-4 mb-24">
+    <div class="card"><div class="card-header"><div class="card-title">Best Bid</div></div><div class="mono green-text" style="font-size:24px;font-weight:700;" id="kBid">--</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">Best Ask</div></div><div class="mono red-text" style="font-size:24px;font-weight:700;" id="kAsk">--</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">Bid/Ask Imbalance</div></div><div class="mono" style="font-size:24px;font-weight:700;" id="kImb">--</div><div class="mono" style="font-size:11px;color:var(--text-muted);" id="kImbBody">--</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">Total Depth ($M)</div></div><div class="mono" style="font-size:24px;font-weight:700;" id="kDepth">--</div></div>
+  </div>
+
+  <div class="grid grid-12">
+    <div class="card col-5" style="padding:0;">
+      <div class="card-header" style="padding:14px 16px;"><div class="card-title">📊 Book (10 levels each side)</div></div>
+      <!-- Asks (top) -->
+      <div id="askBody"></div>
+      <!-- Spread row -->
+      <div class="spread-row" id="spreadRow">--</div>
+      <!-- Bids (bottom) -->
+      <div id="bidBody"></div>
+    </div>
+    <div class="card col-7">
+      <div class="card-header"><div class="card-title">📉 Depth Curve</div></div>
+      <canvas id="depthChart" height="260"></canvas>
+    </div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script src="js/charts.js"></script>
+<script>
+buildNav('orderbook');
+
+function getQ(s) { return (typeof QUOTES !== 'undefined' && QUOTES[s]) ? QUOTES[s] : { last: 100 }; }
+
+let sym = 'SPY';
+let book = { bids: [], asks: [] };
+
+function generateBook() {
+  const q = getQ(sym);
+  const px = q.last || 100;
+  const tick = Math.max(0.01, px * 0.0005);
+  const spread = tick * 2;
+  const bestBid = +(px - spread/2).toFixed(2);
+  const bestAsk = +(px + spread/2).toFixed(2);
+  const bids = [], asks = [];
+  for (let i = 0; i < 10; i++) {
+    const bp = +(bestBid - i * tick).toFixed(2);
+    const ap = +(bestAsk + i * tick).toFixed(2);
+    const bsz = Math.floor(200 + Math.random() * 8000 * (1 + i * 0.1));
+    const asz = Math.floor(200 + Math.random() * 8000 * (1 + i * 0.1));
+    bids.push({ px: bp, sz: bsz });
+    asks.push({ px: ap, sz: asz });
+  }
+  return { bids, asks, mid: px, spread };
+}
+
+let depthChart;
+function paint() {
+  book = generateBook();
+  const maxSz = Math.max(...book.bids.map(b => b.sz), ...book.asks.map(a => a.sz));
+
+  // Asks (top, reversed)
+  const ab = document.getElementById('askBody');
+  ab.innerHTML = '';
+  book.asks.slice().reverse().forEach(a => {
+    const pct = (a.sz / maxSz) * 100;
+    const row = document.createElement('div');
+    row.className = 'ob-row ask';
+    row.style.backgroundSize = pct + '%';
+    row.innerHTML = '<div class="ask-sz">' + a.sz.toLocaleString() + '</div><div class="px">' + a.px.toFixed(2) + '</div><div></div>';
+    ab.appendChild(row);
+  });
+
+  // Bids (bottom)
+  const bb = document.getElementById('bidBody');
+  bb.innerHTML = '';
+  book.bids.forEach(b => {
+    const pct = (b.sz / maxSz) * 100;
+    const row = document.createElement('div');
+    row.className = 'ob-row bid';
+    row.innerHTML = '<div></div><div class="px">' + b.px.toFixed(2) + '</div><div class="bid-sz">' + b.sz.toLocaleString() + '</div>';
+    bb.appendChild(row);
+  });
+
+  // Spread row
+  document.getElementById('spreadRow').innerHTML = '<span style="color:var(--accent);font-weight:700;">SPREAD ' + book.spread.toFixed(2) + '</span> · <span style="color:var(--text-muted);">mid ' + book.mid.toFixed(2) + '</span>';
+
+  // KPIs
+  document.getElementById('kBid').textContent = book.bids[0].px.toFixed(2);
+  document.getElementById('kAsk').textContent = book.asks[0].px.toFixed(2);
+  const bidTotal = book.bids.reduce((s, b) => s + b.sz, 0);
+  const askTotal = book.asks.reduce((s, a) => s + a.sz, 0);
+  const imb = ((bidTotal - askTotal) / (bidTotal + askTotal)) * 100;
+  const imbEl = document.getElementById('kImb');
+  imbEl.textContent = (imb >= 0 ? '+' : '') + imb.toFixed(1) + '%';
+  imbEl.style.color = imb > 15 ? 'var(--green)' : imb < -15 ? 'var(--red)' : 'var(--text-primary)';
+  document.getElementById('kImbBody').textContent = imb > 15 ? 'BUY pressure' : imb < -15 ? 'SELL pressure' : 'Balanced';
+  const depthDollars = (bidTotal + askTotal) * book.mid;
+  document.getElementById('kDepth').textContent = '$' + (depthDollars / 1e6).toFixed(2) + 'M';
+
+  // Depth chart
+  const cumBids = [];
+  const cumAsks = [];
+  let bidCum = 0, askCum = 0;
+  book.bids.forEach(b => { bidCum += b.sz; cumBids.push({ x: b.px, y: bidCum }); });
+  book.asks.forEach(a => { askCum += a.sz; cumAsks.push({ x: a.px, y: askCum }); });
+  if (depthChart) depthChart.destroy();
+  depthChart = new Chart(document.getElementById('depthChart').getContext('2d'), {
+    type: 'line',
+    data: { datasets: [
+      { label: 'Bid depth', data: cumBids.slice().reverse(), borderColor: 'rgba(16,185,129,1)', backgroundColor: 'rgba(16,185,129,0.15)', fill: 'origin', stepped: true, pointRadius: 0, borderWidth: 2 },
+      { label: 'Ask depth', data: cumAsks, borderColor: 'rgba(239,68,68,1)', backgroundColor: 'rgba(239,68,68,0.15)', fill: 'origin', stepped: true, pointRadius: 0, borderWidth: 2 }
+    ] },
+    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: true, position: 'top', labels: { color: '#9ca3af', font: { size: 11 } } } }, scales: { x: { type: 'linear', grid: { color: 'rgba(255,255,255,0.04)' }, ticks: { color: '#6b7280', callback: v => '$' + v.toFixed(2) } }, y: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#6b7280', callback: v => v >= 1000 ? (v/1000).toFixed(1) + 'k' : v } } } }
+  });
+}
+
+document.getElementById('loadBtn').addEventListener('click', () => {
+  sym = document.getElementById('symInput').value.toUpperCase().trim() || 'SPY';
+  paint();
+});
+document.getElementById('symInput').addEventListener('keypress', e => { if (e.key === 'Enter') document.getElementById('loadBtn').click(); });
+
+paint();
+setInterval(paint, 2000);
+</script>
+</body>
+</html>

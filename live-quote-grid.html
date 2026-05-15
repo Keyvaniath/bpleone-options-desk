@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Live Quote Grid — bpleone / trade</title>
+<meta name="description" content="50-symbol live quote grid with flashing price updates and brain badges.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.qg-grid { display:grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap:8px; }
+.qg-tile { padding:12px 14px; background:var(--bg-elevated); border:1px solid var(--border); border-radius:8px; cursor:pointer; position:relative; transition:transform 0.1s, border-color 0.1s; }
+.qg-tile:hover { transform:translateY(-1px); border-color:var(--accent); }
+.qg-tile.up { border-left:3px solid var(--green); }
+.qg-tile.dn { border-left:3px solid var(--red); }
+.qg-tile .sym { font-family:var(--font-mono); font-weight:700; font-size:14px; }
+.qg-tile .px { font-family:var(--font-mono); font-size:18px; font-weight:700; margin-top:2px; }
+.qg-tile .chg { font-family:var(--font-mono); font-size:11px; }
+.qg-tile .badge { position:absolute; top:6px; right:8px; padding:1px 5px; border-radius:3px; font-size:8px; font-weight:800; background:rgba(0,212,255,0.18); color:var(--accent); }
+.flash-up { animation: fup 0.4s ease; }
+.flash-dn { animation: fdn 0.4s ease; }
+@keyframes fup { 0% { background: rgba(16,185,129,0.15); } 100% { background: var(--bg-elevated); } }
+@keyframes fdn { 0% { background: rgba(239,68,68,0.15); } 100% { background: var(--bg-elevated); } }
+</style>
+</head>
+<body data-needs="live">
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">📺 Live Quote Grid</div>
+      <div class="page-subtitle">50 symbols · flashing live updates · brain badges · <span id="market-clock">--</span></div>
+    </div>
+    <div class="flex gap-8">
+      <select id="grpSel" style="background:var(--bg-elevated);border:1px solid var(--border);border-radius:6px;padding:6px 10px;color:var(--text-primary);font-family:var(--font-mono);">
+        <option value="all">All 50</option>
+        <option value="mega">Mega caps</option>
+        <option value="hi-beta">High beta</option>
+        <option value="etf">ETFs</option>
+        <option value="crypto">Crypto</option>
+      </select>
+    </div>
+  </div>
+
+  <div class="grid grid-4 mb-24">
+    <div class="card"><div class="card-header"><div class="card-title">Green</div></div><div class="mono green-text" style="font-size:26px;font-weight:700;" id="kGreen">--</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">Red</div></div><div class="mono red-text" style="font-size:26px;font-weight:700;" id="kRed">--</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">Net Bias</div></div><div class="mono" style="font-size:26px;font-weight:700;" id="kNet">--</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">Brain Active</div></div><div class="mono" style="font-size:26px;font-weight:700;color:var(--accent);" id="kBrain">--</div><div class="mono" style="font-size:11px;color:var(--text-muted);">Symbols w/ signals</div></div>
+  </div>
+
+  <div class="card">
+    <div class="qg-grid" id="grid"></div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script>
+buildNav('live-quote-grid');
+
+const GROUPS = {
+  'all': ['SPY','QQQ','IWM','DIA','NVDA','TSLA','AAPL','MSFT','META','AMZN','GOOGL','AMD','PLTR','COIN','SMCI','NFLX','MSTR','SHOP','UBER','HOOD','SOFI','PANW','SNOW','AVGO','MU','MRVL','LCID','GME','PFE','MRNA','BA','DIS','JPM','BAC','GS','BTC','ETH','XLE','XLF','XLK','XLV','XLP','XLY','TLT','GLD','SLV','USO','VXX','UUP','HYG'],
+  'mega': ['AAPL','MSFT','NVDA','GOOGL','META','AMZN','TSLA','AVGO','BRK.B','LLY'],
+  'hi-beta': ['SMCI','PLTR','COIN','MSTR','MARA','RIOT','HOOD','SOFI','LCID','RIVN','GME','AMC','CVNA'],
+  'etf': ['SPY','QQQ','IWM','DIA','XLE','XLF','XLK','XLV','XLP','XLY','XLI','XLC','XLB','XLU','TLT','GLD','SLV','USO','VXX','UUP','HYG','LQD','EEM','EFA'],
+  'crypto': ['BTC','ETH','COIN','MSTR','MARA','RIOT','HUT']
+};
+
+function getQ(s) { return (typeof QUOTES !== 'undefined' && QUOTES[s]) ? QUOTES[s] : { last: 0, changePct: 0 }; }
+function loadFindings() { try { return JSON.parse(localStorage.getItem('bpleone_brain_findings_v1') || '{"items":[]}').items; } catch (e) { return []; } }
+
+let lastPrices = {};
+let currentGroup = 'all';
+
+function paint() {
+  const syms = GROUPS[currentGroup];
+  const grid = document.getElementById('grid');
+  const findings = loadFindings().filter(f => (Date.now() - f.ts) < 4 * 3600 * 1000);
+  const findingsBySym = {};
+  findings.forEach(f => { if (f.meta && f.meta.sym) findingsBySym[f.meta.sym] = (findingsBySym[f.meta.sym] || 0) + (f.severity || 1); });
+
+  // First render
+  if (grid.childElementCount !== syms.length) {
+    grid.innerHTML = '';
+    syms.forEach(sym => {
+      const tile = document.createElement('div');
+      tile.className = 'qg-tile';
+      tile.dataset.sym = sym;
+      tile.onclick = () => { window.location.href = 'trade-coach.html?sym=' + sym; };
+      grid.appendChild(tile);
+    });
+  }
+
+  let greens = 0, reds = 0, brainActive = 0;
+  syms.forEach(sym => {
+    const tile = grid.querySelector('[data-sym="' + sym + '"]');
+    if (!tile) return;
+    const q = getQ(sym);
+    const chg = q.changePct || 0;
+    if (chg > 0) greens++;
+    if (chg < 0) reds++;
+    const score = findingsBySym[sym] || 0;
+    if (score > 0) brainActive++;
+    const col = chg > 0 ? 'var(--green)' : chg < 0 ? 'var(--red)' : 'var(--text-muted)';
+    const badge = score > 0 ? '<div class="badge">🧠 ' + score + '</div>' : '';
+    tile.className = 'qg-tile ' + (chg > 0 ? 'up' : chg < 0 ? 'dn' : '');
+    tile.innerHTML = badge
+      + '<div class="sym">' + sym + '</div>'
+      + '<div class="px">$' + (q.last || 0).toFixed(2) + '</div>'
+      + '<div class="chg" style="color:' + col + ';">' + (chg >= 0 ? '+' : '') + chg.toFixed(2) + '%</div>';
+    // Flash on price change
+    if (lastPrices[sym] != null && q.last !== lastPrices[sym]) {
+      tile.classList.remove('flash-up','flash-dn');
+      void tile.offsetWidth;
+      tile.classList.add(q.last > lastPrices[sym] ? 'flash-up' : 'flash-dn');
+    }
+    lastPrices[sym] = q.last;
+  });
+
+  document.getElementById('kGreen').textContent = greens;
+  document.getElementById('kRed').textContent = reds;
+  const net = greens - reds;
+  document.getElementById('kNet').textContent = (net >= 0 ? '+' : '') + net;
+  document.getElementById('kNet').style.color = net > 5 ? 'var(--green)' : net < -5 ? 'var(--red)' : 'var(--text-primary)';
+  document.getElementById('kBrain').textContent = brainActive;
+}
+paint();
+document.getElementById('grpSel').addEventListener('change', e => { currentGroup = e.target.value; paint(); });
+setInterval(paint, 2000);
+</script>
+</body>
+</html>
