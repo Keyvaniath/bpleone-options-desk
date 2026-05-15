@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Model Economy — bpleone / trade</title>
+<meta name="description" content="Full performance economics of the model — Sharpe, Sortino, max drawdown, profit factor.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.econ-stat { padding:18px;background:var(--bg-elevated);border:1px solid var(--border);border-radius:10px;text-align:center; }
+.econ-stat.good { border-left:4px solid var(--green); }
+.econ-stat.warn { border-left:4px solid var(--yellow); }
+.econ-stat.bad { border-left:4px solid var(--red); }
+.econ-stat .l { font-size:10px;color:var(--text-muted);font-weight:700;letter-spacing:0.5px; }
+.econ-stat .v { font-family:var(--font-mono);font-size:28px;font-weight:800;margin-top:6px; }
+.econ-stat .s { font-size:11px;color:var(--text-muted);margin-top:4px; }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">📊 Model Economy</div>
+      <div class="page-subtitle">Full performance stats · Sharpe · Sortino · max drawdown · profit factor · <span id="market-clock">--</span></div>
+    </div>
+    <div class="flex gap-8">
+      <a href="model-results.html" class="btn btn-secondary">🎯 Results</a>
+    </div>
+  </div>
+
+  <!-- HEADLINE -->
+  <div class="grid grid-4 mb-24">
+    <div class="econ-stat" id="cardSharpe"><div class="l">SHARPE RATIO</div><div class="v" id="kSharpe">--</div><div class="s">Return / volatility</div></div>
+    <div class="econ-stat" id="cardSortino"><div class="l">SORTINO RATIO</div><div class="v" id="kSortino">--</div><div class="s">Return / downside vol</div></div>
+    <div class="econ-stat" id="cardDD"><div class="l">MAX DRAWDOWN</div><div class="v" id="kDD">--</div><div class="s">Worst peak-to-trough</div></div>
+    <div class="econ-stat" id="cardPF"><div class="l">PROFIT FACTOR</div><div class="v" id="kPF">--</div><div class="s">Gross win / gross loss</div></div>
+  </div>
+
+  <div class="grid grid-4 mb-24">
+    <div class="econ-stat"><div class="l">TOTAL TRADES</div><div class="v" id="kN">--</div></div>
+    <div class="econ-stat"><div class="l">AVG WIN R</div><div class="v green-text" id="kAvgW">--</div></div>
+    <div class="econ-stat"><div class="l">AVG LOSS R</div><div class="v red-text" id="kAvgL">--</div></div>
+    <div class="econ-stat"><div class="l">EXPECTANCY</div><div class="v" id="kExp">--</div></div>
+  </div>
+
+  <!-- EQUITY + DRAWDOWN -->
+  <div class="grid grid-12">
+    <div class="card col-8">
+      <div class="card-header"><div class="card-title">📈 Equity Curve (R-units)</div></div>
+      <canvas id="equityChart" height="240"></canvas>
+    </div>
+    <div class="card col-4">
+      <div class="card-header"><div class="card-title">📉 Drawdown Depth</div></div>
+      <canvas id="ddChart" height="240"></canvas>
+    </div>
+  </div>
+
+  <!-- TRADE DIST -->
+  <div class="card mt-24">
+    <div class="card-header"><div class="card-title">📊 R Distribution Per Trade</div></div>
+    <canvas id="distChart" height="200"></canvas>
+  </div>
+
+  <div class="card mt-24">
+    <div class="card-header"><div class="card-title">🧠 What these mean</div></div>
+    <div class="grid grid-2" style="gap:16px;">
+      <div><strong style="color:var(--green);">Sharpe Ratio</strong><div style="font-size:13px;color:var(--text-muted);line-height:1.6;margin-top:4px;">Excess return / total volatility. &gt;1.0 = solid · &gt;2.0 = excellent · &gt;3.0 = world-class. Penalizes both up- and down-volatility.</div></div>
+      <div><strong style="color:var(--green);">Sortino Ratio</strong><div style="font-size:13px;color:var(--text-muted);line-height:1.6;margin-top:4px;">Excess return / downside volatility only. Better for trading systems — upside vol shouldn't be punished.</div></div>
+      <div><strong style="color:var(--yellow);">Max Drawdown</strong><div style="font-size:13px;color:var(--text-muted);line-height:1.6;margin-top:4px;">Largest peak-to-trough loss. &lt;15% = great · 15-30% = manageable · &gt;30% = needs work.</div></div>
+      <div><strong style="color:var(--accent);">Profit Factor</strong><div style="font-size:13px;color:var(--text-muted);line-height:1.6;margin-top:4px;">Gross wins / gross losses. &gt;1.5 = profitable · &gt;2.0 = solid · &gt;3.0 = excellent.</div></div>
+    </div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script src="js/model.js"></script>
+<script src="js/charts.js"></script>
+<script>
+buildNav('model-economy');
+
+let equityChart, ddChart, distChart;
+const WIN_R = 1.8, LOSS_R = 1.0;
+
+function paint() {
+  const findings = (function () { try { return JSON.parse(localStorage.getItem('bpleone_brain_findings_v1') || '{"items":[]}').items; } catch (e) { return []; } })();
+  const tradeable = findings.filter(f => typeof f.modelProb === 'number' && (f.modelProb >= 0.65 || f.modelProb <= 0.35) && (f.outcome === 'hit' || f.outcome === 'miss'))
+    .sort((a, b) => a.ts - b.ts);
+
+  if (tradeable.length === 0) {
+    ['kSharpe','kSortino','kDD','kPF','kN','kAvgW','kAvgL','kExp'].forEach(id => document.getElementById(id).textContent = '—');
+    return;
+  }
+
+  // Compute returns per trade (R units)
+  const returns = tradeable.map(f => {
+    const pred = f.modelProb >= 0.5 ? 'hit' : 'miss';
+    return (pred === f.outcome) ? WIN_R : -LOSS_R;
+  });
+
+  // Equity curve + drawdown
+  let cum = 0, peak = 0;
+  const equity = [], drawdown = [];
+  returns.forEach(r => {
+    cum += r;
+    if (cum > peak) peak = cum;
+    equity.push(cum);
+    drawdown.push(cum - peak);
+  });
+  const maxDD = Math.min(...drawdown);
+
+  // Sharpe (R-based)
+  const mean = returns.reduce((s, r) => s + r, 0) / returns.length;
+  const variance = returns.reduce((s, r) => s + (r - mean) ** 2, 0) / returns.length;
+  const stdDev = Math.sqrt(variance);
+  const sharpe = stdDev > 0 ? mean / stdDev * Math.sqrt(252) : 0; // annualized assuming daily
+
+  // Sortino (downside only)
+  const downside = returns.filter(r => r < 0);
+  const downsideVar = downside.reduce((s, r) => s + r ** 2, 0) / Math.max(1, downside.length);
+  const downsideStd = Math.sqrt(downsideVar);
+  const sortino = downsideStd > 0 ? mean / downsideStd * Math.sqrt(252) : 0;
+
+  // Profit factor
+  const grossWins = returns.filter(r => r > 0).reduce((s, r) => s + r, 0);
+  const grossLosses = -returns.filter(r => r < 0).reduce((s, r) => s + r, 0);
+  const pf = grossLosses > 0 ? grossWins / grossLosses : 0;
+
+  const wins = returns.filter(r => r > 0);
+  const losses = returns.filter(r => r < 0);
+  const avgWin = wins.length > 0 ? wins.reduce((s, r) => s + r, 0) / wins.length : 0;
+  const avgLoss = losses.length > 0 ? losses.reduce((s, r) => s + r, 0) / losses.length : 0;
+  const expectancy = mean;
+
+  // Update KPIs
+  document.getElementById('kSharpe').textContent = sharpe.toFixed(2);
+  document.getElementById('kSharpe').style.color = sharpe > 2 ? 'var(--green)' : sharpe > 1 ? 'var(--accent)' : sharpe > 0 ? 'var(--yellow)' : 'var(--red)';
+  document.getElementById('cardSharpe').className = 'econ-stat ' + (sharpe > 1.5 ? 'good' : sharpe > 0.5 ? 'warn' : 'bad');
+
+  document.getElementById('kSortino').textContent = sortino.toFixed(2);
+  document.getElementById('kSortino').style.color = sortino > 2 ? 'var(--green)' : sortino > 1 ? 'var(--accent)' : 'var(--yellow)';
+  document.getElementById('cardSortino').className = 'econ-stat ' + (sortino > 1.5 ? 'good' : sortino > 0.5 ? 'warn' : 'bad');
+
+  document.getElementById('kDD').textContent = maxDD.toFixed(1) + 'R';
+  document.getElementById('kDD').style.color = maxDD > -5 ? 'var(--green)' : maxDD > -10 ? 'var(--accent)' : 'var(--red)';
+  document.getElementById('cardDD').className = 'econ-stat ' + (maxDD > -5 ? 'good' : maxDD > -10 ? 'warn' : 'bad');
+
+  document.getElementById('kPF').textContent = pf.toFixed(2);
+  document.getElementById('kPF').style.color = pf > 2 ? 'var(--green)' : pf > 1.5 ? 'var(--accent)' : pf > 1 ? 'var(--yellow)' : 'var(--red)';
+  document.getElementById('cardPF').className = 'econ-stat ' + (pf > 1.5 ? 'good' : pf > 1 ? 'warn' : 'bad');
+
+  document.getElementById('kN').textContent = returns.length;
+  document.getElementById('kAvgW').textContent = '+' + avgWin.toFixed(2) + 'R';
+  document.getElementById('kAvgL').textContent = avgLoss.toFixed(2) + 'R';
+  document.getElementById('kExp').textContent = (expectancy >= 0 ? '+' : '') + expectancy.toFixed(3) + 'R';
+  document.getElementById('kExp').style.color = expectancy > 0.1 ? 'var(--green)' : expectancy > 0 ? 'var(--accent)' : 'var(--red)';
+
+  // Charts
+  const labels = equity.map((_, i) => i + 1);
+  if (equityChart) equityChart.destroy();
+  equityChart = new Chart(document.getElementById('equityChart').getContext('2d'), {
+    type: 'line',
+    data: { labels, datasets: [{ label: 'Equity (R)', data: equity, borderColor: 'rgba(0,212,255,1)', backgroundColor: 'rgba(0,212,255,0.06)', fill: true, borderWidth: 2, pointRadius: 0, tension: 0.2 }] },
+    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { display: false }, y: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#6b7280' } } } }
+  });
+
+  if (ddChart) ddChart.destroy();
+  ddChart = new Chart(document.getElementById('ddChart').getContext('2d'), {
+    type: 'line',
+    data: { labels, datasets: [{ label: 'DD (R)', data: drawdown, borderColor: 'rgba(239,68,68,1)', backgroundColor: 'rgba(239,68,68,0.08)', fill: true, borderWidth: 2, pointRadius: 0, tension: 0.2 }] },
+    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { display: false }, y: { max: 0, grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#6b7280' } } } }
+  });
+
+  // R distribution histogram
+  if (distChart) distChart.destroy();
+  const bins = [-3, -2, -1, 0, 1, 2, 3];
+  const counts = bins.map(() => 0);
+  returns.forEach(r => {
+    const idx = Math.max(0, Math.min(bins.length - 1, Math.round(r) + 3));
+    counts[idx]++;
+  });
+  distChart = new Chart(document.getElementById('distChart').getContext('2d'), {
+    type: 'bar',
+    data: { labels: bins.map(b => b + 'R'), datasets: [{ data: counts, backgroundColor: bins.map(b => b >= 0 ? 'rgba(16,185,129,0.7)' : 'rgba(239,68,68,0.7)') }] },
+    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { grid: { display: false }, ticks: { color: '#9ca3af' } }, y: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#6b7280' } } } }
+  });
+}
+
+paint();
+window.addEventListener('bpleone:model-trained', paint);
+window.addEventListener('bpleone:brain-finding', paint);
+setInterval(paint, 30000);
+</script>
+</body>
+</html>

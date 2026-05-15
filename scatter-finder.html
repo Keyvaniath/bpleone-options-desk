@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Scatter Finder — bpleone / trade</title>
+<meta name="description" content="2D feature scatter plot — visually find clusters where hits/misses concentrate.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">📊 Scatter Finder</div>
+      <div class="page-subtitle">2D feature plot · pick any 2 features · find clusters of wins vs losses · <span id="market-clock">--</span></div>
+    </div>
+  </div>
+
+  <div class="card mb-24">
+    <div class="card-header"><div class="card-title">⚙ Pick X + Y</div></div>
+    <div style="display:flex;gap:14px;flex-wrap:wrap;align-items:center;">
+      <label style="font-size:12px;color:var(--text-muted);font-weight:700;">X-Axis:</label>
+      <select id="xFeat" style="background:var(--bg-elevated);border:1px solid var(--border);border-radius:6px;padding:8px 12px;color:var(--text-primary);font-family:var(--font-mono);min-width:200px;"></select>
+      <label style="font-size:12px;color:var(--text-muted);font-weight:700;">Y-Axis:</label>
+      <select id="yFeat" style="background:var(--bg-elevated);border:1px solid var(--border);border-radius:6px;padding:8px 12px;color:var(--text-primary);font-family:var(--font-mono);min-width:200px;"></select>
+      <button class="btn btn-primary" id="plotBtn">📊 Plot</button>
+    </div>
+  </div>
+
+  <div class="card mb-24">
+    <div class="card-header"><div class="card-title">📍 Feature Scatter</div></div>
+    <canvas id="scatterChart" height="380"></canvas>
+    <div class="mono mt-12" style="font-size:11px;color:var(--text-muted);">🟢 wins · 🔴 losses · clusters of one color = the model could exploit that region</div>
+  </div>
+
+  <div class="grid grid-3">
+    <div class="card"><div class="card-header"><div class="card-title">Wins Plotted</div></div><div class="mono green-text" style="font-size:26px;font-weight:700;" id="kWins">--</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">Losses Plotted</div></div><div class="mono red-text" style="font-size:26px;font-weight:700;" id="kLosses">--</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">Separability</div></div><div class="mono" style="font-size:26px;font-weight:700;" id="kSep">--</div><div class="mono" style="font-size:11px;color:var(--text-muted);">How clearly the colors separate</div></div>
+  </div>
+
+  <div class="card mt-24">
+    <div class="card-header"><div class="card-title">🧠 How to read</div></div>
+    <div style="font-size:13px;color:var(--text-secondary);line-height:1.7;">
+      Each dot = one labeled training row plotted on two of the 22 features. Patterns to look for:
+      <ul style="margin-top:8px;padding-left:18px;">
+        <li><strong>Clean separation</strong>: green clusters on one side, red on the other → these two features alone predict outcome well</li>
+        <li><strong>No separation</strong>: dots mixed → these features aren't useful together (model has to rely on other dimensions)</li>
+        <li><strong>Edge cluster</strong>: corner of the plot is all one color → strong rule (e.g., "high RVOL + low IV = always wins")</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script src="js/model.js"></script>
+<script src="js/charts.js"></script>
+<script>
+buildNav('scatter-finder');
+
+let scatterChart;
+
+function buildFeatureSelects() {
+  if (!window.FEATURES) { setTimeout(buildFeatureSelects, 500); return; }
+  const xSel = document.getElementById('xFeat');
+  const ySel = document.getElementById('yFeat');
+  window.FEATURES.forEach(f => {
+    xSel.innerHTML += '<option value="' + f + '">' + f + '</option>';
+    ySel.innerHTML += '<option value="' + f + '">' + f + '</option>';
+  });
+  xSel.value = 'rsi14_norm';
+  ySel.value = 'vol_ratio_norm';
+  plot();
+}
+
+function plot() {
+  if (!window.ModelStore) return;
+  const data = window.ModelStore.getTrainingData();
+  if (data.length === 0) { alert('No training data. Seed first.'); return; }
+  const xName = document.getElementById('xFeat').value;
+  const yName = document.getElementById('yFeat').value;
+  const xIdx = window.FEATURES.indexOf(xName);
+  const yIdx = window.FEATURES.indexOf(yName);
+  const wins = [], losses = [];
+  data.forEach(d => {
+    if (!d.features || d.features.length !== window.FEATURES.length) return;
+    const point = { x: d.features[xIdx], y: d.features[yIdx] };
+    if (d.label === 1) wins.push(point); else losses.push(point);
+  });
+  document.getElementById('kWins').textContent = wins.length;
+  document.getElementById('kLosses').textContent = losses.length;
+
+  // Separability: mean distance between centroids / spread
+  const meanX = (arr) => arr.length > 0 ? arr.reduce((s, p) => s + p.x, 0) / arr.length : 0;
+  const meanY = (arr) => arr.length > 0 ? arr.reduce((s, p) => s + p.y, 0) / arr.length : 0;
+  const winCx = meanX(wins), winCy = meanY(wins);
+  const lossCx = meanX(losses), lossCy = meanY(losses);
+  const centroidDist = Math.sqrt((winCx - lossCx) ** 2 + (winCy - lossCy) ** 2);
+  const sep = Math.min(100, centroidDist * 100);
+  document.getElementById('kSep').textContent = sep.toFixed(0) + '%';
+  document.getElementById('kSep').style.color = sep > 30 ? 'var(--green)' : sep > 15 ? 'var(--accent)' : 'var(--red)';
+
+  if (scatterChart) scatterChart.destroy();
+  scatterChart = new Chart(document.getElementById('scatterChart').getContext('2d'), {
+    type: 'scatter',
+    data: { datasets: [
+      { label: 'Wins (' + wins.length + ')', data: wins, backgroundColor: 'rgba(16,185,129,0.6)', borderColor: 'rgba(16,185,129,1)', pointRadius: 4 },
+      { label: 'Losses (' + losses.length + ')', data: losses, backgroundColor: 'rgba(239,68,68,0.6)', borderColor: 'rgba(239,68,68,1)', pointRadius: 4 }
+    ] },
+    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: true, position: 'top', labels: { color: '#9ca3af' } } }, scales: { x: { title: { display: true, text: xName, color: '#9ca3af' }, grid: { color: 'rgba(255,255,255,0.04)' }, ticks: { color: '#9ca3af' } }, y: { title: { display: true, text: yName, color: '#9ca3af' }, grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#9ca3af' } } } }
+  });
+}
+
+document.getElementById('plotBtn').addEventListener('click', plot);
+buildFeatureSelects();
+</script>
+</body>
+</html>
