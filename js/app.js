@@ -175,8 +175,8 @@ function buildNav(activePage) {
     + '<button id="cmdkBtn" title="Search & navigate (⌘K)" class="btn btn-ghost" style="padding:6px 10px;font-size:11px;font-family:var(--font-mono);">⌘K</button>'
     + '<button id="themeBtn" title="Toggle theme" class="btn btn-ghost" style="padding:6px 10px;">🌓</button>'
     + '<button id="notifyBtn" title="Enable signal alerts" class="btn btn-ghost" style="padding:6px 10px;">🔔</button>'
-    + '<a href="about.html#subscribe" class="btn btn-ghost">Sign In</a>'
-    + '<a href="about.html#subscribe" class="btn btn-primary">Get Pro</a>'
+    + '<span class="feat-badge feat-new" style="font-size:10px;padding:3px 10px;">🎉 FREE BETA</span>'
+    + '<a href="about.html#subscribe" class="btn btn-primary" style="font-size:11px;padding:6px 12px;">Subscribe (free)</a>'
     + '</div></div></nav>';
   const slot = document.getElementById('site-nav');
   if (slot) slot.innerHTML = navHtml;
