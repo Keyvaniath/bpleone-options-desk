@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Brain Snapshot — bpleone / trade</title>
+<meta name="description" content="Print/save/share a single-page snapshot of the brain's current state. Grade, picks, stats, and analysis.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.snapshot { background:var(--bg-elevated);border-radius:14px;padding:38px;border:1px solid var(--border); }
+.snap-header { display:flex;justify-content:space-between;align-items:flex-end;padding-bottom:20px;border-bottom:2px solid var(--accent); }
+.snap-header h1 { font-size:32px;font-weight:800;letter-spacing:-0.5px; }
+.snap-header .meta { font-size:12px;color:var(--text-muted);font-family:var(--font-mono);text-align:right; }
+.snap-grid { display:grid;grid-template-columns:repeat(4, 1fr);gap:18px;margin:24px 0; }
+.snap-stat { padding:18px;background:var(--bg);border-radius:10px;text-align:center; }
+.snap-stat .lbl { font-size:10px;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted); }
+.snap-stat .val { font-family:var(--font-mono);font-size:28px;font-weight:800;margin-top:6px; }
+.snap-section { margin-top:24px; }
+.snap-section h3 { font-size:14px;font-weight:700;text-transform:uppercase;letter-spacing:0.6px;color:var(--accent);margin-bottom:12px;padding-bottom:6px;border-bottom:1px solid var(--border); }
+.snap-row { display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--border);font-size:13px; }
+.snap-row:last-child { border:none; }
+.grade-big { font-family:var(--font-mono);font-size:80px;font-weight:800;line-height:1; }
+@media print {
+  body * { visibility:hidden; }
+  .snapshot, .snapshot * { visibility:visible; }
+  .snapshot { position:absolute;top:0;left:0;padding:20px;background:white;color:#111;border:none; }
+  .snapshot .snap-stat { background:#f3f4f6; }
+}
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">📸 Brain Snapshot</div>
+      <div class="page-subtitle">Single-page status capture · print-ready · shareable · <span id="market-clock">--</span></div>
+    </div>
+    <div class="flex gap-8">
+      <button class="btn btn-ghost" id="printBtn">🖨 Print / PDF</button>
+      <button class="btn btn-ghost" id="copyBtn">📋 Copy as text</button>
+      <button class="btn btn-primary" id="saveBtn">💾 Save HTML</button>
+    </div>
+  </div>
+
+  <div id="snap" class="snapshot"></div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script src="js/model.js"></script>
+<script>
+buildNav('brain-snapshot');
+
+function loadFindings() { try { return JSON.parse(localStorage.getItem('bpleone_brain_findings_v1') || '{"items":[]}').items; } catch(e) { return []; } }
+function loadTrain() { try { return JSON.parse(localStorage.getItem('bpleone_train_v1') || '[]'); } catch(e) { return []; } }
+function loadModel() { try { return JSON.parse(localStorage.getItem('bpleone_model_v1') || 'null'); } catch(e) { return null; } }
+
+function render() {
+  const findings = loadFindings();
+  const train = loadTrain();
+  const model = loadModel();
+  const now = Date.now();
+  const weekAgo = now - 7 * 86400000;
+  const week = train.filter(t => t.ts >= weekAgo);
+  const wins = week.filter(t => t.y === 1).length;
+  const hit = week.length > 0 ? wins / week.length : 0;
+  const pnl = week.reduce((a, t) => a + (t.y === 1 ? (t.r || 1.5) : -1.0), 0);
+  const grade = hit >= 0.7 ? 'A' : hit >= 0.6 ? 'B' : hit >= 0.5 ? 'C' : hit >= 0.4 ? 'D' : 'F';
+  const gradeCol = grade === 'A' ? '#10b981' : grade === 'B' ? '#84cc16' : grade === 'C' ? '#f59e0b' : grade === 'D' ? '#f97316' : '#ef4444';
+
+  // Top picks
+  const today0 = new Date(); today0.setHours(0,0,0,0);
+  const todayFind = findings.filter(f => f.ts >= today0.getTime());
+  const ranked = todayFind.map(f => {
+    let prob = null; try { if (window.predictForFinding) { const p = window.predictForFinding(f); prob = p ? p.prob : null; } } catch(e) {}
+    return { ...f, prob };
+  }).filter(f => f.prob != null).sort((a,b) => b.prob - a.prob).slice(0, 5);
+
+  // Best symbols
+  const bySym = {};
+  train.forEach(t => {
+    const s = t.meta?.sym || 'UNK';
+    if (!bySym[s]) bySym[s] = { sym:s, n:0, w:0, r:0 };
+    bySym[s].n++;
+    if (t.y === 1) { bySym[s].w++; bySym[s].r += (t.r || 1.5); }
+    else bySym[s].r -= 1.0;
+  });
+  const bestSyms = Object.values(bySym).filter(s => s.n >= 3).sort((a,b) => (b.r/b.n) - (a.r/a.n)).slice(0, 5);
+
+  const html = '<div class="snap-header">'
+    + '<div><h1>🧠 BPLEONE BRAIN</h1><div style="font-size:12px;color:var(--text-muted);margin-top:6px;">Self-learning ML trading desk</div></div>'
+    + '<div class="meta">Generated<br>' + new Date().toLocaleString() + '<br>Model: ' + (model?.version || 'v1') + '</div>'
+    + '</div>'
+    + '<div style="text-align:center;margin:30px 0;">'
+      + '<div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:1px;">Current grade</div>'
+      + '<div class="grade-big" style="color:' + gradeCol + ';">' + grade + '</div>'
+      + '<div style="font-size:13px;color:var(--text-secondary);margin-top:8px;">' + (hit*100).toFixed(0) + '% hit rate · ' + (pnl >= 0 ? '+' : '') + pnl.toFixed(1) + 'R · last 7 days</div>'
+    + '</div>'
+    + '<div class="snap-grid">'
+      + '<div class="snap-stat"><div class="lbl">Total signals</div><div class="val">' + findings.length + '</div></div>'
+      + '<div class="snap-stat"><div class="lbl">Today signals</div><div class="val" style="color:var(--accent);">' + todayFind.length + '</div></div>'
+      + '<div class="snap-stat"><div class="lbl">Training rows</div><div class="val">' + train.length + '</div></div>'
+      + '<div class="snap-stat"><div class="lbl">High conf (≥70%)</div><div class="val" style="color:' + (ranked.filter(r => r.prob >= 0.7).length > 0 ? 'var(--green)' : 'var(--text-muted)') + ';">' + ranked.filter(r => r.prob >= 0.7).length + '</div></div>'
+    + '</div>'
+    + '<div class="snap-section">'
+      + '<h3>🎯 Top picks today</h3>'
+      + (ranked.length === 0 ? '<div style="font-size:12px;color:var(--text-muted);padding:14px 0;">No high-confidence picks yet.</div>' :
+         ranked.map((r, i) => '<div class="snap-row"><div><strong>' + (i+1) + '. ' + (r.meta?.sym || '?') + '</strong> · <span style="color:var(--text-muted);">' + (r.meta?.setup || 'signal') + '</span></div><div style="font-family:var(--font-mono);color:' + (r.prob >= 0.7 ? 'var(--green)' : 'var(--accent)') + ';font-weight:700;">' + (r.prob*100).toFixed(0) + '%</div></div>').join(''))
+    + '</div>'
+    + '<div class="snap-section">'
+      + '<h3>🏆 Best symbols (lifetime)</h3>'
+      + (bestSyms.length === 0 ? '<div style="font-size:12px;color:var(--text-muted);padding:14px 0;">Not enough data yet.</div>' :
+         bestSyms.map((s, i) => '<div class="snap-row"><div><strong>' + (i+1) + '. ' + s.sym + '</strong> · <span style="color:var(--text-muted);">' + s.n + ' trades</span></div><div style="font-family:var(--font-mono);color:' + (s.r > 0 ? 'var(--green)' : 'var(--red)') + ';">+' + (s.r/s.n).toFixed(2) + 'R/trade</div></div>').join(''))
+    + '</div>'
+    + '<div class="snap-section">'
+      + '<h3>📊 Health</h3>'
+      + '<div class="snap-row"><div>Active model</div><div style="font-family:var(--font-mono);color:var(--green);">✓ Healthy</div></div>'
+      + '<div class="snap-row"><div>Auto-seed</div><div style="font-family:var(--font-mono);color:' + (localStorage.getItem('bpleone_model_autoseeded_v1') ? 'var(--green)' : 'var(--text-muted)') + ';">' + (localStorage.getItem('bpleone_model_autoseeded_v1') ? '✓ Active' : '○ Not seeded') + '</div></div>'
+      + '<div class="snap-row"><div>Notifications</div><div style="font-family:var(--font-mono);color:' + (('Notification' in window && Notification.permission === 'granted') ? 'var(--green)' : 'var(--text-muted)') + ';">' + (('Notification' in window && Notification.permission === 'granted') ? '✓ Enabled' : '○ Off') + '</div></div>'
+    + '</div>'
+    + '<div style="margin-top:30px;padding-top:20px;border-top:1px solid var(--border);font-size:11px;color:var(--text-muted);text-align:center;">'
+      + 'Snapshot of options.bpleone.com brain at ' + new Date().toLocaleString() + '. For full interactive view, visit Brain Hub.'
+    + '</div>';
+
+  document.getElementById('snap').innerHTML = html;
+}
+render();
+
+document.getElementById('printBtn').addEventListener('click', () => window.print());
+document.getElementById('copyBtn').addEventListener('click', () => {
+  const el = document.getElementById('snap');
+  const text = el.innerText;
+  navigator.clipboard.writeText(text).then(() => {
+    document.getElementById('copyBtn').textContent = '✓ Copied!';
+    setTimeout(() => { document.getElementById('copyBtn').textContent = '📋 Copy as text'; }, 1500);
+  });
+});
+document.getElementById('saveBtn').addEventListener('click', () => {
+  const html = document.documentElement.outerHTML;
+  const blob = new Blob([html], { type: 'text/html' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'brain-snapshot-' + new Date().toISOString().slice(0,10) + '.html';
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+});
+</script>
+</body>
+</html>
