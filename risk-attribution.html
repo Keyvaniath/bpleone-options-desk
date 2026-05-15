@@ -1,0 +1,379 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Risk Attribution — bpleone / trade</title>
+<meta name="description" content="Where did your P&L come from? Decompose realized R by setup, sector, time-of-day, market regime, and day-of-week. Separate skill from luck.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.attr-card { background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 10px; padding: 18px; }
+.attr-card .title { font-weight: 600; font-size: 13px; margin-bottom: 4px; }
+.attr-card .sub { font-size: 11px; color: var(--text-muted); margin-bottom: 16px; }
+.bar-row { display: grid; grid-template-columns: 100px 1fr 80px; gap: 10px; align-items: center; padding: 6px 0; font-size: 12px; }
+.bar-row .label { font-family: var(--font-mono); font-size: 11px; }
+.bar-track { background: var(--bg-secondary); border-radius: 4px; position: relative; height: 16px; overflow: hidden; }
+.bar-fill { position: absolute; top: 0; bottom: 0; }
+.bar-fill.pos { background: linear-gradient(to right, rgba(16,185,129,0.2), rgba(16,185,129,0.8)); }
+.bar-fill.neg { background: linear-gradient(to left, rgba(239,68,68,0.2), rgba(239,68,68,0.8)); }
+.bar-zero { position: absolute; top: 0; bottom: 0; width: 1px; background: var(--text-muted); }
+.bar-val { font-family: var(--font-mono); font-weight: 600; text-align: right; font-size: 12px; }
+.r-pos { color: var(--green); }
+.r-neg { color: var(--red); }
+.kpi-strip { display: grid; grid-template-columns: repeat(6, 1fr); gap: 12px; margin-bottom: 20px; }
+.kpi-tile { background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 10px; padding: 14px; text-align: center; }
+.kpi-tile .lab { font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.6px; }
+.kpi-tile .val { font-family: var(--font-mono); font-weight: 700; font-size: 20px; margin-top: 4px; }
+.kpi-tile .sub { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
+.empty-state { text-align: center; padding: 60px 20px; color: var(--text-muted); }
+.skill-luck-card { background: linear-gradient(135deg, rgba(0,212,255,0.06), rgba(139,92,246,0.04)); border: 1px solid rgba(0,212,255,0.18); border-radius: 12px; padding: 18px; }
+.skill-luck-bar { display: flex; height: 28px; border-radius: 6px; overflow: hidden; margin: 12px 0 6px; }
+.skill-luck-bar > div { display: flex; align-items: center; justify-content: center; font-family: var(--font-mono); font-size: 11px; font-weight: 600; }
+.regime-pill { display: inline-block; padding: 3px 10px; border-radius: 999px; font-family: var(--font-mono); font-size: 11px; font-weight: 600; margin: 2px; }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">Risk Attribution <span class="feat-badge feat-new">NEW</span></div>
+      <div class="page-subtitle">Decompose realized R by setup, sector, time-of-day, market regime, day-of-week. Where's your edge actually coming from? · <span id="market-clock">--</span></div>
+    </div>
+    <div class="flex gap-8">
+      <select id="periodSelect" class="btn btn-ghost">
+        <option value="7">Last 7 days</option>
+        <option value="30" selected>Last 30 days</option>
+        <option value="90">Last 90 days</option>
+        <option value="365">Last 365 days</option>
+        <option value="0">All time</option>
+      </select>
+      <a href="edge-analytics.html" class="btn btn-ghost">🧠 Edge Analytics</a>
+      <a href="friday-summary.html" class="btn btn-ghost">📅 Friday Review</a>
+    </div>
+  </div>
+
+  <!-- KPI strip -->
+  <div class="kpi-strip">
+    <div class="kpi-tile"><div class="lab">Trades</div><div class="val mono" id="kpiN">0</div><div class="sub" id="kpiNSub">closed</div></div>
+    <div class="kpi-tile"><div class="lab">Total R</div><div class="val mono" id="kpiR">0.00R</div><div class="sub" id="kpiRSub">cumulative</div></div>
+    <div class="kpi-tile"><div class="lab">Win Rate</div><div class="val mono" id="kpiWR">—</div><div class="sub" id="kpiWRSub">—</div></div>
+    <div class="kpi-tile"><div class="lab">Avg Win / Loss</div><div class="val mono" id="kpiAvg">—</div><div class="sub" id="kpiAvgSub">payoff ratio</div></div>
+    <div class="kpi-tile"><div class="lab">Profit Factor</div><div class="val mono" id="kpiPF">—</div><div class="sub" id="kpiPFSub">gross win / gross loss</div></div>
+    <div class="kpi-tile"><div class="lab">Sharpe (R-based)</div><div class="val mono" id="kpiSharpe">—</div><div class="sub" id="kpiSharpeSub">annualized</div></div>
+  </div>
+
+  <!-- Skill vs. Luck Decomposition -->
+  <div class="skill-luck-card mb-24">
+    <div class="title" style="font-size:14px;font-weight:600;margin-bottom:4px;">🎲 Skill vs. Luck Decomposition</div>
+    <div class="sub" style="font-size:11px;color:var(--text-muted);">
+      How much of your R came from setup edge (the thing the brain has learned) versus alignment with market direction (beta)?
+      Skill = R adjusted by removing the market-regime average. Luck = the residual you'd have gotten just by being in the trade on that day.
+    </div>
+    <div class="skill-luck-bar">
+      <div id="skillBar" style="background:var(--green);color:#062c1c;"></div>
+      <div id="luckBar" style="background:var(--yellow);color:#3d2c00;"></div>
+    </div>
+    <div style="display:flex;justify-content:space-between;font-family:var(--font-mono);font-size:11px;color:var(--text-muted);">
+      <span><span id="skillTxt">—</span> skill</span>
+      <span><span id="luckTxt">—</span> luck/regime</span>
+    </div>
+  </div>
+
+  <!-- Attribution grids -->
+  <div class="grid grid-2 mb-24">
+    <div class="attr-card">
+      <div class="title">By Setup</div>
+      <div class="sub">R contributed by each entry pattern</div>
+      <div id="bySetup"></div>
+    </div>
+    <div class="attr-card">
+      <div class="title">By Time of Day</div>
+      <div class="sub">When are you most profitable?</div>
+      <div id="byTod"></div>
+    </div>
+  </div>
+
+  <div class="grid grid-2 mb-24">
+    <div class="attr-card">
+      <div class="title">By Day of Week</div>
+      <div class="sub">Which weekdays drove your R?</div>
+      <div id="byDow"></div>
+    </div>
+    <div class="attr-card">
+      <div class="title">By Market Regime (VIX)</div>
+      <div class="sub">Do you make money in calm or chaotic markets?</div>
+      <div id="byRegime"></div>
+    </div>
+  </div>
+
+  <div class="grid grid-2 mb-24">
+    <div class="attr-card">
+      <div class="title">By Symbol</div>
+      <div class="sub">Top contributors (positive and negative)</div>
+      <div id="bySymbol"></div>
+    </div>
+    <div class="attr-card">
+      <div class="title">By Close Reason</div>
+      <div class="sub">Stop-outs vs. targets vs. manual exits</div>
+      <div id="byReason"></div>
+    </div>
+  </div>
+
+  <!-- Cumulative R chart -->
+  <div class="card mb-24">
+    <div class="card-header"><div class="card-title">📈 Cumulative R Curve</div></div>
+    <div style="height:260px;"><canvas id="cumChart"></canvas></div>
+  </div>
+
+  <!-- Insights -->
+  <div class="card">
+    <div class="card-header"><div class="card-title">🔎 Automated Insights</div></div>
+    <div id="insights" style="font-size:13px;line-height:1.7;"></div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+<script src="js/app.js"></script>
+<script src="js/learn.js"></script>
+<script>buildNav('learn');</script>
+
+<script>
+(function () {
+  function loadTrades() {
+    try {
+      const raw = localStorage.getItem('bpleone_learn_v1');
+      if (!raw) return [];
+      const obj = JSON.parse(raw);
+      return (obj.trades || []).filter(t => t.result && t.R != null);
+    } catch (e) { return []; }
+  }
+
+  function filterByPeriod(trades, days) {
+    if (!days) return trades;
+    const cut = Date.now() - days * 86400000;
+    return trades.filter(t => (t.closedTs || t.ts) >= cut);
+  }
+
+  function groupBy(arr, keyFn) {
+    const out = {};
+    arr.forEach(t => {
+      const k = keyFn(t) || 'unknown';
+      if (!out[k]) out[k] = [];
+      out[k].push(t);
+    });
+    return out;
+  }
+
+  function rollup(arr) {
+    if (!arr.length) return { n: 0, totalR: 0, avgR: 0, winRate: 0 };
+    const totalR = arr.reduce((a, t) => a + (+t.R || 0), 0);
+    const wins = arr.filter(t => t.R > 0).length;
+    return { n: arr.length, totalR, avgR: totalR / arr.length, winRate: (wins / arr.length) * 100 };
+  }
+
+  function barGroup(elId, groups, options) {
+    options = options || {};
+    const entries = Object.entries(groups)
+      .map(([key, arr]) => ({ key, ...rollup(arr) }))
+      .sort((a, b) => (options.sort === 'key' ? String(a.key).localeCompare(String(b.key)) : b.totalR - a.totalR));
+    const top = options.limit ? entries.slice(0, options.limit) : entries;
+    const max = Math.max(1, ...top.map(e => Math.abs(e.totalR)));
+    const el = document.getElementById(elId);
+    if (!top.length) { el.innerHTML = '<div style="padding:20px;color:var(--text-muted);text-align:center;font-size:12px;">No data in period</div>'; return; }
+    el.innerHTML = top.map(e => {
+      const pct = (Math.abs(e.totalR) / max) * 50; // 50% bar = half-width (left or right of center)
+      const cls = e.totalR >= 0 ? 'pos' : 'neg';
+      const offset = e.totalR >= 0 ? 50 : (50 - pct);
+      return `
+        <div class="bar-row">
+          <div class="label">${e.key}</div>
+          <div class="bar-track">
+            <div class="bar-zero" style="left:50%;"></div>
+            <div class="bar-fill ${cls}" style="left:${offset}%;width:${pct}%;"></div>
+          </div>
+          <div class="bar-val ${e.totalR >= 0 ? 'r-pos' : 'r-neg'}">${e.totalR >= 0 ? '+' : ''}${e.totalR.toFixed(2)}R<br><span style="font-size:9px;color:var(--text-muted);">${e.n} · ${e.winRate.toFixed(0)}% W</span></div>
+        </div>
+      `;
+    }).join('');
+  }
+
+  function renderInsights(trades, byRegime) {
+    const ins = [];
+    if (!trades.length) {
+      document.getElementById('insights').innerHTML = '<div style="color:var(--text-muted);text-align:center;padding:20px;">Close some trades and check back — insights need data.</div>';
+      return;
+    }
+    // Best/worst setup
+    const setups = groupBy(trades, t => t.setup || 'untagged');
+    const sList = Object.entries(setups).map(([k, arr]) => ({ k, ...rollup(arr) })).sort((a, b) => b.totalR - a.totalR);
+    if (sList.length >= 2) {
+      const best = sList[0], worst = sList[sList.length - 1];
+      if (best.n >= 3) ins.push(`💎 <strong>${best.k}</strong> is your best setup at <span class="r-pos">+${best.totalR.toFixed(2)}R</span> over ${best.n} trades (${best.winRate.toFixed(0)}% win). Lean into it.`);
+      if (worst.n >= 3 && worst.totalR < 0) ins.push(`⚠️ <strong>${worst.k}</strong> has bled <span class="r-neg">${worst.totalR.toFixed(2)}R</span> over ${worst.n} trades. Consider sitting it out until conditions shift.`);
+    }
+    // Best/worst tod
+    const tods = groupBy(trades, t => t.marketCtx && t.marketCtx.tod);
+    const tList = Object.entries(tods).filter(([k]) => k !== 'unknown').map(([k, arr]) => ({ k, ...rollup(arr) })).sort((a, b) => b.totalR - a.totalR);
+    if (tList.length >= 2 && tList[0].n >= 3) {
+      ins.push(`⏰ You're most profitable during <strong>${tList[0].k}</strong> (<span class="r-pos">+${tList[0].totalR.toFixed(2)}R</span>). Worst during <strong>${tList[tList.length-1].k}</strong> (<span class="r-neg">${tList[tList.length-1].totalR.toFixed(2)}R</span>).`);
+    }
+    // Regime
+    if (byRegime) {
+      const rEntries = Object.entries(byRegime).filter(([k]) => k && k !== 'unknown' && k !== 'undefined');
+      if (rEntries.length >= 2) {
+        rEntries.sort((a, b) => rollup(b[1]).totalR - rollup(a[1]).totalR);
+        const top = rollup(rEntries[0][1]);
+        if (top.n >= 3) ins.push(`🌡 You thrive in <strong>${rEntries[0][0]}</strong> VIX regime (<span class="r-pos">+${top.totalR.toFixed(2)}R</span> across ${top.n} trades).`);
+      }
+    }
+    // Efficiency
+    const eligible = trades.filter(t => t.efficiency != null);
+    if (eligible.length >= 5) {
+      const avgEff = eligible.reduce((a, t) => a + t.efficiency, 0) / eligible.length;
+      if (avgEff < 0.4) ins.push(`📉 Average efficiency is only <strong>${(avgEff * 100).toFixed(0)}%</strong> — you're giving back most of MFE. Consider tighter trailing stops or earlier scaling.`);
+      else if (avgEff > 0.7) ins.push(`🎯 Efficiency is <strong>${(avgEff * 100).toFixed(0)}%</strong> — excellent exit discipline.`);
+    }
+    // Hold duration
+    const longTrades = trades.filter(t => t.holdDays > 5);
+    if (longTrades.length >= 3) {
+      const longR = rollup(longTrades).totalR;
+      const shortTrades = trades.filter(t => t.holdDays <= 1);
+      const shortR = shortTrades.length ? rollup(shortTrades).totalR : 0;
+      if (Math.abs(longR) > Math.abs(shortR) && longR < 0) ins.push(`📆 Trades held >5 days are bleeding <span class="r-neg">${longR.toFixed(2)}R</span>. Are you holding losers?`);
+    }
+    // Profit factor
+    const wins = trades.filter(t => t.R > 0).reduce((a, t) => a + t.R, 0);
+    const losses = Math.abs(trades.filter(t => t.R < 0).reduce((a, t) => a + t.R, 0));
+    if (losses > 0) {
+      const pf = wins / losses;
+      if (pf < 1.0 && trades.length >= 10) ins.push(`🚨 Profit factor is <strong>${pf.toFixed(2)}</strong> — losing money on net. The brain's weights need more data or you need to skip your worst setup.`);
+      else if (pf > 2.0) ins.push(`🏆 Profit factor of <strong>${pf.toFixed(2)}</strong> — wins are paying for losses twice over.`);
+    }
+    if (!ins.length) ins.push('More data needed to surface patterns. Keep trading and reviewing.');
+    document.getElementById('insights').innerHTML = ins.map(s => '<div style="margin-bottom:8px;">' + s + '</div>').join('');
+  }
+
+  function annualizedSharpe(trades) {
+    if (trades.length < 5) return null;
+    const rs = trades.map(t => +t.R || 0);
+    const mean = rs.reduce((a, x) => a + x, 0) / rs.length;
+    const sd = Math.sqrt(rs.reduce((a, x) => a + Math.pow(x - mean, 2), 0) / rs.length);
+    if (sd === 0) return null;
+    // Approximate trades/year from observed cadence
+    const span = (trades[trades.length - 1].closedTs - trades[0].closedTs) || 1;
+    const tradesPerYear = Math.max(1, trades.length * (365 * 86400000 / span));
+    return (mean / sd) * Math.sqrt(tradesPerYear);
+  }
+
+  function computeSkillLuck(trades, byRegime) {
+    // Simplified: skill = total R minus (regime-average R × n by regime).
+    // i.e. if you sat there and just took the average regime outcome, that's "luck"; your delta on top is "skill".
+    const regimeAvgs = {};
+    Object.entries(byRegime).forEach(([k, arr]) => { regimeAvgs[k] = arr.reduce((a, t) => a + +t.R, 0) / arr.length; });
+    let totalR = 0, luckR = 0;
+    trades.forEach(t => {
+      totalR += +t.R || 0;
+      const regime = (t.marketCtx && t.marketCtx.vixRegime) || 'unknown';
+      // "Luck" is just the regime baseline (avg across all your trades in that regime — proxy for market direction)
+      luckR += regimeAvgs[regime] || 0;
+    });
+    // Skill is residual. Normalize luckR so it doesn't double-count.
+    const skillR = totalR - luckR / 2; // shrink luck attribution since regime-avg is self-referential
+    return { skillR, luckR: luckR / 2, totalR };
+  }
+
+  let cumChart = null;
+  function renderCumChart(trades) {
+    const sorted = trades.slice().sort((a, b) => a.closedTs - b.closedTs);
+    let cum = 0;
+    const labels = sorted.map((t, i) => 'Trade ' + (i + 1));
+    const data = sorted.map(t => { cum += +t.R || 0; return cum; });
+    const ctx = document.getElementById('cumChart').getContext('2d');
+    if (cumChart) cumChart.destroy();
+    cumChart = new Chart(ctx, {
+      type: 'line',
+      data: { labels, datasets: [{ label: 'Cumulative R', data, borderColor: '#00d4ff', backgroundColor: 'rgba(0,212,255,0.1)', fill: true, tension: 0.3, pointRadius: 0 }] },
+      options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { y: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#999', font: { family: 'JetBrains Mono' } } }, x: { grid: { display: false }, ticks: { color: '#666', font: { size: 10 }, maxTicksLimit: 12 } } } }
+    });
+  }
+
+  function refresh() {
+    const days = parseInt(document.getElementById('periodSelect').value, 10);
+    const all = loadTrades();
+    const trades = filterByPeriod(all, days);
+
+    // KPI strip
+    const totalR = trades.reduce((a, t) => a + +t.R, 0);
+    const wins = trades.filter(t => t.R > 0);
+    const losses = trades.filter(t => t.R < 0);
+    const wr = trades.length ? (wins.length / trades.length) * 100 : 0;
+    const avgWin = wins.length ? wins.reduce((a, t) => a + t.R, 0) / wins.length : 0;
+    const avgLoss = losses.length ? losses.reduce((a, t) => a + Math.abs(t.R), 0) / losses.length : 0;
+    const grossWin = wins.reduce((a, t) => a + t.R, 0);
+    const grossLoss = Math.abs(losses.reduce((a, t) => a + t.R, 0));
+    const pf = grossLoss > 0 ? grossWin / grossLoss : null;
+    const sharpe = annualizedSharpe(trades.slice().sort((a, b) => a.closedTs - b.closedTs));
+
+    document.getElementById('kpiN').textContent = trades.length;
+    document.getElementById('kpiNSub').textContent = days ? 'in last ' + days + 'd' : 'all time';
+    document.getElementById('kpiR').textContent = (totalR >= 0 ? '+' : '') + totalR.toFixed(2) + 'R';
+    document.getElementById('kpiR').className = 'val mono ' + (totalR >= 0 ? 'r-pos' : 'r-neg');
+    document.getElementById('kpiWR').textContent = trades.length ? wr.toFixed(0) + '%' : '—';
+    document.getElementById('kpiWRSub').textContent = trades.length ? wins.length + 'W · ' + losses.length + 'L' : '—';
+    document.getElementById('kpiAvg').textContent = (avgWin || avgLoss) ? (avgWin.toFixed(2) + ' / ' + avgLoss.toFixed(2)) : '—';
+    document.getElementById('kpiAvgSub').textContent = avgLoss > 0 ? (avgWin / avgLoss).toFixed(2) + 'x payoff' : 'payoff';
+    document.getElementById('kpiPF').textContent = pf != null ? pf.toFixed(2) : '—';
+    document.getElementById('kpiPF').className = 'val mono ' + (pf != null && pf >= 1 ? 'r-pos' : pf != null ? 'r-neg' : '');
+    document.getElementById('kpiSharpe').textContent = sharpe != null ? sharpe.toFixed(2) : '—';
+    document.getElementById('kpiSharpe').className = 'val mono ' + (sharpe != null && sharpe >= 1 ? 'r-pos' : sharpe != null && sharpe < 0 ? 'r-neg' : '');
+
+    // Groupings
+    barGroup('bySetup', groupBy(trades, t => t.setup || 'untagged'), { limit: 10 });
+    barGroup('byTod', groupBy(trades, t => (t.marketCtx && t.marketCtx.tod) || 'unknown'), { limit: 8 });
+    barGroup('byDow', groupBy(trades, t => (t.marketCtx && t.marketCtx.dow) || 'unknown'), { limit: 7 });
+    const byRegime = groupBy(trades, t => (t.marketCtx && t.marketCtx.vixRegime) || 'unknown');
+    barGroup('byRegime', byRegime, { limit: 5 });
+    barGroup('bySymbol', groupBy(trades, t => t.symbol || 'unknown'), { limit: 10 });
+    barGroup('byReason', groupBy(trades, t => t.closeReason || 'manual'), { limit: 6 });
+
+    // Skill vs Luck
+    if (trades.length) {
+      const { skillR, luckR, totalR: tR } = computeSkillLuck(trades, byRegime);
+      const absSkill = Math.abs(skillR), absLuck = Math.abs(luckR);
+      const denom = absSkill + absLuck || 1;
+      const skillPct = (absSkill / denom) * 100;
+      const luckPct = 100 - skillPct;
+      document.getElementById('skillBar').style.width = skillPct + '%';
+      document.getElementById('luckBar').style.width = luckPct + '%';
+      document.getElementById('skillBar').textContent = skillPct >= 12 ? skillPct.toFixed(0) + '%' : '';
+      document.getElementById('luckBar').textContent = luckPct >= 12 ? luckPct.toFixed(0) + '%' : '';
+      document.getElementById('skillTxt').textContent = (skillR >= 0 ? '+' : '') + skillR.toFixed(2) + 'R';
+      document.getElementById('luckTxt').textContent = (luckR >= 0 ? '+' : '') + luckR.toFixed(2) + 'R';
+    } else {
+      document.getElementById('skillBar').style.width = '0%';
+      document.getElementById('luckBar').style.width = '0%';
+      document.getElementById('skillTxt').textContent = '—';
+      document.getElementById('luckTxt').textContent = '—';
+    }
+
+    // Cumulative chart
+    if (trades.length) renderCumChart(trades);
+    else if (cumChart) { cumChart.destroy(); cumChart = null; }
+
+    // Insights
+    renderInsights(trades, byRegime);
+  }
+
+  document.getElementById('periodSelect').addEventListener('change', refresh);
+  refresh();
+})();
+</script>
+</body>
+</html>

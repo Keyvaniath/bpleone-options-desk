@@ -307,13 +307,40 @@ function placeOrder(side) {
   ordPx.value = ''; ordSL.value = ''; ordTP.value = '';
 }
 
+function openLearnTrade(sym, side, entry, stop) {
+  if (typeof Learn === 'undefined') return null;
+  try {
+    // Try to enrich with entry features so auto-tagger can fire
+    const q = (typeof QUOTES !== 'undefined' && QUOTES[sym]) ? QUOTES[sym] : null;
+    const features = q ? {
+      last: q.last, prevClose: q.prevClose, dayHigh: q.dayHigh, dayLow: q.dayLow,
+      volume: q.volume, avgVolume: q.avgVolume, rsi: q.rsi, macd: q.macd,
+      ma50: q.ma50, ma200: q.ma200
+    } : null;
+    const stopVal = isFinite(stop) ? stop : (side === 'buy' ? entry * 0.98 : entry * 1.02);
+    const t = Learn.recordTrade({
+      symbol: sym, sector: '—',
+      bias: side === 'buy' ? 'bull' : 'bear',
+      entry: entry, stop: stopVal,
+      score: 60,
+      entryFeatures: features
+    });
+    return t ? t.id : null;
+  } catch (e) { console.warn('Learn.recordTrade failed', e); return null; }
+}
+
+function closeLearnTrade(id, exit, reason) {
+  if (!id || typeof Learn === 'undefined') return;
+  try { Learn.closeTrade(id, exit, reason || 'manual'); } catch (e) { console.warn('Learn.closeTrade failed', e); }
+}
+
 function fill(sym, side, qty, price, type, sl, tp) {
   // Match against existing position (FIFO)
   const existing = state.positions.find(p => p.sym === sym);
   let note = 'open';
   if (existing) {
     if (existing.side === side) {
-      // add to position — recompute avg
+      // add to position — recompute avg (Learn record stays bound to original avg-entry trade)
       const totalCost = existing.avgEntry * existing.qty + price * qty;
       existing.qty += qty;
       existing.avgEntry = +(totalCost / existing.qty).toFixed(4);
@@ -326,30 +353,24 @@ function fill(sym, side, qty, price, type, sl, tp) {
       const remainingFlip = qty - closingQty;
       const pnl = (existing.side === 'buy' ? (price - existing.avgEntry) : (existing.avgEntry - price)) * closingQty;
       state.realized += pnl;
-      // Record into Learn engine
-      try {
-        if (typeof Learn !== 'undefined') {
-          const stopDist = existing.stop ? Math.abs(existing.avgEntry - existing.stop) : Math.abs(price - existing.avgEntry) || 0.01;
-          const R = pnl / (Math.abs(stopDist) * closingQty);
-          const t = Learn.recordTrade({
-            symbol: sym, setup: 'paper-trade', sector: '—',
-            bias: existing.side === 'buy' ? 'bull' : 'bear',
-            entry: existing.avgEntry, stop: existing.stop || existing.avgEntry,
-            score: 60
-          });
-          Learn.closeTrade(t.id, price, pnl >= 0 ? 'target' : 'stop');
-        }
-      } catch (e) { console.warn(e); }
+      // Resolve the learn trade tied to this position (MFE/MAE was tracked across its life)
+      const reasonTag = type && type.indexOf('stop') !== -1 ? 'stop' : (type === 'target' || (existing.target && ((existing.side === 'buy' && price >= existing.target) || (existing.side === 'sell' && price <= existing.target))) ? 'target' : 'manual');
+      closeLearnTrade(existing.learnId, price, reasonTag);
+      existing.learnId = null;
       existing.qty -= closingQty;
       note = 'close P/L ' + (pnl >= 0 ? '+' : '') + '$' + pnl.toFixed(2);
       if (existing.qty <= 0) state.positions = state.positions.filter(p => p.sym !== sym);
       if (remainingFlip > 0) {
-        state.positions.push({ sym, side, qty: remainingFlip, avgEntry: price, stop: sl || null, target: tp || null, openedTs: Date.now() });
+        const flipStop = isFinite(sl) ? sl : null;
+        const flipLearnId = openLearnTrade(sym, side, price, flipStop);
+        state.positions.push({ sym, side, qty: remainingFlip, avgEntry: price, stop: flipStop, target: tp || null, openedTs: Date.now(), learnId: flipLearnId });
         note += ' / flipped ' + remainingFlip;
       }
     }
   } else {
-    state.positions.push({ sym, side, qty, avgEntry: price, stop: isFinite(sl) ? sl : null, target: isFinite(tp) ? tp : null, openedTs: Date.now() });
+    const newStop = isFinite(sl) ? sl : null;
+    const learnId = openLearnTrade(sym, side, price, newStop);
+    state.positions.push({ sym, side, qty, avgEntry: price, stop: newStop, target: isFinite(tp) ? tp : null, openedTs: Date.now(), learnId: learnId });
   }
   state.cash -= (side === 'buy' ? 1 : -1) * price * qty;
   state.fills.unshift({ ts: Date.now(), sym, side, qty, price, type, note });
@@ -383,6 +404,10 @@ function checkPositions() {
   state.positions.slice().forEach(p => {
     const q = (typeof QUOTES !== 'undefined' && QUOTES[p.sym]) ? QUOTES[p.sym] : null;
     if (!q) return;
+    // Track MFE/MAE every tick while position is open
+    if (p.learnId && typeof Learn !== 'undefined') {
+      try { Learn.updateExcursion(p.learnId, q.last); } catch (e) {}
+    }
     if (p.side === 'buy') {
       if (p.stop && q.last <= p.stop) { fill(p.sym, 'sell', p.qty, q.last, 'stop-loss'); touched = true; }
       else if (p.target && q.last >= p.target) { fill(p.sym, 'sell', p.qty, q.last, 'target'); touched = true; }

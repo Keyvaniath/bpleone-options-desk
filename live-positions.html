@@ -1,0 +1,315 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Live Position Monitor — bpleone / trade</title>
+<meta name="description" content="Real-time MFE/MAE monitor for every open paper trade. Watch how much R you've earned, given back, and how close to stop or target you are.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.pos-card { background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 10px; padding: 16px; transition: border-color .15s ease; }
+.pos-card.bull { border-left: 3px solid var(--green); }
+.pos-card.bear { border-left: 3px solid var(--red); }
+.pos-card .head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+.pos-card .sym { font-family: var(--font-mono); font-weight: 700; font-size: 18px; }
+.pos-card .bias { font-family: var(--font-mono); font-size: 10px; padding: 2px 8px; border-radius: 4px; }
+.pos-card .bias.bull { background: var(--green-bg); color: var(--green); }
+.pos-card .bias.bear { background: var(--red-bg); color: var(--red); }
+.pos-card .grid-4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+.metric { text-align: center; }
+.metric .lab { font-size: 9px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; }
+.metric .val { font-family: var(--font-mono); font-weight: 700; font-size: 14px; margin-top: 2px; }
+.range-bar { position: relative; height: 28px; background: var(--bg-secondary); border-radius: 6px; margin: 10px 0; overflow: hidden; }
+.range-bar .filled { position: absolute; top: 0; bottom: 0; }
+.range-bar .filled.fav { background: linear-gradient(to right, rgba(16,185,129,0.0), rgba(16,185,129,0.6)); }
+.range-bar .filled.adv { background: linear-gradient(to left, rgba(239,68,68,0.0), rgba(239,68,68,0.6)); }
+.range-bar .marker { position: absolute; top: -2px; bottom: -2px; width: 2px; background: var(--accent); box-shadow: 0 0 4px var(--accent); }
+.range-bar .label { position: absolute; top: 50%; transform: translateY(-50%); font-family: var(--font-mono); font-size: 10px; color: var(--text-primary); padding: 0 6px; pointer-events: none; }
+.bar-labels { display: flex; justify-content: space-between; font-family: var(--font-mono); font-size: 10px; color: var(--text-muted); }
+.efficiency-bar { height: 6px; background: var(--bg-secondary); border-radius: 3px; overflow: hidden; margin-top: 4px; }
+.efficiency-bar .fill { height: 100%; background: var(--accent); transition: width .3s ease; }
+.r-pos { color: var(--green); }
+.r-neg { color: var(--red); }
+.aggregate-card { background: linear-gradient(135deg, rgba(0,212,255,0.08), rgba(139,92,246,0.04)); border: 1px solid rgba(0,212,255,0.2); border-radius: 12px; padding: 18px; }
+.flash { animation: flashFade .8s ease; }
+@keyframes flashFade { 0% { background: rgba(0,212,255,0.15); } 100% { background: transparent; } }
+.no-open { text-align: center; padding: 60px 20px; color: var(--text-muted); }
+.no-open .icon { font-size: 48px; margin-bottom: 12px; opacity: 0.4; }
+.context-tag { display: inline-block; padding: 1px 6px; border-radius: 4px; background: var(--bg-secondary); border: 1px solid var(--border); font-family: var(--font-mono); font-size: 10px; color: var(--text-muted); margin-right: 4px; }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">Live Position Monitor <span class="feat-badge feat-new">NEW</span> <span class="feat-badge feat-live">LIVE</span></div>
+      <div class="page-subtitle">Real-time MFE/MAE on every open trade. Watch the brain learn from each tick. · <span id="market-clock">--</span></div>
+    </div>
+    <div class="flex gap-8">
+      <a href="paper-trade.html" class="btn btn-ghost">🎮 Paper Trade</a>
+      <a href="edge-analytics.html" class="btn btn-ghost">🧠 Edge Analytics</a>
+    </div>
+  </div>
+
+  <!-- AGGREGATE STATS -->
+  <div class="aggregate-card mb-24">
+    <div class="grid grid-4" style="display:grid;grid-template-columns:repeat(5,1fr);gap:14px;">
+      <div class="metric"><div class="lab">Open Positions</div><div class="val" id="aggCount" style="font-size:22px;">0</div></div>
+      <div class="metric"><div class="lab">Total Open R</div><div class="val mono" id="aggR" style="font-size:22px;">0.00R</div></div>
+      <div class="metric"><div class="lab">Avg MFE Captured</div><div class="val mono" id="aggEff" style="font-size:22px;">—</div></div>
+      <div class="metric"><div class="lab">Longest in Trade</div><div class="val mono" id="aggOldest" style="font-size:22px;">—</div></div>
+      <div class="metric"><div class="lab">Total Exposure</div><div class="val mono" id="aggExposure" style="font-size:22px;">$0</div></div>
+    </div>
+    <div style="margin-top:14px;font-size:11px;color:var(--text-muted);text-align:center;">
+      Auto-refreshes on every tick · MFE = max favorable excursion · MAE = max adverse excursion · efficiency = R captured / MFE
+    </div>
+  </div>
+
+  <!-- POSITIONS GRID -->
+  <div id="positionsGrid" class="grid grid-2"></div>
+  <div id="emptyState" style="display:none;" class="no-open">
+    <div class="icon">📭</div>
+    <h3 style="margin:0 0 8px;">No open positions</h3>
+    <p style="margin:0;">Open a paper trade and it'll appear here with real-time MFE/MAE tracking.</p>
+    <a href="paper-trade.html" class="btn btn-primary" style="margin-top:16px;display:inline-block;">→ Go to Paper Trade</a>
+  </div>
+
+  <!-- CLOSED-TRADE QUICK STATS -->
+  <div class="card mt-24">
+    <div class="card-header"><div class="card-title">📊 Today's Closed Trades</div></div>
+    <div style="overflow-x:auto;">
+      <table style="width:100%;font-size:13px;">
+        <thead>
+          <tr style="text-align:left;color:var(--text-muted);font-size:11px;text-transform:uppercase;letter-spacing:0.5px;">
+            <th style="padding:8px 12px;">Time</th>
+            <th style="padding:8px 12px;">Symbol</th>
+            <th style="padding:8px 12px;">Bias</th>
+            <th style="padding:8px 12px;">Entry → Exit</th>
+            <th style="padding:8px 12px;text-align:right;">R</th>
+            <th style="padding:8px 12px;text-align:right;">MFE / MAE</th>
+            <th style="padding:8px 12px;text-align:right;">Efficiency</th>
+            <th style="padding:8px 12px;">Setup</th>
+            <th style="padding:8px 12px;">Reason</th>
+          </tr>
+        </thead>
+        <tbody id="closedBody"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script src="js/learn.js"></script>
+<script>buildNav('learn');</script>
+
+<script>
+(function () {
+  function loadPaperState() {
+    try {
+      const raw = localStorage.getItem('bpleone_paper_v1');
+      if (!raw) return null;
+      return JSON.parse(raw);
+    } catch (e) { return null; }
+  }
+
+  function loadLearnState() {
+    try {
+      const raw = localStorage.getItem('bpleone_learn_v1');
+      if (!raw) return { trades: [] };
+      return JSON.parse(raw);
+    } catch (e) { return { trades: [] }; }
+  }
+
+  function fmtTime(ms) {
+    if (!ms) return '—';
+    const sec = Math.floor((Date.now() - ms) / 1000);
+    if (sec < 60) return sec + 's';
+    if (sec < 3600) return Math.floor(sec / 60) + 'm ' + (sec % 60) + 's';
+    if (sec < 86400) return Math.floor(sec / 3600) + 'h ' + Math.floor((sec % 3600) / 60) + 'm';
+    return Math.floor(sec / 86400) + 'd';
+  }
+
+  function buildRangeBar(lo, hi, entry, last, stop, target, bias) {
+    // Compute extents so the bar spans the relevant range
+    const points = [entry, last, lo, hi, stop, target].filter(x => isFinite(x) && x > 0);
+    if (!points.length) return '';
+    const pmin = Math.min.apply(null, points);
+    const pmax = Math.max.apply(null, points);
+    const span = pmax - pmin || 1;
+    const pos = v => ((v - pmin) / span) * 100;
+    const entryPos = pos(entry);
+    const lastPos = pos(last);
+    const filledClass = bias === 'bull' ? (last >= entry ? 'fav' : 'adv') : (last <= entry ? 'fav' : 'adv');
+    const filledFrom = Math.min(entryPos, lastPos);
+    const filledTo = Math.max(entryPos, lastPos);
+    const hiPos = pos(hi), loPos = pos(lo);
+    return `
+      <div class="bar-labels"><span>L: $${lo.toFixed(2)}</span><span>Entry: $${entry.toFixed(2)}</span><span>H: $${hi.toFixed(2)}</span></div>
+      <div class="range-bar">
+        <div class="filled ${filledClass}" style="left:${filledFrom}%;width:${filledTo - filledFrom}%;"></div>
+        <div class="marker" style="left:${entryPos}%;background:var(--text-muted);box-shadow:none;"></div>
+        <div class="marker" style="left:${lastPos}%;"></div>
+        ${isFinite(stop) && stop > 0 ? `<div class="marker" style="left:${pos(stop)}%;background:var(--red);opacity:0.7;"></div>` : ''}
+        ${isFinite(target) && target > 0 ? `<div class="marker" style="left:${pos(target)}%;background:var(--green);opacity:0.7;"></div>` : ''}
+        <div class="label" style="left:${lastPos}%;transform:translate(-50%, -50%);background:var(--bg-card);border:1px solid var(--accent);padding:1px 4px;border-radius:3px;">$${last.toFixed(2)}</div>
+      </div>
+    `;
+  }
+
+  function renderPositions() {
+    const paper = loadPaperState();
+    const learn = loadLearnState();
+    const positions = (paper && paper.positions) || [];
+    const grid = document.getElementById('positionsGrid');
+    const empty = document.getElementById('emptyState');
+    if (!positions.length) { grid.innerHTML = ''; empty.style.display = 'block'; }
+    else { empty.style.display = 'none'; }
+
+    let totalR = 0, totalExposure = 0, oldestTs = null;
+    const effs = [];
+
+    grid.innerHTML = positions.map(p => {
+      const q = (typeof QUOTES !== 'undefined' && QUOTES[p.sym]) ? QUOTES[p.sym] : null;
+      const last = q ? q.last : p.avgEntry;
+      const bias = p.side === 'buy' ? 'bull' : 'bear';
+      const pnl = (p.side === 'buy' ? (last - p.avgEntry) : (p.avgEntry - last)) * p.qty;
+      const stopDist = p.stop ? Math.abs(p.avgEntry - p.stop) : Math.abs(last - p.avgEntry) || (p.avgEntry * 0.02);
+      const moveIn = p.side === 'buy' ? (last - p.avgEntry) : (p.avgEntry - last);
+      const R = stopDist ? moveIn / Math.abs(stopDist) : 0;
+      totalR += R;
+      totalExposure += p.avgEntry * p.qty;
+      if (!oldestTs || p.openedTs < oldestTs) oldestTs = p.openedTs;
+
+      // Look up MFE/MAE from Learn
+      const learnTrade = p.learnId ? (learn.trades || []).find(t => t.id === p.learnId) : null;
+      const mfeR = learnTrade && learnTrade.mfeR != null ? learnTrade.mfeR : R;
+      const maeR = learnTrade && learnTrade.maeR != null ? learnTrade.maeR : Math.min(R, 0);
+      const ctx = learnTrade && learnTrade.marketCtx ? learnTrade.marketCtx : null;
+      const setup = learnTrade ? (learnTrade.setup || 'untagged') : '—';
+      const efficiency = mfeR > 0 ? Math.max(0, Math.min(1, R / mfeR)) : null;
+      if (efficiency != null) effs.push(efficiency);
+
+      const lo = q ? q.dayLow : p.avgEntry;
+      const hi = q ? q.dayHigh : p.avgEntry;
+
+      const distStop = p.stop ? Math.abs(((last - p.stop) / last) * 100) : null;
+      const distTgt = p.target ? Math.abs(((p.target - last) / last) * 100) : null;
+
+      return `
+        <div class="pos-card ${bias}">
+          <div class="head">
+            <div>
+              <span class="sym">${p.sym}</span>
+              <span class="bias ${bias}" style="margin-left:8px;">${bias === 'bull' ? 'LONG' : 'SHORT'} ${p.qty}</span>
+            </div>
+            <div style="font-family:var(--font-mono);font-size:12px;color:var(--text-muted);">⏱ ${fmtTime(p.openedTs)}</div>
+          </div>
+
+          <div class="grid-4">
+            <div class="metric"><div class="lab">Entry</div><div class="val">$${p.avgEntry.toFixed(2)}</div></div>
+            <div class="metric"><div class="lab">Last</div><div class="val">$${last.toFixed(2)}</div></div>
+            <div class="metric"><div class="lab">P/L</div><div class="val ${pnl >= 0 ? 'r-pos' : 'r-neg'}">${pnl >= 0 ? '+' : ''}$${pnl.toFixed(0)}</div></div>
+            <div class="metric"><div class="lab">Current R</div><div class="val ${R >= 0 ? 'r-pos' : 'r-neg'}">${R >= 0 ? '+' : ''}${R.toFixed(2)}R</div></div>
+          </div>
+
+          ${q ? buildRangeBar(lo, hi, p.avgEntry, last, p.stop, p.target, bias) : ''}
+
+          <div class="grid-4" style="margin-top:8px;">
+            <div class="metric"><div class="lab">MFE</div><div class="val r-pos">+${mfeR.toFixed(2)}R</div></div>
+            <div class="metric"><div class="lab">MAE</div><div class="val r-neg">${maeR.toFixed(2)}R</div></div>
+            <div class="metric"><div class="lab">Dist to Stop</div><div class="val">${distStop != null ? distStop.toFixed(1) + '%' : '—'}</div></div>
+            <div class="metric"><div class="lab">Dist to Tgt</div><div class="val">${distTgt != null ? distTgt.toFixed(1) + '%' : '—'}</div></div>
+          </div>
+
+          ${efficiency != null ? `
+            <div style="margin-top:10px;">
+              <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--text-muted);">
+                <span>EFFICIENCY (R captured / MFE)</span><span>${(efficiency * 100).toFixed(0)}%</span>
+              </div>
+              <div class="efficiency-bar"><div class="fill" style="width:${efficiency * 100}%;"></div></div>
+            </div>
+          ` : ''}
+
+          ${ctx || setup !== '—' ? `
+            <div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--border);font-size:11px;">
+              <span class="context-tag">setup: ${setup}</span>
+              ${ctx && ctx.vixRegime ? `<span class="context-tag">VIX: ${ctx.vixRegime}</span>` : ''}
+              ${ctx && ctx.tod ? `<span class="context-tag">${ctx.tod}</span>` : ''}
+              ${ctx && ctx.breadthPct != null ? `<span class="context-tag">breadth: ${ctx.breadthPct}%</span>` : ''}
+              ${ctx && ctx.spyChg != null ? `<span class="context-tag">SPY: ${ctx.spyChg > 0 ? '+' : ''}${ctx.spyChg}%</span>` : ''}
+            </div>
+          ` : ''}
+        </div>
+      `;
+    }).join('');
+
+    document.getElementById('aggCount').textContent = positions.length;
+    document.getElementById('aggR').textContent = (totalR >= 0 ? '+' : '') + totalR.toFixed(2) + 'R';
+    document.getElementById('aggR').className = 'val mono ' + (totalR >= 0 ? 'r-pos' : 'r-neg');
+    document.getElementById('aggEff').textContent = effs.length ? (Math.round(effs.reduce((a, x) => a + x, 0) / effs.length * 100) + '%') : '—';
+    document.getElementById('aggOldest').textContent = oldestTs ? fmtTime(oldestTs) : '—';
+    document.getElementById('aggExposure').textContent = '$' + totalExposure.toLocaleString(undefined, { maximumFractionDigits: 0 });
+  }
+
+  function renderClosed() {
+    const learn = loadLearnState();
+    const today = new Date(); today.setHours(0, 0, 0, 0);
+    const todayMs = today.getTime();
+    const closed = (learn.trades || [])
+      .filter(t => t.result && t.closedTs && t.closedTs >= todayMs)
+      .sort((a, b) => b.closedTs - a.closedTs)
+      .slice(0, 30);
+    const body = document.getElementById('closedBody');
+    if (!closed.length) {
+      body.innerHTML = '<tr><td colspan="9" style="padding:24px;text-align:center;color:var(--text-muted);">No trades closed today yet.</td></tr>';
+      return;
+    }
+    body.innerHTML = closed.map(t => {
+      const cls = t.R >= 0 ? 'r-pos' : 'r-neg';
+      const effPct = t.efficiency != null ? (t.efficiency * 100).toFixed(0) + '%' : '—';
+      const time = new Date(t.closedTs).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
+      return `<tr style="border-top:1px solid var(--border);">
+        <td style="padding:8px 12px;font-family:var(--font-mono);font-size:11px;color:var(--text-muted);">${time}</td>
+        <td style="padding:8px 12px;font-family:var(--font-mono);font-weight:600;">${t.symbol}</td>
+        <td style="padding:8px 12px;font-family:var(--font-mono);font-size:11px;">${t.bias === 'bull' ? 'LONG' : 'SHORT'}</td>
+        <td style="padding:8px 12px;font-family:var(--font-mono);font-size:12px;">$${(+t.entry).toFixed(2)} → $${(+t.exit).toFixed(2)}</td>
+        <td style="padding:8px 12px;text-align:right;font-family:var(--font-mono);font-weight:700;" class="${cls}">${t.R >= 0 ? '+' : ''}${(+t.R).toFixed(2)}R</td>
+        <td style="padding:8px 12px;text-align:right;font-family:var(--font-mono);font-size:11px;">+${t.mfeR != null ? (+t.mfeR).toFixed(2) : '—'} / ${t.maeR != null ? (+t.maeR).toFixed(2) : '—'}</td>
+        <td style="padding:8px 12px;text-align:right;font-family:var(--font-mono);font-size:11px;">${effPct}</td>
+        <td style="padding:8px 12px;font-size:11px;">${t.setup || '—'}</td>
+        <td style="padding:8px 12px;font-size:11px;color:var(--text-muted);">${t.closeReason || '—'}</td>
+      </tr>`;
+    }).join('');
+  }
+
+  // Initial render
+  renderPositions();
+  renderClosed();
+
+  // Re-render on every tick (debounced via requestAnimationFrame)
+  let pending = false;
+  function scheduleRender() {
+    if (pending) return;
+    pending = true;
+    requestAnimationFrame(() => { pending = false; renderPositions(); });
+  }
+  if (typeof Feed !== 'undefined') {
+    Feed.subscribe('*', scheduleRender);
+  }
+  // Tick-based fallback (1.5s) for time-in-trade counter
+  setInterval(() => { renderPositions(); renderClosed(); }, 1500);
+})();
+</script>
+</body>
+</html>
