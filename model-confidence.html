@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Model Confidence — bpleone / trade</title>
+<meta name="description" content="ML model predictions for every active brain finding — see what the model thinks will win.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.conf-row { display:grid; grid-template-columns: 30px 70px 80px 120px 1fr 90px 80px; gap:10px; padding:11px 14px; border-bottom:1px solid var(--border); font-family:var(--font-mono); font-size:11px; align-items:center; cursor:pointer; }
+.conf-row:hover { background:var(--bg-elevated); }
+.conf-row.high { border-left:3px solid var(--green); background:rgba(16,185,129,0.04); }
+.conf-row.med { border-left:3px solid var(--accent); }
+.conf-row.low { border-left:3px solid var(--red); }
+.conf-bar { height:8px; background:var(--bg-elevated); border-radius:4px; overflow:hidden; }
+.conf-bar > div { height:100%; }
+.contrib-row { display:grid; grid-template-columns: 180px 80px 80px 1fr; gap:10px; padding:4px 0; font-family:var(--font-mono); font-size:11px; }
+</style>
+</head>
+<body data-needs="live">
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">🎯 Model Confidence</div>
+      <div class="page-subtitle">ML predictions for every active brain finding · <span id="market-clock">--</span></div>
+    </div>
+    <div class="flex gap-8">
+      <button class="btn btn-secondary" id="refreshBtn">🔄 Re-predict</button>
+      <a href="model-trainer.html" class="btn btn-secondary">🎓 Trainer</a>
+    </div>
+  </div>
+
+  <div class="grid grid-4 mb-24">
+    <div class="card"><div class="card-header"><div class="card-title">Active Findings</div></div><div class="mono" style="font-size:26px;font-weight:700;" id="kCount">--</div><div class="mono" style="font-size:11px;color:var(--text-muted);">Last 8h</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">High Confidence (≥70%)</div></div><div class="mono green-text" style="font-size:26px;font-weight:700;" id="kHigh">--</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">Low Confidence (≤30%)</div></div><div class="mono red-text" style="font-size:26px;font-weight:700;" id="kLow">--</div><div class="mono" style="font-size:11px;color:var(--text-muted);">Model says fade</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">Model Version</div></div><div class="mono" style="font-size:26px;font-weight:700;color:var(--accent);" id="kVer">--</div><div class="mono" style="font-size:11px;color:var(--text-muted);" id="kVerBody">--</div></div>
+  </div>
+
+  <div class="card mb-12" style="padding:10px 14px;">
+    <div class="flex gap-8">
+      <button class="btn btn-ghost btn-active" data-flt="all" style="padding:4px 10px;font-size:11px;">ALL</button>
+      <button class="btn btn-ghost" data-flt="high" style="padding:4px 10px;font-size:11px;">≥70%</button>
+      <button class="btn btn-ghost" data-flt="med" style="padding:4px 10px;font-size:11px;">30-70%</button>
+      <button class="btn btn-ghost" data-flt="low" style="padding:4px 10px;font-size:11px;">≤30%</button>
+    </div>
+  </div>
+
+  <div class="card" style="padding:0;">
+    <div class="conf-row" style="background:var(--bg-elevated);font-size:9px;color:var(--text-muted);font-weight:800;letter-spacing:0.5px;">
+      <div>#</div><div>SYM</div><div>P(WIN)</div><div>CONFIDENCE</div><div>SETUP</div><div>SEVERITY</div><div>AGE</div>
+    </div>
+    <div id="confBody"></div>
+  </div>
+
+  <!-- TOP CONTRIBUTORS EXPLAINER -->
+  <div class="card mt-24">
+    <div class="card-header"><div class="card-title">🧠 Click any row to see WHY the model gave that probability</div></div>
+    <div id="explanation" style="font-size:13px;color:var(--text-muted);line-height:1.6;">Select a finding above to see its top contributors — which features pushed the prediction up or down.</div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script src="js/model.js"></script>
+<script>
+buildNav('model-confidence');
+
+function loadFindings() { try { return JSON.parse(localStorage.getItem('bpleone_brain_findings_v1') || '{"items":[]}').items; } catch (e) { return []; } }
+
+let flt = 'all';
+let selectedId = null;
+
+function paint() {
+  const findings = loadFindings().filter(f => (Date.now() - f.ts) < 8 * 3600 * 1000);
+  const model = ModelStore.load();
+  document.getElementById('kVer').textContent = 'v' + model.version;
+  document.getElementById('kVerBody').textContent = model.n_trained + ' samples trained';
+
+  // Re-predict using current model
+  const predictions = findings.map(f => {
+    const features = f.features || (window.FeatureExtractor && window.FeatureExtractor.extract(f)) || null;
+    if (!features) return null;
+    const pred = model.predict(features);
+    return { finding: f, prob: pred.prob, contributions: pred.contributions, features };
+  }).filter(Boolean).sort((a, b) => b.prob - a.prob);
+
+  document.getElementById('kCount').textContent = predictions.length;
+  document.getElementById('kHigh').textContent = predictions.filter(p => p.prob >= 0.7).length;
+  document.getElementById('kLow').textContent = predictions.filter(p => p.prob <= 0.3).length;
+
+  let filtered = predictions;
+  if (flt === 'high') filtered = predictions.filter(p => p.prob >= 0.7);
+  else if (flt === 'med') filtered = predictions.filter(p => p.prob > 0.3 && p.prob < 0.7);
+  else if (flt === 'low') filtered = predictions.filter(p => p.prob <= 0.3);
+
+  const body = document.getElementById('confBody');
+  body.innerHTML = '';
+  if (filtered.length === 0) {
+    body.innerHTML = '<div style="padding:30px;text-align:center;color:var(--text-muted);font-size:13px;">No active findings to predict. Brain needs to be running — visit any page and let it tick.</div>';
+    return;
+  }
+  filtered.forEach((p, i) => {
+    const cls = p.prob >= 0.7 ? 'high' : p.prob >= 0.3 ? 'med' : 'low';
+    const probCol = p.prob >= 0.7 ? 'var(--green)' : p.prob <= 0.3 ? 'var(--red)' : 'var(--accent)';
+    const sym = (p.finding.meta && p.finding.meta.sym) || '—';
+    const setup = (p.finding.meta && p.finding.meta.setup) || p.finding.type || '';
+    const sev = p.finding.severity || 1;
+    const stars = '⭐'.repeat(sev);
+    const ageMin = Math.floor((Date.now() - p.finding.ts) / 60000);
+    const row = document.createElement('div');
+    row.className = 'conf-row ' + cls;
+    row.innerHTML = '<div>' + (i + 1) + '</div>'
+      + '<div><strong>' + sym + '</strong></div>'
+      + '<div style="color:' + probCol + ';font-weight:700;font-size:13px;">' + (p.prob * 100).toFixed(0) + '%</div>'
+      + '<div><div class="conf-bar"><div style="width:' + (p.prob * 100) + '%;background:' + probCol + ';"></div></div></div>'
+      + '<div style="font-family:Inter;font-size:11px;color:var(--text-secondary);">' + setup + '</div>'
+      + '<div>' + stars + '</div>'
+      + '<div style="color:var(--text-muted);">' + ageMin + 'm</div>';
+    row.onclick = () => { selectedId = p.finding.id; explainPrediction(p); };
+    body.appendChild(row);
+  });
+}
+
+function explainPrediction(p) {
+  const sorted = p.contributions.slice().sort((a, b) => Math.abs(b.contrib) - Math.abs(a.contrib));
+  const top10 = sorted.slice(0, 10);
+  const ex = document.getElementById('explanation');
+  const sym = (p.finding.meta && p.finding.meta.sym) || '—';
+  ex.innerHTML = '<div style="font-size:15px;font-weight:700;color:var(--accent);margin-bottom:10px;">' + sym + ' → P(win) = ' + (p.prob * 100).toFixed(1) + '%</div>'
+    + '<div style="font-size:12px;color:var(--text-muted);margin-bottom:10px;">Top 10 features driving this prediction (pos = pushes win, neg = pushes loss)</div>'
+    + '<div class="contrib-row" style="font-weight:700;color:var(--text-muted);font-size:9px;letter-spacing:0.5px;"><div>FEATURE</div><div>VALUE</div><div>WEIGHT</div><div>CONTRIBUTION</div></div>';
+  top10.forEach(c => {
+    const col = c.contrib >= 0 ? 'var(--green)' : 'var(--red)';
+    ex.innerHTML += '<div class="contrib-row">'
+      + '<div>' + c.feature + '</div>'
+      + '<div>' + c.value.toFixed(3) + '</div>'
+      + '<div>' + (c.weight >= 0 ? '+' : '') + c.weight.toFixed(3) + '</div>'
+      + '<div style="color:' + col + ';font-weight:700;">' + (c.contrib >= 0 ? '+' : '') + c.contrib.toFixed(3) + '</div>'
+      + '</div>';
+  });
+  ex.innerHTML += '<div class="mt-12" style="padding:14px;background:rgba(0,212,255,0.05);border-radius:8px;font-size:12px;line-height:1.6;">'
+    + '<strong style="color:var(--accent);">Interpretation:</strong> The model says ' + sym + ' is '
+    + (p.prob >= 0.7 ? '<span style="color:var(--green);">likely to win</span> (high-confidence buy/follow signal).'
+      : p.prob <= 0.3 ? '<span style="color:var(--red);">likely to fail</span> (fade or avoid).'
+      : '<span style="color:var(--accent);">roughly 50/50</span> — model has no strong opinion. Either model needs more training data, or this setup is genuinely uncertain.')
+    + ' <a href="trade-coach.html?sym=' + sym + '" style="color:var(--accent);margin-left:8px;">Open ' + sym + ' Trade Coach →</a>'
+    + '</div>';
+}
+
+document.querySelectorAll('[data-flt]').forEach(b => b.addEventListener('click', () => {
+  document.querySelectorAll('[data-flt]').forEach(x => x.classList.remove('btn-active'));
+  b.classList.add('btn-active');
+  flt = b.dataset.flt;
+  paint();
+}));
+document.getElementById('refreshBtn').addEventListener('click', paint);
+paint();
+window.addEventListener('bpleone:brain-finding', paint);
+window.addEventListener('bpleone:model-trained', paint);
+setInterval(paint, 30000);
+</script>
+</body>
+</html>

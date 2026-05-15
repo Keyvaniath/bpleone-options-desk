@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Model Versions — bpleone / trade</title>
+<meta name="description" content="Model version history · snapshot lineage · A/B comparison · promote/rollback.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.ver-row { display:grid; grid-template-columns: 40px 100px 90px 90px 90px 1fr 130px; gap:12px; padding:12px 14px; border-bottom:1px solid var(--border); font-size:12px; align-items:center; }
+.ver-row.current { border-left:3px solid var(--accent); background:rgba(0,212,255,0.04); }
+.tag { padding:2px 6px; border-radius:3px; font-size:9px; font-weight:800; }
+.tag-current { background:rgba(0,212,255,0.18); color:var(--accent); }
+.tag-promoted { background:rgba(16,185,129,0.18); color:var(--green); }
+.tag-snapshot { background:rgba(245,158,11,0.15); color:var(--yellow); }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">📜 Model Versions</div>
+      <div class="page-subtitle">Version history · snapshots · A/B testing · <span id="market-clock">--</span></div>
+    </div>
+    <div class="flex gap-8">
+      <a href="model-trainer.html" class="btn btn-secondary">🎓 Trainer</a>
+      <button class="btn btn-primary" id="snapshotBtn">💾 Snapshot Current</button>
+    </div>
+  </div>
+
+  <div class="grid grid-4 mb-24">
+    <div class="card"><div class="card-header"><div class="card-title">Current Version</div></div><div class="mono" style="font-size:26px;font-weight:700;color:var(--accent);" id="kCur">--</div><div class="mono" style="font-size:11px;color:var(--text-muted);" id="kCurBody">--</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">Versions Saved</div></div><div class="mono" style="font-size:26px;font-weight:700;" id="kCount">--</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">Best Hit Rate</div></div><div class="mono green-text" style="font-size:26px;font-weight:700;" id="kBest">--</div><div class="mono" style="font-size:11px;color:var(--text-muted);" id="kBestBody">--</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">Storage</div></div><div class="mono" style="font-size:26px;font-weight:700;" id="kSize">--</div><div class="mono" style="font-size:11px;color:var(--text-muted);">localStorage</div></div>
+  </div>
+
+  <div class="card" style="padding:0;">
+    <div class="card-header" style="padding:14px 16px;"><div class="card-title">📋 Saved Versions</div></div>
+    <div class="ver-row" style="background:var(--bg-elevated);font-size:9px;color:var(--text-muted);font-weight:800;letter-spacing:0.5px;">
+      <div>#</div><div>LABEL</div><div>VERSION</div><div>SAMPLES</div><div>HIT/MISS</div><div>SAVED</div><div></div>
+    </div>
+    <div id="verBody"></div>
+  </div>
+
+  <!-- COMPARISON -->
+  <div class="card mt-24">
+    <div class="card-header"><div class="card-title">⚖ Compare Two Versions</div></div>
+    <div class="flex gap-8" style="margin-bottom:14px;">
+      <select id="verA" style="background:var(--bg-elevated);border:1px solid var(--border);border-radius:6px;padding:8px 12px;color:var(--text-primary);font-family:var(--font-mono);"></select>
+      <span style="align-self:center;font-weight:700;color:var(--text-muted);">VS</span>
+      <select id="verB" style="background:var(--bg-elevated);border:1px solid var(--border);border-radius:6px;padding:8px 12px;color:var(--text-primary);font-family:var(--font-mono);"></select>
+      <button class="btn btn-primary" id="compareBtn">Compare</button>
+    </div>
+    <div id="compareOut"></div>
+  </div>
+
+  <!-- INFO -->
+  <div class="card mt-24">
+    <div class="card-header"><div class="card-title">🧠 How versioning works</div></div>
+    <div style="font-size:13px;color:var(--text-secondary);line-height:1.7;">
+      Every time you click <strong>Snapshot Current</strong> (or run a Full Retrain), the model's weights are frozen and saved as a version. Snapshots are kept in localStorage with up to 50 most-recent. Promote any past snapshot to current with one click — useful for rollback after a bad training run. Compare any two versions side-by-side to see weight drift and accuracy differences.
+    </div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script src="js/model.js"></script>
+<script>
+buildNav('model-versions');
+
+function paint() {
+  const current = ModelStore.load();
+  const versions = ModelStore.versions();
+
+  document.getElementById('kCur').textContent = 'v' + current.version;
+  document.getElementById('kCurBody').textContent = current.n_trained + ' samples · ' + (current.lastTrainTs ? new Date(current.lastTrainTs).toLocaleString() : 'never trained');
+  document.getElementById('kCount').textContent = versions.length;
+
+  if (versions.length > 0) {
+    const best = versions.slice().sort((a, b) => {
+      const arAcc = a.n_trained > 0 ? a.n_hits / a.n_trained : 0;
+      const brAcc = b.n_trained > 0 ? b.n_hits / b.n_trained : 0;
+      return brAcc - arAcc;
+    })[0];
+    const hr = best.n_trained > 0 ? (best.n_hits / best.n_trained) * 100 : 0;
+    document.getElementById('kBest').textContent = hr.toFixed(1) + '%';
+    document.getElementById('kBestBody').textContent = best.label + ' (' + best.n_trained + ' samples)';
+  }
+
+  // Storage
+  let totalBytes = 0;
+  try {
+    for (const k in localStorage) {
+      if (k.indexOf('bpleone_model') === 0) totalBytes += (localStorage[k] || '').length;
+    }
+  } catch (e) {}
+  document.getElementById('kSize').textContent = totalBytes > 1024 ? (totalBytes / 1024).toFixed(1) + ' KB' : totalBytes + ' B';
+
+  // Table
+  const body = document.getElementById('verBody');
+  body.innerHTML = '';
+  // Current first
+  body.innerHTML += '<div class="ver-row current"><div>★</div><div class="mono"><strong>CURRENT</strong></div>'
+    + '<div class="mono" style="color:var(--accent);">v' + current.version + '</div>'
+    + '<div class="mono">' + current.n_trained + '</div>'
+    + '<div class="mono"><span class="green-text">' + current.n_hits + '</span>/<span class="red-text">' + current.n_misses + '</span></div>'
+    + '<div style="color:var(--text-muted);font-size:11px;">' + new Date(current.createdTs).toLocaleString() + '</div>'
+    + '<div><span class="tag tag-current">CURRENT</span></div></div>';
+
+  if (versions.length === 0) {
+    body.innerHTML += '<div style="padding:20px;text-align:center;color:var(--text-muted);font-size:13px;">No snapshots saved yet. Click "Snapshot Current" to capture the current state.</div>';
+  } else {
+    versions.forEach((v, i) => {
+      const acc = v.n_trained > 0 ? (v.n_hits / v.n_trained) * 100 : 0;
+      const isPromoted = (v.label || '').indexOf('promoted') >= 0;
+      const tagCls = isPromoted ? 'tag-promoted' : 'tag-snapshot';
+      const row = document.createElement('div');
+      row.className = 'ver-row';
+      row.innerHTML = '<div class="mono">' + (i + 1) + '</div>'
+        + '<div class="mono">' + (v.label || 'snapshot') + '</div>'
+        + '<div class="mono">v' + v.version + '</div>'
+        + '<div class="mono">' + v.n_trained + '</div>'
+        + '<div class="mono"><span class="green-text">' + v.n_hits + '</span>/<span class="red-text">' + v.n_misses + '</span> · ' + acc.toFixed(1) + '%</div>'
+        + '<div style="color:var(--text-muted);font-size:11px;">' + new Date(v.savedAt || v.createdTs).toLocaleString() + '</div>'
+        + '<div><button class="btn btn-secondary promote-btn" data-i="' + i + '" style="padding:4px 10px;font-size:10px;">▶ Promote</button></div>';
+      body.appendChild(row);
+    });
+    document.querySelectorAll('.promote-btn').forEach(b => b.addEventListener('click', () => {
+      const i = +b.dataset.i;
+      if (!confirm('Promote this version to current? Your current weights will be replaced.')) return;
+      ModelStore.promote(i);
+      paint();
+    }));
+  }
+
+  // Compare selects
+  const opts = '<option value="-1">Current</option>' + versions.map((v, i) => '<option value="' + i + '">' + (v.label || 'snap') + ' · v' + v.version + ' · ' + v.n_trained + ' samples</option>').join('');
+  document.getElementById('verA').innerHTML = opts;
+  document.getElementById('verB').innerHTML = opts;
+}
+
+function compare() {
+  const ai = +document.getElementById('verA').value;
+  const bi = +document.getElementById('verB').value;
+  const versions = ModelStore.versions();
+  const current = ModelStore.load().serialize();
+  const a = ai === -1 ? current : versions[ai];
+  const b = bi === -1 ? current : versions[bi];
+  if (!a || !b) return;
+  const out = document.getElementById('compareOut');
+  const aAcc = a.n_trained > 0 ? (a.n_hits / a.n_trained * 100) : 0;
+  const bAcc = b.n_trained > 0 ? (b.n_hits / b.n_trained * 100) : 0;
+  let weightsHtml = '<div style="font-family:var(--font-mono);font-size:11px;">';
+  for (let i = 0; i < FEATURES.length; i++) {
+    const aw = a.weights[i] || 0, bw = b.weights[i] || 0;
+    const diff = bw - aw;
+    const col = Math.abs(diff) > 0.05 ? (diff > 0 ? 'var(--green)' : 'var(--red)') : 'var(--text-muted)';
+    weightsHtml += '<div style="display:grid;grid-template-columns:200px 80px 80px 80px;gap:8px;padding:4px 0;border-bottom:1px solid var(--border);">'
+      + '<div>' + FEATURES[i] + '</div>'
+      + '<div>' + aw.toFixed(4) + '</div>'
+      + '<div>' + bw.toFixed(4) + '</div>'
+      + '<div style="color:' + col + ';font-weight:700;">' + (diff >= 0 ? '+' : '') + diff.toFixed(4) + '</div></div>';
+  }
+  weightsHtml += '</div>';
+  out.innerHTML = '<div class="grid grid-2 mb-24">'
+    + '<div class="card" style="padding:14px;"><strong style="color:var(--accent);">A (' + (a.label || 'current') + ')</strong><div style="font-size:11px;color:var(--text-muted);margin-top:4px;">' + a.n_trained + ' samples · acc ' + aAcc.toFixed(1) + '%</div></div>'
+    + '<div class="card" style="padding:14px;"><strong style="color:var(--accent);">B (' + (b.label || 'current') + ')</strong><div style="font-size:11px;color:var(--text-muted);margin-top:4px;">' + b.n_trained + ' samples · acc ' + bAcc.toFixed(1) + '%</div></div>'
+    + '</div>'
+    + '<div style="font-size:11px;color:var(--text-muted);font-weight:700;letter-spacing:0.5px;margin-bottom:6px;display:grid;grid-template-columns:200px 80px 80px 80px;gap:8px;"><div>FEATURE</div><div>A</div><div>B</div><div>Δ</div></div>'
+    + weightsHtml;
+}
+
+document.getElementById('snapshotBtn').addEventListener('click', () => {
+  const label = prompt('Snapshot label:', 'snap-' + new Date().toLocaleDateString());
+  if (label === null) return;
+  const m = ModelStore.load();
+  ModelStore.saveVersion(m, label || 'snapshot');
+  paint();
+});
+document.getElementById('compareBtn').addEventListener('click', compare);
+paint();
+</script>
+</body>
+</html>

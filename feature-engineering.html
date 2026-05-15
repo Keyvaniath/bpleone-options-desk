@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Feature Engineering — bpleone / trade</title>
+<meta name="description" content="Every feature the model uses, what it means, how it's normalized, and why it matters.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.feat-card { padding:16px;background:var(--bg-elevated);border:1px solid var(--border);border-radius:10px; }
+.feat-card .name { font-family:var(--font-mono); font-weight:700; color:var(--accent); font-size:14px; margin-bottom:4px; }
+.feat-card .range { font-family:var(--font-mono); font-size:10px; color:var(--text-muted); margin-bottom:8px; }
+.feat-card .desc { font-size:12px; color:var(--text-secondary); line-height:1.5; }
+.feat-card .formula { font-family:var(--font-mono); font-size:11px; color:var(--yellow); background:var(--bg); padding:6px 10px; border-radius:4px; margin-top:8px; }
+.cat-header { font-size:14px;font-weight:800;letter-spacing:1px;color:var(--accent);text-transform:uppercase;margin:24px 0 12px;padding-bottom:8px;border-bottom:1px solid var(--border); }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">📚 Feature Engineering</div>
+      <div class="page-subtitle">Every feature the model uses · ranges · formulas · why each matters · <span id="market-clock">--</span></div>
+    </div>
+    <div class="flex gap-8">
+      <a href="model-explorer.html" class="btn btn-secondary">🔍 Explorer</a>
+      <a href="model-trainer.html" class="btn btn-secondary">🎓 Trainer</a>
+    </div>
+  </div>
+
+  <div class="card mb-24" style="background:linear-gradient(135deg,rgba(0,212,255,0.05),transparent);">
+    <div style="font-size:13px;color:var(--text-secondary);line-height:1.7;">
+      The model uses <strong style="color:var(--accent);">22 features</strong> normalized to [0, 1] or [-1, 1] for stable gradient descent. Every brain finding gets a feature snapshot at emit-time, stored alongside the finding. When the outcome rates 30 min later, the snapshot + label become a training row.
+    </div>
+  </div>
+
+  <!-- TECHNICAL -->
+  <div class="cat-header">📊 Technical State (10 features)</div>
+  <div class="grid grid-3" id="techGrid"></div>
+
+  <!-- SETUP -->
+  <div class="cat-header">🎯 Setup Classification (6 features)</div>
+  <div class="grid grid-3" id="setupGrid"></div>
+
+  <!-- BRAIN -->
+  <div class="cat-header">🧠 Brain State (4 features)</div>
+  <div class="grid grid-3" id="brainGrid"></div>
+
+  <!-- TEMPORAL -->
+  <div class="cat-header">⏰ Temporal (2 features)</div>
+  <div class="grid grid-3" id="tempGrid"></div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script src="js/model.js"></script>
+<script>
+buildNav('feature-engineering');
+
+const FEAT_DOCS = {
+  technical: [
+    { name: 'rsi14_norm', range: '[0, 1]', formula: 'RSI(14) / 100', desc: 'Standard Relative Strength Index, scaled to 0-1. Above 0.7 = overbought, below 0.3 = oversold. Helps the model distinguish trend-following vs mean-reversion contexts.' },
+    { name: 'atr_pct_norm', range: '[0, 1]', formula: 'min(ATR%/10, 1)', desc: 'Average True Range as % of price, capped at 10%. High volatility (>4%) tends to favor breakouts; low (<1%) favors squeezes.' },
+    { name: 'vol_ratio_norm', range: '[0, 1]', formula: 'min(RVOL/4, 1)', desc: 'Relative volume (today vs 20-day avg). Capped at 4×. High RVOL confirms most directional setups.' },
+    { name: 'dist_50ma', range: '[-1, 1]', formula: 'clip((px - MA50)/MA50 * 10, -1, 1)', desc: 'Signed distance from the 50-day moving average. Positive = above (bullish trend), negative = below (bearish trend). Captures the medium-term trend regime.' },
+    { name: 'dist_200ma', range: '[-1, 1]', formula: 'clip((px - MA200)/MA200 * 5, -1, 1)', desc: 'Same as 50MA but longer-term. Positive 200MA = secular uptrend.' },
+    { name: 'spy_chg_norm', range: '[-1, 1]', formula: 'clip(SPY_chg / 5%, -1, 1)', desc: 'Market direction today. Most setups perform better when aligned with the broad market.' },
+    { name: 'sector_strength', range: '[-1, 1]', formula: 'clip(sectorETF_chg / 5%, -1, 1)', desc: 'Sector tailwind. Long setups in a +1% sector ≠ long setups in a -1% sector.' },
+    { name: 'beta_norm', range: '[0, 1]', formula: 'beta / 2', desc: 'Symbol\'s historical beta vs SPY. High beta = more sensitive to market moves.' },
+    { name: 'spread_bps_norm', range: '[0, 1]', formula: '1 - clip(spread_bps/30, 0, 1)', desc: 'Bid-ask spread quality (inverted — higher = tighter). Tight spreads = easier execution = better setups.' },
+    { name: 'iv_pct_norm', range: '[0, 1]', formula: 'IV percentile / 100', desc: 'Where current IV sits in its 52-week range. High IV = options expensive (favors selling); low = cheap (favors buying convexity).' }
+  ],
+  setup: [
+    { name: 'severity_norm', range: '[0, 1]', formula: 'severity / 3', desc: 'Brain-assigned conviction stars (1-3). Higher = the brain thought this was a clean signal.' },
+    { name: 'is_bull_setup', range: '{0, 1}', formula: 'Pattern match on setup name', desc: 'One-hot: bull-leaning setup (breakout, reclaim, oversold, sweep-call).' },
+    { name: 'is_bear_setup', range: '{0, 1}', formula: 'Pattern match', desc: 'Bear-leaning (breakdown, rejection, overbought, sweep-put).' },
+    { name: 'is_momentum', range: '{0, 1}', formula: 'Pattern match', desc: 'Trend-continuation pattern.' },
+    { name: 'is_reversion', range: '{0, 1}', formula: 'Pattern match', desc: 'Mean-reversion / fade pattern.' },
+    { name: 'is_breakout', range: '{0, 1}', formula: 'Pattern match', desc: 'Range-break pattern (52W, BB break, cup-handle).' }
+  ],
+  brain: [
+    { name: 'brain_weight_norm', range: '[0, 1]', formula: '(w - 0.5) / 1.1', desc: 'Per-symbol learned weight from the rule-based learn engine. Clamped 0.5-1.6, normalized to 0-1.' },
+    { name: 'regime_score_norm', range: '[0, 1]', formula: 'regime / 100', desc: 'Cross-asset risk regime (computed from SPY, VXX, TLT, HYG, UUP, GLD). 0 = risk-off, 1 = risk-on.' },
+    { name: 'vix_norm', range: '[0, 1]', formula: '(VIX - 10) / 40', desc: 'VIX level normalized. Low VIX = trend-following regime; high VIX = mean-revert regime.' },
+    { name: 'coincident_count_norm', range: '[0, 1]', formula: 'min(coincident / 10, 1)', desc: 'How many other findings have fired on the same symbol in the last 4 hours. High = confluence (multiple signals agreeing).' }
+  ],
+  temporal: [
+    { name: 'hour_norm', range: '[0, 1]', formula: '(hour - 9.5) / 6.5', desc: 'Time of day within the US session (9:30 = 0, 16:00 = 1). Captures opening/midday/close behavior.' },
+    { name: 'bias', range: '{1}', formula: 'always 1', desc: 'Intercept term — lets the model learn a baseline P(win) regardless of features.' }
+  ]
+};
+
+function buildGrid(gridId, items) {
+  const grid = document.getElementById(gridId);
+  grid.innerHTML = '';
+  const model = ModelStore.load();
+  items.forEach(f => {
+    const idx = FEATURES.indexOf(f.name);
+    const weight = idx >= 0 ? model.weights[idx] : 0;
+    const card = document.createElement('div');
+    card.className = 'feat-card';
+    card.innerHTML = '<div style="display:flex;justify-content:space-between;align-items:center;">'
+      + '<div class="name">' + f.name + '</div>'
+      + '<div style="font-family:var(--font-mono);font-size:10px;color:' + (weight >= 0 ? 'var(--green)' : 'var(--red)') + ';">w=' + (weight >= 0 ? '+' : '') + weight.toFixed(3) + '</div>'
+      + '</div>'
+      + '<div class="range">range: ' + f.range + '</div>'
+      + '<div class="desc">' + f.desc + '</div>'
+      + '<div class="formula">' + f.formula + '</div>';
+    grid.appendChild(card);
+  });
+}
+
+buildGrid('techGrid', FEAT_DOCS.technical);
+buildGrid('setupGrid', FEAT_DOCS.setup);
+buildGrid('brainGrid', FEAT_DOCS.brain);
+buildGrid('tempGrid', FEAT_DOCS.temporal);
+</script>
+</body>
+</html>

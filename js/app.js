@@ -22,7 +22,7 @@
 // Auto-load companion modules on any page that includes this script.
 // Pages that already imported these get a no-op (idempotent).
 (function loadCompanions() {
-  const want = ['js/toast.js', 'js/command-palette.js', 'js/hotkeys.js', 'js/onboarding.js', 'js/recent-tickers.js', 'js/symbol-linker.js', 'js/brain-loop.js', 'js/data-mode-banner.js'];
+  const want = ['js/toast.js', 'js/command-palette.js', 'js/hotkeys.js', 'js/onboarding.js', 'js/recent-tickers.js', 'js/symbol-linker.js', 'js/model.js', 'js/brain-loop.js', 'js/data-mode-banner.js'];
   const have = new Set([...document.querySelectorAll('script[src]')].map(s => {
     try { return new URL(s.src, location.href).pathname.split('/').slice(-2).join('/'); } catch (e) { return s.src; }
   }));
@@ -102,7 +102,7 @@ function buildNav(activePage) {
   // Daily workflow group — top of funnel
   const dailyGrp = ['morning-brief','daily-debrief','tomorrow-playbook','friday-summary','catalyst-clock','ai-narrative','daily-stats','conviction-stack','game-plan'];
   // Brain & ML group
-  const brainGrp = ['brain-heartbeat','brain-audit','brain-decisions','discoveries','ml-feedback','edge-analytics','edge','learn-dashboard','learn','learn-engine-explained','live-train','train-history','weight-heatmap','assistant','ai-scout','ai-cotrader','setup-library','position-stacking'];
+  const brainGrp = ['brain-heartbeat','brain-audit','brain-decisions','discoveries','ml-feedback','edge-analytics','edge','learn-dashboard','learn','learn-engine-explained','live-train','train-history','weight-heatmap','assistant','ai-scout','ai-cotrader','setup-library','position-stacking','model-trainer','model-explorer','model-versions','feature-store','online-learning','model-confidence','feature-engineering'];
   // Scanners group
   const scanGrp = ['algo-signals','mean-reversion-scanner','trend-strength','confluence-scanner','radar','edge-scanner','hot-movers','squeeze-radar-pro','squeeze-composite','short-squeeze-alerts','pre-market-scanner','pre-market-gappers','after-hours-scanner','earnings-tonight','earnings-reactor','earnings-calendar','earnings','earnings-playbook','earnings-preview','screener','anomalies','ipo-calendar','pair-scanner','candlestick-scanner','news-reactions','comparison','symbol-diff','insider-live','congress-trades','insider-congress-flow','buybacks-tracker','dollar-leaders','sweep-counter','retracement-finder','pivot-finder','levels-engine'];
   // Markets group
@@ -216,6 +216,13 @@ function buildNav(activePage) {
 
     + '<li class="nav-dd"><a href="#" class="' + (isBrain?'active':'') + '">🧠 Brain ▾</a>'
     + '<div class="nav-dropdown">'
+    + '<a href="model-trainer.html">🎓 Model Trainer <span class="feat-badge feat-new" style="font-size:8px;padding:0 5px;">ML</span></a>'
+    + '<a href="model-confidence.html">🎯 Model Confidence <span class="feat-badge feat-new" style="font-size:8px;padding:0 5px;">ML</span></a>'
+    + '<a href="model-explorer.html">🔍 Model Explorer <span class="feat-badge feat-new" style="font-size:8px;padding:0 5px;">ML</span></a>'
+    + '<a href="online-learning.html">⚡ Online Learning <span class="feat-badge feat-live" style="font-size:8px;padding:0 5px;">LIVE</span></a>'
+    + '<a href="model-versions.html">📜 Model Versions <span class="feat-badge feat-new" style="font-size:8px;padding:0 5px;">ML</span></a>'
+    + '<a href="feature-store.html">📦 Feature Store <span class="feat-badge feat-new" style="font-size:8px;padding:0 5px;">ML</span></a>'
+    + '<a href="feature-engineering.html">📚 Feature Docs <span class="feat-badge feat-new" style="font-size:8px;padding:0 5px;">ML</span></a>'
     + '<a href="brain-heartbeat.html">🫀 Brain Heartbeat <span class="feat-badge feat-live" style="font-size:8px;padding:0 5px;">LIVE</span></a>'
     + '<a href="brain-audit.html">🩺 Brain Audit</a>'
     + '<a href="brain-decisions.html">📜 Brain Decisions</a>'

@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Online Learning — bpleone / trade</title>
+<meta name="description" content="Live training event stream — every prediction, every weight update, every batch.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.evt-row { display:grid; grid-template-columns: 90px 110px 90px 90px 90px 1fr; gap:10px; padding:8px 12px; border-bottom:1px solid var(--border); font-family:var(--font-mono); font-size:11px; align-items:center; }
+.evt-row.batch { background:rgba(0,212,255,0.06); border-left:3px solid var(--accent); }
+.evt-row.predict { border-left:3px solid var(--text-muted); }
+.evt-row.hit { border-left:3px solid var(--green); }
+.evt-row.miss { border-left:3px solid var(--red); }
+.flash { animation: olflash 0.6s ease; }
+@keyframes olflash { 0% { background:rgba(0,212,255,0.18); } 100% { background:transparent; } }
+.pulse-dot { display:inline-block; width:8px; height:8px; border-radius:50%; background:var(--green); margin-right:6px; animation:olpulse 2s infinite; }
+@keyframes olpulse { 0%,100% { opacity: 1; } 50% { opacity: 0.3; } }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">⚡ Online Learning</div>
+      <div class="page-subtitle"><span class="pulse-dot"></span>Live training stream · predictions · weight updates · <span id="market-clock">--</span></div>
+    </div>
+    <div class="flex gap-8">
+      <button class="btn btn-secondary" id="pauseBtn">⏸ Pause</button>
+      <button class="btn btn-secondary" id="clearBtn">🗑 Clear</button>
+    </div>
+  </div>
+
+  <div class="grid grid-4 mb-24">
+    <div class="card"><div class="card-header"><div class="card-title">Events / min</div></div><div class="mono" style="font-size:26px;font-weight:700;" id="kRate">--</div><div class="mono" style="font-size:11px;color:var(--text-muted);" id="kRateBody">rolling 60s</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">Predictions Made</div></div><div class="mono" style="font-size:26px;font-weight:700;color:var(--accent);" id="kPred">0</div><div class="mono" style="font-size:11px;color:var(--text-muted);">this session</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">Training Batches</div></div><div class="mono" style="font-size:26px;font-weight:700;color:var(--green);" id="kBatch">0</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">Avg Loss (recent)</div></div><div class="mono" style="font-size:26px;font-weight:700;" id="kLoss">--</div></div>
+  </div>
+
+  <!-- LIVE LOSS -->
+  <div class="card mb-24">
+    <div class="card-header"><div class="card-title">📉 Live Loss Stream (rolling 60 samples)</div></div>
+    <canvas id="lossLive" height="160"></canvas>
+  </div>
+
+  <!-- EVENTS -->
+  <div class="card" style="padding:0;">
+    <div class="card-header" style="padding:14px 16px;">
+      <div class="card-title">⚡ Event Stream</div>
+      <span style="font-size:11px;color:var(--text-muted);">most recent first · click row to drill</span>
+    </div>
+    <div class="evt-row" style="background:var(--bg-elevated);font-size:9px;color:var(--text-muted);font-weight:800;letter-spacing:0.5px;">
+      <div>TIME</div><div>TYPE</div><div>SYM</div><div>PRED</div><div>OUTCOME</div><div>DETAILS</div>
+    </div>
+    <div id="evtBody" style="max-height:580px;overflow-y:auto;"></div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script src="js/model.js"></script>
+<script src="js/charts.js"></script>
+<script>
+buildNav('online-learning');
+
+let events = [];
+let paused = false;
+let predCount = 0, batchCount = 0;
+let lossLiveChart;
+
+function addEvent(e) {
+  if (paused) return;
+  events.unshift({ ...e, ts: Date.now() });
+  if (events.length > 200) events.length = 200;
+  paintEvents();
+  paintLossChart();
+  paintKPIs();
+}
+
+function paintEvents() {
+  const body = document.getElementById('evtBody');
+  body.innerHTML = '';
+  if (events.length === 0) {
+    body.innerHTML = '<div style="padding:30px;text-align:center;color:var(--text-muted);font-size:13px;">Waiting for events... Brain emits findings every 60s. Each finding triggers a prediction. Outcome ratings trigger training.</div>';
+    return;
+  }
+  events.slice(0, 80).forEach(e => {
+    const time = new Date(e.ts).toLocaleTimeString('en-US', { hour12: false });
+    const row = document.createElement('div');
+    row.className = 'evt-row ' + e.cls;
+    row.innerHTML = '<div style="color:var(--text-muted);">' + time + '</div>'
+      + '<div style="font-weight:700;color:' + e.col + ';">' + e.type + '</div>'
+      + '<div><strong>' + (e.sym || '—') + '</strong></div>'
+      + '<div>' + (e.pred || '—') + '</div>'
+      + '<div>' + (e.outcome || '—') + '</div>'
+      + '<div style="color:var(--text-secondary);font-family:Inter;line-height:1.4;">' + e.detail + '</div>';
+    body.appendChild(row);
+  });
+}
+
+function paintKPIs() {
+  const lastMin = events.filter(e => Date.now() - e.ts < 60000).length;
+  document.getElementById('kRate').textContent = lastMin;
+  document.getElementById('kRateBody').textContent = lastMin === 0 ? 'idle' : 'live';
+  document.getElementById('kPred').textContent = predCount;
+  document.getElementById('kBatch').textContent = batchCount;
+  // Avg loss recent
+  const model = ModelStore.load();
+  const losses = (model.lossHistory || []).slice(-20);
+  if (losses.length > 0) {
+    const avg = losses.reduce((s, l) => s + l.loss, 0) / losses.length;
+    document.getElementById('kLoss').textContent = avg.toFixed(4);
+    document.getElementById('kLoss').style.color = avg < 0.5 ? 'var(--green)' : avg < 1.0 ? 'var(--accent)' : 'var(--red)';
+  }
+}
+
+function paintLossChart() {
+  const model = ModelStore.load();
+  const losses = (model.lossHistory || []).slice(-60);
+  const labels = losses.map((_, i) => i);
+  const data = losses.map(l => l.loss);
+  if (lossLiveChart) lossLiveChart.destroy();
+  lossLiveChart = new Chart(document.getElementById('lossLive').getContext('2d'), {
+    type: 'line',
+    data: { labels, datasets: [{ label: 'Loss', data, borderColor: 'rgba(0,212,255,1)', backgroundColor: 'rgba(0,212,255,0.06)', fill: true, pointRadius: 0, borderWidth: 2, tension: 0.2 }] },
+    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { display: false }, y: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#6b7280' } } } }
+  });
+}
+
+// Hook brain events
+window.addEventListener('bpleone:brain-finding', e => {
+  const f = e.detail || {};
+  predCount++;
+  addEvent({
+    type: 'PREDICT', cls: 'predict', col: 'var(--accent)',
+    sym: f.meta && f.meta.sym, pred: f.modelProb ? (f.modelProb * 100).toFixed(0) + '%' : 'n/a',
+    outcome: 'pending',
+    detail: 'Brain emitted ' + (f.type || 'finding') + (f.meta && f.meta.setup ? ' · ' + f.meta.setup : '') + ' · stored ' + (f.features ? f.features.length : 0) + ' features'
+  });
+});
+
+window.addEventListener('bpleone:model-trained', e => {
+  const d = e.detail || {};
+  batchCount++;
+  addEvent({
+    type: 'TRAIN BATCH', cls: 'batch', col: 'var(--accent)',
+    sym: '—', pred: '—', outcome: '—',
+    detail: 'Trained on ' + (d.batchSize || 0) + ' new outcomes · avg loss ' + ((d.avgLoss || 0).toFixed(4)) + ' · n_trained ' + (d.model ? d.model.n_trained : '?')
+  });
+});
+
+document.getElementById('pauseBtn').addEventListener('click', () => {
+  paused = !paused;
+  document.getElementById('pauseBtn').textContent = paused ? '▶ Resume' : '⏸ Pause';
+});
+
+document.getElementById('clearBtn').addEventListener('click', () => {
+  events = []; predCount = 0; batchCount = 0;
+  paintEvents(); paintKPIs();
+});
+
+// Initial render
+paintEvents();
+paintKPIs();
+paintLossChart();
+setInterval(paintKPIs, 5000);
+</script>
+</body>
+</html>

@@ -53,6 +53,17 @@ const BrainLoop = (function () {
       type, severity, title, body, meta: meta || {},
       dedupKey
     };
+    // ---- ML: snapshot feature vector + model prediction at emit time ----
+    try {
+      if (typeof window !== 'undefined' && window.FeatureExtractor && window.ModelStore) {
+        f.features = window.FeatureExtractor.extract(f);
+        const model = window.ModelStore.load();
+        const pred = model.predict(f.features);
+        f.modelProb = pred.prob;
+        f.modelScore = pred.score;
+        f.modelVersion = model.version;
+      }
+    } catch (e) {}
     findings.items.unshift(f);
     if (findings.items.length > MAX_FINDINGS) findings.items.length = MAX_FINDINGS;
     saveFindings(findings);
@@ -245,6 +256,17 @@ const BrainLoop = (function () {
       saveState(state);
       emit('ml-feedback', 'low', 'ML feedback ran', `Adjusted ${nudged} per-symbol weights from outcome ratings (hit=+0.005, miss=-0.005)`, { nudged });
     }
+    // ---- Train the actual ML model on new rated outcomes ----
+    try {
+      if (typeof window !== 'undefined' && window.ModelTrainer) {
+        const result = window.ModelTrainer.trainBatch();
+        if (result.trained > 0) {
+          emit('model-trained', 'low', 'Model trained · batch',
+            `Trained on ${result.trained} new outcomes. Avg loss: ${result.avgLoss.toFixed(3)}. n_trained: ${result.model.n_trained}, rolling acc: ${(result.model.rollingAccuracy() * 100).toFixed(1)}%`,
+            { batchSize: result.trained, avgLoss: result.avgLoss, n_trained: result.model.n_trained });
+        }
+      }
+    } catch (e) {}
   }
 
   // --- Regime detector ---
