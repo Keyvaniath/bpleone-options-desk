@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Multi-Position Kelly — bpleone / trade</title>
+<meta name="description" content="Kelly sizing for multiple simultaneous bets. Adjusts for correlation. Total bankroll exposure capped.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<style>
+.bet-row { display:grid;grid-template-columns:80px 80px 80px 80px 90px 40px;gap:10px;padding:8px 0;border-bottom:1px solid var(--border);font-size:11px;align-items:center; }
+.bet-row.hdr { font-size:9px;color:var(--text-muted);font-weight:800;letter-spacing:0.5px; }
+.bet-row input { width:100%;padding:8px;background:var(--bg);border:1px solid var(--border);color:var(--text-primary);border-radius:5px;font-family:var(--font-mono);font-size:11px; }
+.bet-row .x { cursor:pointer;color:var(--red);text-align:center;font-size:18px;font-weight:700; }
+.result-row { padding:11px 0;border-bottom:1px solid var(--border);display:grid;grid-template-columns:80px 90px 90px 90px 90px;gap:10px;font-family:var(--font-mono);font-size:12px;align-items:center; }
+.result-row.hdr { font-size:9px;color:var(--text-muted);font-weight:800;letter-spacing:0.5px; }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">🎯 Multi-Position Kelly</div>
+      <div class="page-subtitle">Optimal sizing for N simultaneous bets · correlation-adjusted · capped · <span id="market-clock">--</span></div>
+    </div>
+    <div class="flex gap-8">
+      <button class="btn btn-ghost" id="loadPicksBtn">📥 Load brain picks</button>
+      <button class="btn btn-primary" id="addBtn">+ Add bet</button>
+    </div>
+  </div>
+
+  <div class="grid grid-3 mb-24">
+    <div class="card"><div class="card-header"><div class="card-title">Book size</div></div>
+      <input type="number" id="book" value="10000" step="500" style="width:100%;padding:10px;background:var(--bg);border:1px solid var(--border);color:var(--text-primary);border-radius:6px;font-family:var(--font-mono);font-size:18px;font-weight:700;">
+    </div>
+    <div class="card"><div class="card-header"><div class="card-title">Kelly fraction</div></div>
+      <select id="frac" style="width:100%;padding:10px;background:var(--bg);border:1px solid var(--border);color:var(--text-primary);border-radius:6px;font-size:14px;">
+        <option value="0.25" selected>1/4 Kelly (recommended)</option>
+        <option value="0.5">1/2 Kelly (aggressive)</option>
+        <option value="1.0">Full Kelly (theoretical max)</option>
+        <option value="0.1">1/10 Kelly (very conservative)</option>
+      </select>
+    </div>
+    <div class="card"><div class="card-header"><div class="card-title">Max book exposure</div></div>
+      <input type="number" id="maxExp" value="30" step="5" style="width:100%;padding:10px;background:var(--bg);border:1px solid var(--border);color:var(--text-primary);border-radius:6px;font-family:var(--font-mono);font-size:18px;font-weight:700;">
+      <div style="font-size:11px;color:var(--text-muted);margin-top:4px;">% of book — hard cap across all positions</div>
+    </div>
+  </div>
+
+  <div class="card mb-24">
+    <div class="card-header"><div class="card-title">📝 Define your bets</div></div>
+    <div class="bet-row hdr">
+      <div>SYMBOL</div><div>P(WIN)</div><div>R:R</div><div>RISK / SHARE</div><div>SECTOR</div><div></div>
+    </div>
+    <div id="bets"></div>
+  </div>
+
+  <div class="card mb-24">
+    <div class="card-header"><div class="card-title">🎯 Recommended sizing</div></div>
+    <div class="result-row hdr">
+      <div>SYMBOL</div><div>RAW KELLY</div><div>ADJUSTED</div><div>SHARES</div><div>RISK $</div>
+    </div>
+    <div id="results"></div>
+    <div id="summary" style="padding:14px;margin-top:14px;background:var(--bg-elevated);border-radius:8px;font-size:13px;line-height:1.7;"></div>
+  </div>
+
+  <div class="grid grid-2 mb-24">
+    <div class="card">
+      <div class="card-header"><div class="card-title">📊 Sizing breakdown</div></div>
+      <canvas id="pieChart" height="220"></canvas>
+    </div>
+    <div class="card">
+      <div class="card-header"><div class="card-title">🎲 Edge distribution</div></div>
+      <canvas id="edgeChart" height="220"></canvas>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-header"><div class="card-title">💡 The math</div></div>
+    <div style="font-size:13px;color:var(--text-secondary);line-height:1.7;">
+      Single-bet Kelly: <code>f* = (p × b − q) / b</code> where p = win prob, q = 1−p, b = win:loss ratio.
+      <br>
+      Multi-bet correlation adjustment: bets in the same sector share risk. The brain reduces each Kelly fraction by a correlation penalty when 2+ bets are in the same sector.
+      <br>
+      Final size is the minimum of: (a) fractional Kelly, (b) per-bet 5% cap, (c) total book exposure cap distributed.
+      <br><br>
+      <strong>Full Kelly is mathematically optimal but emotionally brutal</strong> — drawdowns are extreme. 1/4 Kelly is the standard for trading. Don't go above 1/2 Kelly unless you're robotically disciplined.
+    </div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script src="js/model.js"></script>
+<script>
+buildNav('multi-position-kelly');
+
+const SECTORS_MAP = {
+  'AAPL':'Tech','MSFT':'Tech','GOOGL':'Tech','META':'Tech','NVDA':'Tech','AMD':'Tech','INTC':'Tech','PLTR':'Tech','SMCI':'Tech',
+  'TSLA':'Auto','AMZN':'Consumer','NFLX':'Consumer','JPM':'Financial','BAC':'Financial','GS':'Financial','HOOD':'Financial',
+  'SPY':'Index','QQQ':'Index','IWM':'Index','BTC':'Crypto','ETH':'Crypto','COIN':'Crypto','MSTR':'Crypto'
+};
+
+let bets = [
+  { sym:'NVDA', p:0.72, rr:2.0, risk:5, sector:'Tech' },
+  { sym:'SPY', p:0.65, rr:1.8, risk:3, sector:'Index' },
+  { sym:'AAPL', p:0.58, rr:1.5, risk:2, sector:'Tech' }
+];
+
+function renderBets() {
+  const wrap = document.getElementById('bets');
+  wrap.innerHTML = bets.map((b, i) => '<div class="bet-row">'
+    + '<input type="text" data-i="' + i + '" data-f="sym" value="' + b.sym + '" style="text-transform:uppercase;">'
+    + '<input type="number" data-i="' + i + '" data-f="p" value="' + b.p + '" step="0.01" min="0" max="1">'
+    + '<input type="number" data-i="' + i + '" data-f="rr" value="' + b.rr + '" step="0.1">'
+    + '<input type="number" data-i="' + i + '" data-f="risk" value="' + b.risk + '" step="0.5">'
+    + '<input type="text" data-i="' + i + '" data-f="sector" value="' + b.sector + '">'
+    + '<span class="x" data-i="' + i + '">×</span></div>'
+  ).join('');
+  wrap.querySelectorAll('input').forEach(inp => inp.addEventListener('input', () => {
+    const i = +inp.dataset.i, f = inp.dataset.f;
+    bets[i][f] = inp.type === 'number' ? parseFloat(inp.value) : inp.value.toUpperCase();
+    render();
+  }));
+  wrap.querySelectorAll('.x').forEach(x => x.addEventListener('click', () => {
+    bets.splice(+x.dataset.i, 1);
+    render();
+  }));
+}
+
+function calculate() {
+  const book = parseFloat(document.getElementById('book').value) || 10000;
+  const fracK = parseFloat(document.getElementById('frac').value);
+  const maxExp = parseFloat(document.getElementById('maxExp').value) / 100 || 0.3;
+
+  // Raw Kelly per bet
+  const raw = bets.map(b => {
+    const f = (b.p * b.rr - (1 - b.p)) / b.rr;
+    return { ...b, rawF: Math.max(0, f) };
+  });
+
+  // Correlation penalty by sector
+  const sectorCounts = {};
+  raw.forEach(b => { sectorCounts[b.sector] = (sectorCounts[b.sector] || 0) + 1; });
+  const adjusted = raw.map(b => {
+    const corrPenalty = sectorCounts[b.sector] > 1 ? 1 / Math.sqrt(sectorCounts[b.sector]) : 1;
+    const adjF = b.rawF * fracK * corrPenalty;
+    const capF = Math.min(adjF, 0.05);  // 5% per-bet cap
+    return { ...b, adjF: capF, corrPenalty };
+  });
+
+  // Total exposure cap
+  let totalAdj = adjusted.reduce((a, b) => a + b.adjF, 0);
+  const scale = totalAdj > maxExp ? maxExp / totalAdj : 1;
+  const final = adjusted.map(b => ({ ...b, finalF: b.adjF * scale }));
+
+  return final.map(b => ({
+    ...b,
+    riskDollars: book * b.finalF,
+    shares: b.risk > 0 ? Math.floor((book * b.finalF) / b.risk) : 0,
+    exposureDollars: book * b.finalF * b.rr  // rough exposure based on per-share risk
+  }));
+}
+
+function render() {
+  renderBets();
+  const r = calculate();
+  document.getElementById('results').innerHTML = r.map(b =>
+    '<div class="result-row">'
+      + '<div><strong>' + b.sym + '</strong></div>'
+      + '<div style="color:var(--text-muted);">' + (b.rawF * 100).toFixed(1) + '%</div>'
+      + '<div style="color:' + (b.corrPenalty < 1 ? 'var(--yellow)' : 'var(--accent)') + ';font-weight:700;">' + (b.finalF * 100).toFixed(2) + '%</div>'
+      + '<div>' + b.shares + '</div>'
+      + '<div style="color:var(--green);">$' + b.riskDollars.toFixed(0) + '</div>'
+    + '</div>'
+  ).join('') || '<div style="padding:20px;text-align:center;color:var(--text-muted);font-size:12px;">No bets defined.</div>';
+
+  const totalRisk = r.reduce((a, b) => a + b.riskDollars, 0);
+  const book = parseFloat(document.getElementById('book').value) || 10000;
+  document.getElementById('summary').innerHTML =
+    'Total risk: <strong style="color:var(--accent);">$' + totalRisk.toFixed(0) + '</strong> (' + ((totalRisk/book)*100).toFixed(1) + '% of book) across ' + r.length + ' positions.'
+    + (r.some(b => b.corrPenalty < 1) ? '<br>⚠ Correlation penalty applied — multiple positions in the same sector.' : '')
+    + (r.every(b => b.finalF === 0) ? '<br><strong style="color:var(--red);">No bets have positive expected value at current win rates.</strong>' : '');
+
+  // Charts
+  if (window._pie) window._pie.destroy();
+  window._pie = new Chart(document.getElementById('pieChart'), {
+    type: 'doughnut',
+    data: { labels: r.map(b => b.sym), datasets: [{ data: r.map(b => b.riskDollars), backgroundColor:['#00d4ff','#a78bfa','#10b981','#f59e0b','#ef4444','#84cc16','#06b6d4','#ec4899'] }] },
+    options: { responsive:true, maintainAspectRatio:false, plugins:{legend:{labels:{color:'#ccc'}}} }
+  });
+
+  if (window._edge) window._edge.destroy();
+  window._edge = new Chart(document.getElementById('edgeChart'), {
+    type: 'bar',
+    data: {
+      labels: r.map(b => b.sym),
+      datasets: [
+        { label: 'Win prob', data: r.map(b => b.p * 100), backgroundColor:'#00d4ff' },
+        { label: 'Break-even', data: r.map(b => 100 / (1 + b.rr)), backgroundColor:'#a78bfa' }
+      ]
+    },
+    options: { responsive:true, maintainAspectRatio:false, plugins:{legend:{labels:{color:'#ccc'}}}, scales:{x:{ticks:{color:'#888'},grid:{display:false}},y:{ticks:{color:'#888',callback:v=>v+'%'},grid:{color:'#222'},max:100}} }
+  });
+}
+
+document.getElementById('addBtn').addEventListener('click', () => {
+  bets.push({ sym:'SYM', p:0.6, rr:1.5, risk:5, sector:'Other' });
+  render();
+});
+document.getElementById('loadPicksBtn').addEventListener('click', () => {
+  try {
+    const findings = JSON.parse(localStorage.getItem('bpleone_brain_findings_v1') || '{"items":[]}').items;
+    const recent = findings.filter(f => Date.now() - f.ts < 6 * 3600 * 1000);
+    if (recent.length === 0) { alert('No brain findings in the last 6 hours.'); return; }
+    const ranked = recent.map(f => {
+      let p = null; try { if (window.predictForFinding) { const r = window.predictForFinding(f); p = r ? r.prob : null; } } catch(e) {}
+      return { ...f, p };
+    }).filter(f => f.p != null && f.p >= 0.55).sort((a,b) => b.p - a.p);
+    // Dedupe by symbol
+    const seen = new Set();
+    bets = ranked.filter(f => { const s = f.meta?.sym; if (seen.has(s)) return false; seen.add(s); return true; }).slice(0, 5).map(f => ({
+      sym: f.meta?.sym,
+      p: f.p,
+      rr: 1.8,
+      risk: 5,
+      sector: SECTORS_MAP[f.meta?.sym] || 'Other'
+    }));
+    if (bets.length === 0) { alert('No high-conf brain picks (≥55%) right now.'); return; }
+    render();
+  } catch(e) { alert('Load failed: ' + e.message); }
+});
+['book','frac','maxExp'].forEach(id => document.getElementById(id).addEventListener('input', render));
+
+render();
+</script>
+</body>
+</html>

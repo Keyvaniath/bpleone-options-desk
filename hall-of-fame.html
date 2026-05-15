@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Hall of Fame — bpleone / trade</title>
+<meta name="description" content="Best calls + worst mistakes ever. Learn from your highlights AND your lowlights.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.tab-row { display:flex;gap:10px;margin-bottom:18px; }
+.tab { padding:10px 18px;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;background:var(--bg-elevated);border:1px solid var(--border);color:var(--text-secondary); }
+.tab.on { background:var(--accent);color:#000;border-color:var(--accent); }
+.legend-card { padding:24px;background:var(--bg-elevated);border:1px solid var(--border);border-radius:14px;margin-bottom:14px;position:relative;overflow:hidden; }
+.legend-card.win { border-left:5px solid var(--green);background:linear-gradient(135deg,rgba(16,185,129,0.06),var(--bg-elevated)); }
+.legend-card.loss { border-left:5px solid var(--red);background:linear-gradient(135deg,rgba(239,68,68,0.06),var(--bg-elevated)); }
+.legend-card .crown { position:absolute;top:12px;right:14px;font-size:24px; }
+.legend-card .rank { font-family:var(--font-mono);font-size:32px;font-weight:800;color:var(--text-muted);min-width:60px; }
+.legend-card .row { display:grid;grid-template-columns:60px 1fr 140px 100px;gap:18px;align-items:center; }
+.legend-card h3 { font-size:18px;font-weight:700; }
+.legend-card .meta { font-size:12px;color:var(--text-muted);margin-top:4px;line-height:1.6; }
+.legend-card .pnl-big { font-family:var(--font-mono);font-size:32px;font-weight:800;text-align:right; }
+.legend-card .meta-line { font-size:11px;color:var(--text-secondary);font-family:var(--font-mono);text-align:right;margin-top:4px; }
+.summary-card { padding:18px;background:linear-gradient(135deg,rgba(0,212,255,0.05),transparent);border-radius:12px;margin-bottom:18px;font-size:14px;color:var(--text-primary);line-height:1.7; }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">🏆 Hall of Fame</div>
+      <div class="page-subtitle">Best calls + worst mistakes ever · learn from both · <span id="market-clock">--</span></div>
+    </div>
+    <div class="flex gap-8">
+      <select id="metric" class="btn btn-secondary" style="background:var(--bg-elevated);border:1px solid var(--border);color:var(--text-primary);padding:8px 14px;">
+        <option value="pnl">Sort: $ amount</option>
+        <option value="r" selected>Sort: R multiple</option>
+        <option value="ml">Sort: Model confidence</option>
+      </select>
+    </div>
+  </div>
+
+  <div class="tab-row">
+    <div class="tab on" data-tab="best">🏅 Top 10 best calls</div>
+    <div class="tab" data-tab="worst">🤕 Top 10 worst mistakes</div>
+    <div class="tab" data-tab="overconf">⚠ Most overconfident misses</div>
+    <div class="tab" data-tab="underconf">🌟 Hidden gems (low conf, big wins)</div>
+  </div>
+
+  <div id="summary"></div>
+  <div id="legends"></div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script src="js/model.js"></script>
+<script>
+buildNav('hall-of-fame');
+
+let activeTab = 'best';
+
+function loadJournal() { try { return JSON.parse(localStorage.getItem('bpleone_journal_pro_v1') || '[]'); } catch(e) { return []; } }
+function loadTrain() { try { return JSON.parse(localStorage.getItem('bpleone_train_v1') || '[]'); } catch(e) { return []; } }
+
+function getAllTrades() {
+  const journal = loadJournal().filter(t => t.exit != null).map(t => ({
+    sym: t.sym, ts: t.ts, pnl: t.pnl, entry: t.entry, exit: t.exit, qty: t.qty,
+    isWin: t.pnl > 0,
+    r: t.entry && t.stop ? (t.pnl > 0 ? Math.abs(t.exit - t.entry) / Math.abs(t.entry - t.stop) : -1) : (t.pnl > 0 ? 1.5 : -1),
+    source: 'journal'
+  }));
+  const train = loadTrain().map(t => ({
+    sym: t.meta?.sym, ts: t.ts, pnl: (t.y === 1 ? (t.r || 1.5) * 100 : -100),
+    isWin: t.y === 1, r: t.y === 1 ? (t.r || 1.5) : -1,
+    source: 'train', x: t.x, meta: t.meta
+  }));
+  // Attach ML prob
+  return [...journal, ...train].map(t => {
+    let prob = null;
+    try { if (window.predictForFinding && t.x) { const p = window.predictForFinding({ x: t.x, meta: t.meta || { sym: t.sym } }); prob = p ? p.prob : null; } } catch(e) {}
+    return { ...t, mlProb: prob };
+  });
+}
+
+function render() {
+  const metric = document.getElementById('metric').value;
+  const trades = getAllTrades();
+
+  let filtered, sorter, summaryTxt;
+  if (activeTab === 'best') {
+    filtered = trades.filter(t => t.isWin);
+    sorter = metric === 'pnl' ? (a,b) => b.pnl - a.pnl : metric === 'r' ? (a,b) => b.r - a.r : (a,b) => (b.mlProb||0) - (a.mlProb||0);
+    summaryTxt = '<strong>Your highlight reel.</strong> These are the trades that worked best. Study what made them work — pattern, timing, setup, sizing. <strong>Repeatability is the goal.</strong>';
+  } else if (activeTab === 'worst') {
+    filtered = trades.filter(t => !t.isWin);
+    sorter = metric === 'pnl' ? (a,b) => a.pnl - b.pnl : metric === 'r' ? (a,b) => a.r - b.r : (a,b) => (b.mlProb||0) - (a.mlProb||0);
+    summaryTxt = '<strong>Your scar tissue.</strong> These trades cost you the most. Painful to look at. Worth it. <strong>Avoidance is the second-highest form of edge.</strong>';
+  } else if (activeTab === 'overconf') {
+    filtered = trades.filter(t => !t.isWin && t.mlProb != null && t.mlProb >= 0.7);
+    sorter = (a,b) => (b.mlProb||0) - (a.mlProb||0);
+    summaryTxt = '<strong>The brain was wrong.</strong> Model said 70%+ confident but the trade lost. These are the BEST signal for model retraining — examine why the brain mispriced these.';
+  } else {
+    filtered = trades.filter(t => t.isWin && t.mlProb != null && t.mlProb < 0.5);
+    sorter = (a,b) => b.r - a.r;
+    summaryTxt = '<strong>Your discretion beat the model.</strong> Wins where the brain wasn\'t confident. Your gut found something. Use these as training data to teach the brain what it\'s missing.';
+  }
+  filtered.sort(sorter);
+  filtered = filtered.slice(0, 10);
+
+  document.getElementById('summary').innerHTML = '<div class="summary-card">' + summaryTxt + '</div>';
+
+  const wrap = document.getElementById('legends');
+  if (filtered.length === 0) {
+    wrap.innerHTML = '<div style="padding:40px;text-align:center;color:var(--text-muted);font-size:13px;">No trades match this category yet.</div>';
+    return;
+  }
+  wrap.innerHTML = filtered.map((t, i) => {
+    const cls = t.isWin ? 'win' : 'loss';
+    const crown = i === 0 ? '👑' : i === 1 ? '🥈' : i === 2 ? '🥉' : '';
+    return '<div class="legend-card ' + cls + '">'
+      + '<div class="crown">' + crown + '</div>'
+      + '<div class="row">'
+        + '<div class="rank">#' + (i + 1) + '</div>'
+        + '<div><h3>' + (t.sym || '?') + '</h3>'
+          + '<div class="meta">' + new Date(t.ts).toLocaleDateString() + ' · ' + (t.source === 'journal' ? 'Real trade' : 'Brain learning row') + (t.mlProb != null ? ' · ML thought <strong>' + (t.mlProb*100).toFixed(0) + '%</strong>' : '') + '</div></div>'
+        + '<div class="meta-line">'
+          + (t.entry ? '$' + t.entry.toFixed(2) + ' → $' + (t.exit||0).toFixed(2) : '')
+          + (t.qty ? '<br>' + t.qty + ' shares' : '')
+        + '</div>'
+        + '<div><div class="pnl-big" style="color:' + (t.pnl > 0 ? 'var(--green)' : 'var(--red)') + ';">' + (t.pnl >= 0 ? '+' : '-') + '$' + Math.abs(t.pnl).toFixed(0) + '</div><div class="meta-line">' + (t.r >= 0 ? '+' : '') + t.r.toFixed(2) + 'R</div></div>'
+      + '</div></div>';
+  }).join('');
+}
+
+document.querySelectorAll('.tab').forEach(t => t.addEventListener('click', () => {
+  document.querySelectorAll('.tab').forEach(x => x.classList.remove('on'));
+  t.classList.add('on');
+  activeTab = t.dataset.tab;
+  render();
+}));
+document.getElementById('metric').addEventListener('change', render);
+
+render();
+</script>
+</body>
+</html>

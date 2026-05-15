@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Brain Rate of Learning — bpleone / trade</title>
+<meta name="description" content="Is the brain actually getting better over time? Rolling hit rate, slope of improvement, time-to-next-grade.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<style>
+.trend-card { padding:24px;background:var(--bg-elevated);border-radius:14px;text-align:center;margin-bottom:24px; }
+.trend-card.up { background:linear-gradient(135deg,rgba(16,185,129,0.08),transparent);border:1px solid rgba(16,185,129,0.3); }
+.trend-card.flat { background:rgba(100,116,139,0.05);border:1px solid var(--border); }
+.trend-card.down { background:linear-gradient(135deg,rgba(239,68,68,0.08),transparent);border:1px solid rgba(239,68,68,0.3); }
+.trend-card .arrow { font-size:60px;line-height:1; }
+.trend-card .stat { font-family:var(--font-mono);font-size:32px;font-weight:800;margin:10px 0; }
+.milestone-row { padding:14px 0;border-bottom:1px solid var(--border);display:grid;grid-template-columns:1fr 100px 90px;gap:14px;align-items:center;font-size:12px; }
+.milestone-row.hit { opacity:0.6; }
+.eta-tile { padding:18px;background:var(--bg-elevated);border-radius:10px;text-align:center; }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">📈 Brain Rate of Learning</div>
+      <div class="page-subtitle">Is the brain actually getting better? Slope · velocity · time-to-next-grade · <span id="market-clock">--</span></div>
+    </div>
+  </div>
+
+  <div id="trendCard" class="trend-card flat"></div>
+
+  <div class="grid grid-2 mb-24">
+    <div class="card">
+      <div class="card-header"><div class="card-title">📈 Rolling 20-trade hit rate over time</div></div>
+      <canvas id="rollChart" height="220"></canvas>
+    </div>
+    <div class="card">
+      <div class="card-header"><div class="card-title">📊 Trades per day (volume)</div></div>
+      <canvas id="volChart" height="220"></canvas>
+    </div>
+  </div>
+
+  <div class="grid grid-3 mb-24">
+    <div class="eta-tile">
+      <div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;">Time to next grade</div>
+      <div class="mono" style="font-size:26px;font-weight:800;margin-top:8px;color:var(--accent);" id="eta">--</div>
+      <div style="font-size:11px;color:var(--text-muted);margin-top:4px;" id="etaSub">--</div>
+    </div>
+    <div class="eta-tile">
+      <div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;">Learning slope</div>
+      <div class="mono" style="font-size:26px;font-weight:800;margin-top:8px;" id="slope">--</div>
+      <div style="font-size:11px;color:var(--text-muted);margin-top:4px;">% per 10 trades</div>
+    </div>
+    <div class="eta-tile">
+      <div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;">Trades to 95% sig</div>
+      <div class="mono" style="font-size:26px;font-weight:800;margin-top:8px;" id="sigN">--</div>
+      <div style="font-size:11px;color:var(--text-muted);margin-top:4px;">to prove edge isn't luck</div>
+    </div>
+  </div>
+
+  <div class="card mb-24">
+    <div class="card-header"><div class="card-title">🎯 Milestones</div></div>
+    <div id="milestones"></div>
+  </div>
+
+  <div class="card">
+    <div class="card-header"><div class="card-title">💡 Interpretation</div></div>
+    <div style="font-size:13px;color:var(--text-secondary);line-height:1.7;">
+      <strong>Slope &gt; 0:</strong> The rolling hit rate is trending up. The brain is getting better as it sees more data. Good.<br>
+      <strong>Slope ≈ 0:</strong> Plateaued. Either you hit your ceiling, or the model needs a refresh / new features.<br>
+      <strong>Slope &lt; 0:</strong> Degrading. Possible regime change. Investigate drift, consider retraining or pausing.<br>
+      <br>
+      Most edge accumulates slowly. A 1%/month improvement in hit rate compounds enormously over a year. Don't expect step changes.
+    </div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script>
+buildNav('brain-rate-of-learning');
+
+function loadTrain() { try { return JSON.parse(localStorage.getItem('bpleone_train_v1') || '[]'); } catch(e) { return []; } }
+
+function rollingHit(train, window) {
+  const sorted = [...train].sort((a, b) => a.ts - b.ts);
+  const out = [];
+  for (let i = window - 1; i < sorted.length; i++) {
+    const slice = sorted.slice(i - window + 1, i + 1);
+    const w = slice.filter(t => t.y === 1).length;
+    out.push({ idx: i + 1, hit: w / window, ts: sorted[i].ts });
+  }
+  return out;
+}
+
+function linearRegression(pts) {
+  if (pts.length < 2) return { slope: 0, intercept: 0 };
+  const n = pts.length;
+  const sumX = pts.reduce((a, p) => a + p.x, 0);
+  const sumY = pts.reduce((a, p) => a + p.y, 0);
+  const sumXY = pts.reduce((a, p) => a + p.x * p.y, 0);
+  const sumXX = pts.reduce((a, p) => a + p.x * p.x, 0);
+  const slope = (n * sumXY - sumX * sumY) / (n * sumXX - sumX * sumX);
+  const intercept = (sumY - slope * sumX) / n;
+  return { slope, intercept };
+}
+
+function render() {
+  const train = loadTrain();
+  if (train.length < 20) {
+    document.getElementById('trendCard').className = 'trend-card flat';
+    document.getElementById('trendCard').innerHTML = '<div class="arrow">🌱</div><div class="stat" style="color:var(--yellow);">NOT ENOUGH DATA</div><div style="font-size:13px;color:var(--text-secondary);">Need 20+ resolved trades to measure rate of learning. Keep going.</div>';
+    return;
+  }
+
+  const window = Math.min(20, Math.floor(train.length / 2));
+  const rolling = rollingHit(train, window);
+  if (rolling.length < 5) return;
+
+  // Slope (over last N points)
+  const pts = rolling.map((r, i) => ({ x: i, y: r.hit }));
+  const { slope, intercept } = linearRegression(pts);
+  const startHit = rolling[0].hit;
+  const endHit = rolling[rolling.length - 1].hit;
+
+  // Verdict card
+  const tCard = document.getElementById('trendCard');
+  const slopePerTen = slope * 10; // hit-rate change per 10 trades
+  if (slopePerTen > 0.02) {
+    tCard.className = 'trend-card up';
+    tCard.innerHTML = '<div class="arrow" style="color:var(--green);">📈</div><div class="stat" style="color:var(--green);">+' + (slopePerTen * 100).toFixed(2) + '% / 10 trades</div><div style="font-size:13px;color:var(--text-secondary);">Brain is learning. Started at <strong>' + (startHit*100).toFixed(0) + '%</strong>, now at <strong>' + (endHit*100).toFixed(0) + '%</strong>. Keep the routine.</div>';
+  } else if (slopePerTen > -0.01) {
+    tCard.className = 'trend-card flat';
+    tCard.innerHTML = '<div class="arrow" style="color:var(--text-muted);">➡</div><div class="stat" style="color:var(--text-primary);">' + (slopePerTen >= 0 ? '+' : '') + (slopePerTen * 100).toFixed(2) + '% / 10 trades</div><div style="font-size:13px;color:var(--text-secondary);">Hit rate is stable. Plateaued at <strong>' + (endHit*100).toFixed(0) + '%</strong>. Consider feature engineering or a retrain.</div>';
+  } else {
+    tCard.className = 'trend-card down';
+    tCard.innerHTML = '<div class="arrow" style="color:var(--red);">📉</div><div class="stat" style="color:var(--red);">' + (slopePerTen * 100).toFixed(2) + '% / 10 trades</div><div style="font-size:13px;color:var(--text-secondary);">Brain is degrading. Started at <strong>' + (startHit*100).toFixed(0) + '%</strong>, now at <strong>' + (endHit*100).toFixed(0) + '%</strong>. Investigate drift.</div>';
+  }
+
+  document.getElementById('slope').textContent = (slopePerTen >= 0 ? '+' : '') + (slopePerTen * 100).toFixed(2) + '%';
+  document.getElementById('slope').style.color = slopePerTen > 0 ? 'var(--green)' : 'var(--red)';
+
+  // ETA to next grade
+  const currentGrade = endHit >= 0.7 ? 'A' : endHit >= 0.6 ? 'B' : endHit >= 0.5 ? 'C' : endHit >= 0.4 ? 'D' : 'F';
+  const nextThreshold = currentGrade === 'A' ? null : currentGrade === 'B' ? 0.7 : currentGrade === 'C' ? 0.6 : currentGrade === 'D' ? 0.5 : 0.4;
+  if (nextThreshold == null) {
+    document.getElementById('eta').textContent = '🏆 A';
+    document.getElementById('etaSub').textContent = 'Top grade — keep it';
+  } else if (slope <= 0) {
+    document.getElementById('eta').textContent = '∞';
+    document.getElementById('etaSub').textContent = 'Need positive slope';
+  } else {
+    const gap = nextThreshold - endHit;
+    const tradesNeeded = Math.ceil(gap / slope);
+    document.getElementById('eta').textContent = tradesNeeded > 1000 ? '> 1000' : tradesNeeded + ' trades';
+    document.getElementById('etaSub').textContent = 'to reach grade ' + (currentGrade === 'B' ? 'A' : currentGrade === 'C' ? 'B' : currentGrade === 'D' ? 'C' : 'D');
+  }
+
+  // Trades to 95% sig
+  const p_hat = endHit;
+  const effect = p_hat - 0.5;
+  const sigN = effect > 0 ? Math.ceil((1.645 ** 2 * 0.5 * 0.5) / (effect ** 2)) : Infinity;
+  document.getElementById('sigN').textContent = sigN === Infinity ? '∞' : sigN;
+  document.getElementById('sigN').style.color = sigN < train.length ? 'var(--green)' : 'var(--accent)';
+
+  // Rolling chart
+  const labels = rolling.map(r => new Date(r.ts).toLocaleDateString([], { month:'short', day:'numeric' }));
+  if (window._rollChart) window._rollChart.destroy();
+  window._rollChart = new Chart(document.getElementById('rollChart'), {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [
+        { label: 'Hit %', data: rolling.map(r => r.hit * 100), borderColor:'#00d4ff', backgroundColor:'rgba(0,212,255,0.1)', tension:0.3, fill:true, pointRadius:0, borderWidth:2 },
+        { label: 'Trend', data: pts.map(p => (intercept + slope * p.x) * 100), borderColor:'#a78bfa', borderDash:[6,4], pointRadius:0, borderWidth:2 },
+        { label: 'Coin flip baseline', data: rolling.map(() => 50), borderColor:'#666', borderDash:[2,4], pointRadius:0, borderWidth:1 }
+      ]
+    },
+    options: { responsive:true, maintainAspectRatio:false, plugins:{legend:{labels:{color:'#ccc'}}}, scales:{x:{ticks:{color:'#888',maxTicksLimit:8},grid:{color:'#222'}},y:{ticks:{color:'#888',callback:v=>v+'%'},grid:{color:'#222'},min:0,max:100}} }
+  });
+
+  // Volume chart
+  const byDay = {};
+  train.forEach(t => { const d = new Date(t.ts).toDateString(); byDay[d] = (byDay[d] || 0) + 1; });
+  const dayKeys = Object.keys(byDay).sort((a,b) => new Date(a) - new Date(b));
+  if (window._volChart) window._volChart.destroy();
+  window._volChart = new Chart(document.getElementById('volChart'), {
+    type: 'bar',
+    data: {
+      labels: dayKeys.map(d => new Date(d).toLocaleDateString([], { month:'short', day:'numeric' })),
+      datasets: [{ data: dayKeys.map(d => byDay[d]), backgroundColor:'#00d4ff' }]
+    },
+    options: { responsive:true, maintainAspectRatio:false, plugins:{legend:{display:false}}, scales:{x:{ticks:{color:'#888',maxTicksLimit:10},grid:{display:false}},y:{ticks:{color:'#888'},grid:{color:'#222'}}} }
+  });
+
+  // Milestones
+  const MS = [
+    { name: '10 trades — first signal', n: 10 },
+    { name: '30 trades — pattern emerges', n: 30 },
+    { name: '50 trades — statistically meaningful', n: 50 },
+    { name: '100 trades — half-real edge', n: 100 },
+    { name: '200 trades — proven if pattern holds', n: 200 },
+    { name: '500 trades — institutional confidence', n: 500 },
+    { name: '1000 trades — book-publishing territory', n: 1000 }
+  ];
+  document.getElementById('milestones').innerHTML = MS.map(m => {
+    const hit = train.length >= m.n;
+    return '<div class="milestone-row' + (hit ? ' hit' : '') + '">'
+      + '<div><strong>' + (hit ? '✓ ' : '○ ') + m.name + '</strong></div>'
+      + '<div style="font-family:var(--font-mono);color:var(--text-muted);">' + Math.min(train.length, m.n) + ' / ' + m.n + '</div>'
+      + '<div style="font-family:var(--font-mono);color:' + (hit ? 'var(--green)' : 'var(--text-muted)') + ';">' + (hit ? 'DONE' : (m.n - train.length) + ' to go') + '</div>'
+      + '</div>';
+  }).join('');
+}
+
+render();
+</script>
+</body>
+</html>
