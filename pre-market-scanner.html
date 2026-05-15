@@ -1,0 +1,443 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Pre-Market Scanner — bpleone / trade</title>
+<meta name="description" content="8 AM ET auto-fire: scans gappers, futures, overnight news. Posts morning watchlist to Discord.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.section { background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 12px; padding: 18px; margin-bottom: 16px; }
+.section h3 { margin: 0 0 10px; font-size: 14px; font-weight: 700; }
+.kpi-strip { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; margin-bottom: 18px; }
+.tile { background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 10px; padding: 14px; text-align: center; }
+.tile .lab { font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; }
+.tile .val { font-family: var(--font-mono); font-weight: 700; font-size: 18px; margin-top: 4px; }
+.r-pos { color: var(--green); } .r-neg { color: var(--red); }
+.banner { background: linear-gradient(135deg, rgba(0,212,255,0.10), rgba(139,92,246,0.06)); border: 1px solid rgba(0,212,255,0.25); border-radius: 12px; padding: 16px 18px; margin-bottom: 18px; display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+.status-pill { display: inline-block; padding: 4px 12px; border-radius: 999px; font-family: var(--font-mono); font-size: 11px; }
+.status-pill.armed { background: rgba(16,185,129,0.15); color: var(--green); }
+.status-pill.off { background: var(--bg-secondary); color: var(--text-muted); }
+.toggle { position: relative; width: 38px; height: 22px; background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 999px; cursor: pointer; transition: all .15s ease; display: inline-block; }
+.toggle.on { background: var(--accent); border-color: var(--accent); }
+.toggle .knob { position: absolute; width: 16px; height: 16px; background: var(--text-primary); border-radius: 50%; top: 2px; left: 2px; transition: all .15s ease; }
+.toggle.on .knob { left: 18px; background: #052838; }
+.gapper-row { display: grid; grid-template-columns: 80px 90px 90px 90px 90px 1fr; gap: 10px; padding: 8px 0; border-top: 1px solid var(--border); font-size: 12px; align-items: center; }
+.news-row { display: grid; grid-template-columns: 90px 80px 1fr 110px; gap: 10px; padding: 10px 0; border-top: 1px solid var(--border); font-size: 12px; align-items: start; }
+.tag { display: inline-block; padding: 2px 8px; border-radius: 4px; background: var(--bg-secondary); font-family: var(--font-mono); font-size: 10px; border: 1px solid var(--border); }
+.tag.bull { background: rgba(16,185,129,0.15); color: var(--green); border-color: rgba(16,185,129,0.3); }
+.tag.bear { background: rgba(239,68,68,0.15); color: var(--red); border-color: rgba(239,68,68,0.3); }
+.tag.macro { background: rgba(245,158,11,0.15); color: var(--yellow); border-color: rgba(245,158,11,0.3); }
+.empty { padding: 40px; text-align: center; color: var(--text-muted); }
+.mono { font-family: var(--font-mono); }
+.futures-row { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; }
+.fut-tile { background: var(--bg-secondary); border-radius: 8px; padding: 10px; text-align: center; }
+.fut-tile .sym { font-family: var(--font-mono); font-weight: 700; font-size: 14px; }
+.fut-tile .px { font-family: var(--font-mono); font-size: 13px; margin-top: 2px; }
+.fut-tile .chg { font-family: var(--font-mono); font-size: 11px; margin-top: 2px; }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">Pre-Market Scanner <span class="feat-badge feat-new">NEW</span></div>
+      <div class="page-subtitle">Auto-fires at 8 AM ET (when tab is open). Scans gappers + futures + overnight news, posts watchlist to Discord. · <span id="market-clock">--</span></div>
+    </div>
+    <div class="flex gap-8">
+      <a href="pre-market.html" class="btn btn-ghost">🌅 Pre-Market Brief</a>
+      <a href="daily-debrief.html" class="btn btn-ghost">📊 Daily Debrief</a>
+      <a href="news.html" class="btn btn-ghost">📰 News</a>
+    </div>
+  </div>
+
+  <!-- Banner / status -->
+  <div class="banner">
+    <div>
+      <div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;">Auto-fire</div>
+      <div style="margin-top:4px;"><span class="status-pill" id="armStatus">—</span></div>
+    </div>
+    <div>
+      <div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;">Next 8:00 ET</div>
+      <div class="mono" id="nextFire" style="font-size:14px;margin-top:4px;">—</div>
+    </div>
+    <div>
+      <div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;">Last fired</div>
+      <div class="mono" id="lastFire" style="font-size:14px;margin-top:4px;">—</div>
+    </div>
+    <div style="margin-left:auto;display:flex;gap:8px;align-items:center;">
+      <span style="font-size:11px;color:var(--text-muted);">Auto-fire</span>
+      <div class="toggle" id="togArm"><div class="knob"></div></div>
+      <button id="btnRun" class="btn btn-primary" style="margin-left:8px;">🌅 Scan now</button>
+      <button id="btnDiscord" class="btn btn-ghost" style="font-size:11px;">📨 Post to Discord</button>
+    </div>
+  </div>
+
+  <!-- KPI strip -->
+  <div class="kpi-strip">
+    <div class="tile"><div class="lab">Top gapper up</div><div class="val mono" id="kGapUp" style="font-size:14px;">—</div></div>
+    <div class="tile"><div class="lab">Top gapper down</div><div class="val mono" id="kGapDn" style="font-size:14px;">—</div></div>
+    <div class="tile"><div class="lab">SPY futures bias</div><div class="val mono" id="kFut" style="font-size:14px;">—</div></div>
+    <div class="tile"><div class="lab">Macro overnight</div><div class="val mono" id="kMacro" style="font-size:13px;">—</div></div>
+    <div class="tile"><div class="lab">News count</div><div class="val mono" id="kNews">—</div></div>
+  </div>
+
+  <!-- Futures snapshot -->
+  <div class="section">
+    <h3>📊 Futures snapshot</h3>
+    <div class="futures-row" id="futuresGrid"></div>
+  </div>
+
+  <!-- Gappers -->
+  <div class="section">
+    <h3>📈 Gappers (sorted by gap %)</h3>
+    <div class="gapper-row" style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;font-weight:600;">
+      <div>Sym</div>
+      <div style="text-align:right;">Last</div>
+      <div style="text-align:right;">Prev close</div>
+      <div style="text-align:right;">Gap %</div>
+      <div style="text-align:right;">RVol</div>
+      <div>Catalyst</div>
+    </div>
+    <div id="gapperList"></div>
+  </div>
+
+  <!-- News -->
+  <div class="section">
+    <h3>📰 Overnight news (last 12h)</h3>
+    <div class="news-row" style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;font-weight:600;">
+      <div>When</div>
+      <div>Sym</div>
+      <div>Headline</div>
+      <div>Categories</div>
+    </div>
+    <div id="newsList"></div>
+  </div>
+
+  <!-- Morning watchlist -->
+  <div class="section">
+    <h3>📍 Morning watchlist (highest conviction setups)</h3>
+    <div id="watchlist"></div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script src="js/ta.js"></script>
+<script src="js/learn.js"></script>
+<script src="js/discord.js"></script>
+<script src="js/alerts-engine.js"></script>
+<script>buildNav('learn');</script>
+
+<script>
+(function () {
+  const STATE_KEY = 'bpleone_premkt_state_v1';
+  const REPORT_KEY = 'bpleone_premkt_report_v1';
+  const UNIVERSE = ['SPY', 'QQQ', 'IWM', 'NVDA', 'TSLA', 'AAPL', 'MSFT', 'META', 'AMZN', 'GOOGL', 'AMD', 'COIN', 'PLTR', 'SMCI', 'NFLX', 'CRM', 'ORCL', 'XLK', 'XLE', 'XLF'];
+  const FUTURES = [
+    { sym: 'SPY', name: 'S&P 500 ETF' },
+    { sym: 'QQQ', name: 'Nasdaq 100 ETF' },
+    { sym: 'IWM', name: 'Russell 2000 ETF' },
+    { sym: 'GLD', name: 'Gold' },
+    { sym: 'USO', name: 'Oil' }
+  ];
+
+  function loadState() {
+    try { return Object.assign({ armed: true, lastFireDay: null }, JSON.parse(localStorage.getItem(STATE_KEY) || '{}')); }
+    catch (e) { return { armed: true, lastFireDay: null }; }
+  }
+  function saveState(s) { try { localStorage.setItem(STATE_KEY, JSON.stringify(s)); } catch (e) {} }
+  function loadReport() { try { return JSON.parse(localStorage.getItem(REPORT_KEY) || 'null'); } catch (e) { return null; } }
+  function saveReport(r) { try { localStorage.setItem(REPORT_KEY, JSON.stringify(r)); } catch (e) {} }
+
+  function dayKeyET() {
+    return new Date().toLocaleDateString('en-US', { timeZone: 'America/New_York' });
+  }
+  function nowET() {
+    return new Date(new Date().toLocaleString('en-US', { timeZone: 'America/New_York' }));
+  }
+  function next8am() {
+    const et = nowET();
+    const fire = new Date(et);
+    fire.setHours(8, 0, 0, 0);
+    if (et >= fire) {
+      const d = new Date(fire);
+      do { d.setDate(d.getDate() + 1); } while (d.getDay() === 0 || d.getDay() === 6);
+      return d;
+    }
+    if (et.getDay() === 0 || et.getDay() === 6) {
+      const d = new Date(fire);
+      do { d.setDate(d.getDate() + 1); } while (d.getDay() === 0 || d.getDay() === 6);
+      return d;
+    }
+    return fire;
+  }
+
+  function getFinnhubKey() {
+    try {
+      const raw = localStorage.getItem('bpleone_data_v1');
+      if (!raw) return null;
+      const c = JSON.parse(raw);
+      return c.provider === 'finnhub' ? c.apiKey : null;
+    } catch (e) { return null; }
+  }
+
+  async function fetchHeadlines() {
+    const key = getFinnhubKey();
+    if (!key) return [];
+    const today = new Date().toISOString().slice(0, 10);
+    const yesterday = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
+    const out = [];
+    for (const sym of UNIVERSE.slice(0, 12)) {
+      try {
+        const url = `https://finnhub.io/api/v1/company-news?symbol=${sym}&from=${yesterday}&to=${today}&token=${key}`;
+        const res = await fetch(url);
+        if (!res.ok) continue;
+        const list = await res.json();
+        if (Array.isArray(list)) {
+          list.slice(0, 3).forEach(n => {
+            if (n.datetime * 1000 < Date.now() - 12 * 60 * 60 * 1000) return; // last 12h only
+            out.push({ sym, ts: n.datetime * 1000, headline: n.headline, url: n.url, source: n.source });
+          });
+        }
+      } catch (e) {}
+    }
+    return out.sort((a, b) => b.ts - a.ts);
+  }
+
+  function classifyNews(headline) {
+    const h = (headline || '').toLowerCase();
+    if (/earnings|beat|miss|guidance|q[1-4]/i.test(h)) return { cat: 'earnings', bias: 'macro' };
+    if (/upgrade|raises (price target|pt)|buy rating|outperform/i.test(h)) return { cat: 'analyst-up', bias: 'bull' };
+    if (/downgrade|cuts (price target|pt)|sell rating|underperform/i.test(h)) return { cat: 'analyst-down', bias: 'bear' };
+    if (/acqui(re|sition)|merger|buyout|takeover|deal/i.test(h)) return { cat: 'm&a', bias: 'bull' };
+    if (/fda|sec |doj|regulator|lawsuit|antitrust/i.test(h)) return { cat: 'regulatory', bias: 'bear' };
+    if (/fed|fomc|powell|rate (cut|hike)|cpi|jobless|payroll/i.test(h)) return { cat: 'macro', bias: 'macro' };
+    if (/tariff|china|trade war|sanction/i.test(h)) return { cat: 'geopolitics', bias: 'bear' };
+    if (/\bai\b|artificial intelligence|chatgpt/i.test(h)) return { cat: 'ai', bias: 'bull' };
+    return { cat: 'general', bias: 'neutral' };
+  }
+
+  function detectGappers() {
+    if (typeof QUOTES === 'undefined') return [];
+    const out = [];
+    UNIVERSE.forEach(sym => {
+      const q = QUOTES[sym];
+      if (!q || !q.last || !q.prevClose) return;
+      const gap = ((q.last - q.prevClose) / q.prevClose) * 100;
+      if (Math.abs(gap) < 0.5) return;
+      const rvol = q.volume && q.avgVolume ? q.volume / q.avgVolume : null;
+      out.push({ sym, last: q.last, prevClose: q.prevClose, gap, rvol });
+    });
+    return out.sort((a, b) => Math.abs(b.gap) - Math.abs(a.gap));
+  }
+
+  function futuresSnapshot() {
+    if (typeof QUOTES === 'undefined') return [];
+    return FUTURES.map(f => {
+      const q = QUOTES[f.sym];
+      return { sym: f.sym, name: f.name, last: q ? q.last : null, chg: q ? q.changePct : null };
+    });
+  }
+
+  function biasFromTag(tag) {
+    const bull = ['volume-breakout', '52w-break', '50ma-reclaim', 'macd-cross', 'bull-flag', 'cup-handle', 'vwap-reclaim', 'momentum-extension', 'continuation-bull'];
+    const bear = ['flush-on-volume', 'breakdown', 'bear-flag', 'vwap-rejection', 'overbought-fade', 'continuation-bear'];
+    if (bull.indexOf(tag) !== -1) return 'bull';
+    if (bear.indexOf(tag) !== -1) return 'bear';
+    return 'neutral';
+  }
+
+  function buildWatchlist() {
+    if (typeof QUOTES === 'undefined' || typeof Learn === 'undefined') return [];
+    const out = [];
+    UNIVERSE.forEach(sym => {
+      const q = QUOTES[sym];
+      if (!q || !q.last) return;
+      const snap = typeof TA !== 'undefined' ? TA.snapshot(sym) : null;
+      const features = {
+        last: q.last, prevClose: q.prevClose, dayHigh: q.dayHigh, dayLow: q.dayLow,
+        volume: q.volume, avgVolume: q.avgVolume,
+        rsi: snap ? snap.rsi : null, macdHist: snap ? snap.hist : null,
+        atrPct: snap ? snap.atrPct : null, adx: snap ? snap.adx : null,
+        bbPct: snap ? snap.bbPct : null, vwapDist: snap ? snap.vwapDist : null,
+        trend: snap ? snap.trend : null, regime: snap ? snap.regime : null
+      };
+      const tag = Learn.autoTagSetup(features, { symbol: sym });
+      const weight = typeof Learn.weightFor === 'function' ? Learn.weightFor(tag.tag, { symbol: sym }) : 1.0;
+      const adj = tag.score * weight;
+      if (adj < 0.65) return;
+      out.push({ sym, setup: tag.tag, score: +adj.toFixed(2), bias: biasFromTag(tag.tag), last: q.last, gap: q.prevClose ? ((q.last - q.prevClose) / q.prevClose) * 100 : 0 });
+    });
+    return out.sort((a, b) => b.score - a.score).slice(0, 10);
+  }
+
+  async function buildReport() {
+    const gappers = detectGappers();
+    const futures = futuresSnapshot();
+    const news = await fetchHeadlines();
+    const watchlist = buildWatchlist();
+    // Macro detection: look for FOMC / CPI / NFP keywords in news
+    const macroNews = news.filter(n => /fed|fomc|powell|cpi|jobless|nfp|payroll|inflation/i.test(n.headline || ''));
+    const macroLabel = macroNews.length ? 'macro: ' + macroNews.length : 'no macro';
+
+    const report = {
+      ts: Date.now(),
+      day: dayKeyET(),
+      gappers, futures, news, watchlist, macroLabel
+    };
+    saveReport(report);
+    return report;
+  }
+
+  async function runScan() {
+    document.getElementById('btnRun').textContent = 'Scanning…';
+    document.getElementById('btnRun').disabled = true;
+    const r = await buildReport();
+    renderReport(r);
+    document.getElementById('btnRun').textContent = '🌅 Scan now';
+    document.getElementById('btnRun').disabled = false;
+
+    // Mark fired + post to Discord
+    const s = loadState();
+    s.lastFireDay = dayKeyET();
+    s.lastFireTs = Date.now();
+    saveState(s);
+    refreshStatus();
+    await postToDiscord(r);
+  }
+
+  async function postToDiscord(r) {
+    if (typeof DiscordAlerts === 'undefined' || !DiscordAlerts.url()) return;
+    const topGap = r.gappers[0];
+    const futSPY = r.futures.find(f => f.sym === 'SPY');
+    const head = `🌅 **${r.day} pre-market scan** · SPY ${futSPY && futSPY.chg != null ? (futSPY.chg >= 0 ? '+' : '') + futSPY.chg.toFixed(2) + '%' : '—'} · top gap ${topGap ? topGap.sym + ' ' + (topGap.gap >= 0 ? '+' : '') + topGap.gap.toFixed(2) + '%' : '—'} · ${r.macroLabel}`;
+    const watchTxt = r.watchlist.length ? '\n**Watchlist:** ' + r.watchlist.slice(0, 5).map(w => w.sym + ' (' + w.setup + ', ' + w.score + ')').join(' · ') : '';
+    const newsTxt = r.news.length ? '\n**Top news:** ' + r.news.slice(0, 3).map(n => n.sym + ': ' + (n.headline || '').slice(0, 80)).join(' / ') : '';
+    try { await DiscordAlerts.fire(head + watchTxt + newsTxt, { dedupKey: 'premkt:' + r.day, dedupTtl: 24 * 60 * 60 * 1000 }); } catch (e) {}
+  }
+
+  function renderReport(r) {
+    // KPIs
+    const upGapper = r.gappers.find(g => g.gap > 0);
+    const dnGapper = r.gappers.find(g => g.gap < 0);
+    document.getElementById('kGapUp').textContent = upGapper ? upGapper.sym + ' +' + upGapper.gap.toFixed(2) + '%' : '—';
+    document.getElementById('kGapUp').className = 'val mono ' + (upGapper ? 'r-pos' : '');
+    document.getElementById('kGapDn').textContent = dnGapper ? dnGapper.sym + ' ' + dnGapper.gap.toFixed(2) + '%' : '—';
+    document.getElementById('kGapDn').className = 'val mono ' + (dnGapper ? 'r-neg' : '');
+    const spyFut = r.futures.find(f => f.sym === 'SPY');
+    document.getElementById('kFut').textContent = spyFut && spyFut.chg != null ? (spyFut.chg >= 0 ? '+' : '') + spyFut.chg.toFixed(2) + '%' : '—';
+    document.getElementById('kFut').className = 'val mono ' + (spyFut && spyFut.chg > 0 ? 'r-pos' : spyFut && spyFut.chg < 0 ? 'r-neg' : '');
+    document.getElementById('kMacro').textContent = r.macroLabel || '—';
+    document.getElementById('kNews').textContent = r.news.length;
+
+    // Futures
+    document.getElementById('futuresGrid').innerHTML = r.futures.map(f => {
+      const cls = f.chg > 0 ? 'r-pos' : f.chg < 0 ? 'r-neg' : '';
+      return `<div class="fut-tile">
+        <div class="sym">${f.sym}</div>
+        <div style="font-size:10px;color:var(--text-muted);">${f.name}</div>
+        <div class="px">${f.last != null ? '$' + f.last.toFixed(2) : '—'}</div>
+        <div class="chg ${cls}">${f.chg != null ? (f.chg >= 0 ? '+' : '') + f.chg.toFixed(2) + '%' : '—'}</div>
+      </div>`;
+    }).join('');
+
+    // Gappers
+    document.getElementById('gapperList').innerHTML = r.gappers.length ? r.gappers.slice(0, 12).map(g => {
+      const cls = g.gap > 0 ? 'r-pos' : 'r-neg';
+      const catalystText = r.news.filter(n => n.sym === g.sym).slice(0, 1).map(n => n.headline.slice(0, 60)).join('');
+      return `<div class="gapper-row">
+        <div class="mono" style="font-weight:700;">${g.sym}</div>
+        <div class="mono" style="text-align:right;">$${g.last.toFixed(2)}</div>
+        <div class="mono" style="text-align:right;color:var(--text-muted);">$${g.prevClose.toFixed(2)}</div>
+        <div class="mono ${cls}" style="text-align:right;font-weight:700;">${g.gap >= 0 ? '+' : ''}${g.gap.toFixed(2)}%</div>
+        <div class="mono" style="text-align:right;">${g.rvol ? g.rvol.toFixed(2) + 'x' : '—'}</div>
+        <div style="font-size:11px;color:var(--text-muted);">${catalystText || '<em>no overnight news</em>'}</div>
+      </div>`;
+    }).join('') : '<div class="empty">No significant gappers (need ≥0.5% gap).</div>';
+
+    // News
+    document.getElementById('newsList').innerHTML = r.news.length ? r.news.slice(0, 20).map(n => {
+      const cls = classifyNews(n.headline);
+      const time = new Date(n.ts).toLocaleString('en-US', { hour: '2-digit', minute: '2-digit', month: 'short', day: 'numeric' });
+      return `<div class="news-row">
+        <div class="mono" style="font-size:11px;color:var(--text-muted);">${time}</div>
+        <div class="mono" style="font-weight:700;">${n.sym}</div>
+        <div><a href="${n.url || '#'}" target="_blank" rel="noopener" style="color:var(--text-primary);text-decoration:none;">${(n.headline || '').slice(0, 110)}</a></div>
+        <div><span class="tag ${cls.bias}">${cls.cat}</span></div>
+      </div>`;
+    }).join('') : '<div class="empty">No headlines pulled (need Finnhub key in Settings).</div>';
+
+    // Watchlist
+    document.getElementById('watchlist').innerHTML = r.watchlist.length ? r.watchlist.map(w => `<div class="gapper-row" style="grid-template-columns:80px 90px 80px 1fr 90px;">
+      <div class="mono" style="font-weight:700;">${w.sym}</div>
+      <div><span class="tag ${w.bias}">${w.setup}</span></div>
+      <div class="mono" style="text-align:right;font-weight:700;">${w.score.toFixed(2)}</div>
+      <div class="mono" style="font-size:11px;color:var(--text-muted);">${w.gap >= 0 ? '+' : ''}${w.gap.toFixed(2)}% gap · $${w.last.toFixed(2)}</div>
+      <div style="text-align:right;display:flex;gap:6px;justify-content:flex-end;">
+        <a href="live-train.html?sym=${w.sym}" style="color:var(--text-muted);font-size:11px;">🎓</a>
+        <a href="ai-cotrader.html?sym=${w.sym}" style="color:var(--accent);font-size:11px;">🤖</a>
+        <a href="hypothetical.html?sym=${w.sym}&bias=${w.bias === 'bull' ? 'bull' : 'bear'}&source=signals&note=${encodeURIComponent('Pre-market: ' + w.setup)}" style="color:var(--accent);font-size:11px;">📝</a>
+      </div>
+    </div>`).join('') : '<div class="empty">No high-conviction setups (≥0.65) yet.</div>';
+  }
+
+  function refreshStatus() {
+    const s = loadState();
+    const armed = !!s.armed;
+    document.getElementById('armStatus').textContent = armed ? '✓ ARMED' : 'OFF';
+    document.getElementById('armStatus').className = 'status-pill ' + (armed ? 'armed' : 'off');
+    document.getElementById('togArm').classList.toggle('on', armed);
+    const next = next8am();
+    document.getElementById('nextFire').textContent = next.toLocaleString('en-US', { weekday: 'short', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+    document.getElementById('lastFire').textContent = s.lastFireTs ? new Date(s.lastFireTs).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—';
+  }
+
+  function tick() {
+    const s = loadState();
+    if (!s.armed) return;
+    const today = dayKeyET();
+    if (s.lastFireDay === today) return;
+    const et = nowET();
+    const fire = new Date(et);
+    fire.setHours(8, 0, 0, 0);
+    if (et >= fire && et.getTime() - fire.getTime() < 5 * 60 * 1000 && et.getDay() >= 1 && et.getDay() <= 5) {
+      runScan();
+    }
+  }
+
+  document.getElementById('togArm').addEventListener('click', () => {
+    const s = loadState();
+    s.armed = !s.armed;
+    saveState(s);
+    refreshStatus();
+  });
+  document.getElementById('btnRun').addEventListener('click', runScan);
+  document.getElementById('btnDiscord').addEventListener('click', async () => {
+    const r = loadReport();
+    if (!r) { alert('Run scan first.'); return; }
+    if (typeof DiscordAlerts === 'undefined' || !DiscordAlerts.url()) { alert('No Discord webhook in My Desk.'); return; }
+    await postToDiscord(r);
+    alert('Posted to Discord');
+  });
+
+  setTimeout(() => {
+    refreshStatus();
+    const r = loadReport();
+    if (r) renderReport(r);
+  }, 400);
+  setInterval(() => { refreshStatus(); tick(); }, 30 * 1000);
+})();
+</script>
+</body>
+</html>

@@ -23,7 +23,7 @@ const AlertsEngine = (function () {
   const CFG_KEY = 'bpleone_alerts_cfg_v1';
   const LOG_KEY = 'bpleone_alerts_log_v1';
   const LAST_TAG_KEY = 'bpleone_alerts_last_tag_v1';
-  const DEFAULT_SYMBOLS = ['SPY', 'QQQ', 'NVDA', 'TSLA', 'AAPL', 'MSFT', 'META', 'AMZN', 'GOOGL', 'AMD', 'COIN', 'PLTR'];
+  const DEFAULT_SYMBOLS = ['SPY', 'QQQ', 'NVDA', 'TSLA', 'AAPL', 'MSFT', 'META', 'AMZN', 'GOOGL', 'AMD', 'COIN', 'PLTR', 'BTC', 'ETH', 'GLD', 'SLV', 'USO'];
   const DEFAULT_CFG = {
     enabled: true,
     symbols: DEFAULT_SYMBOLS,

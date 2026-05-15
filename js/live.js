@@ -51,7 +51,10 @@ const QUOTES = {
   BABA: { symbol: 'BABA', last: 88.42,  prevClose: 85.50, volume: 14_200_000 },
   SHOP: { symbol: 'SHOP', last: 68.50,  prevClose: 67.04, volume: 8_400_000 },
   CRM:  { symbol: 'CRM',  last: 278.40, prevClose: 275.84, volume: 5_200_000 },
-  UBER: { symbol: 'UBER', last: 68.20,  prevClose: 67.42, volume: 12_400_000 }
+  UBER: { symbol: 'UBER', last: 68.20,  prevClose: 67.42, volume: 12_400_000 },
+  SLV:  { symbol: 'SLV',  last: 30.42,  prevClose: 30.01, volume: 14_800_000 },
+  UNG:  { symbol: 'UNG',  last: 14.85,  prevClose: 15.12, volume: 6_400_000 },
+  DBA:  { symbol: 'DBA',  last: 25.18,  prevClose: 25.06, volume: 800_000 }
 };
 
 function computeDerived(q) {

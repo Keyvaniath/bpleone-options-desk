@@ -1,0 +1,306 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Position Stacking — bpleone / trade</title>
+<meta name="description" content="Correlation-aware risk monitor. Alerts when correlated positions stack into a single concentrated bet.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.banner { background: linear-gradient(135deg, rgba(0,212,255,0.08), rgba(139,92,246,0.04)); border: 1px solid rgba(0,212,255,0.18); border-radius: 12px; padding: 16px 18px; margin-bottom: 18px; }
+.banner.warn { background: rgba(239,68,68,0.08); border-color: rgba(239,68,68,0.3); }
+.banner.warn strong { color: var(--red); }
+.kpi-strip { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 18px; }
+.tile { background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 10px; padding: 14px; text-align: center; }
+.tile .lab { font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; }
+.tile .val { font-family: var(--font-mono); font-weight: 700; font-size: 20px; margin-top: 4px; }
+.r-pos { color: var(--green); } .r-neg { color: var(--red); } .r-warn { color: var(--yellow); }
+.cluster-card { background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 12px; padding: 16px; margin-bottom: 14px; }
+.cluster-card.warn { border-left: 4px solid var(--yellow); }
+.cluster-card.danger { border-left: 4px solid var(--red); }
+.cluster-card.ok { border-left: 4px solid var(--green); }
+.cluster-card .head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+.cluster-card .name { font-weight: 700; font-size: 14px; }
+.cluster-card .risk { font-family: var(--font-mono); font-size: 14px; font-weight: 700; }
+.bucket-bar { height: 14px; background: var(--bg-secondary); border-radius: 7px; overflow: hidden; position: relative; margin: 8px 0; }
+.bucket-bar .fill { height: 100%; transition: width .3s ease; }
+.bucket-bar .fill.ok { background: var(--green); }
+.bucket-bar .fill.warn { background: var(--yellow); }
+.bucket-bar .fill.danger { background: var(--red); }
+.bucket-bar .marker { position: absolute; top: -2px; bottom: -2px; width: 2px; background: rgba(255,255,255,0.6); }
+.pos-row { display: grid; grid-template-columns: 80px 60px 80px 80px 90px 1fr; gap: 10px; padding: 6px 0; border-top: 1px solid var(--border); font-size: 12px; align-items: center; }
+.mono { font-family: var(--font-mono); }
+.tag { display: inline-block; padding: 2px 8px; border-radius: 4px; background: var(--bg-secondary); font-family: var(--font-mono); font-size: 10px; border: 1px solid var(--border); }
+.tag.bull { background: rgba(16,185,129,0.15); color: var(--green); border-color: rgba(16,185,129,0.3); }
+.tag.bear { background: rgba(239,68,68,0.15); color: var(--red); border-color: rgba(239,68,68,0.3); }
+.empty { padding: 40px; text-align: center; color: var(--text-muted); }
+.config-row { display: grid; grid-template-columns: 200px 1fr; gap: 14px; padding: 10px 0; border-top: 1px solid var(--border); align-items: center; }
+.config-row:first-child { border-top: none; }
+.config-row label { font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; }
+.config-row input { background: var(--bg-secondary); border: 1px solid var(--border); color: var(--text-primary); padding: 6px 10px; border-radius: 6px; font-family: inherit; font-size: 13px; width: 120px; }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">Position Stacking <span class="feat-badge feat-new">NEW</span></div>
+      <div class="page-subtitle">Correlation-aware risk monitor. When 4 tech longs become 1 concentrated bet, the brain flags it. · <span id="market-clock">--</span></div>
+    </div>
+    <div class="flex gap-8">
+      <a href="paper-trade.html" class="btn btn-ghost">🎮 Paper Trade</a>
+      <a href="live-positions.html" class="btn btn-ghost">📡 Positions</a>
+      <a href="risk-attribution.html" class="btn btn-ghost">🎯 Attribution</a>
+    </div>
+  </div>
+
+  <!-- Banner -->
+  <div class="banner" id="banner">
+    <strong style="font-size:14px;">🛡 How this protects you.</strong>
+    <div style="font-size:11px;color:var(--text-muted);margin-top:6px;line-height:1.6;">
+      Stocks within the same cluster (tech megacaps, semis, energy, etc.) move together — sometimes 70-95% correlated. If you have 4 long positions in NVDA / AMD / MSFT / META, you're not 4 independent bets — you're <strong>one big tech-long bet</strong>. The brain groups your open positions into correlation clusters and tells you when concentration exceeds your risk limit.
+    </div>
+  </div>
+
+  <!-- KPIs -->
+  <div class="kpi-strip">
+    <div class="tile"><div class="lab">Open positions</div><div class="val mono" id="kCount">—</div></div>
+    <div class="tile"><div class="lab">Total at-risk $</div><div class="val mono" id="kRisk">—</div></div>
+    <div class="tile"><div class="lab">Biggest cluster</div><div class="val mono" id="kBiggest" style="font-size:14px;">—</div></div>
+    <div class="tile"><div class="lab">Concentration warnings</div><div class="val mono" id="kWarn">0</div></div>
+  </div>
+
+  <!-- Config -->
+  <div class="cluster-card" style="margin-bottom:18px;">
+    <div style="font-weight:600;font-size:14px;margin-bottom:8px;">⚙ Stacking limits</div>
+    <div class="config-row">
+      <label>Max risk per cluster ($)</label>
+      <input id="cfgMaxClusterRisk" type="number" step="500" value="3000">
+    </div>
+    <div class="config-row">
+      <label>Max % of account in one cluster</label>
+      <input id="cfgMaxClusterPct" type="number" step="1" value="25">
+    </div>
+    <div class="config-row">
+      <label>Account size ($)</label>
+      <input id="cfgAccount" type="number" step="1000" value="100000">
+    </div>
+    <div class="config-row">
+      <label>Alert when concentration breaches</label>
+      <span><div class="toggle" id="togAlert" style="display:inline-block;width:38px;height:22px;background:var(--bg-secondary);border:1px solid var(--border);border-radius:999px;cursor:pointer;position:relative;"><div class="knob" style="position:absolute;width:16px;height:16px;background:var(--text-primary);border-radius:50%;top:2px;left:2px;transition:all .15s;"></div></div></span>
+    </div>
+  </div>
+
+  <!-- Clusters -->
+  <div id="clusterList"></div>
+</div>
+
+<div id="site-footer"></div>
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script src="js/ta.js"></script>
+<script src="js/learn.js"></script>
+<script src="js/discord.js"></script>
+<script src="js/alerts-engine.js"></script>
+<script>buildNav('risk');</script>
+
+<script>
+(function () {
+  const CFG_KEY = 'bpleone_stacking_cfg_v1';
+  const FIRED_KEY = 'bpleone_stacking_fired_v1';
+
+  // Hand-curated correlation clusters
+  const CLUSTERS = {
+    'Mega-cap tech': ['AAPL', 'MSFT', 'GOOGL', 'META', 'AMZN', 'NVDA'],
+    'Semiconductors': ['NVDA', 'AMD', 'AVGO', 'SMCI', 'MU', 'INTC', 'TSM', 'ASML', 'QCOM'],
+    'AI / cloud': ['NVDA', 'MSFT', 'GOOGL', 'META', 'PLTR', 'SMCI', 'ORCL', 'CRM'],
+    'Consumer discretionary': ['AMZN', 'TSLA', 'NKE', 'HD', 'MCD', 'SBUX', 'DIS'],
+    'Energy / oil': ['XLE', 'XOM', 'CVX', 'COP', 'EOG', 'OXY', 'USO'],
+    'Financials / banks': ['XLF', 'JPM', 'BAC', 'GS', 'MS', 'C', 'WFC'],
+    'Crypto-adjacent': ['COIN', 'MSTR', 'MARA', 'RIOT', 'HOOD', 'BTC', 'ETH'],
+    'Healthcare': ['XLV', 'UNH', 'JNJ', 'LLY', 'PFE', 'ABBV', 'MRK'],
+    'Index ETFs': ['SPY', 'QQQ', 'IWM', 'DIA', 'VOO'],
+    'Defensive / staples': ['XLP', 'XLU', 'PG', 'KO', 'WMT', 'COST'],
+    'Commodities': ['GLD', 'SLV', 'USO', 'UNG', 'DBA']
+  };
+
+  function loadCfg() {
+    try { return Object.assign({ maxClusterRisk: 3000, maxClusterPct: 25, account: 100000, alert: true }, JSON.parse(localStorage.getItem(CFG_KEY) || '{}')); }
+    catch (e) { return { maxClusterRisk: 3000, maxClusterPct: 25, account: 100000, alert: true }; }
+  }
+  function saveCfg(c) { try { localStorage.setItem(CFG_KEY, JSON.stringify(c)); } catch (e) {} }
+  function loadFired() { try { return JSON.parse(localStorage.getItem(FIRED_KEY) || '{}'); } catch (e) { return {}; } }
+  function saveFired(f) { try { localStorage.setItem(FIRED_KEY, JSON.stringify(f)); } catch (e) {} }
+
+  function loadPositions() {
+    try {
+      const raw = localStorage.getItem('bpleone_paper_v1');
+      if (!raw) return [];
+      const s = JSON.parse(raw);
+      return (s.positions || []).map(p => {
+        const q = (typeof QUOTES !== 'undefined') ? QUOTES[p.sym] : null;
+        const last = q ? q.last : p.avgEntry;
+        const stopDist = p.stop ? Math.abs(p.avgEntry - p.stop) : Math.abs(p.avgEntry * 0.02);
+        return Object.assign({}, p, {
+          last,
+          notional: p.qty * p.avgEntry,
+          riskDollars: p.qty * stopDist,
+          unrealizedPnl: (p.side === 'buy' ? (last - p.avgEntry) : (p.avgEntry - last)) * p.qty
+        });
+      });
+    } catch (e) { return []; }
+  }
+
+  function clusterPositions(positions) {
+    const clusters = {};
+    Object.entries(CLUSTERS).forEach(([cluster, members]) => {
+      const matching = positions.filter(p => members.indexOf(p.sym) !== -1);
+      if (matching.length) clusters[cluster] = matching;
+    });
+    // Positions not in any cluster
+    const allInClusters = new Set();
+    Object.values(clusters).forEach(arr => arr.forEach(p => allInClusters.add(p.sym + ':' + p.side)));
+    const orphans = positions.filter(p => !allInClusters.has(p.sym + ':' + p.side));
+    if (orphans.length) clusters['Uncategorized'] = orphans;
+    return clusters;
+  }
+
+  function severity(riskDollars, account, cfg) {
+    const pct = (riskDollars / account) * 100;
+    if (riskDollars > cfg.maxClusterRisk || pct > cfg.maxClusterPct) return 'danger';
+    if (riskDollars > cfg.maxClusterRisk * 0.7 || pct > cfg.maxClusterPct * 0.7) return 'warn';
+    return 'ok';
+  }
+
+  function maybeAlert(cluster, members, riskDollars, sev) {
+    if (sev !== 'danger') return;
+    const cfg = loadCfg();
+    if (!cfg.alert) return;
+    const fired = loadFired();
+    const dedupKey = new Date().toLocaleDateString('en-US', { timeZone: 'America/New_York' }) + '|' + cluster;
+    if (fired[dedupKey]) return;
+    fired[dedupKey] = Date.now();
+    saveFired(fired);
+
+    const msg = `⚠ Concentration in ${cluster}: $${riskDollars.toFixed(0)} at risk across ${members.length} positions (${members.map(m => m.sym).join('/')}). Cap is $${cfg.maxClusterRisk}.`;
+    if (typeof DiscordAlerts !== 'undefined' && DiscordAlerts.url()) {
+      DiscordAlerts.fire(msg, { dedupKey });
+    }
+    if (typeof Notify !== 'undefined' && Notify.fire) Notify.fire('Position stacking warning', msg);
+  }
+
+  function render() {
+    const cfg = loadCfg();
+    const positions = loadPositions();
+    document.getElementById('kCount').textContent = positions.length;
+    const totalRisk = positions.reduce((a, p) => a + p.riskDollars, 0);
+    document.getElementById('kRisk').textContent = '$' + totalRisk.toFixed(0);
+
+    document.getElementById('cfgMaxClusterRisk').value = cfg.maxClusterRisk;
+    document.getElementById('cfgMaxClusterPct').value = cfg.maxClusterPct;
+    document.getElementById('cfgAccount').value = cfg.account;
+    const togAlert = document.getElementById('togAlert');
+    if (cfg.alert) { togAlert.style.background = 'var(--accent)'; togAlert.style.borderColor = 'var(--accent)'; togAlert.querySelector('.knob').style.left = '18px'; togAlert.querySelector('.knob').style.background = '#052838'; }
+    else { togAlert.style.background = 'var(--bg-secondary)'; togAlert.style.borderColor = 'var(--border)'; togAlert.querySelector('.knob').style.left = '2px'; togAlert.querySelector('.knob').style.background = 'var(--text-primary)'; }
+
+    if (!positions.length) {
+      document.getElementById('clusterList').innerHTML = '<div class="empty">No open positions. <a href="paper-trade.html" style="color:var(--accent);">Open one</a> and the brain will track concentration.</div>';
+      document.getElementById('kBiggest').textContent = '—';
+      document.getElementById('kWarn').textContent = '0';
+      return;
+    }
+
+    const clusters = clusterPositions(positions);
+    const rows = Object.entries(clusters).map(([cluster, members]) => {
+      const riskDollars = members.reduce((a, p) => a + p.riskDollars, 0);
+      const notional = members.reduce((a, p) => a + p.notional, 0);
+      const unrealized = members.reduce((a, p) => a + p.unrealizedPnl, 0);
+      const pct = (riskDollars / cfg.account) * 100;
+      const sev = severity(riskDollars, cfg.account, cfg);
+      return { cluster, members, riskDollars, notional, unrealized, pct, sev };
+    }).sort((a, b) => b.riskDollars - a.riskDollars);
+
+    const biggest = rows[0];
+    document.getElementById('kBiggest').textContent = biggest ? biggest.cluster + ' ($' + biggest.riskDollars.toFixed(0) + ')' : '—';
+    document.getElementById('kBiggest').className = 'val mono ' + (biggest && biggest.sev === 'danger' ? 'r-neg' : biggest && biggest.sev === 'warn' ? 'r-warn' : '');
+    const warnings = rows.filter(r => r.sev !== 'ok').length;
+    document.getElementById('kWarn').textContent = warnings;
+    document.getElementById('kWarn').className = 'val mono ' + (warnings > 0 ? 'r-neg' : '');
+
+    // Banner — if any danger, switch to warn banner
+    const banner = document.getElementById('banner');
+    if (rows.some(r => r.sev === 'danger')) {
+      banner.classList.add('warn');
+      banner.innerHTML = '<strong style="font-size:14px;">⚠ Concentration breach detected.</strong><div style="font-size:11px;color:var(--text-muted);margin-top:6px;line-height:1.6;">One or more clusters exceed your risk cap ($' + cfg.maxClusterRisk + ' or ' + cfg.maxClusterPct + '% of $' + cfg.account.toLocaleString() + '). Consider closing/trimming a position in the cluster.</div>';
+    } else {
+      banner.classList.remove('warn');
+      banner.innerHTML = '<strong style="font-size:14px;">🛡 How this protects you.</strong><div style="font-size:11px;color:var(--text-muted);margin-top:6px;line-height:1.6;">Stocks within the same cluster move together — sometimes 70-95% correlated. If you have 4 long positions in NVDA / AMD / MSFT / META, you\'re not 4 independent bets — you\'re <strong>one big tech-long bet</strong>. The brain groups your open positions into correlation clusters and tells you when concentration exceeds your risk limit.</div>';
+    }
+
+    document.getElementById('clusterList').innerHTML = rows.map(r => {
+      maybeAlert(r.cluster, r.members, r.riskDollars, r.sev);
+      const fillWidth = Math.min(100, (r.riskDollars / cfg.maxClusterRisk) * 100);
+      return `<div class="cluster-card ${r.sev}">
+        <div class="head">
+          <div>
+            <div class="name">${r.cluster}</div>
+            <div style="font-size:11px;color:var(--text-muted);margin-top:2px;">${r.members.length} position${r.members.length === 1 ? '' : 's'} · $${r.notional.toFixed(0)} notional · unrealized ${r.unrealized >= 0 ? '+' : ''}$${r.unrealized.toFixed(0)}</div>
+          </div>
+          <div class="risk ${r.sev === 'danger' ? 'r-neg' : r.sev === 'warn' ? 'r-warn' : 'r-pos'}">$${r.riskDollars.toFixed(0)} at risk · ${r.pct.toFixed(1)}%</div>
+        </div>
+        <div class="bucket-bar">
+          <div class="fill ${r.sev}" style="width:${fillWidth}%;"></div>
+          <div class="marker" style="left:${Math.min(100, (cfg.maxClusterRisk / cfg.maxClusterRisk) * 100)}%;"></div>
+        </div>
+        <div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;font-weight:600;margin-top:8px;padding-top:8px;border-top:1px solid var(--border);">Positions</div>
+        ${r.members.map(p => `<div class="pos-row">
+          <div class="mono" style="font-weight:700;">${p.sym}</div>
+          <div><span class="tag ${p.side === 'buy' ? 'bull' : 'bear'}">${p.side === 'buy' ? 'LONG' : 'SHORT'}</span></div>
+          <div class="mono" style="text-align:right;">${p.qty}</div>
+          <div class="mono" style="text-align:right;">$${p.avgEntry.toFixed(2)}</div>
+          <div class="mono ${p.unrealizedPnl >= 0 ? 'r-pos' : 'r-neg'}" style="text-align:right;font-weight:700;">${p.unrealizedPnl >= 0 ? '+' : ''}$${p.unrealizedPnl.toFixed(2)}</div>
+          <div class="mono" style="text-align:right;color:var(--text-muted);font-size:11px;">risk $${p.riskDollars.toFixed(0)}</div>
+        </div>`).join('')}
+      </div>`;
+    }).join('');
+  }
+
+  // Wire config inputs
+  ['cfgMaxClusterRisk', 'cfgMaxClusterPct', 'cfgAccount'].forEach(id => {
+    document.getElementById(id).addEventListener('change', e => {
+      const cfg = loadCfg();
+      cfg[id.slice(3, 4).toLowerCase() + id.slice(4)] = parseFloat(e.target.value) || 0;
+      saveCfg(cfg);
+      render();
+    });
+  });
+  document.getElementById('togAlert').addEventListener('click', () => {
+    const cfg = loadCfg();
+    cfg.alert = !cfg.alert;
+    saveCfg(cfg);
+    render();
+  });
+
+  setTimeout(render, 400);
+  setInterval(render, 5000);
+  if (typeof Feed !== 'undefined') {
+    let pending = false;
+    Feed.subscribe('*', () => {
+      if (pending) return;
+      pending = true;
+      requestAnimationFrame(() => { pending = false; render(); });
+    });
+  }
+})();
+</script>
+</body>
+</html>

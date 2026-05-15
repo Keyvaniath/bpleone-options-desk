@@ -184,7 +184,40 @@ function renderRChart(trades) {
   });
 }
 
+function loadDailyDebriefs(days) {
+  // Pull daily debriefs from the last N days
+  try {
+    const raw = localStorage.getItem('bpleone_debrief_report_v1');
+    if (!raw) return [];
+    const report = JSON.parse(raw);
+    return [report]; // we only keep the most recent; could be extended to persist a list
+  } catch (e) { return []; }
+}
+
+function loadTrainingEvents(days) {
+  try {
+    const raw = localStorage.getItem('bpleone_train_events_v1');
+    if (!raw) return [];
+    const store = JSON.parse(raw);
+    const cutoff = Date.now() - days * 86400000;
+    const out = [];
+    Object.entries(store.bySym || {}).forEach(([sym, evts]) => {
+      evts.forEach(e => { if (e.ts >= cutoff) out.push(Object.assign({}, e, { sym })); });
+    });
+    return out.sort((a, b) => b.ts - a.ts);
+  } catch (e) { return []; }
+}
+
+function loadSymbolWeights() {
+  try {
+    const raw = localStorage.getItem('bpleone_learn_v1');
+    if (!raw) return {};
+    return JSON.parse(raw).symbolWeights || {};
+  } catch (e) { return {}; }
+}
+
 function buildPrompt(trades) {
+  const days = parseInt($('weekSel').value, 10) || 7;
   const summary = trades.map((t, i) => {
     const ctx = t.marketCtx || {};
     return `${i+1}. ${t.symbol} ${t.setup} ${t.bias} · entry $${(+t.entry).toFixed(2)} · stop $${(+t.stop).toFixed(2)} · exit $${(+t.exit).toFixed(2)} · R=${(+t.R).toFixed(2)} · ${t.result.toUpperCase()} · hold ${(+t.holdDays).toFixed(1)}d · close=${t.closeReason}${t.mfeR != null ? ' · MFE ' + t.mfeR + 'R' : ''}${t.efficiency != null ? ' · eff ' + (t.efficiency * 100).toFixed(0) + '%' : ''}${ctx.spyChg != null ? ' · spy ' + (ctx.spyChg >= 0 ? '+' : '') + ctx.spyChg.toFixed(2) + '%' : ''}${ctx.vixLevel != null ? ' · vix ' + ctx.vixLevel.toFixed(1) : ''}`;
@@ -192,7 +225,47 @@ function buildPrompt(trades) {
   const weights = Learn.getWeights();
   const notableW = Object.entries(weights).filter(([_, w]) => Math.abs(w - 1) > 0.1).slice(0, 8).map(([k, w]) => k + ' ' + w.toFixed(2) + '×').join(', ');
   const insights = Learn.insights(5).map(i => i.sentence).join('; ');
-  return `Review my closed trades from the last ${$('weekSel').value} days. Be specific, terse, and tough but fair. Don't sugarcoat. Use markdown with H2 sections.
+
+  // NEW: pull daily debriefs + training events + per-symbol weight shifts
+  const debriefs = loadDailyDebriefs(days);
+  const debriefTxt = debriefs.length ? debriefs.map(d => `[${d.day}] SPY ${d.spyChg != null ? (d.spyChg >= 0 ? '+' : '') + d.spyChg.toFixed(2) + '%' : '?'}, breadth ${d.breadth != null ? d.breadth + '%' : '?'}, ${d.closedToday} trades net ${d.netR}R, ${d.alertsToday} alerts`).join('\n') : '(no daily debriefs stored)';
+  const trainEvents = loadTrainingEvents(days);
+  // Bucket training events by setup → avg 30m reaction
+  const trainBuckets = {};
+  trainEvents.forEach(e => {
+    if (e.reaction30m == null) return;
+    if (!trainBuckets[e.to]) trainBuckets[e.to] = [];
+    trainBuckets[e.to].push(e.reaction30m);
+  });
+  const trainSummary = Object.entries(trainBuckets).map(([k, arr]) => {
+    const avg = arr.reduce((a, x) => a + x, 0) / arr.length;
+    return k + ' (n=' + arr.length + ', avg ' + (avg >= 0 ? '+' : '') + avg.toFixed(2) + '%)';
+  }).join(', ');
+  const symW = loadSymbolWeights();
+  const specialized = Object.entries(symW).map(([sym, setups]) => {
+    const best = Object.entries(setups).filter(([_, v]) => v.n >= 3).sort((a, b) => b[1].w - a[1].w)[0];
+    return best ? `${sym}/${best[0]}=${best[1].w}` : null;
+  }).filter(Boolean).slice(0, 8).join(', ');
+
+  return `You are an institutional trading-desk strategist writing a comprehensive weekly retrospective covering the last ${days} days. The brain has multiple data feeds — synthesize them. Use markdown with H2 sections.
+
+WEEK'S CLOSED TRADES (${trades.length}):
+${summary || '(none)'}
+
+DAILY DEBRIEFS (auto-generated each weekday close):
+${debriefTxt}
+
+LIVE-TRAIN EVENTS (setup transitions captured intraday, by setup type):
+${trainSummary || '(none captured this week)'}
+
+GLOBAL LEARNED WEIGHTS (notable ≠1.0):
+${notableW || '(none yet)'}
+
+PER-SYMBOL SPECIALIZATIONS (top weight by symbol):
+${specialized || '(no per-symbol specialization yet)'}
+
+CONDITIONAL INSIGHTS:
+${insights || '(none yet)'}
 
 CLOSED TRADES (${trades.length}):
 ${summary || '(none)'}

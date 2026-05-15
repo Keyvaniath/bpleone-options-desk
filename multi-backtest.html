@@ -1,0 +1,437 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Multi-Strategy Backtester — bpleone / trade</title>
+<meta name="description" content="Replay any date range against the brain's signals. Compute realized R, hit rate on past POTD picks, equity curve.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.banner { background: linear-gradient(135deg, rgba(0,212,255,0.08), rgba(139,92,246,0.04)); border: 1px solid rgba(0,212,255,0.18); border-radius: 12px; padding: 16px 18px; margin-bottom: 18px; }
+.controls { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; padding: 16px 18px; background: var(--bg-elevated); border-radius: 10px; border: 1px solid var(--border); margin-bottom: 18px; align-items: end; }
+.controls label { font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; }
+.controls input, .controls select { background: var(--bg-secondary); border: 1px solid var(--border); color: var(--text-primary); padding: 8px 10px; border-radius: 6px; font-family: inherit; font-size: 13px; width: 100%; box-sizing: border-box; }
+.kpi-strip { display: grid; grid-template-columns: repeat(6, 1fr); gap: 12px; margin-bottom: 18px; }
+.tile { background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 10px; padding: 14px; text-align: center; }
+.tile .lab { font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; }
+.tile .val { font-family: var(--font-mono); font-weight: 700; font-size: 18px; margin-top: 4px; }
+.r-pos { color: var(--green); } .r-neg { color: var(--red); } .r-zero { color: var(--text-muted); }
+.mono { font-family: var(--font-mono); }
+.row { display: grid; grid-template-columns: 80px 90px 70px 90px 80px 80px 80px 70px 1fr; gap: 8px; padding: 8px 0; border-top: 1px solid var(--border); font-size: 12px; align-items: center; }
+.tag { display: inline-block; padding: 2px 8px; border-radius: 4px; background: var(--bg-secondary); font-family: var(--font-mono); font-size: 10px; border: 1px solid var(--border); }
+.tag.bull { background: rgba(16,185,129,0.15); color: var(--green); border-color: rgba(16,185,129,0.3); }
+.tag.bear { background: rgba(239,68,68,0.15); color: var(--red); border-color: rgba(239,68,68,0.3); }
+.tag.win { background: rgba(16,185,129,0.12); color: var(--green); }
+.tag.loss { background: rgba(239,68,68,0.12); color: var(--red); }
+.tag.pending { background: var(--bg-secondary); color: var(--text-muted); }
+.bar { display: grid; gap: 4px; grid-template-columns: 1fr; }
+.progress { height: 6px; background: var(--bg-secondary); border-radius: 3px; overflow: hidden; }
+.progress .fill { height: 100%; background: var(--accent); transition: width 0.3s ease; }
+.empty { padding: 40px; text-align: center; color: var(--text-muted); }
+.section-title { font-size: 14px; font-weight: 700; margin-bottom: 12px; }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">Multi-Strategy Backtester <span class="feat-badge feat-new">NEW</span></div>
+      <div class="page-subtitle">Pick a date range + universe + strategy. Replay through historical bars, compute realized R per signal. · <span id="market-clock">--</span></div>
+    </div>
+    <div class="flex gap-8">
+      <a href="potd-backtest.html" class="btn btn-ghost">🧪 POTD Backtest</a>
+      <a href="risk-attribution.html" class="btn btn-ghost">🎯 Attribution</a>
+      <a href="backtester.html" class="btn btn-ghost">🔬 Single Backtester</a>
+    </div>
+  </div>
+
+  <!-- Banner -->
+  <div class="banner">
+    <strong style="font-size:14px;">🧪 How it works.</strong>
+    <div style="font-size:11px;color:var(--text-muted);margin-top:6px;line-height:1.6;">
+      For each symbol in your universe, we pull daily bars over the date range. On each bar we run the auto-tagger against synthetic features (RSI, MACD, position vs MAs, day pattern).
+      Whenever a high-conviction setup fires, we open a virtual trade with the brain's recommended stop/target (ATR-based). Walk forward bar-by-bar to see if it hit T2 (3R), T1 (1.5R), or stop (-1R).
+      Aggregate R, hit rate, win-rate by setup. <strong>This is the honest scoreboard for whether the brain's signals would have made money.</strong>
+    </div>
+  </div>
+
+  <!-- Controls -->
+  <div class="controls">
+    <div>
+      <label>From date</label>
+      <input id="fromDate" type="date">
+    </div>
+    <div>
+      <label>To date</label>
+      <input id="toDate" type="date">
+    </div>
+    <div>
+      <label>Universe</label>
+      <input id="universe" value="SPY,QQQ,NVDA,TSLA,AAPL,MSFT,META,AMZN,GOOGL,AMD,COIN,PLTR,XLK,XLE,XLF" style="text-transform:uppercase;font-family:var(--font-mono);">
+    </div>
+    <div>
+      <label>Min adj-score</label>
+      <input id="minScore" type="number" value="0.7" step="0.05" min="0" max="1.5">
+    </div>
+    <div>
+      <label>Stop (× ATR)</label>
+      <input id="stopAtr" type="number" value="1.5" step="0.1">
+    </div>
+    <div>
+      <label>Target (× R)</label>
+      <input id="targetR" type="number" value="3" step="0.5">
+    </div>
+    <div>
+      <label>Time-stop (bars)</label>
+      <input id="timeStop" type="number" value="10" step="1">
+    </div>
+    <div style="display:flex;gap:8px;">
+      <button id="btnRun" class="btn btn-primary" style="flex:1;">▶ Run backtest</button>
+      <button id="btnClear" class="btn btn-ghost">Reset</button>
+    </div>
+  </div>
+
+  <!-- Progress -->
+  <div id="progressBlock" style="display:none;margin-bottom:18px;">
+    <div style="font-size:11px;color:var(--text-muted);margin-bottom:4px;" id="progressLabel">Running…</div>
+    <div class="progress"><div class="fill" id="progressFill" style="width:0%;"></div></div>
+  </div>
+
+  <!-- KPIs -->
+  <div class="kpi-strip">
+    <div class="tile"><div class="lab">Signals fired</div><div class="val mono" id="kSig">0</div></div>
+    <div class="tile"><div class="lab">Total R</div><div class="val mono" id="kR">0R</div></div>
+    <div class="tile"><div class="lab">Win rate</div><div class="val mono" id="kWR">—</div></div>
+    <div class="tile"><div class="lab">Avg R / trade</div><div class="val mono" id="kAvg">—</div></div>
+    <div class="tile"><div class="lab">Profit factor</div><div class="val mono" id="kPF">—</div></div>
+    <div class="tile"><div class="lab">Max drawdown (R)</div><div class="val mono" id="kDD">—</div></div>
+  </div>
+
+  <!-- Equity curve -->
+  <div class="card mb-24">
+    <div class="card-header"><div class="card-title">📈 Equity curve (cumulative R)</div></div>
+    <div style="height:280px;"><canvas id="equityChart"></canvas></div>
+  </div>
+
+  <!-- Per-setup performance -->
+  <div class="grid grid-2 mb-24">
+    <div class="card">
+      <div class="card-header"><div class="card-title">📊 Per-setup performance</div></div>
+      <div class="row" style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;font-weight:600;grid-template-columns:1fr 60px 60px 80px;">
+        <div>Setup</div>
+        <div style="text-align:right;">N</div>
+        <div style="text-align:right;">Win %</div>
+        <div style="text-align:right;">Avg R</div>
+      </div>
+      <div id="bySetup" style="max-height:340px;overflow-y:auto;"></div>
+    </div>
+    <div class="card">
+      <div class="card-header"><div class="card-title">🏆 Per-symbol performance</div></div>
+      <div class="row" style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;font-weight:600;grid-template-columns:1fr 60px 60px 80px;">
+        <div>Symbol</div>
+        <div style="text-align:right;">N</div>
+        <div style="text-align:right;">Win %</div>
+        <div style="text-align:right;">Total R</div>
+      </div>
+      <div id="bySym" style="max-height:340px;overflow-y:auto;"></div>
+    </div>
+  </div>
+
+  <!-- Trade log -->
+  <div class="card">
+    <div class="card-header"><div class="card-title">📋 Backtest trade log (top 100 by R)</div></div>
+    <div class="row" style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;font-weight:600;">
+      <div>Date</div>
+      <div>Sym</div>
+      <div>Bias</div>
+      <div>Setup</div>
+      <div style="text-align:right;">Entry</div>
+      <div style="text-align:right;">Exit</div>
+      <div style="text-align:right;">R</div>
+      <div style="text-align:right;">Bars</div>
+      <div>Result</div>
+    </div>
+    <div id="tradeBody" style="max-height:480px;overflow-y:auto;"></div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script src="js/ta.js"></script>
+<script src="js/learn.js"></script>
+<script>buildNav('backtester');</script>
+
+<script>
+(function () {
+  let equityChart = null;
+
+  // --- Indicator helpers (synthetic, on daily closes) ---
+  function rsi14(closes, end) {
+    if (end < 14) return null;
+    let g = 0, l = 0;
+    for (let i = end - 13; i <= end; i++) {
+      const d = closes[i] - closes[i - 1];
+      if (d >= 0) g += d; else l -= d;
+    }
+    g /= 14; l /= 14;
+    if (l === 0) return 100;
+    return 100 - 100 / (1 + g / l);
+  }
+  function sma(closes, end, n) {
+    if (end + 1 < n) return null;
+    let s = 0;
+    for (let i = end - n + 1; i <= end; i++) s += closes[i];
+    return s / n;
+  }
+  function ema(closes, end, n) {
+    if (end + 1 < n) return null;
+    const k = 2 / (n + 1);
+    let e = sma(closes, n - 1, n);
+    if (e == null) return null;
+    for (let i = n; i <= end; i++) e = closes[i] * k + e * (1 - k);
+    return e;
+  }
+  function atr14(bars, end) {
+    if (end < 14) return null;
+    let s = 0;
+    for (let i = end - 13; i <= end; i++) {
+      const tr = Math.max(bars[i].h - bars[i].l, Math.abs(bars[i].h - bars[i - 1].c), Math.abs(bars[i].l - bars[i - 1].c));
+      s += tr;
+    }
+    return s / 14;
+  }
+
+  function featuresAt(bars, closes, i) {
+    return {
+      last: closes[i],
+      prevClose: closes[i - 1],
+      dayHigh: bars[i].h, dayLow: bars[i].l,
+      rsi: rsi14(closes, i),
+      macd: (function () { const e12 = ema(closes, i, 12); const e26 = ema(closes, i, 26); return e12 != null && e26 != null ? e12 - e26 : null; })(),
+      macdHist: null,
+      ma50: sma(closes, i, 50), ma200: sma(closes, i, 200),
+      atr: atr14(bars, i),
+      atrPct: (function () { const a = atr14(bars, i); return a != null ? (a / closes[i]) * 100 : null; })(),
+      rvol: null,
+      donchUp: (function () { const start = Math.max(0, i - 19); let h = -Infinity; for (let j = start; j < i; j++) if (bars[j].h > h) h = bars[j].h; return h; })(),
+      donchDn: (function () { const start = Math.max(0, i - 19); let l = Infinity; for (let j = start; j < i; j++) if (bars[j].l < l) l = bars[j].l; return l; })()
+    };
+  }
+
+  function biasFromTag(tag) {
+    const bull = ['volume-breakout', '52w-break', '50ma-reclaim', 'macd-cross', 'bull-flag', 'cup-handle', 'vwap-reclaim', 'momentum-extension', 'continuation-bull'];
+    const bear = ['flush-on-volume', 'breakdown', 'bear-flag', 'vwap-rejection', 'overbought-fade', 'continuation-bear'];
+    if (bull.indexOf(tag) !== -1) return 'bull';
+    if (bear.indexOf(tag) !== -1) return 'bear';
+    if (tag === 'oversold-mean-revert' || tag === 'bb-stretch-down') return 'bull';
+    if (tag === 'bb-stretch-up') return 'bear';
+    return 'neutral';
+  }
+
+  async function fetchBars(sym, fromMs, toMs) {
+    if (typeof DataProvider !== 'undefined' && DataProvider.getHistorical) {
+      try {
+        const bars = await DataProvider.getHistorical(sym, 'D', fromMs, toMs);
+        if (Array.isArray(bars) && bars.length) return bars.map(b => ({ t: b.t * 1000 || b.t, o: b.o, h: b.h, l: b.l, c: b.c, v: b.v || 0 }));
+      } catch (e) {}
+    }
+    return null;
+  }
+
+  async function runBacktest() {
+    const from = new Date(document.getElementById('fromDate').value).getTime();
+    const to = new Date(document.getElementById('toDate').value).getTime();
+    if (!from || !to || from >= to) { alert('Pick a valid from < to date range.'); return; }
+    const universe = (document.getElementById('universe').value || '').split(',').map(s => s.trim().toUpperCase()).filter(Boolean);
+    const minScore = parseFloat(document.getElementById('minScore').value) || 0.7;
+    const stopAtr = parseFloat(document.getElementById('stopAtr').value) || 1.5;
+    const targetR = parseFloat(document.getElementById('targetR').value) || 3;
+    const timeStop = parseInt(document.getElementById('timeStop').value, 10) || 10;
+
+    const progressBlock = document.getElementById('progressBlock');
+    const fill = document.getElementById('progressFill');
+    const label = document.getElementById('progressLabel');
+    progressBlock.style.display = '';
+
+    const trades = [];
+    let n = 0;
+    for (let s = 0; s < universe.length; s++) {
+      const sym = universe[s];
+      label.textContent = 'Loading ' + sym + ' (' + (s + 1) + '/' + universe.length + ')';
+      fill.style.width = ((s / universe.length) * 100).toFixed(1) + '%';
+      const fromBuffer = from - 250 * 86400000; // need 200d warmup
+      const bars = await fetchBars(sym, fromBuffer, to);
+      if (!bars || bars.length < 30) continue;
+      const closes = bars.map(b => b.c);
+
+      for (let i = 30; i < bars.length - 1; i++) {
+        const t = bars[i].t;
+        if (t < from || t > to) continue;
+        const features = featuresAt(bars, closes, i);
+        if (!features.atr) continue;
+        const tag = typeof Learn !== 'undefined' ? Learn.autoTagSetup(features, { symbol: sym }) : null;
+        if (!tag || !tag.tag) continue;
+        const weight = typeof Learn.weightFor === 'function' ? Learn.weightFor(tag.tag, { symbol: sym }) : 1.0;
+        const adj = tag.score * weight;
+        if (adj < minScore) continue;
+        const bias = biasFromTag(tag.tag);
+        if (bias === 'neutral') continue;
+        const entry = closes[i];
+        const stopDist = features.atr * stopAtr;
+        const stop = bias === 'bull' ? entry - stopDist : entry + stopDist;
+        const target = bias === 'bull' ? entry + stopDist * targetR : entry - stopDist * targetR;
+        // Walk forward bars from i+1
+        let exit = null, exitBars = 0, result = 'time-stop';
+        for (let j = i + 1; j < bars.length && j - i <= timeStop; j++) {
+          if (bias === 'bull') {
+            if (bars[j].l <= stop) { exit = stop; result = 'stop'; exitBars = j - i; break; }
+            if (bars[j].h >= target) { exit = target; result = 'target'; exitBars = j - i; break; }
+          } else {
+            if (bars[j].h >= stop) { exit = stop; result = 'stop'; exitBars = j - i; break; }
+            if (bars[j].l <= target) { exit = target; result = 'target'; exitBars = j - i; break; }
+          }
+        }
+        if (exit == null) {
+          const lastIdx = Math.min(bars.length - 1, i + timeStop);
+          exit = bars[lastIdx].c;
+          exitBars = lastIdx - i;
+        }
+        const moveIn = bias === 'bull' ? (exit - entry) : (entry - exit);
+        const R = stopDist ? +(moveIn / stopDist).toFixed(2) : 0;
+        trades.push({ t, sym, setup: tag.tag, bias, entry: +entry.toFixed(2), exit: +exit.toFixed(2), R, bars: exitBars, result, score: +adj.toFixed(2) });
+        n++;
+      }
+    }
+    fill.style.width = '100%';
+    label.textContent = '✓ done — ' + trades.length + ' signals';
+    setTimeout(() => { progressBlock.style.display = 'none'; }, 1500);
+    renderResults(trades);
+  }
+
+  function renderResults(trades) {
+    if (!trades.length) {
+      document.getElementById('tradeBody').innerHTML = '<div class="empty">No signals fired in this range. Lower min-score or widen date range.</div>';
+      ['kSig', 'kR', 'kWR', 'kAvg', 'kPF', 'kDD'].forEach(id => document.getElementById(id).textContent = '—');
+      return;
+    }
+    trades.sort((a, b) => a.t - b.t);
+    const totalR = trades.reduce((a, t) => a + t.R, 0);
+    const wins = trades.filter(t => t.R > 0);
+    const losses = trades.filter(t => t.R < 0);
+    const wr = trades.length ? (wins.length / trades.length) * 100 : 0;
+    const avgR = totalR / trades.length;
+    const grossW = wins.reduce((a, t) => a + t.R, 0);
+    const grossL = Math.abs(losses.reduce((a, t) => a + t.R, 0));
+    const pf = grossL > 0 ? grossW / grossL : null;
+
+    // Equity curve & max drawdown
+    let cum = 0, peak = 0, dd = 0, maxDD = 0;
+    const equity = trades.map(t => {
+      cum += t.R;
+      if (cum > peak) peak = cum;
+      dd = peak - cum;
+      if (dd > maxDD) maxDD = dd;
+      return { x: t.t, y: +cum.toFixed(2) };
+    });
+
+    document.getElementById('kSig').textContent = trades.length;
+    document.getElementById('kR').textContent = (totalR >= 0 ? '+' : '') + totalR.toFixed(2) + 'R';
+    document.getElementById('kR').className = 'val mono ' + (totalR >= 0 ? 'r-pos' : 'r-neg');
+    document.getElementById('kWR').textContent = wr.toFixed(0) + '%';
+    document.getElementById('kAvg').textContent = (avgR >= 0 ? '+' : '') + avgR.toFixed(2) + 'R';
+    document.getElementById('kAvg').className = 'val mono ' + (avgR > 0 ? 'r-pos' : avgR < 0 ? 'r-neg' : '');
+    document.getElementById('kPF').textContent = pf != null ? pf.toFixed(2) : '—';
+    document.getElementById('kPF').className = 'val mono ' + (pf != null && pf >= 1 ? 'r-pos' : pf != null ? 'r-neg' : '');
+    document.getElementById('kDD').textContent = '-' + maxDD.toFixed(2) + 'R';
+    document.getElementById('kDD').className = 'val mono r-neg';
+
+    // Equity chart
+    if (equityChart) equityChart.destroy();
+    const ctx = document.getElementById('equityChart').getContext('2d');
+    equityChart = new Chart(ctx, {
+      type: 'line',
+      data: { datasets: [{ label: 'Cumulative R', data: equity, borderColor: '#00d4ff', backgroundColor: 'rgba(0,212,255,0.08)', fill: true, tension: 0.15, pointRadius: 0, borderWidth: 1.5 }] },
+      options: { responsive: true, maintainAspectRatio: false, parsing: false, animation: false, plugins: { legend: { display: false } }, scales: { x: { type: 'linear', ticks: { color: '#666', font: { size: 10 }, callback: (v) => new Date(v).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) }, grid: { display: false } }, y: { ticks: { color: '#999', font: { family: 'JetBrains Mono' } }, grid: { color: 'rgba(255,255,255,0.05)' } } } }
+    });
+
+    // Per-setup
+    const bySetup = {};
+    trades.forEach(t => {
+      if (!bySetup[t.setup]) bySetup[t.setup] = { n: 0, wins: 0, totalR: 0 };
+      bySetup[t.setup].n++;
+      bySetup[t.setup].totalR += t.R;
+      if (t.R > 0) bySetup[t.setup].wins++;
+    });
+    const setupRows = Object.entries(bySetup).map(([k, v]) => ({ k, n: v.n, wr: (v.wins / v.n) * 100, avgR: v.totalR / v.n })).sort((a, b) => b.avgR - a.avgR);
+    document.getElementById('bySetup').innerHTML = setupRows.map(r => `<div class="row" style="grid-template-columns:1fr 60px 60px 80px;">
+      <div><span class="tag">${r.k}</span></div>
+      <div class="mono" style="text-align:right;">${r.n}</div>
+      <div class="mono" style="text-align:right;">${r.wr.toFixed(0)}%</div>
+      <div class="mono ${r.avgR > 0 ? 'r-pos' : r.avgR < 0 ? 'r-neg' : ''}" style="text-align:right;font-weight:700;">${r.avgR >= 0 ? '+' : ''}${r.avgR.toFixed(2)}R</div>
+    </div>`).join('');
+
+    // Per-symbol
+    const bySym = {};
+    trades.forEach(t => {
+      if (!bySym[t.sym]) bySym[t.sym] = { n: 0, wins: 0, totalR: 0 };
+      bySym[t.sym].n++;
+      bySym[t.sym].totalR += t.R;
+      if (t.R > 0) bySym[t.sym].wins++;
+    });
+    const symRows = Object.entries(bySym).map(([k, v]) => ({ k, n: v.n, wr: (v.wins / v.n) * 100, totalR: v.totalR })).sort((a, b) => b.totalR - a.totalR);
+    document.getElementById('bySym').innerHTML = symRows.map(r => `<div class="row" style="grid-template-columns:1fr 60px 60px 80px;">
+      <div><strong class="mono">${r.k}</strong></div>
+      <div class="mono" style="text-align:right;">${r.n}</div>
+      <div class="mono" style="text-align:right;">${r.wr.toFixed(0)}%</div>
+      <div class="mono ${r.totalR > 0 ? 'r-pos' : r.totalR < 0 ? 'r-neg' : ''}" style="text-align:right;font-weight:700;">${r.totalR >= 0 ? '+' : ''}${r.totalR.toFixed(2)}R</div>
+    </div>`).join('');
+
+    // Trade log (top 100 by abs R)
+    const sortedByR = trades.slice().sort((a, b) => Math.abs(b.R) - Math.abs(a.R)).slice(0, 100);
+    document.getElementById('tradeBody').innerHTML = sortedByR.map(t => {
+      const cls = t.R > 0 ? 'r-pos' : t.R < 0 ? 'r-neg' : 'r-zero';
+      const date = new Date(t.t).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: '2-digit' });
+      const resClass = t.result === 'target' ? 'win' : t.result === 'stop' ? 'loss' : 'pending';
+      return `<div class="row">
+        <div class="mono" style="font-size:11px;color:var(--text-muted);">${date}</div>
+        <div class="mono" style="font-weight:700;">${t.sym}</div>
+        <div><span class="tag ${t.bias}">${t.bias === 'bull' ? '▲' : '▼'}</span></div>
+        <div><span class="tag">${t.setup}</span></div>
+        <div class="mono" style="text-align:right;">$${t.entry.toFixed(2)}</div>
+        <div class="mono" style="text-align:right;">$${t.exit.toFixed(2)}</div>
+        <div class="mono ${cls}" style="text-align:right;font-weight:700;">${t.R >= 0 ? '+' : ''}${t.R}R</div>
+        <div class="mono" style="text-align:right;color:var(--text-muted);">${t.bars}</div>
+        <div><span class="tag ${resClass}">${t.result}</span></div>
+      </div>`;
+    }).join('');
+  }
+
+  // Init dates
+  const today = new Date();
+  const ninetyDaysAgo = new Date(today.getTime() - 90 * 86400000);
+  document.getElementById('fromDate').value = ninetyDaysAgo.toISOString().slice(0, 10);
+  document.getElementById('toDate').value = today.toISOString().slice(0, 10);
+
+  document.getElementById('btnRun').addEventListener('click', runBacktest);
+  document.getElementById('btnClear').addEventListener('click', () => {
+    ['kSig', 'kR', 'kWR', 'kAvg', 'kPF', 'kDD'].forEach(id => document.getElementById(id).textContent = '—');
+    document.getElementById('tradeBody').innerHTML = '';
+    document.getElementById('bySetup').innerHTML = '';
+    document.getElementById('bySym').innerHTML = '';
+    if (equityChart) { equityChart.destroy(); equityChart = null; }
+  });
+})();
+</script>
+</body>
+</html>
