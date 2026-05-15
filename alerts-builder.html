@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Alerts Builder — bpleone / trade</title>
+<meta name="description" content="Visual alert rule builder · custom triggers · persistent across sessions · brain-aware.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.rule-builder { padding:18px; background:var(--bg-elevated); border-radius:10px; border:1px solid var(--border); }
+.rule-row { display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-bottom:12px; }
+.rule-row select, .rule-row input { background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:8px 12px;color:var(--text-primary);font-family:var(--font-mono);font-size:13px; }
+.alert-card { padding:14px; background:var(--bg-elevated); border:1px solid var(--border); border-radius:10px; margin-bottom:10px; }
+.alert-card.fired { border-left:4px solid var(--green); background:rgba(16,185,129,0.04); }
+.alert-card.active { border-left:4px solid var(--accent); }
+.alert-card.disabled { border-left:4px solid var(--text-muted); opacity:0.6; }
+</style>
+</head>
+<body data-needs="live">
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">🔔 Alerts Builder</div>
+      <div class="page-subtitle">Visual rule builder · custom triggers · persistent · <span id="market-clock">--</span></div>
+    </div>
+    <div class="flex gap-8">
+      <button class="btn btn-secondary" id="requestNotifyBtn">🔔 Enable Notifications</button>
+    </div>
+  </div>
+
+  <!-- BUILDER -->
+  <div class="card mb-24">
+    <div class="card-header"><div class="card-title">➕ Build New Alert</div></div>
+    <div class="rule-builder">
+      <div class="rule-row">
+        <span style="font-weight:700;color:var(--text-muted);">WHEN</span>
+        <input id="ruleSym" placeholder="Symbol (e.g. NVDA)" style="text-transform:uppercase;width:160px;">
+        <select id="ruleField">
+          <option value="last">price</option>
+          <option value="changePct">% change today</option>
+          <option value="volume">volume</option>
+          <option value="rsi">RSI</option>
+          <option value="brain-score">brain score</option>
+        </select>
+        <select id="ruleOp">
+          <option value="gt">is above</option>
+          <option value="lt">is below</option>
+          <option value="eq">equals</option>
+          <option value="cross-up">crosses above</option>
+          <option value="cross-down">crosses below</option>
+        </select>
+        <input id="ruleVal" type="number" step="any" placeholder="Value" style="width:140px;">
+      </div>
+      <div class="rule-row">
+        <span style="font-weight:700;color:var(--text-muted);">THEN</span>
+        <select id="ruleAction">
+          <option value="popup">show popup</option>
+          <option value="notify">send notification</option>
+          <option value="sound">play sound</option>
+          <option value="all">all of the above</option>
+        </select>
+        <span style="color:var(--text-muted);">and</span>
+        <select id="ruleRepeat">
+          <option value="once">fire once</option>
+          <option value="cooldown">cooldown 5 min</option>
+          <option value="every">fire every time</option>
+        </select>
+        <button class="btn btn-primary" id="saveBtn">💾 Save Alert</button>
+      </div>
+      <div style="font-size:12px;color:var(--text-muted);margin-top:8px;">Example: NVDA price &gt; $200 → send notification, cooldown 5 min</div>
+    </div>
+  </div>
+
+  <!-- ACTIVE ALERTS -->
+  <div class="grid grid-3 mb-24">
+    <div class="card"><div class="card-header"><div class="card-title">Active</div></div><div class="mono" style="font-size:26px;font-weight:700;color:var(--accent);" id="kpiActive">--</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">Fired Today</div></div><div class="mono green-text" style="font-size:26px;font-weight:700;" id="kpiFired">--</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">Disabled</div></div><div class="mono" style="font-size:26px;font-weight:700;color:var(--text-muted);" id="kpiDis">--</div></div>
+  </div>
+
+  <div class="card">
+    <div class="card-header"><div class="card-title">📋 Your Alerts</div></div>
+    <div id="alertsList"></div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script>
+buildNav('alerts-builder');
+
+const KEY = 'bpleone_alerts_builder_v1';
+
+function load() { try { return JSON.parse(localStorage.getItem(KEY) || '[]'); } catch (e) { return []; } }
+function save(a) { try { localStorage.setItem(KEY, JSON.stringify(a)); } catch (e) {} }
+function getQ(s) { return (typeof QUOTES !== 'undefined' && QUOTES[s]) ? QUOTES[s] : { last: 0, changePct: 0, volume: 0 }; }
+function loadFindings() { try { return JSON.parse(localStorage.getItem('bpleone_brain_findings_v1') || '{"items":[]}').items; } catch (e) { return []; } }
+
+let alerts = load();
+
+function getValue(sym, field) {
+  const q = getQ(sym);
+  if (field === 'last') return q.last || 0;
+  if (field === 'changePct') return q.changePct || 0;
+  if (field === 'volume') return (q.volume || 0) / 1e6;
+  if (field === 'rsi') return 50 + (q.changePct || 0) * 5; // synthetic
+  if (field === 'brain-score') {
+    const f = loadFindings().filter(f => f.meta && f.meta.sym === sym && (Date.now() - f.ts) < 4 * 3600 * 1000);
+    return Math.min(100, f.reduce((s, x) => s + (x.severity || 1) * 12, 0));
+  }
+  return 0;
+}
+
+function checkAlerts() {
+  alerts.forEach((a, i) => {
+    if (!a.enabled) return;
+    const val = getValue(a.sym, a.field);
+    const prev = a.prevVal != null ? a.prevVal : val;
+    let triggered = false;
+    if (a.op === 'gt' && val > a.value) triggered = true;
+    else if (a.op === 'lt' && val < a.value) triggered = true;
+    else if (a.op === 'eq' && Math.abs(val - a.value) < 0.01) triggered = true;
+    else if (a.op === 'cross-up' && prev <= a.value && val > a.value) triggered = true;
+    else if (a.op === 'cross-down' && prev >= a.value && val < a.value) triggered = true;
+    a.prevVal = val;
+    if (triggered) {
+      const now = Date.now();
+      if (a.repeat === 'cooldown' && a.lastFired && (now - a.lastFired) < 5 * 60 * 1000) return;
+      if (a.repeat === 'once' && a.lastFired) return;
+      a.lastFired = now;
+      a.fireCount = (a.fireCount || 0) + 1;
+      fireAlert(a);
+    }
+  });
+  save(alerts);
+  paint();
+}
+
+function fireAlert(a) {
+  const msg = a.sym + ' ' + a.field + ' ' + a.op + ' ' + a.value + ' (now ' + getValue(a.sym, a.field).toFixed(2) + ')';
+  if (a.action === 'popup' || a.action === 'all') {
+    const pop = document.createElement('div');
+    pop.style.cssText = 'position:fixed;bottom:30px;right:30px;padding:14px 20px;background:var(--bg-elevated);border:1px solid var(--accent);border-radius:10px;box-shadow:0 8px 32px rgba(0,212,255,0.3);z-index:9999;max-width:340px;';
+    pop.innerHTML = '<div style="font-weight:700;color:var(--accent);">🔔 Alert: ' + a.sym + '</div><div style="font-size:12px;color:var(--text-muted);margin-top:4px;">' + msg + '</div>';
+    document.body.appendChild(pop);
+    setTimeout(() => pop.remove(), 5000);
+  }
+  if ((a.action === 'notify' || a.action === 'all') && 'Notification' in window && Notification.permission === 'granted') {
+    try { new Notification('bpleone alert', { body: msg, icon: '/favicon.svg' }); } catch (e) {}
+  }
+  if (a.action === 'sound' || a.action === 'all') {
+    try {
+      const ctx = new (window.AudioContext || window.webkitAudioContext)();
+      const o = ctx.createOscillator(); const g = ctx.createGain();
+      o.frequency.value = 700; g.gain.value = 0.05;
+      o.connect(g); g.connect(ctx.destination); o.start(); o.stop(ctx.currentTime + 0.2);
+    } catch (e) {}
+  }
+}
+
+function paint() {
+  const list = document.getElementById('alertsList');
+  list.innerHTML = '';
+  if (alerts.length === 0) {
+    list.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-muted);font-size:13px;">No alerts yet. Build one above.</div>';
+  } else {
+    alerts.forEach((a, i) => {
+      const card = document.createElement('div');
+      card.className = 'alert-card ' + (a.enabled ? (a.lastFired ? 'fired' : 'active') : 'disabled');
+      const currentVal = getValue(a.sym, a.field);
+      card.innerHTML = '<div style="display:flex;justify-content:space-between;align-items:start;">'
+        + '<div style="flex:1;"><div style="font-weight:700;font-size:14px;">' + a.sym + ' ' + a.field + ' ' + a.op + ' ' + a.value + '</div>'
+        + '<div style="font-size:12px;color:var(--text-muted);margin-top:4px;">→ ' + a.action + ' · ' + a.repeat + ' · current: ' + currentVal.toFixed(2) + (a.fireCount ? ' · fired ' + a.fireCount + 'x' : '') + '</div></div>'
+        + '<div style="display:flex;gap:6px;">'
+        + '<button class="btn btn-ghost toggle" data-i="' + i + '" style="padding:4px 10px;font-size:11px;">' + (a.enabled ? '⏸' : '▶') + '</button>'
+        + '<button class="btn btn-ghost del" data-i="' + i + '" style="padding:4px 10px;font-size:11px;color:var(--red);">🗑</button></div></div>';
+      list.appendChild(card);
+    });
+  }
+  document.getElementById('kpiActive').textContent = alerts.filter(a => a.enabled).length;
+  document.getElementById('kpiFired').textContent = alerts.filter(a => a.lastFired && (Date.now() - a.lastFired) < 86400000).length;
+  document.getElementById('kpiDis').textContent = alerts.filter(a => !a.enabled).length;
+
+  document.querySelectorAll('.toggle').forEach(b => b.addEventListener('click', () => {
+    alerts[+b.dataset.i].enabled = !alerts[+b.dataset.i].enabled;
+    save(alerts); paint();
+  }));
+  document.querySelectorAll('.del').forEach(b => b.addEventListener('click', () => {
+    alerts.splice(+b.dataset.i, 1); save(alerts); paint();
+  }));
+}
+paint();
+
+document.getElementById('saveBtn').addEventListener('click', () => {
+  const sym = document.getElementById('ruleSym').value.toUpperCase().trim();
+  if (!sym) { alert('Symbol required'); return; }
+  const a = {
+    sym,
+    field: document.getElementById('ruleField').value,
+    op: document.getElementById('ruleOp').value,
+    value: +document.getElementById('ruleVal').value,
+    action: document.getElementById('ruleAction').value,
+    repeat: document.getElementById('ruleRepeat').value,
+    enabled: true,
+    fireCount: 0
+  };
+  alerts.push(a);
+  save(alerts);
+  paint();
+  document.getElementById('ruleSym').value = '';
+  document.getElementById('ruleVal').value = '';
+});
+
+document.getElementById('requestNotifyBtn').addEventListener('click', async () => {
+  if (!('Notification' in window)) { alert('Browser does not support notifications'); return; }
+  const perm = await Notification.requestPermission();
+  if (perm === 'granted') alert('✓ Notifications enabled');
+});
+
+setInterval(checkAlerts, 5000);
+</script>
+</body>
+</html>

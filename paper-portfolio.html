@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Paper Portfolio — bpleone / trade</title>
+<meta name="description" content="Paper trading account · brain-suggested trades · live P&L tracking · no real money.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.pos-row { display:grid; grid-template-columns: 70px 60px 80px 80px 80px 80px 100px 60px; gap:8px; padding:11px 12px; border-bottom:1px solid var(--border); font-family:var(--font-mono); font-size:11px; align-items:center; }
+.pos-row.long { border-left:3px solid var(--green); }
+.pos-row.short { border-left:3px solid var(--red); }
+.input-shell { display:flex; gap:10px; flex-wrap:wrap; align-items:center; }
+.input-shell input, .input-shell select { background:var(--bg-elevated);border:1px solid var(--border);border-radius:6px;padding:8px 12px;color:var(--text-primary);font-family:var(--font-mono);font-size:13px; }
+</style>
+</head>
+<body data-needs="live">
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">🎮 Paper Portfolio</div>
+      <div class="page-subtitle">Practice account · brain-suggested trades · live P&L · <span id="market-clock">--</span></div>
+    </div>
+    <div class="flex gap-8">
+      <button class="btn btn-secondary" id="resetBtn">🗑 Reset</button>
+    </div>
+  </div>
+
+  <div class="grid grid-5 mb-24">
+    <div class="card"><div class="card-header"><div class="card-title">Equity</div></div><div class="mono" style="font-size:26px;font-weight:700;" id="kpiEq">--</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">Open P&L</div></div><div class="mono" style="font-size:26px;font-weight:700;" id="kpiOpen">--</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">Realized (lifetime)</div></div><div class="mono" style="font-size:26px;font-weight:700;" id="kpiReal">--</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">Win Rate</div></div><div class="mono" style="font-size:26px;font-weight:700;" id="kpiWR">--</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">Open Positions</div></div><div class="mono" style="font-size:26px;font-weight:700;color:var(--accent);" id="kpiOpenCount">--</div></div>
+  </div>
+
+  <!-- ADD POSITION -->
+  <div class="card mb-24">
+    <div class="card-header"><div class="card-title">➕ Open Paper Position</div></div>
+    <div class="input-shell">
+      <input id="addSym" placeholder="Symbol" style="text-transform:uppercase;width:100px;">
+      <select id="addSide"><option>LONG</option><option>SHORT</option></select>
+      <input id="addShares" type="number" placeholder="Shares" value="100" style="width:100px;">
+      <input id="addPx" type="number" step="0.01" placeholder="Entry $" style="width:120px;">
+      <input id="addStop" type="number" step="0.01" placeholder="Stop $" style="width:120px;">
+      <input id="addTarget" type="number" step="0.01" placeholder="Target $" style="width:120px;">
+      <button class="btn btn-primary" id="addBtn">Open</button>
+      <button class="btn btn-secondary" id="brainSuggestBtn">🧠 Brain Suggest</button>
+    </div>
+  </div>
+
+  <!-- OPEN POSITIONS -->
+  <div class="card mb-24" style="padding:0;">
+    <div class="card-header" style="padding:14px 16px;"><div class="card-title">📊 Open Positions</div></div>
+    <div class="pos-row" style="background:var(--bg-elevated);font-size:9px;color:var(--text-muted);font-weight:800;letter-spacing:0.5px;">
+      <div>SYM</div><div>SIDE</div><div>SHARES</div><div>ENTRY</div><div>NOW</div><div>P&L $</div><div>P&L %</div><div></div>
+    </div>
+    <div id="openBody"></div>
+  </div>
+
+  <!-- CLOSED -->
+  <div class="card" style="padding:0;">
+    <div class="card-header" style="padding:14px 16px;"><div class="card-title">📜 Closed Positions (last 20)</div></div>
+    <div id="closedBody"></div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script>
+buildNav('paper-portfolio');
+
+const KEY = 'bpleone_paper_v1';
+
+function load() {
+  try { return JSON.parse(localStorage.getItem(KEY) || '{"open":[],"closed":[],"realized":0,"equity":50000}'); } catch (e) { return { open: [], closed: [], realized: 0, equity: 50000 }; }
+}
+function save(d) { try { localStorage.setItem(KEY, JSON.stringify(d)); } catch (e) {} }
+function getQ(s) { return (typeof QUOTES !== 'undefined' && QUOTES[s]) ? QUOTES[s] : { last: 100 }; }
+function loadFindings() { try { return JSON.parse(localStorage.getItem('bpleone_brain_findings_v1') || '{"items":[]}').items; } catch (e) { return []; } }
+
+let state = load();
+
+function paint() {
+  const body = document.getElementById('openBody');
+  body.innerHTML = '';
+  let totalOpenPnl = 0;
+  state.open.forEach((p, i) => {
+    const q = getQ(p.sym);
+    const now = q.last || p.entry;
+    const sideMul = p.side === 'LONG' ? 1 : -1;
+    const pnl = (now - p.entry) * p.shares * sideMul;
+    const pnlPct = ((now - p.entry) / p.entry) * 100 * sideMul;
+    totalOpenPnl += pnl;
+    const cls = p.side === 'LONG' ? 'long' : 'short';
+    const col = pnl > 0 ? 'var(--green)' : pnl < 0 ? 'var(--red)' : 'var(--text-muted)';
+    const row = document.createElement('div');
+    row.className = 'pos-row ' + cls;
+    row.innerHTML = '<div><strong>' + p.sym + '</strong></div>'
+      + '<div style="color:' + (p.side === 'LONG' ? 'var(--green)' : 'var(--red)') + ';font-weight:700;">' + p.side + '</div>'
+      + '<div>' + p.shares + '</div>'
+      + '<div>$' + p.entry.toFixed(2) + '</div>'
+      + '<div>$' + now.toFixed(2) + '</div>'
+      + '<div style="color:' + col + ';font-weight:700;">' + (pnl >= 0 ? '+$' : '−$') + Math.abs(pnl).toFixed(2) + '</div>'
+      + '<div style="color:' + col + ';">' + (pnlPct >= 0 ? '+' : '') + pnlPct.toFixed(2) + '%</div>'
+      + '<div><button class="btn btn-ghost close-btn" data-i="' + i + '" style="padding:4px 10px;font-size:10px;">Close</button></div>';
+    body.appendChild(row);
+  });
+  if (state.open.length === 0) body.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-muted);font-size:12px;">No open positions. Use the form above or hit 🧠 Brain Suggest.</div>';
+
+  // KPIs
+  const equity = state.equity + state.realized + totalOpenPnl;
+  document.getElementById('kpiEq').textContent = '$' + equity.toFixed(2);
+  document.getElementById('kpiOpen').textContent = (totalOpenPnl >= 0 ? '+$' : '−$') + Math.abs(totalOpenPnl).toFixed(2);
+  document.getElementById('kpiOpen').style.color = totalOpenPnl > 0 ? 'var(--green)' : totalOpenPnl < 0 ? 'var(--red)' : 'var(--text-primary)';
+  document.getElementById('kpiReal').textContent = (state.realized >= 0 ? '+$' : '−$') + Math.abs(state.realized).toFixed(2);
+  document.getElementById('kpiReal').style.color = state.realized > 0 ? 'var(--green)' : state.realized < 0 ? 'var(--red)' : 'var(--text-primary)';
+  const wins = state.closed.filter(c => c.pnl > 0).length;
+  document.getElementById('kpiWR').textContent = state.closed.length > 0 ? Math.round((wins / state.closed.length) * 100) + '%' : '—';
+  document.getElementById('kpiOpenCount').textContent = state.open.length;
+
+  // Closed
+  const cb = document.getElementById('closedBody');
+  cb.innerHTML = '';
+  if (state.closed.length === 0) cb.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-muted);font-size:12px;">No closed positions yet.</div>';
+  else state.closed.slice(0, 20).forEach(c => {
+    const cls = c.side === 'LONG' ? 'long' : 'short';
+    const col = c.pnl > 0 ? 'var(--green)' : 'var(--red)';
+    const row = document.createElement('div');
+    row.className = 'pos-row ' + cls;
+    row.innerHTML = '<div><strong>' + c.sym + '</strong></div>'
+      + '<div style="color:' + (c.side === 'LONG' ? 'var(--green)' : 'var(--red)') + ';">' + c.side + '</div>'
+      + '<div>' + c.shares + '</div>'
+      + '<div>$' + c.entry.toFixed(2) + '</div>'
+      + '<div>$' + c.exit.toFixed(2) + '</div>'
+      + '<div style="color:' + col + ';font-weight:700;">' + (c.pnl >= 0 ? '+$' : '−$') + Math.abs(c.pnl).toFixed(2) + '</div>'
+      + '<div style="color:' + col + ';">' + (c.pnlPct >= 0 ? '+' : '') + c.pnlPct.toFixed(2) + '%</div>'
+      + '<div style="color:var(--text-muted);font-size:10px;">' + new Date(c.closedTs).toLocaleDateString() + '</div>';
+    cb.appendChild(row);
+  });
+
+  // Bind close buttons
+  document.querySelectorAll('.close-btn').forEach(b => b.addEventListener('click', () => {
+    const i = +b.dataset.i;
+    const p = state.open[i];
+    const q = getQ(p.sym);
+    const exit = q.last || p.entry;
+    const sideMul = p.side === 'LONG' ? 1 : -1;
+    const pnl = (exit - p.entry) * p.shares * sideMul;
+    const pnlPct = ((exit - p.entry) / p.entry) * 100 * sideMul;
+    state.realized += pnl;
+    state.closed.unshift({ ...p, exit, pnl, pnlPct, closedTs: Date.now() });
+    if (state.closed.length > 100) state.closed.length = 100;
+    state.open.splice(i, 1);
+    save(state);
+    paint();
+  }));
+}
+paint();
+
+document.getElementById('addBtn').addEventListener('click', () => {
+  const sym = document.getElementById('addSym').value.toUpperCase().trim();
+  if (!sym) return;
+  const side = document.getElementById('addSide').value;
+  const shares = +document.getElementById('addShares').value || 100;
+  const q = getQ(sym);
+  const entry = +document.getElementById('addPx').value || q.last;
+  const stop = +document.getElementById('addStop').value;
+  const target = +document.getElementById('addTarget').value;
+  state.open.push({ sym, side, shares, entry, stop, target, openedTs: Date.now() });
+  save(state);
+  paint();
+  document.getElementById('addSym').value = '';
+  document.getElementById('addPx').value = '';
+});
+
+document.getElementById('brainSuggestBtn').addEventListener('click', () => {
+  const findings = loadFindings().filter(f => f.meta && f.meta.sym && (f.severity || 1) >= 2 && (Date.now() - f.ts) < 4 * 3600 * 1000);
+  if (findings.length === 0) {
+    alert('Brain has no high-severity setups firing right now. Try again later or browse the conviction stack.');
+    return;
+  }
+  const top = findings[0];
+  const sym = top.meta.sym;
+  const bias = top.meta.bias || 'bull';
+  const q = getQ(sym);
+  const side = bias === 'bear' ? 'SHORT' : 'LONG';
+  const entry = q.last;
+  const atr = entry * 0.025;
+  const stop = side === 'LONG' ? entry - atr : entry + atr;
+  const target = side === 'LONG' ? entry + atr * 3 : entry - atr * 3;
+  document.getElementById('addSym').value = sym;
+  document.getElementById('addSide').value = side;
+  document.getElementById('addPx').value = entry.toFixed(2);
+  document.getElementById('addStop').value = stop.toFixed(2);
+  document.getElementById('addTarget').value = target.toFixed(2);
+  document.getElementById('addShares').value = Math.floor(500 / Math.abs(entry - stop));
+});
+
+document.getElementById('resetBtn').addEventListener('click', () => {
+  if (!confirm('Reset paper portfolio? All positions and realized P&L will be cleared.')) return;
+  state = { open: [], closed: [], realized: 0, equity: 50000 };
+  save(state);
+  paint();
+});
+
+setInterval(paint, 5000);
+</script>
+</body>
+</html>

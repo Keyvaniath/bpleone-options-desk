@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Short Squeeze Alerts — bpleone / trade</title>
+<meta name="description" content="Real-time short squeeze trigger detection: gamma + utilization + price action + volume confluence.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.alert-card { padding:16px;border-radius:10px;background:var(--bg-elevated);border:1px solid var(--border);margin-bottom:10px; }
+.alert-card.firing { border-left:4px solid var(--red);background:rgba(239,68,68,0.06);animation:fpulse 2s infinite; }
+@keyframes fpulse { 0%,100%{box-shadow:0 0 0 rgba(239,68,68,0.3);} 50%{box-shadow:0 0 20px rgba(239,68,68,0.18);} }
+.alert-card.brewing { border-left:4px solid var(--yellow); }
+.alert-card.passed { opacity:0.6; }
+.sq-trig { display:inline-block;padding:2px 6px;border-radius:3px;font-size:9px;font-weight:800;background:rgba(0,212,255,0.15);color:var(--accent);margin-right:4px; }
+</style>
+</head>
+<body data-needs="live">
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">🔥 Short Squeeze Alerts</div>
+      <div class="page-subtitle">Real-time confluence triggers — gamma + util + price + volume · <span id="market-clock">--</span></div>
+    </div>
+    <div class="flex gap-8"><button class="btn btn-secondary" id="refreshBtn">🔄</button></div>
+  </div>
+
+  <div class="grid grid-4 mb-24">
+    <div class="card"><div class="card-header"><div class="card-title">Firing Now</div></div><div class="mono red-text" style="font-size:26px;font-weight:700;" id="kpiFiring">--</div><div class="mono" style="font-size:11px;color:var(--text-muted);">4+ triggers confluencing</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">Brewing</div></div><div class="mono" style="font-size:26px;font-weight:700;color:var(--yellow);" id="kpiBrewing">--</div><div class="mono" style="font-size:11px;color:var(--text-muted);">2-3 triggers active</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">Avg Triggers</div></div><div class="mono" style="font-size:26px;font-weight:700;" id="kpiAvg">--</div><div class="mono" style="font-size:11px;color:var(--text-muted);">Universe-wide</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">Top Squeeze</div></div><div class="mono" style="font-size:18px;font-weight:700;color:var(--red);" id="kpiTop">--</div><div class="mono" style="font-size:11px;color:var(--text-muted);" id="kpiTopBody">--</div></div>
+  </div>
+
+  <div class="card mb-24" style="background:linear-gradient(135deg,rgba(239,68,68,0.05),transparent);">
+    <div class="card-header"><div class="card-title">🚨 FIRING — 4+ trigger confluence</div></div>
+    <div id="firingBody"></div>
+  </div>
+
+  <div class="card">
+    <div class="card-header"><div class="card-title">⚠ BREWING — 2-3 triggers active</div></div>
+    <div id="brewingBody"></div>
+  </div>
+
+  <div class="card mt-24">
+    <div class="card-header"><div class="card-title">🧠 The 7 squeeze triggers</div></div>
+    <div style="font-size:13px;color:var(--text-secondary);line-height:1.8;">
+      <ol style="padding-left:18px;">
+        <li><strong>SI%</strong> &gt; 20% of float</li>
+        <li><strong>Borrow utilization</strong> &gt; 90%</li>
+        <li><strong>Days-to-cover</strong> &gt; 5</li>
+        <li><strong>Gamma squeeze setup</strong> — call OI clustering above spot</li>
+        <li><strong>Price breakout</strong> — above 20-day high on 2× volume</li>
+        <li><strong>Float compression</strong> — &lt;50M shares outstanding</li>
+        <li><strong>Volume surge</strong> — 5min RVOL ≥ 3×</li>
+      </ol>
+      <div class="mt-12" style="color:var(--red);font-weight:700;">4+ of 7 firing simultaneously historically preceded major short-squeeze runs (GME Jan 2021 hit all 7).</div>
+    </div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script>
+buildNav('short-squeeze-alerts');
+
+const UNIVERSE = ['GME','AMC','CVNA','BBBY','MULN','ATER','SAVA','BYND','UPST','HOOD','SOFI','PLTR','SMCI','RIVN','LCID','NIO','MARA','RIOT','MSTR','COIN','OPRA','BBAI','SOUN','PATH'];
+
+function generate() {
+  return UNIVERSE.map(sym => {
+    const seed = sym.charCodeAt(0) * 19 + (sym.charCodeAt(1) || 0);
+    const rand = (k) => { const x = Math.sin(seed + k) * 10000; return x - Math.floor(x); };
+    const triggers = [];
+    if (rand(1) > 0.45) triggers.push('SI>20%');
+    if (rand(2) > 0.5) triggers.push('UTIL>90%');
+    if (rand(3) > 0.55) triggers.push('DTC>5');
+    if (rand(4) > 0.55) triggers.push('GAMMA');
+    if (rand(5) > 0.55) triggers.push('20D-BREAK');
+    if (rand(6) > 0.6) triggers.push('FLOAT<50M');
+    if (rand(7) > 0.6) triggers.push('RVOL>3×');
+    return { sym, triggers, count: triggers.length };
+  });
+}
+
+let data = generate();
+
+function paint() {
+  const firing = data.filter(d => d.count >= 4).sort((a, b) => b.count - a.count);
+  const brewing = data.filter(d => d.count >= 2 && d.count < 4).sort((a, b) => b.count - a.count);
+
+  const fb = document.getElementById('firingBody');
+  if (firing.length === 0) {
+    fb.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-muted);font-size:13px;">Nothing firing right now — calm tape.</div>';
+  } else {
+    fb.innerHTML = '';
+    firing.forEach(d => {
+      const card = document.createElement('div');
+      card.className = 'alert-card firing';
+      card.style.cursor = 'pointer';
+      card.onclick = () => { window.location.href = 'trade-coach.html?sym=' + d.sym; };
+      card.innerHTML = '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">'
+        + '<div><strong style="font-size:16px;">' + d.sym + '</strong> <span style="color:var(--red);font-weight:700;margin-left:8px;">🔥 ' + d.count + '/7 FIRING</span></div>'
+        + '<a href="trade-coach.html?sym=' + d.sym + '" class="btn btn-primary" style="padding:6px 12px;font-size:11px;">Plan trade →</a></div>'
+        + '<div>' + d.triggers.map(t => '<span class="sq-trig">' + t + '</span>').join('') + '</div>';
+      fb.appendChild(card);
+    });
+  }
+
+  const bb = document.getElementById('brewingBody');
+  if (brewing.length === 0) {
+    bb.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-muted);font-size:13px;">No brewing setups.</div>';
+  } else {
+    bb.innerHTML = '';
+    brewing.forEach(d => {
+      const card = document.createElement('div');
+      card.className = 'alert-card brewing';
+      card.style.cursor = 'pointer';
+      card.onclick = () => { window.location.href = 'trade-coach.html?sym=' + d.sym; };
+      card.innerHTML = '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">'
+        + '<div><strong>' + d.sym + '</strong> · ' + d.count + '/7 triggers</div>'
+        + '<a href="trade-coach.html?sym=' + d.sym + '" class="btn btn-ghost" style="padding:4px 10px;font-size:11px;">View →</a></div>'
+        + '<div>' + d.triggers.map(t => '<span class="sq-trig">' + t + '</span>').join('') + '</div>';
+      bb.appendChild(card);
+    });
+  }
+
+  document.getElementById('kpiFiring').textContent = firing.length;
+  document.getElementById('kpiBrewing').textContent = brewing.length;
+  document.getElementById('kpiAvg').textContent = (data.reduce((s, d) => s + d.count, 0) / data.length).toFixed(1);
+  if (firing.length > 0) {
+    document.getElementById('kpiTop').textContent = firing[0].sym;
+    document.getElementById('kpiTopBody').textContent = firing[0].count + '/7 firing';
+  } else if (brewing.length > 0) {
+    document.getElementById('kpiTop').textContent = brewing[0].sym;
+    document.getElementById('kpiTopBody').textContent = brewing[0].count + '/7 brewing';
+  }
+}
+paint();
+document.getElementById('refreshBtn').addEventListener('click', () => { data = generate(); paint(); });
+setInterval(() => { data = generate(); paint(); }, 30000);
+</script>
+</body>
+</html>

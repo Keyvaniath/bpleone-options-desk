@@ -99,7 +99,7 @@ function buildNav(activePage) {
   activePage = activePage || '';
   const playsGrp = ['totd','plays','signals','earnings','earnings-preview','pre-market','zero-dte','setup-wizard','paper-trade','game-plan','hot-movers','squeeze-radar','trade-plan'];
   const tradeGrp = ['flow','chain','ta','momentum','market-internals','smart-money','heatmap','watchlists','vol-surface','gex','tape','sectors','pairs','calendar-analyzer','vol-cone','dark-pool','short-interest','etf-flows','volume-profile','order-flow','ticker','multi-leg-builder','bracket-builder','spread-scanner','wheel','correlation'];
-  const toolsGrp = ['risk','fundamentals','backtester','edge','learn','learn-engine-explained','crypto','journal','alerts','macro','news','screener','anomalies','assistant','ai-scout','portfolio-builder','position-sizing','execution','strategies','api','seasonality','economic-events','settings','mindset','changelog','friday-summary','replay','live-positions','risk-attribution','edge-scanner','hypothetical','account','setup-combos','kelly-sizer','potd-backtest','news-reactions','live-train','radar','ai-cotrader','train-history','alerts-dashboard','weight-heatmap','sector-rotation','options-flow-live','earnings-playbook','daily-debrief','multi-backtest','pre-market-scanner','position-stacking','crypto-commodities','after-hours-scanner','tomorrow-playbook','earnings-tonight','global-markets','cross-asset-correlations','trade-ticket','trade-blotter','conviction-board','squeeze-radar-pro','insider-congress-flow','calendar-plays','pair-trades','iv-skew','crypto-basis','desk-split','confluence-scanner','live-pnl-heatmap','time-of-day-pnl','brain-heartbeat','discoveries','comparison','strike-chaser','yield-curve','ml-feedback','dark-pool-pro','conviction-stack','cross-asset-pulse','vol-term','squeeze-composite','big-bets','setup-library','brain-audit','liquidity-health','sector-flow','iv-crush-tracker','morning-brief','news-pulse','breadth-pro','halt-tracker','pre-market-gappers','moc-imbalance','risk-radar','crypto-derivatives','dollar-leaders','trade-coach','watchlist-pro','smart-rotation','gex-pro','correlations-live','day-trader-pro','options-skew-radar','ai-narrative','levels-engine','pdt-dashboard','catalyst-clock','flow-replay','risk-parity','algo-signals','earnings-reactor','insider-live','congress-trades','buybacks-tracker','brain-decisions','mean-reversion-scanner','trend-strength','ipo-calendar','symbol-diff'];
+  const toolsGrp = ['risk','fundamentals','backtester','edge','learn','learn-engine-explained','crypto','journal','alerts','macro','news','screener','anomalies','assistant','ai-scout','portfolio-builder','position-sizing','execution','strategies','api','seasonality','economic-events','settings','mindset','changelog','friday-summary','replay','live-positions','risk-attribution','edge-scanner','hypothetical','account','setup-combos','kelly-sizer','potd-backtest','news-reactions','live-train','radar','ai-cotrader','train-history','alerts-dashboard','weight-heatmap','sector-rotation','options-flow-live','earnings-playbook','daily-debrief','multi-backtest','pre-market-scanner','position-stacking','crypto-commodities','after-hours-scanner','tomorrow-playbook','earnings-tonight','global-markets','cross-asset-correlations','trade-ticket','trade-blotter','conviction-board','squeeze-radar-pro','insider-congress-flow','calendar-plays','pair-trades','iv-skew','crypto-basis','desk-split','confluence-scanner','live-pnl-heatmap','time-of-day-pnl','brain-heartbeat','discoveries','comparison','strike-chaser','yield-curve','ml-feedback','dark-pool-pro','conviction-stack','cross-asset-pulse','vol-term','squeeze-composite','big-bets','setup-library','brain-audit','liquidity-health','sector-flow','iv-crush-tracker','morning-brief','news-pulse','breadth-pro','halt-tracker','pre-market-gappers','moc-imbalance','risk-radar','crypto-derivatives','dollar-leaders','trade-coach','watchlist-pro','smart-rotation','gex-pro','correlations-live','day-trader-pro','options-skew-radar','ai-narrative','levels-engine','pdt-dashboard','catalyst-clock','flow-replay','risk-parity','algo-signals','earnings-reactor','insider-live','congress-trades','buybacks-tracker','brain-decisions','mean-reversion-scanner','trend-strength','ipo-calendar','symbol-diff','pwa-install','short-squeeze-alerts','vix-pulse','market-map','day-pnl-calendar','opex-tracker','live-watcher','paper-portfolio','alerts-builder','trade-tape'];
   const isTrade = tradeGrp.indexOf(activePage) !== -1;
   const isPlays = playsGrp.indexOf(activePage) !== -1;
   const isTools = toolsGrp.indexOf(activePage) !== -1;
@@ -250,6 +250,16 @@ function buildNav(activePage) {
     + '<a href="trend-strength.html">📈 Trend Strength <span class="feat-badge feat-pro" style="font-size:8px;padding:0 5px;">PRO</span></a>'
     + '<a href="ipo-calendar.html">🎉 IPO Calendar <span class="feat-badge feat-new" style="font-size:8px;padding:0 5px;">NEW</span></a>'
     + '<a href="symbol-diff.html">⚖ Symbol Diff <span class="feat-badge feat-new" style="font-size:8px;padding:0 5px;">NEW</span></a>'
+    + '<a href="pwa-install.html">📱 Install App <span class="feat-badge feat-new" style="font-size:8px;padding:0 5px;">NEW</span></a>'
+    + '<a href="short-squeeze-alerts.html">🔥 Squeeze Alerts <span class="feat-badge feat-live" style="font-size:8px;padding:0 5px;">LIVE</span></a>'
+    + '<a href="vix-pulse.html">📊 VIX Pulse <span class="feat-badge feat-live" style="font-size:8px;padding:0 5px;">LIVE</span></a>'
+    + '<a href="market-map.html">🗺 Market Map <span class="feat-badge feat-pro" style="font-size:8px;padding:0 5px;">PRO</span></a>'
+    + '<a href="day-pnl-calendar.html">📅 Day P&amp;L Calendar <span class="feat-badge feat-pro" style="font-size:8px;padding:0 5px;">PRO</span></a>'
+    + '<a href="opex-tracker.html">📆 OPEX Tracker <span class="feat-badge feat-pro" style="font-size:8px;padding:0 5px;">PRO</span></a>'
+    + '<a href="live-watcher.html">👁 Live Watcher <span class="feat-badge feat-live" style="font-size:8px;padding:0 5px;">LIVE</span></a>'
+    + '<a href="paper-portfolio.html">🎮 Paper Portfolio <span class="feat-badge feat-new" style="font-size:8px;padding:0 5px;">NEW</span></a>'
+    + '<a href="alerts-builder.html">🔔 Alerts Builder <span class="feat-badge feat-new" style="font-size:8px;padding:0 5px;">NEW</span></a>'
+    + '<a href="trade-tape.html">🎞 Trade Tape <span class="feat-badge feat-live" style="font-size:8px;padding:0 5px;">LIVE</span></a>'
     + '<a href="position-stacking.html">🛡 Position Stacking <span class="feat-badge feat-new" style="font-size:8px;padding:0 5px;">NEW</span></a>'
     + '<a href="crypto-commodities.html">🌍 Crypto + Commodities <span class="feat-badge feat-live" style="font-size:8px;padding:0 5px;">LIVE</span></a>'
     + '<a href="edge-scanner.html">🛰 Live Edge Scanner <span class="feat-badge feat-live" style="font-size:8px;padding:0 5px;">LIVE</span></a>'
@@ -570,6 +580,16 @@ function buildFooter() {
     + '<li><a href="trend-strength.html">Trend Strength</a></li>'
     + '<li><a href="ipo-calendar.html">IPO Calendar</a></li>'
     + '<li><a href="symbol-diff.html">Symbol Diff</a></li>'
+    + '<li><a href="pwa-install.html">Install App</a></li>'
+    + '<li><a href="short-squeeze-alerts.html">Squeeze Alerts</a></li>'
+    + '<li><a href="vix-pulse.html">VIX Pulse</a></li>'
+    + '<li><a href="market-map.html">Market Map</a></li>'
+    + '<li><a href="day-pnl-calendar.html">Day P&amp;L Calendar</a></li>'
+    + '<li><a href="opex-tracker.html">OPEX Tracker</a></li>'
+    + '<li><a href="live-watcher.html">Live Watcher</a></li>'
+    + '<li><a href="paper-portfolio.html">Paper Portfolio</a></li>'
+    + '<li><a href="alerts-builder.html">Alerts Builder</a></li>'
+    + '<li><a href="trade-tape.html">Trade Tape</a></li>'
     + '<li><a href="position-stacking.html">Position Stacking</a></li>'
     + '<li><a href="crypto-commodities.html">Crypto + Commodities</a></li>'
     + '<li><a href="edge-scanner.html">Edge Scanner</a></li>'

@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Market Map — bpleone / trade</title>
+<meta name="description" content="Full-market treemap by sector, sized by market cap, colored by today's % change.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.map-tile { position:absolute; display:flex; align-items:center; justify-content:center; flex-direction:column; border:1px solid rgba(0,0,0,0.3); cursor:pointer; transition:transform 0.1s, filter 0.1s; overflow:hidden; }
+.map-tile:hover { filter:brightness(1.3); z-index:10; }
+.map-tile .sym { font-family:var(--font-mono); font-weight:700; }
+.map-tile .chg { font-family:var(--font-mono); font-size:11px; margin-top:2px; }
+.sector-block { position:relative; border:2px solid rgba(255,255,255,0.08); border-radius:6px; overflow:hidden; }
+</style>
+</head>
+<body data-needs="live">
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">🗺 Market Map</div>
+      <div class="page-subtitle">S&amp;P 500 treemap · sized by mkt cap · colored by today · <span id="market-clock">--</span></div>
+    </div>
+    <div class="flex gap-8"><button class="btn btn-secondary" id="refreshBtn">🔄</button></div>
+  </div>
+
+  <div class="grid grid-4 mb-24">
+    <div class="card"><div class="card-header"><div class="card-title">Market % Change</div></div><div class="mono" style="font-size:26px;font-weight:700;" id="kpiMkt">--</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">Strongest Sector</div></div><div class="mono green-text" style="font-size:18px;font-weight:700;" id="kpiStrong">--</div><div class="mono" style="font-size:11px;color:var(--text-muted);" id="kpiStrongBody">--</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">Weakest Sector</div></div><div class="mono red-text" style="font-size:18px;font-weight:700;" id="kpiWeak">--</div><div class="mono" style="font-size:11px;color:var(--text-muted);" id="kpiWeakBody">--</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">% Stocks Green</div></div><div class="mono" style="font-size:26px;font-weight:700;" id="kpiBreadth">--</div></div>
+  </div>
+
+  <div class="card" style="padding:20px;">
+    <div id="mapWrap" style="position:relative;width:100%;height:720px;background:var(--bg);"></div>
+    <div class="mt-12" style="display:flex;justify-content:space-between;font-size:11px;color:var(--text-muted);align-items:center;">
+      <div>← Bigger = larger market cap. Greener = up more today.</div>
+      <div style="display:flex;gap:14px;align-items:center;">
+        <span style="display:inline-flex;align-items:center;gap:4px;"><span style="width:14px;height:14px;background:#dc2626;display:inline-block;"></span>−3%</span>
+        <span style="display:inline-flex;align-items:center;gap:4px;"><span style="width:14px;height:14px;background:#64748b;display:inline-block;"></span>0</span>
+        <span style="display:inline-flex;align-items:center;gap:4px;"><span style="width:14px;height:14px;background:#16a34a;display:inline-block;"></span>+3%</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="card mt-24">
+    <div class="card-header"><div class="card-title">🌡 Sector breakdown</div></div>
+    <div id="sectors" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px;"></div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script>
+buildNav('market-map');
+
+const STOCKS = [
+  { sym: 'AAPL', sec: 'Tech', cap: 3500 }, { sym: 'MSFT', sec: 'Tech', cap: 3300 }, { sym: 'NVDA', sec: 'Tech', cap: 3000 },
+  { sym: 'GOOGL', sec: 'Tech', cap: 2100 }, { sym: 'META', sec: 'Tech', cap: 1500 }, { sym: 'AVGO', sec: 'Tech', cap: 800 },
+  { sym: 'ORCL', sec: 'Tech', cap: 380 }, { sym: 'CRM', sec: 'Tech', cap: 320 }, { sym: 'AMD', sec: 'Tech', cap: 240 },
+  { sym: 'AMZN', sec: 'Cons.Discr', cap: 1900 }, { sym: 'TSLA', sec: 'Cons.Discr', cap: 1100 }, { sym: 'HD', sec: 'Cons.Discr', cap: 360 },
+  { sym: 'MCD', sec: 'Cons.Discr', cap: 210 }, { sym: 'NKE', sec: 'Cons.Discr', cap: 130 },
+  { sym: 'WMT', sec: 'Staples', cap: 720 }, { sym: 'PG', sec: 'Staples', cap: 400 }, { sym: 'COST', sec: 'Staples', cap: 380 },
+  { sym: 'KO', sec: 'Staples', cap: 290 }, { sym: 'PEP', sec: 'Staples', cap: 250 },
+  { sym: 'JPM', sec: 'Financials', cap: 700 }, { sym: 'V', sec: 'Financials', cap: 600 }, { sym: 'MA', sec: 'Financials', cap: 480 },
+  { sym: 'BAC', sec: 'Financials', cap: 320 }, { sym: 'GS', sec: 'Financials', cap: 180 },
+  { sym: 'XOM', sec: 'Energy', cap: 470 }, { sym: 'CVX', sec: 'Energy', cap: 290 }, { sym: 'COP', sec: 'Energy', cap: 140 },
+  { sym: 'OXY', sec: 'Energy', cap: 70 },
+  { sym: 'LLY', sec: 'Healthcare', cap: 720 }, { sym: 'JNJ', sec: 'Healthcare', cap: 380 }, { sym: 'UNH', sec: 'Healthcare', cap: 480 },
+  { sym: 'PFE', sec: 'Healthcare', cap: 160 }, { sym: 'MRK', sec: 'Healthcare', cap: 290 },
+  { sym: 'BRK.B', sec: 'Financials', cap: 950 },
+  { sym: 'NFLX', sec: 'Comm.Svcs', cap: 280 }, { sym: 'DIS', sec: 'Comm.Svcs', cap: 180 },
+  { sym: 'BA', sec: 'Industrials', cap: 130 }, { sym: 'CAT', sec: 'Industrials', cap: 180 }, { sym: 'GE', sec: 'Industrials', cap: 220 }
+];
+
+function getQ(s) { return (typeof QUOTES !== 'undefined' && QUOTES[s]) ? QUOTES[s] : { last: 100, changePct: 0 }; }
+function chgPct(s) {
+  const q = getQ(s);
+  return q.changePct != null ? q.changePct : (Math.sin(s.charCodeAt(0)) * 2);
+}
+
+// Squarified treemap layout
+function treemap(items, x, y, w, h) {
+  if (items.length === 0) return [];
+  if (items.length === 1) return [{ ...items[0], x, y, w, h }];
+  const total = items.reduce((s, i) => s + i.cap, 0);
+  // Greedy: take items until ratio is best
+  const result = [];
+  let curX = x, curY = y, curW = w, curH = h;
+  let remaining = items.slice();
+  while (remaining.length > 0) {
+    const horizontal = curW >= curH;
+    const measure = horizontal ? curH : curW;
+    let row = [];
+    let rowSum = 0;
+    let bestRatio = Infinity;
+    for (let i = 0; i < remaining.length; i++) {
+      const next = remaining[i];
+      const newSum = rowSum + next.cap;
+      const totalRemaining = remaining.reduce((s, it) => s + it.cap, 0);
+      const area = (newSum / totalRemaining) * curW * curH;
+      const length = area / measure;
+      const widths = [...row, next].map(it => (it.cap / newSum) * measure);
+      const ratios = widths.map(wd => Math.max(wd / length, length / wd));
+      const worst = Math.max(...ratios);
+      if (worst <= bestRatio || row.length === 0) {
+        row.push(next);
+        rowSum = newSum;
+        bestRatio = worst;
+      } else break;
+    }
+    const rowSumFinal = rowSum;
+    const totalRemaining = remaining.reduce((s, it) => s + it.cap, 0);
+    const areaFinal = (rowSumFinal / totalRemaining) * curW * curH;
+    const length = areaFinal / measure;
+    let offset = 0;
+    row.forEach(it => {
+      const wd = (it.cap / rowSumFinal) * measure;
+      if (horizontal) {
+        result.push({ ...it, x: curX, y: curY + offset, w: length, h: wd });
+        offset += wd;
+      } else {
+        result.push({ ...it, x: curX + offset, y: curY, w: wd, h: length });
+        offset += wd;
+      }
+    });
+    if (horizontal) { curX += length; curW -= length; }
+    else { curY += length; curH -= length; }
+    remaining = remaining.slice(row.length);
+  }
+  return result;
+}
+
+function colorFor(chg) {
+  const x = Math.max(-1, Math.min(1, chg / 3));
+  if (x >= 0) {
+    const r = Math.round(64 - x * 60);
+    const g = Math.round(120 + x * 80);
+    const b = Math.round(64 - x * 30);
+    return `rgb(${r},${g},${b})`;
+  } else {
+    const r = Math.round(120 - x * 100);
+    const g = Math.round(64 + x * 30);
+    const b = Math.round(64 + x * 20);
+    return `rgb(${r},${g},${b})`;
+  }
+}
+
+function paint() {
+  const wrap = document.getElementById('mapWrap');
+  wrap.innerHTML = '';
+  // Group by sector
+  const bySec = {};
+  STOCKS.forEach(s => {
+    if (!bySec[s.sec]) bySec[s.sec] = [];
+    s.chg = chgPct(s.sym);
+    bySec[s.sec].push(s);
+  });
+  // Top-level treemap of sectors
+  const secItems = Object.entries(bySec).map(([sec, items]) => ({
+    sec, items, cap: items.reduce((sum, i) => sum + i.cap, 0)
+  })).sort((a, b) => b.cap - a.cap);
+  const W = wrap.offsetWidth || 1100;
+  const H = 720;
+  const sectorRects = treemap(secItems, 0, 0, W, H);
+  sectorRects.forEach(rect => {
+    const sb = document.createElement('div');
+    sb.className = 'sector-block';
+    sb.style.cssText = 'position:absolute;left:' + rect.x + 'px;top:' + rect.y + 'px;width:' + rect.w + 'px;height:' + rect.h + 'px;';
+    wrap.appendChild(sb);
+    // Sub-treemap of stocks
+    const stockRects = treemap(rect.items, 0, 0, rect.w, rect.h);
+    stockRects.forEach(s => {
+      const tile = document.createElement('div');
+      tile.className = 'map-tile';
+      const size = Math.min(s.w, s.h);
+      const fontSize = Math.max(9, Math.min(28, size / 4));
+      tile.style.cssText = 'position:absolute;left:' + s.x + 'px;top:' + s.y + 'px;width:' + s.w + 'px;height:' + s.h + 'px;background:' + colorFor(s.chg) + ';';
+      tile.innerHTML = '<div class="sym" style="font-size:' + fontSize + 'px;color:#fff;">' + s.sym + '</div>'
+        + '<div class="chg" style="font-size:' + Math.max(9, fontSize * 0.45) + 'px;color:rgba(255,255,255,0.85);">' + (s.chg >= 0 ? '+' : '') + s.chg.toFixed(2) + '%</div>';
+      tile.onclick = () => { window.location.href = 'trade-coach.html?sym=' + s.sym; };
+      tile.title = s.sym + ' · ' + s.sec + ' · $' + s.cap + 'B · ' + (s.chg >= 0 ? '+' : '') + s.chg.toFixed(2) + '%';
+      sb.appendChild(tile);
+    });
+  });
+
+  // KPIs
+  const allChg = STOCKS.map(s => ({ s: s.sym, chg: chgPct(s.sym), sec: s.sec, cap: s.cap }));
+  const weightedAvg = allChg.reduce((s, x) => s + x.chg * x.cap, 0) / allChg.reduce((s, x) => s + x.cap, 0);
+  document.getElementById('kpiMkt').textContent = (weightedAvg >= 0 ? '+' : '') + weightedAvg.toFixed(2) + '%';
+  document.getElementById('kpiMkt').style.color = weightedAvg > 0 ? 'var(--green)' : 'var(--red)';
+  const bySec = {};
+  allChg.forEach(s => { if (!bySec[s.sec]) bySec[s.sec] = []; bySec[s.sec].push(s); });
+  const secAvgs = Object.entries(bySec).map(([sec, items]) => ({ sec, avg: items.reduce((s, i) => s + i.chg, 0) / items.length }));
+  secAvgs.sort((a, b) => b.avg - a.avg);
+  document.getElementById('kpiStrong').textContent = secAvgs[0].sec;
+  document.getElementById('kpiStrongBody').textContent = '+' + secAvgs[0].avg.toFixed(2) + '%';
+  document.getElementById('kpiWeak').textContent = secAvgs[secAvgs.length - 1].sec;
+  document.getElementById('kpiWeakBody').textContent = secAvgs[secAvgs.length - 1].avg.toFixed(2) + '%';
+  const green = allChg.filter(s => s.chg > 0).length;
+  document.getElementById('kpiBreadth').textContent = Math.round((green / allChg.length) * 100) + '%';
+
+  // Sector breakdown
+  const sb = document.getElementById('sectors');
+  sb.innerHTML = '';
+  secAvgs.forEach(s => {
+    const card = document.createElement('div');
+    const col = s.avg > 0 ? 'var(--green)' : 'var(--red)';
+    card.style.cssText = 'padding:10px 12px;background:var(--bg-elevated);border-radius:8px;border:1px solid var(--border);border-left:3px solid ' + col + ';';
+    card.innerHTML = '<div style="font-weight:700;">' + s.sec + '</div><div class="mono" style="color:' + col + ';font-size:14px;margin-top:4px;">' + (s.avg >= 0 ? '+' : '') + s.avg.toFixed(2) + '%</div>';
+    sb.appendChild(card);
+  });
+}
+paint();
+window.addEventListener('resize', paint);
+document.getElementById('refreshBtn').addEventListener('click', paint);
+setInterval(paint, 30000);
+</script>
+</body>
+</html>

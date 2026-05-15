@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Day P&L Calendar — bpleone / trade</title>
+<meta name="description" content="Your P&L heatmap by day-of-week and time-of-day — find when you're at your best.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.cal-grid { display:grid; grid-template-columns: 80px repeat(5, 1fr); gap:2px; }
+.cal-cell { padding:14px 8px; text-align:center; font-family:var(--font-mono); font-size:11px; font-weight:700; border-radius:4px; }
+.cal-cell.header { background:transparent; color:var(--text-muted); font-size:10px; letter-spacing:0.5px; }
+.cal-cell.label { text-align:right; color:var(--text-muted); padding-right:12px; font-size:11px; font-weight:600; }
+.heat-row { display:grid; grid-template-columns: 80px repeat(13, 1fr); gap:2px; }
+.heat-cell { padding:8px 4px; text-align:center; font-family:var(--font-mono); font-size:10px; font-weight:700; border-radius:3px; }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">📅 Day P&L Calendar</div>
+      <div class="page-subtitle">When are you at your best · DoW + ToD analysis · <span id="market-clock">--</span></div>
+    </div>
+    <div class="flex gap-8">
+      <button class="btn btn-secondary" id="loadJournalBtn">📥 Load Journal</button>
+      <button class="btn btn-secondary" id="resetBtn">🗑 Reset</button>
+    </div>
+  </div>
+
+  <div class="grid grid-4 mb-24">
+    <div class="card"><div class="card-header"><div class="card-title">Total Realized</div></div><div class="mono" style="font-size:26px;font-weight:700;" id="kpiTotal">--</div><div class="mono" style="font-size:11px;color:var(--text-muted);" id="kpiTotalBody">--</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">Best Day</div></div><div class="mono green-text" style="font-size:18px;font-weight:700;" id="kpiBest">--</div><div class="mono" style="font-size:11px;color:var(--text-muted);" id="kpiBestBody">--</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">Worst Day</div></div><div class="mono red-text" style="font-size:18px;font-weight:700;" id="kpiWorst">--</div><div class="mono" style="font-size:11px;color:var(--text-muted);" id="kpiWorstBody">--</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">Win Rate</div></div><div class="mono" style="font-size:26px;font-weight:700;" id="kpiWR">--</div><div class="mono" style="font-size:11px;color:var(--text-muted);">Of profitable sessions</div></div>
+  </div>
+
+  <!-- DoW PnL -->
+  <div class="card mb-24">
+    <div class="card-header"><div class="card-title">📊 P&L by Day-of-Week</div></div>
+    <div class="cal-grid" id="dowGrid"></div>
+  </div>
+
+  <!-- ToD Heatmap -->
+  <div class="card mb-24">
+    <div class="card-header"><div class="card-title">⏰ DoW × ToD Heatmap — when you make money</div></div>
+    <div id="heatGrid"></div>
+  </div>
+
+  <!-- Recommendations -->
+  <div class="card">
+    <div class="card-header"><div class="card-title">🧠 Your patterns</div></div>
+    <div id="recs" style="font-size:13px;line-height:1.7;"></div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script>
+buildNav('day-pnl-calendar');
+
+function loadJournal() {
+  try {
+    const learn = JSON.parse(localStorage.getItem('bpleone_learn_v1') || '{}');
+    if (learn.trades && Array.isArray(learn.trades)) return learn.trades.filter(t => t.realized !== undefined);
+  } catch (e) {}
+  return [];
+}
+
+function generateSyntheticTrades() {
+  // 120 synthetic trades over last 90 days
+  const trades = [];
+  for (let i = 0; i < 120; i++) {
+    const daysAgo = Math.floor(Math.random() * 90);
+    const d = new Date(Date.now() - daysAgo * 86400000);
+    d.setHours(9 + Math.floor(Math.random() * 7), Math.floor(Math.random() * 60));
+    // P&L distribution biased by dow + tod
+    const dow = d.getDay();
+    const hour = d.getHours();
+    // Best on Tues/Wed mornings, worst on Fridays + early
+    const dowBias = (dow === 2 || dow === 3) ? 0.3 : (dow === 5) ? -0.3 : 0;
+    const hourBias = (hour >= 10 && hour <= 11) ? 0.4 : (hour >= 14 && hour <= 15) ? 0.2 : (hour < 10) ? -0.2 : 0;
+    const pnl = ((Math.random() - 0.45 + dowBias + hourBias) * 400).toFixed(2);
+    trades.push({ ts: d.getTime(), realized: +pnl, sym: 'SAMPLE' });
+  }
+  return trades;
+}
+
+let data = loadJournal();
+if (data.length === 0) data = generateSyntheticTrades();
+
+function paint() {
+  if (data.length === 0) {
+    document.getElementById('kpiTotal').textContent = 'No data';
+    return;
+  }
+
+  const dowNames = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+  const dowAgg = [0,0,0,0,0,0,0];
+  const dowCount = [0,0,0,0,0,0,0];
+  const hourBuckets = ['9:30','10:00','10:30','11:00','11:30','12:00','12:30','13:00','13:30','14:00','14:30','15:00','15:30'];
+  const heat = {}; // key 'DOW-HOUR' -> agg pnl
+  data.forEach(t => {
+    const d = new Date(t.ts);
+    const dow = d.getDay();
+    const hourIdx = Math.max(0, Math.min(12, Math.floor((d.getHours() - 9.5) * 2)));
+    dowAgg[dow] += t.realized;
+    dowCount[dow]++;
+    const key = dow + '-' + hourIdx;
+    heat[key] = (heat[key] || 0) + t.realized;
+  });
+
+  // Total + best/worst day
+  const total = data.reduce((s, t) => s + t.realized, 0);
+  document.getElementById('kpiTotal').textContent = (total >= 0 ? '+$' : '−$') + Math.abs(total).toFixed(2);
+  document.getElementById('kpiTotal').style.color = total >= 0 ? 'var(--green)' : 'var(--red)';
+  document.getElementById('kpiTotalBody').textContent = data.length + ' trades · last 90d';
+
+  let bestDow = 1, worstDow = 1;
+  for (let i = 1; i <= 5; i++) {
+    if (dowAgg[i] > dowAgg[bestDow]) bestDow = i;
+    if (dowAgg[i] < dowAgg[worstDow]) worstDow = i;
+  }
+  document.getElementById('kpiBest').textContent = dowNames[bestDow];
+  document.getElementById('kpiBestBody').textContent = '+$' + dowAgg[bestDow].toFixed(0) + ' avg ' + (dowAgg[bestDow] / dowCount[bestDow]).toFixed(0);
+  document.getElementById('kpiWorst').textContent = dowNames[worstDow];
+  document.getElementById('kpiWorstBody').textContent = '−$' + Math.abs(dowAgg[worstDow]).toFixed(0);
+
+  const wins = data.filter(t => t.realized > 0).length;
+  document.getElementById('kpiWR').textContent = Math.round((wins / data.length) * 100) + '%';
+
+  // DoW grid
+  const dg = document.getElementById('dowGrid');
+  dg.innerHTML = '<div class="cal-cell label">Days 1-5</div>';
+  for (let i = 1; i <= 5; i++) dg.innerHTML += '<div class="cal-cell header">' + dowNames[i] + '</div>';
+  dg.innerHTML += '<div class="cal-cell label">Total</div>';
+  for (let i = 1; i <= 5; i++) {
+    const v = dowAgg[i];
+    const col = v > 0 ? 'rgba(16,185,129,' + Math.min(0.7, Math.abs(v) / 1500) + ')' : 'rgba(239,68,68,' + Math.min(0.7, Math.abs(v) / 1500) + ')';
+    const txt = v > 0 ? 'var(--green)' : 'var(--red)';
+    dg.innerHTML += '<div class="cal-cell" style="background:' + col + ';color:' + txt + ';">' + (v >= 0 ? '+$' : '−$') + Math.abs(v).toFixed(0) + '</div>';
+  }
+  dg.innerHTML += '<div class="cal-cell label">Avg/trade</div>';
+  for (let i = 1; i <= 5; i++) {
+    const avg = dowCount[i] > 0 ? dowAgg[i] / dowCount[i] : 0;
+    const col = avg > 0 ? 'rgba(16,185,129,0.3)' : 'rgba(239,68,68,0.3)';
+    const txt = avg > 0 ? 'var(--green)' : 'var(--red)';
+    dg.innerHTML += '<div class="cal-cell" style="background:' + col + ';color:' + txt + ';">' + (avg >= 0 ? '+$' : '−$') + Math.abs(avg).toFixed(0) + '</div>';
+  }
+
+  // Heatmap
+  const hg = document.getElementById('heatGrid');
+  hg.innerHTML = '<div class="heat-row"><div class="heat-cell header"></div>';
+  hourBuckets.forEach(h => hg.innerHTML += '<div class="heat-cell" style="color:var(--text-muted);font-size:9px;">' + h + '</div>');
+  hg.innerHTML += '</div>';
+  let maxAbs = 0;
+  Object.values(heat).forEach(v => { if (Math.abs(v) > maxAbs) maxAbs = Math.abs(v); });
+  for (let dow = 1; dow <= 5; dow++) {
+    let html = '<div class="heat-row"><div class="heat-cell label">' + dowNames[dow] + '</div>';
+    for (let h = 0; h < 13; h++) {
+      const key = dow + '-' + h;
+      const v = heat[key] || 0;
+      const intensity = maxAbs > 0 ? Math.abs(v) / maxAbs : 0;
+      const col = v > 0 ? 'rgba(16,185,129,' + intensity * 0.7 + ')' : v < 0 ? 'rgba(239,68,68,' + intensity * 0.7 + ')' : 'rgba(100,116,139,0.1)';
+      const txt = v > 0 ? '#10b981' : v < 0 ? '#ef4444' : 'var(--text-muted)';
+      html += '<div class="heat-cell" style="background:' + col + ';color:' + txt + ';">' + (v === 0 ? '·' : (v >= 0 ? '+' : '−') + '$' + Math.abs(Math.round(v))) + '</div>';
+    }
+    html += '</div>';
+    hg.innerHTML += html;
+  }
+
+  // Recs
+  const recs = [];
+  recs.push('<div style="padding:8px 0;border-bottom:1px solid var(--border);"><strong style="color:var(--green);">Best day: ' + dowNames[bestDow] + '</strong> · trade with more conviction here.</div>');
+  recs.push('<div style="padding:8px 0;border-bottom:1px solid var(--border);"><strong style="color:var(--red);">Worst day: ' + dowNames[worstDow] + '</strong> · consider sitting out or cutting size in half.</div>');
+  // Find best hour
+  let bestKey = '', bestVal = -Infinity;
+  Object.entries(heat).forEach(([k, v]) => { if (v > bestVal) { bestVal = v; bestKey = k; } });
+  if (bestKey) {
+    const [bdow, bh] = bestKey.split('-');
+    recs.push('<div style="padding:8px 0;border-bottom:1px solid var(--border);"><strong style="color:var(--accent);">Sweet spot: ' + dowNames[bdow] + ' at ' + hourBuckets[bh] + '</strong> · +$' + bestVal.toFixed(0) + ' cumulative.</div>');
+  }
+  document.getElementById('recs').innerHTML = recs.join('');
+}
+paint();
+
+document.getElementById('loadJournalBtn').addEventListener('click', () => {
+  data = loadJournal();
+  if (data.length === 0) data = generateSyntheticTrades();
+  paint();
+});
+document.getElementById('resetBtn').addEventListener('click', () => {
+  if (!confirm('Reset to synthetic sample data?')) return;
+  data = generateSyntheticTrades();
+  paint();
+});
+</script>
+</body>
+</html>

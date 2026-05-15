@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Live Watcher — bpleone / trade</title>
+<meta name="description" content="Single-ticker live focus page — giant price, tape, P&L tracking, brain signals.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.mega-px { font-family:var(--font-mono); font-size:120px; font-weight:800; letter-spacing:-3px; text-align:center; line-height:1; }
+.mega-chg { font-family:var(--font-mono); font-size:22px; text-align:center; margin-top:6px; }
+.tape-row { display:grid; grid-template-columns: 70px 70px 80px 1fr; gap:6px; padding:5px 10px; font-family:var(--font-mono); font-size:11px; }
+.tape-row.buy { color:var(--green); background:rgba(16,185,129,0.04); }
+.tape-row.sell { color:var(--red); background:rgba(239,68,68,0.04); }
+.alert-pop { position:fixed; bottom:30px; right:30px; padding:14px 20px; background:var(--bg-elevated); border:1px solid var(--accent); border-radius:10px; box-shadow:0 8px 32px rgba(0,212,255,0.3); transform:translateX(420px); transition:transform 0.3s; max-width:380px; }
+.alert-pop.show { transform:translateX(0); }
+@keyframes pulse { 0%,100% { transform: scale(1); } 50% { transform: scale(1.04); } }
+.flash-up { color:var(--green); animation:pulse 0.3s; }
+.flash-dn { color:var(--red); animation:pulse 0.3s; }
+</style>
+</head>
+<body data-needs="live">
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">👁 Live Watcher</div>
+      <div class="page-subtitle">Single-ticker focus · giant price · live tape · brain alerts · <span id="market-clock">--</span></div>
+    </div>
+    <div class="flex gap-8">
+      <input type="text" id="symInput" value="SPY" style="background:var(--bg-elevated);border:1px solid var(--border);border-radius:8px;padding:8px 14px;color:var(--text-primary);font-family:var(--font-mono);font-size:16px;text-transform:uppercase;width:140px;">
+      <button class="btn btn-primary" id="loadBtn">Load</button>
+    </div>
+  </div>
+
+  <!-- MEGA PRICE -->
+  <div class="card mb-24" style="padding:40px;background:linear-gradient(135deg,rgba(0,212,255,0.04),transparent);">
+    <div style="text-align:center;font-size:11px;color:var(--text-muted);font-weight:700;letter-spacing:1px;" id="symDisplay">SPY</div>
+    <div class="mega-px" id="megaPx">--</div>
+    <div class="mega-chg" id="megaChg">--</div>
+  </div>
+
+  <!-- STATS GRID -->
+  <div class="grid grid-5 mb-24">
+    <div class="card"><div class="card-header"><div class="card-title">BID</div></div><div class="mono" style="font-size:22px;font-weight:700;color:var(--green);" id="kBid">--</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">ASK</div></div><div class="mono" style="font-size:22px;font-weight:700;color:var(--red);" id="kAsk">--</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">SPREAD</div></div><div class="mono" style="font-size:22px;font-weight:700;" id="kSpread">--</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">VOLUME</div></div><div class="mono" style="font-size:22px;font-weight:700;" id="kVol">--</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">BRAIN SCORE</div></div><div class="mono" style="font-size:22px;font-weight:700;color:var(--accent);" id="kBrain">--</div></div>
+  </div>
+
+  <!-- TAPE + BRAIN SIGNALS -->
+  <div class="grid grid-12">
+    <div class="card col-7" style="padding:0;">
+      <div class="card-header" style="padding:14px 16px;"><div class="card-title">⚡ Live Tape</div></div>
+      <div class="tape-row" style="background:var(--bg-elevated);color:var(--text-muted);font-weight:800;font-size:9px;letter-spacing:0.5px;">
+        <div>TIME</div><div>SIDE</div><div>PX</div><div>SIZE</div>
+      </div>
+      <div id="tapeBody" style="max-height:520px;overflow-y:auto;"></div>
+    </div>
+    <div class="card col-5">
+      <div class="card-header"><div class="card-title">🧠 Brain Signals (this symbol)</div></div>
+      <div id="signalsBody"></div>
+    </div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<!-- Alert popup -->
+<div class="alert-pop" id="alertPop">
+  <div id="alertContent"></div>
+</div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script>
+buildNav('live-watcher');
+
+let currentSym = 'SPY';
+let lastPx = null;
+
+function getQ(s) { return (typeof QUOTES !== 'undefined' && QUOTES[s]) ? QUOTES[s] : { last: 100, changePct: 0, volume: 1e6 }; }
+function loadFindings() { try { return JSON.parse(localStorage.getItem('bpleone_brain_findings_v1') || '{"items":[]}').items; } catch (e) { return []; } }
+
+function paintMega() {
+  const q = getQ(currentSym);
+  const px = q.last || 100;
+  const chg = q.changePct || 0;
+  const meg = document.getElementById('megaPx');
+  meg.textContent = px.toFixed(2);
+  const col = chg > 0 ? 'var(--green)' : chg < 0 ? 'var(--red)' : 'var(--text-primary)';
+  meg.style.color = col;
+  if (lastPx != null && px !== lastPx) {
+    meg.classList.remove('flash-up','flash-dn');
+    void meg.offsetWidth;
+    meg.classList.add(px > lastPx ? 'flash-up' : 'flash-dn');
+  }
+  lastPx = px;
+  const mc = document.getElementById('megaChg');
+  mc.textContent = (chg >= 0 ? '+' : '') + chg.toFixed(2) + '%' + ' · $' + (q.last - q.last/(1+chg/100)).toFixed(2);
+  mc.style.color = col;
+
+  // KPIs
+  const spread = px * 0.0005;
+  document.getElementById('kBid').textContent = (px - spread/2).toFixed(2);
+  document.getElementById('kAsk').textContent = (px + spread/2).toFixed(2);
+  document.getElementById('kSpread').textContent = spread.toFixed(2);
+  document.getElementById('kVol').textContent = q.volume ? (q.volume / 1e6).toFixed(2) + 'M' : '—';
+
+  // Brain score
+  const symFindings = loadFindings().filter(f => f.meta && f.meta.sym === currentSym && (Date.now() - f.ts) < 8 * 3600 * 1000);
+  const score = Math.min(100, symFindings.reduce((s, f) => s + (f.severity || 1) * 12, 0));
+  document.getElementById('kBrain').textContent = score;
+  document.getElementById('kBrain').style.color = score >= 70 ? 'var(--green)' : score >= 40 ? 'var(--accent)' : 'var(--text-muted)';
+
+  // Signals
+  const sb = document.getElementById('signalsBody');
+  if (symFindings.length === 0) {
+    sb.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-muted);font-size:12px;">No brain signals for ' + currentSym + ' in the last 8h.</div>';
+  } else {
+    sb.innerHTML = symFindings.slice(0, 8).map(f => {
+      const time = new Date(f.ts).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
+      return '<div style="padding:10px 12px;border-bottom:1px solid var(--border);">'
+        + '<div style="display:flex;justify-content:space-between;align-items:center;"><strong style="font-size:12px;">' + (f.title || f.type) + '</strong><span style="font-size:11px;">' + '⭐'.repeat(f.severity || 1) + '</span></div>'
+        + '<div style="font-size:11px;color:var(--text-muted);margin-top:4px;">' + time + ' · ' + (f.body || '').slice(0, 90) + '</div></div>';
+    }).join('');
+  }
+}
+
+function appendTape() {
+  const q = getQ(currentSym);
+  const isBuy = Math.random() > 0.5;
+  const px = (q.last || 100) * (1 + (Math.random() - 0.5) * 0.0008);
+  const size = Math.floor(50 + Math.random() * 3500);
+  const body = document.getElementById('tapeBody');
+  const row = document.createElement('div');
+  row.className = 'tape-row ' + (isBuy ? 'buy' : 'sell');
+  const time = new Date().toLocaleTimeString('en-US', { hour12: false }).slice(0, 8);
+  row.innerHTML = '<div>' + time + '</div><div>' + (isBuy ? 'BUY' : 'SEL') + '</div><div>' + px.toFixed(2) + '</div><div>' + size.toLocaleString() + '</div>';
+  body.insertBefore(row, body.firstChild);
+  while (body.children.length > 100) body.removeChild(body.lastChild);
+}
+
+function loadSym() {
+  currentSym = document.getElementById('symInput').value.toUpperCase().trim() || 'SPY';
+  document.getElementById('symDisplay').textContent = currentSym;
+  document.getElementById('tapeBody').innerHTML = '';
+  lastPx = null;
+  paintMega();
+}
+loadSym();
+
+document.getElementById('loadBtn').addEventListener('click', loadSym);
+document.getElementById('symInput').addEventListener('keypress', e => { if (e.key === 'Enter') loadSym(); });
+
+// Auto from ?sym=
+const params = new URLSearchParams(location.search);
+const presym = params.get('sym');
+if (presym) { document.getElementById('symInput').value = presym; loadSym(); }
+
+setInterval(paintMega, 2000);
+setInterval(appendTape, 250);
+
+// Brain alerts popup
+window.addEventListener('bpleone:brain-finding', e => {
+  const f = e.detail;
+  if (!f || (f.meta && f.meta.sym !== currentSym)) return;
+  if ((f.severity || 1) < 2) return;
+  const pop = document.getElementById('alertPop');
+  const content = document.getElementById('alertContent');
+  content.innerHTML = '<div style="font-size:11px;color:var(--accent);font-weight:700;letter-spacing:0.5px;">🧠 BRAIN SIGNAL · ' + currentSym + '</div>'
+    + '<div style="font-weight:700;margin-top:4px;">' + (f.title || f.type) + '</div>'
+    + '<div style="font-size:12px;color:var(--text-muted);margin-top:4px;">' + (f.body || '').slice(0, 120) + '</div>';
+  pop.classList.add('show');
+  setTimeout(() => pop.classList.remove('show'), 5000);
+});
+</script>
+</body>
+</html>

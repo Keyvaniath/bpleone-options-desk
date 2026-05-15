@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Trade Tape — bpleone / trade</title>
+<meta name="description" content="Unified tape — every print, every news headline, every brain finding in one stream.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.tape-event { display:grid; grid-template-columns: 70px 70px 60px 1fr; gap:10px; padding:10px 14px; border-bottom:1px solid var(--border); font-size:12px; align-items:start; }
+.tape-event:hover { background:var(--bg-elevated); }
+.tape-event.print { border-left:3px solid var(--accent); }
+.tape-event.news { border-left:3px solid var(--yellow); }
+.tape-event.brain { border-left:3px solid var(--green); }
+.tape-event.sweep { border-left:3px solid #a78bfa; background:rgba(124,58,237,0.05); }
+.event-icon { font-size:18px; }
+.flash { animation: tflash 0.6s ease; }
+@keyframes tflash { 0% { background:rgba(0,212,255,0.15); } 100% { background:transparent; } }
+</style>
+</head>
+<body data-needs="live">
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">🎞 Trade Tape</div>
+      <div class="page-subtitle">Unified stream · prints · news · brain · sweeps · <span id="market-clock">--</span></div>
+    </div>
+    <div class="flex gap-8">
+      <button class="btn btn-secondary" id="pauseBtn">⏸ Pause</button>
+      <button class="btn btn-secondary" id="clearBtn">🗑 Clear</button>
+    </div>
+  </div>
+
+  <!-- KPIs -->
+  <div class="grid grid-5 mb-24">
+    <div class="card"><div class="card-header"><div class="card-title">Events</div></div><div class="mono" style="font-size:26px;font-weight:700;" id="kpiEvents">0</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">Prints</div></div><div class="mono" style="font-size:26px;font-weight:700;color:var(--accent);" id="kpiPrints">0</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">Sweeps</div></div><div class="mono" style="font-size:26px;font-weight:700;color:#a78bfa;" id="kpiSweeps">0</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">Brain Signals</div></div><div class="mono green-text" style="font-size:26px;font-weight:700;" id="kpiBrain">0</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">News</div></div><div class="mono" style="font-size:26px;font-weight:700;color:var(--yellow);" id="kpiNews">0</div></div>
+  </div>
+
+  <!-- FILTERS -->
+  <div class="card mb-12" style="padding:10px 14px;">
+    <div class="flex gap-8">
+      <button class="btn btn-ghost btn-active" data-flt="all" style="padding:4px 10px;font-size:11px;">ALL</button>
+      <button class="btn btn-ghost" data-flt="print" style="padding:4px 10px;font-size:11px;">PRINTS</button>
+      <button class="btn btn-ghost" data-flt="sweep" style="padding:4px 10px;font-size:11px;">SWEEPS</button>
+      <button class="btn btn-ghost" data-flt="news" style="padding:4px 10px;font-size:11px;">NEWS</button>
+      <button class="btn btn-ghost" data-flt="brain" style="padding:4px 10px;font-size:11px;">BRAIN</button>
+      <input type="text" id="symFilter" placeholder="Symbol..." style="background:var(--bg-elevated);border:1px solid var(--border);border-radius:6px;padding:4px 10px;color:var(--text-primary);font-family:var(--font-mono);text-transform:uppercase;width:140px;margin-left:auto;">
+    </div>
+  </div>
+
+  <!-- TAPE -->
+  <div class="card" style="padding:0;">
+    <div class="tape-event" style="background:var(--bg-elevated);font-size:9px;color:var(--text-muted);font-weight:800;letter-spacing:0.5px;">
+      <div>TIME</div><div>SYM</div><div>TYPE</div><div>DETAILS</div>
+    </div>
+    <div id="tapeBody" style="max-height:680px;overflow-y:auto;"></div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script>
+buildNav('trade-tape');
+
+const SYMS = ['NVDA','TSLA','SPY','QQQ','AAPL','MSFT','META','AMD','PLTR','COIN','SMCI','MSTR','NFLX','UBER','HOOD','SOFI'];
+const NEWS_TPL = [
+  '{S} unusual call buying detected · 50k contracts',
+  '{S} upgraded to Buy by major sell-side',
+  'Fed speaker hints at extended pause',
+  '{S} CFO reports insider purchase via Form 4',
+  '{S} announces $5B buyback authorization',
+  'Crude oil sells off 2% on inventory build',
+  '{S} crosses 52-week high on volume',
+  '{S} downgraded; cited margin compression',
+  'Treasury yields back up; 10Y at 4.25%',
+  'Crypto: BTC ETF saw $400M inflow yesterday',
+  '{S} executive resignation announced',
+  '{S} AI partnership rumor pushes shares higher'
+];
+const counts = { all: 0, print: 0, sweep: 0, brain: 0, news: 0 };
+let events = [];
+let paused = false;
+let flt = 'all';
+let symFlt = '';
+
+function getQ(s) { return (typeof QUOTES !== 'undefined' && QUOTES[s]) ? QUOTES[s] : { last: 100 }; }
+function fmt$(n) {
+  if (n >= 1e6) return '$' + (n/1e6).toFixed(2) + 'M';
+  if (n >= 1e3) return '$' + (n/1e3).toFixed(0) + 'k';
+  return '$' + n.toFixed(0);
+}
+
+function genPrint() {
+  const sym = SYMS[Math.floor(Math.random() * SYMS.length)];
+  const q = getQ(sym);
+  const size = Math.floor(500 + Math.random() * 30000);
+  const px = q.last + (Math.random() - 0.5) * 0.5;
+  const notional = size * px;
+  if (notional < 250000 && Math.random() > 0.3) return null;
+  const isSweep = notional > 500000 && Math.random() > 0.6;
+  const isBuy = Math.random() > 0.5;
+  return {
+    type: isSweep ? 'sweep' : 'print',
+    sym,
+    icon: isSweep ? '⚡' : isBuy ? '🟢' : '🔴',
+    details: (isBuy ? 'BUY' : 'SEL') + ' ' + size.toLocaleString() + ' @ $' + px.toFixed(2) + ' = ' + fmt$(notional) + (isSweep ? ' [SWEEP]' : '')
+  };
+}
+
+function genNews() {
+  const tpl = NEWS_TPL[Math.floor(Math.random() * NEWS_TPL.length)];
+  const sym = SYMS[Math.floor(Math.random() * SYMS.length)];
+  return { type: 'news', sym: tpl.includes('{S}') ? sym : 'MKT', icon: '📰', details: tpl.replace('{S}', sym) };
+}
+
+function addEvent(e) {
+  if (!e) return;
+  e.ts = Date.now();
+  events.unshift(e);
+  if (events.length > 500) events.length = 500;
+  counts.all++;
+  if (e.type === 'print') counts.print++;
+  else if (e.type === 'sweep') counts.sweep++;
+  else if (e.type === 'news') counts.news++;
+  else if (e.type === 'brain') counts.brain++;
+  paintFiltered();
+  updateKPIs();
+}
+
+function matches(e) {
+  if (flt !== 'all' && e.type !== flt) return false;
+  if (symFlt && e.sym !== symFlt) return false;
+  return true;
+}
+
+function paintFiltered() {
+  const body = document.getElementById('tapeBody');
+  body.innerHTML = '';
+  events.filter(matches).slice(0, 200).forEach(e => {
+    const row = document.createElement('div');
+    row.className = 'tape-event ' + e.type + ' flash';
+    const time = new Date(e.ts).toLocaleTimeString('en-US', { hour12: false });
+    row.innerHTML = '<div class="mono" style="color:var(--text-muted);font-size:10px;">' + time + '</div>'
+      + '<div><strong>' + e.sym + '</strong></div>'
+      + '<div class="event-icon">' + e.icon + '</div>'
+      + '<div style="font-family:Inter;font-size:12px;line-height:1.4;">' + e.details + '</div>';
+    body.appendChild(row);
+  });
+}
+
+function updateKPIs() {
+  document.getElementById('kpiEvents').textContent = counts.all;
+  document.getElementById('kpiPrints').textContent = counts.print;
+  document.getElementById('kpiSweeps').textContent = counts.sweep;
+  document.getElementById('kpiBrain').textContent = counts.brain;
+  document.getElementById('kpiNews').textContent = counts.news;
+}
+
+// Brain listener
+window.addEventListener('bpleone:brain-finding', e => {
+  const f = e.detail;
+  if (!f) return;
+  addEvent({ type: 'brain', sym: (f.meta && f.meta.sym) || 'MKT', icon: '🧠', details: f.title || f.type });
+});
+
+setInterval(() => { if (!paused) addEvent(genPrint()); }, 500);
+setInterval(() => { if (!paused) addEvent(genNews()); }, 8000);
+
+// Seed
+for (let i = 0; i < 30; i++) addEvent(Math.random() > 0.3 ? genPrint() : genNews());
+
+document.getElementById('pauseBtn').addEventListener('click', () => {
+  paused = !paused;
+  document.getElementById('pauseBtn').textContent = paused ? '▶ Resume' : '⏸ Pause';
+});
+document.getElementById('clearBtn').addEventListener('click', () => {
+  events = []; counts.all = counts.print = counts.sweep = counts.brain = counts.news = 0;
+  paintFiltered(); updateKPIs();
+});
+document.querySelectorAll('[data-flt]').forEach(b => b.addEventListener('click', () => {
+  document.querySelectorAll('[data-flt]').forEach(x => x.classList.remove('btn-active'));
+  b.classList.add('btn-active');
+  flt = b.dataset.flt;
+  paintFiltered();
+}));
+document.getElementById('symFilter').addEventListener('input', e => { symFlt = e.target.value.toUpperCase(); paintFiltered(); });
+</script>
+</body>
+</html>

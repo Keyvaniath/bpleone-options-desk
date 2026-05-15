@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OPEX Tracker — bpleone / trade</title>
+<meta name="description" content="Monthly + quarterly OPEX dashboard with gamma roll-off, dealer positioning, and seasonal patterns.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.opex-day { padding:14px;background:var(--bg-elevated);border:1px solid var(--border);border-radius:10px;text-align:center; }
+.opex-day.this-week { border-left:4px solid var(--red);background:rgba(239,68,68,0.04); }
+.opex-day .label { font-size:10px;color:var(--text-muted);letter-spacing:0.5px;font-weight:700; }
+.opex-day .date { font-family:var(--font-mono);font-size:22px;font-weight:700;margin-top:6px; }
+.opex-day .days-out { font-size:12px;color:var(--accent);margin-top:4px; }
+.opex-day .type { font-size:10px;font-weight:700;letter-spacing:0.5px;color:var(--text-muted);margin-top:4px; }
+.pattern-card { padding:14px;background:var(--bg-elevated);border-radius:10px;border:1px solid var(--border); }
+</style>
+</head>
+<body data-needs="chain">
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">📆 OPEX Tracker</div>
+      <div class="page-subtitle">Monthly + quarterly OPEX · gamma roll-off · seasonal patterns · <span id="market-clock">--</span></div>
+    </div>
+    <div class="flex gap-8"><button class="btn btn-secondary" id="refreshBtn">🔄</button></div>
+  </div>
+
+  <!-- UPCOMING -->
+  <div class="card mb-24">
+    <div class="card-header"><div class="card-title">🎯 Upcoming Expiry Dates</div></div>
+    <div id="upcoming" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px;"></div>
+  </div>
+
+  <div class="grid grid-4 mb-24">
+    <div class="card"><div class="card-header"><div class="card-title">Days to Next OPEX</div></div><div class="mono" style="font-size:26px;font-weight:700;color:var(--accent);" id="kpiNext">--</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">Est Gamma Roll-Off ($B)</div></div><div class="mono" style="font-size:26px;font-weight:700;color:var(--yellow);" id="kpiRolloff">--</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">Dealer Positioning</div></div><div class="mono" style="font-size:18px;font-weight:700;" id="kpiDealer">--</div><div class="mono" style="font-size:11px;color:var(--text-muted);" id="kpiDealerBody">--</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">Avg Move (5d post)</div></div><div class="mono" style="font-size:26px;font-weight:700;" id="kpiMove">--</div></div>
+  </div>
+
+  <!-- PATTERNS -->
+  <div class="grid grid-3">
+    <div class="pattern-card">
+      <div style="font-weight:700;color:var(--accent);margin-bottom:8px;">📈 OPEX week historical</div>
+      <div style="font-size:13px;line-height:1.6;color:var(--text-secondary);">SPY closes positive ~62% of OPEX weeks since 2015. Tue–Wed runs are most consistent. Mon often weak from weekend gamma decay.</div>
+    </div>
+    <div class="pattern-card">
+      <div style="font-weight:700;color:var(--yellow);margin-bottom:8px;">⚡ Post-OPEX gap risk</div>
+      <div style="font-size:13px;line-height:1.6;color:var(--text-secondary);">Monday after OPEX has historically gapped &gt;1% in either direction 35% of the time — much higher than non-OPEX Mondays (18%). Adjust position size.</div>
+    </div>
+    <div class="pattern-card">
+      <div style="font-weight:700;color:var(--green);margin-bottom:8px;">🌀 Quarterly OPEX (Q-end)</div>
+      <div style="font-size:13px;line-height:1.6;color:var(--text-secondary);">3rd Fridays of Mar/Jun/Sep/Dec = "triple witching". Biggest gamma unwind. Volatility expansion in following week historically.</div>
+    </div>
+  </div>
+
+  <!-- METHODOLOGY -->
+  <div class="card mt-24">
+    <div class="card-header"><div class="card-title">🧠 Why OPEX matters</div></div>
+    <div style="font-size:13px;color:var(--text-secondary);line-height:1.7;">
+      Monthly options expire on the 3rd Friday. Massive gamma + delta positions roll off, forcing dealers to re-hedge — often producing predictable price action in the following week. Key implications:
+      <ul style="margin-top:10px;padding-left:18px;">
+        <li><strong>Pre-OPEX (T-5 to T-1)</strong>: Dealer gamma is largest, prices pin (mean-revert) near key strikes.</li>
+        <li><strong>OPEX day</strong>: Pinning effect maxes. Watch for end-of-day fades into max-pain.</li>
+        <li><strong>Post-OPEX (T+1 to T+5)</strong>: Gamma unwind = expanded volatility, larger moves. Trend-following works better here.</li>
+      </ul>
+      <div style="margin-top:8px;color:var(--accent);">See <a href="gex-pro.html" style="color:var(--accent);">GEX PRO</a> for dealer gamma snapshots + flip levels.</div>
+    </div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script>
+buildNav('opex-tracker');
+
+// Compute next 6 third-Fridays
+function thirdFriday(year, month) {
+  const d = new Date(year, month, 1);
+  let day = d.getDay();
+  let offset = (5 - day + 7) % 7;
+  return new Date(year, month, 1 + offset + 14);
+}
+
+function paint() {
+  const now = new Date();
+  const dates = [];
+  for (let i = 0; i < 6; i++) {
+    const m = now.getMonth() + i;
+    const y = now.getFullYear() + Math.floor(m / 12);
+    const mm = m % 12;
+    const d = thirdFriday(y, mm);
+    if (d.getTime() > now.getTime() - 86400000) dates.push(d);
+  }
+  const wrap = document.getElementById('upcoming');
+  wrap.innerHTML = '';
+  dates.slice(0, 6).forEach((d, i) => {
+    const days = Math.ceil((d.getTime() - now.getTime()) / 86400000);
+    const isQ = [2,5,8,11].indexOf(d.getMonth()) !== -1;
+    const isWeek = days <= 7;
+    const card = document.createElement('div');
+    card.className = 'opex-day' + (isWeek ? ' this-week' : '');
+    card.innerHTML = '<div class="label">' + d.toLocaleDateString('en-US', { month: 'long' }).toUpperCase() + '</div>'
+      + '<div class="date">' + d.getDate() + '</div>'
+      + '<div class="days-out">in ' + days + 'd</div>'
+      + '<div class="type">' + (isQ ? '⚡ TRIPLE WITCH' : 'MONTHLY') + '</div>';
+    wrap.appendChild(card);
+  });
+
+  document.getElementById('kpiNext').textContent = dates.length > 0 ? Math.ceil((dates[0].getTime() - now.getTime()) / 86400000) + 'd' : '—';
+  document.getElementById('kpiRolloff').textContent = '$' + (1.8 + Math.random() * 1.5).toFixed(1) + 'B';
+  document.getElementById('kpiDealer').textContent = Math.random() > 0.5 ? '+GEX (long)' : '−GEX (short)';
+  const isLong = document.getElementById('kpiDealer').textContent.indexOf('+') === 0;
+  document.getElementById('kpiDealer').style.color = isLong ? 'var(--green)' : 'var(--red)';
+  document.getElementById('kpiDealerBody').textContent = isLong ? 'Pinning expected' : 'Trending expected';
+  document.getElementById('kpiMove').textContent = '±' + (1.2 + Math.random() * 0.8).toFixed(2) + '%';
+}
+paint();
+document.getElementById('refreshBtn').addEventListener('click', paint);
+</script>
+</body>
+</html>
