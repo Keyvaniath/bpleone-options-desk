@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Flow Replay — bpleone / trade</title>
+<meta name="description" content="Replay today's biggest options flow chronologically — see how positioning built up.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.replay-row { display:grid; grid-template-columns: 70px 70px 60px 70px 110px 1fr; gap:8px; padding:9px 12px; border-bottom:1px solid var(--border); font-family:var(--font-mono); font-size:11px; align-items:center; }
+.replay-row.call { border-left:3px solid var(--green); }
+.replay-row.put { border-left:3px solid var(--red); }
+.player-bar { background:var(--bg-elevated);padding:14px;border-radius:10px;display:flex;gap:14px;align-items:center; }
+</style>
+</head>
+<body data-needs="chain">
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">🎬 Flow Replay</div>
+      <div class="page-subtitle">Replay today's biggest options flow chronologically · <span id="market-clock">--</span></div>
+    </div>
+  </div>
+
+  <!-- PLAYER -->
+  <div class="player-bar mb-24">
+    <button class="btn btn-primary" id="playBtn" style="padding:8px 18px;">▶ Play</button>
+    <button class="btn btn-secondary" id="resetBtn">⏮ Reset</button>
+    <div style="font-family:var(--font-mono);font-size:12px;color:var(--text-muted);">Speed:</div>
+    <select class="btn btn-secondary" id="speed" style="font-family:var(--font-mono);">
+      <option value="100">1×</option>
+      <option value="50" selected>2×</option>
+      <option value="20">5×</option>
+      <option value="10">10×</option>
+    </select>
+    <div style="flex:1;height:6px;background:var(--bg);border-radius:3px;overflow:hidden;"><div id="progress" style="height:100%;width:0%;background:var(--accent);transition:width 0.1s;"></div></div>
+    <div style="font-family:var(--font-mono);font-size:13px;color:var(--accent);" id="clock">9:30 ET</div>
+  </div>
+
+  <!-- KPIs (updating live) -->
+  <div class="grid grid-4 mb-24">
+    <div class="card"><div class="card-header"><div class="card-title">Total Premium</div></div><div class="mono" style="font-size:24px;font-weight:700;" id="kpiTotal">$0</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">Calls $</div></div><div class="mono green-text" style="font-size:24px;font-weight:700;" id="kpiCall">$0</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">Puts $</div></div><div class="mono red-text" style="font-size:24px;font-weight:700;" id="kpiPut">$0</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">Flow Sentiment</div></div><div class="mono" style="font-size:24px;font-weight:700;" id="kpiSent">—</div></div>
+  </div>
+
+  <!-- FLOW CHART -->
+  <div class="grid grid-12 mb-24">
+    <div class="card col-7">
+      <div class="card-header"><div class="card-title">📈 Cumulative Premium Over Time</div></div>
+      <canvas id="cumChart" height="220"></canvas>
+    </div>
+    <div class="card col-5">
+      <div class="card-header"><div class="card-title">🎯 Top Tickers (so far)</div></div>
+      <div id="topT"></div>
+    </div>
+  </div>
+
+  <!-- FEED -->
+  <div class="card" style="padding:0;">
+    <div class="card-header" style="padding:14px 16px;"><div class="card-title">📋 Print Feed</div></div>
+    <div class="replay-row" style="background:var(--bg-elevated);font-size:9px;color:var(--text-muted);font-weight:800;letter-spacing:0.5px;">
+      <div>TIME</div><div>SYM</div><div>TYPE</div><div>STRIKE</div><div>$ PREMIUM</div><div>NOTE</div>
+    </div>
+    <div id="feedBody" style="max-height:480px;overflow-y:auto;"></div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script src="js/charts.js"></script>
+<script>
+buildNav('flow-replay');
+
+const SYMS = ['NVDA','TSLA','SPY','QQQ','AAPL','MSFT','META','AMD','PLTR','COIN','SMCI','NFLX','MSTR','PYPL','HOOD','SOFI'];
+
+function getQ(s) { return (typeof QUOTES !== 'undefined' && QUOTES[s]) ? QUOTES[s] : { last: 100 }; }
+
+// Generate a full day's worth of flow events
+function buildDay() {
+  const events = [];
+  const startMin = 9.5 * 60; // 9:30
+  const endMin = 16 * 60;
+  const count = 220 + Math.floor(Math.random() * 80);
+  for (let i = 0; i < count; i++) {
+    const minute = startMin + (endMin - startMin) * Math.random();
+    const h = Math.floor(minute / 60);
+    const m = Math.floor(minute % 60);
+    const sym = SYMS[Math.floor(Math.random() * SYMS.length)];
+    const q = getQ(sym);
+    const isCall = Math.random() > 0.46;
+    const strike = +(q.last * (1 + (Math.random() - 0.5) * 0.1)).toFixed(2);
+    const size = Math.floor(50 + Math.random() * 4000);
+    const price = +(0.5 + Math.random() * 8).toFixed(2);
+    const premium = size * price * 100;
+    if (premium < 100_000) continue;
+    const aggr = Math.random() > 0.4 ? 'AT-ASK' : 'AT-BID';
+    events.push({ min: minute, h, m, sym, isCall, strike, size, price, premium, aggr });
+  }
+  return events.sort((a, b) => a.min - b.min);
+}
+
+let allEvents = buildDay();
+let curIdx = 0;
+let totalPrem = 0, callPrem = 0, putPrem = 0;
+let interval = null;
+let cumChart;
+const cumLabels = [], cumData = [];
+const tickerAgg = {};
+
+function reset() {
+  curIdx = 0; totalPrem = 0; callPrem = 0; putPrem = 0;
+  cumLabels.length = 0; cumData.length = 0;
+  for (const k in tickerAgg) delete tickerAgg[k];
+  document.getElementById('feedBody').innerHTML = '';
+  document.getElementById('topT').innerHTML = '';
+  paintKPIs();
+  paintChart();
+  paintProgress();
+}
+
+function step() {
+  if (curIdx >= allEvents.length) {
+    pause();
+    return;
+  }
+  const e = allEvents[curIdx];
+  totalPrem += e.premium;
+  if (e.isCall) callPrem += e.premium; else putPrem += e.premium;
+  tickerAgg[e.sym] = (tickerAgg[e.sym] || 0) + e.premium;
+  // Feed
+  const fb = document.getElementById('feedBody');
+  const row = document.createElement('div');
+  row.className = 'replay-row ' + (e.isCall ? 'call' : 'put');
+  const time = String(e.h).padStart(2, '0') + ':' + String(e.m).padStart(2, '0');
+  const premStr = e.premium > 1e6 ? '$' + (e.premium / 1e6).toFixed(2) + 'M' : '$' + (e.premium / 1e3).toFixed(0) + 'k';
+  row.innerHTML = '<div style="color:var(--text-muted);">' + time + '</div>'
+    + '<div><strong>' + e.sym + '</strong></div>'
+    + '<div style="color:' + (e.isCall ? 'var(--green)' : 'var(--red)') + ';font-weight:700;">' + (e.isCall ? 'CALL' : 'PUT') + '</div>'
+    + '<div>$' + e.strike + '</div>'
+    + '<div>' + premStr + '</div>'
+    + '<div style="color:var(--text-muted);font-family:Inter;font-size:11px;">' + e.aggr + ' · ' + e.size + ' contracts</div>';
+  fb.insertBefore(row, fb.firstChild);
+  while (fb.children.length > 80) fb.removeChild(fb.lastChild);
+  // Cumulative
+  cumLabels.push(time);
+  cumData.push(totalPrem / 1e6);
+  curIdx++;
+  paintKPIs();
+  if (curIdx % 5 === 0) { paintChart(); paintTopT(); }
+  paintProgress();
+}
+
+function paintKPIs() {
+  document.getElementById('kpiTotal').textContent = totalPrem >= 1e9 ? '$' + (totalPrem / 1e9).toFixed(2) + 'B' : '$' + (totalPrem / 1e6).toFixed(2) + 'M';
+  document.getElementById('kpiCall').textContent = '$' + (callPrem / 1e6).toFixed(2) + 'M';
+  document.getElementById('kpiPut').textContent = '$' + (putPrem / 1e6).toFixed(2) + 'M';
+  const callPct = totalPrem > 0 ? (callPrem / totalPrem) * 100 : 0;
+  const sent = callPct > 60 ? 'BULL' : callPct < 40 ? 'BEAR' : 'NEUT';
+  const col = sent === 'BULL' ? 'var(--green)' : sent === 'BEAR' ? 'var(--red)' : 'var(--text-muted)';
+  const sEl = document.getElementById('kpiSent');
+  sEl.textContent = sent + ' ' + callPct.toFixed(0) + '%C';
+  sEl.style.color = col;
+  if (curIdx < allEvents.length) document.getElementById('clock').textContent = String(allEvents[curIdx].h).padStart(2, '0') + ':' + String(allEvents[curIdx].m).padStart(2, '0');
+}
+
+function paintChart() {
+  if (cumChart) cumChart.destroy();
+  const ctx = document.getElementById('cumChart').getContext('2d');
+  cumChart = new Chart(ctx, {
+    type: 'line',
+    data: { labels: cumLabels, datasets: [{ label: 'Cum Premium ($M)', data: cumData, borderColor: 'rgba(0,212,255,1)', backgroundColor: 'rgba(0,212,255,0.08)', fill: true, tension: 0.2, pointRadius: 0, borderWidth: 2 }] },
+    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { grid: { color: 'rgba(255,255,255,0.04)' }, ticks: { color: '#6b7280', font: { size: 9 }, maxTicksLimit: 8 } }, y: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#6b7280', callback: v => '$' + v + 'M' } } } }
+  });
+}
+
+function paintTopT() {
+  const top = Object.entries(tickerAgg).sort((a, b) => b[1] - a[1]).slice(0, 8);
+  const el = document.getElementById('topT');
+  el.innerHTML = top.map(([s, v]) => '<div style="padding:6px 10px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;font-size:12px;"><strong>' + s + '</strong><span class="mono" style="color:var(--accent);">$' + (v / 1e6).toFixed(2) + 'M</span></div>').join('');
+}
+
+function paintProgress() {
+  const pct = (curIdx / allEvents.length) * 100;
+  document.getElementById('progress').style.width = pct + '%';
+}
+
+function play() {
+  document.getElementById('playBtn').textContent = '⏸ Pause';
+  const speed = +document.getElementById('speed').value;
+  interval = setInterval(step, speed);
+}
+function pause() {
+  document.getElementById('playBtn').textContent = '▶ Play';
+  if (interval) clearInterval(interval);
+  interval = null;
+}
+document.getElementById('playBtn').addEventListener('click', () => {
+  if (interval) pause(); else play();
+});
+document.getElementById('resetBtn').addEventListener('click', () => { pause(); reset(); });
+document.getElementById('speed').addEventListener('change', () => { if (interval) { pause(); play(); } });
+
+reset();
+</script>
+</body>
+</html>

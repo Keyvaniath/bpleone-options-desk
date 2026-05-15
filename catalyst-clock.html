@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Catalyst Clock — bpleone / trade</title>
+<meta name="description" content="Today's catalysts on a 24-hour timeline: earnings, Fed speakers, economic releases, expirations.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.timeline { position:relative;padding:30px 0;border-left:3px solid var(--accent);margin-left:50px; }
+.tl-item { position:relative;padding:10px 0 30px 30px; }
+.tl-item::before { content:'';position:absolute;left:-9px;top:14px;width:15px;height:15px;border-radius:50%;background:var(--accent);border:3px solid var(--bg); }
+.tl-item.high::before { background:var(--red); }
+.tl-item.med::before { background:var(--yellow); }
+.tl-item.passed::before { background:var(--text-muted); }
+.tl-time { position:absolute;left:-130px;top:10px;font-family:var(--font-mono);font-size:14px;font-weight:700;color:var(--accent);width:90px;text-align:right; }
+.tl-card { background:var(--bg-elevated);border:1px solid var(--border);border-radius:8px;padding:12px 14px; }
+.tl-card.passed { opacity:0.6; }
+.tl-card.high { border-left:3px solid var(--red); }
+.tl-card.med { border-left:3px solid var(--yellow); }
+.imp { display:inline-block;padding:2px 6px;border-radius:3px;font-size:10px;font-weight:700; }
+.imp-h { background:rgba(239,68,68,0.18);color:var(--red); }
+.imp-m { background:rgba(245,158,11,0.18);color:var(--yellow); }
+.imp-l { background:rgba(0,212,255,0.15);color:var(--accent); }
+</style>
+</head>
+<body data-needs="live">
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">⏰ Catalyst Clock</div>
+      <div class="page-subtitle">Today's catalysts on a timeline · earnings · econ · Fed · expiry · <span id="market-clock">--</span></div>
+    </div>
+  </div>
+
+  <!-- KPIs -->
+  <div class="grid grid-4 mb-24">
+    <div class="card"><div class="card-header"><div class="card-title">Catalysts Today</div></div><div class="mono" style="font-size:26px;font-weight:700;" id="kpiCount">--</div><div class="mono" style="font-size:11px;color:var(--text-muted);">Across all categories</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">High Impact</div></div><div class="mono red-text" style="font-size:26px;font-weight:700;" id="kpiHigh">--</div><div class="mono" style="font-size:11px;color:var(--text-muted);">Position before</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">Next Catalyst In</div></div><div class="mono" style="font-size:26px;font-weight:700;color:var(--accent);" id="kpiNext">--</div><div class="mono" style="font-size:11px;color:var(--text-muted);" id="kpiNextLbl">--</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">Earnings After Close</div></div><div class="mono" style="font-size:26px;font-weight:700;color:var(--yellow);" id="kpiAH">--</div><div class="mono" style="font-size:11px;color:var(--text-muted);">Watch for gap on open</div></div>
+  </div>
+
+  <div class="card" style="padding:20px;">
+    <div class="card-header"><div class="card-title">📅 Timeline</div></div>
+    <div class="timeline" id="timeline"></div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script>
+buildNav('catalyst-clock');
+
+// Synthesized catalysts for today
+function todayAt(h, m) { const d = new Date(); d.setHours(h, m, 0, 0); return d; }
+
+const CATS = [
+  { t: todayAt(4, 0), title: 'Asia close', cat: 'macro', imp: 'L', body: 'Asian markets close — watch for risk-on/off carry into European open.' },
+  { t: todayAt(7, 0), title: 'European session midpoint', cat: 'macro', imp: 'L', body: 'DAX/FTSE/CAC midday read.' },
+  { t: todayAt(8, 30), title: 'CPI / NFP-style release (data dep)', cat: 'econ', imp: 'H', body: 'Hot or cold data drives rate-cut probabilities for the next FOMC meeting.' },
+  { t: todayAt(9, 0), title: 'Pre-market earnings finalized', cat: 'earnings', imp: 'M', body: 'Major BMO earnings reactions setting tape for open.' },
+  { t: todayAt(9, 30), title: '🇺🇸 US Market Open', cat: 'market', imp: 'H', body: 'NYSE/Nasdaq cash session begins. First 30-min sets day\'s character.' },
+  { t: todayAt(10, 0), title: 'JOLTS / ISM / Confidence (data dep)', cat: 'econ', imp: 'M', body: 'Economic releases — algo-traded reaction in first 5 min.' },
+  { t: todayAt(13, 30), title: 'Treasury auction', cat: 'macro', imp: 'M', body: 'Auction results — strong demand = rates ↓, weak = rates ↑. Watch TLT.' },
+  { t: todayAt(14, 0), title: 'Fed speaker (data dep)', cat: 'fed', imp: 'H', body: 'Voting member commentary — dot-plot impact for next meeting.' },
+  { t: todayAt(15, 30), title: 'Last-half-hour rotation', cat: 'market', imp: 'M', body: 'MOC imbalance feed begins. Position for close on dark-pool-pro.html.' },
+  { t: todayAt(16, 0), title: '🇺🇸 US Market Close', cat: 'market', imp: 'H', body: 'Closing auction. Watch MOC imbalance for next-day positioning.' },
+  { t: todayAt(16, 5), title: 'After-hours earnings begin', cat: 'earnings', imp: 'H', body: 'Major AMC earnings release — gappers tomorrow.' },
+  { t: todayAt(17, 30), title: 'AH earnings wave 2', cat: 'earnings', imp: 'M', body: 'Secondary reports — watch IV crush on overnight chains.' },
+  { t: todayAt(20, 0), title: 'Asia open (Tokyo)', cat: 'macro', imp: 'L', body: 'Japan/Korea opens — yen + Nikkei often drive overnight ES futures.' }
+];
+
+function paint() {
+  const now = Date.now();
+  const tl = document.getElementById('timeline');
+  tl.innerHTML = '';
+  CATS.sort((a, b) => a.t - b.t).forEach(c => {
+    const passed = c.t.getTime() < now;
+    const tCls = c.imp === 'H' ? 'high' : c.imp === 'M' ? 'med' : '';
+    const cardCls = c.imp === 'H' ? 'high' : c.imp === 'M' ? 'med' : '';
+    const item = document.createElement('div');
+    item.className = 'tl-item ' + (passed ? 'passed' : '') + ' ' + tCls;
+    const time = c.t.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
+    const imp = c.imp === 'H' ? '<span class="imp imp-h">HIGH</span>' : c.imp === 'M' ? '<span class="imp imp-m">MED</span>' : '<span class="imp imp-l">LOW</span>';
+    item.innerHTML = '<div class="tl-time">' + time + '</div>'
+      + '<div class="tl-card ' + cardCls + ' ' + (passed ? 'passed' : '') + '">'
+      + '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;"><strong>' + c.title + '</strong>' + imp + '</div>'
+      + '<div style="font-size:12px;color:var(--text-muted);line-height:1.5;">' + c.body + '</div></div>';
+    tl.appendChild(item);
+  });
+
+  document.getElementById('kpiCount').textContent = CATS.length;
+  document.getElementById('kpiHigh').textContent = CATS.filter(c => c.imp === 'H').length;
+  const next = CATS.find(c => c.t.getTime() > now);
+  if (next) {
+    const diffMin = Math.round((next.t.getTime() - now) / 60000);
+    document.getElementById('kpiNext').textContent = diffMin > 60 ? Math.floor(diffMin / 60) + 'h ' + (diffMin % 60) + 'm' : diffMin + 'm';
+    document.getElementById('kpiNextLbl').textContent = next.title.slice(0, 30);
+  } else {
+    document.getElementById('kpiNext').textContent = '—';
+    document.getElementById('kpiNextLbl').textContent = 'All catalysts passed today';
+  }
+  document.getElementById('kpiAH').textContent = CATS.filter(c => c.cat === 'earnings' && c.t.getHours() >= 16).length;
+}
+paint();
+setInterval(paint, 60000);
+</script>
+</body>
+</html>

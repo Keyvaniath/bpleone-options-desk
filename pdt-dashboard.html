@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PDT Dashboard — bpleone / trade</title>
+<meta name="description" content="Pattern Day Trader rules tracker, buying power monitor, and account-level risk limits.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.pdt-card { padding:14px;background:var(--bg-elevated);border-radius:10px;border:1px solid var(--border); }
+.pdt-card .l { font-size:10px;color:var(--text-muted);font-weight:700;letter-spacing:0.5px; }
+.pdt-card .v { font-family:var(--font-mono);font-size:24px;font-weight:700;margin-top:4px; }
+.pdt-card .s { font-size:11px;margin-top:2px; }
+.pdt-meter { width:100%;height:10px;background:var(--bg-elevated);border-radius:5px;overflow:hidden;margin-top:8px; }
+.pdt-meter > div { height:100%; }
+.dtcb-row { display:grid;grid-template-columns: 90px 80px 80px 80px 1fr; gap:8px;padding:9px 12px;border-bottom:1px solid var(--border);font-size:11px;font-family:var(--font-mono);align-items:center; }
+.input-num { background:var(--bg-elevated);border:1px solid var(--border);border-radius:6px;padding:6px 10px;color:var(--text-primary);font-family:var(--font-mono);width:100px; }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">📋 PDT Dashboard</div>
+      <div class="page-subtitle">Pattern Day Trader rules · buying power · account risk · <span id="market-clock">--</span></div>
+    </div>
+    <div class="flex gap-8"><button class="btn btn-secondary" id="resetBtn">🗑 Reset Week</button></div>
+  </div>
+
+  <!-- ACCOUNT CONFIG -->
+  <div class="card mb-24">
+    <div class="card-header"><div class="card-title">💼 Account Config</div></div>
+    <div style="display:flex;gap:18px;flex-wrap:wrap;align-items:center;">
+      <div>
+        <div style="font-size:10px;color:var(--text-muted);font-weight:700;">EQUITY ($)</div>
+        <input type="number" class="input-num" id="equity" value="25000">
+      </div>
+      <div>
+        <div style="font-size:10px;color:var(--text-muted);font-weight:700;">CASH ($)</div>
+        <input type="number" class="input-num" id="cash" value="8500">
+      </div>
+      <div>
+        <div style="font-size:10px;color:var(--text-muted);font-weight:700;">MARGIN ENABLED</div>
+        <select class="input-num" id="margin"><option value="cash">Cash</option><option value="reg-t" selected>Reg-T</option><option value="portfolio">Portfolio</option></select>
+      </div>
+      <button class="btn btn-primary" id="updateBtn" style="padding:8px 14px;">Update</button>
+    </div>
+  </div>
+
+  <!-- KPIs -->
+  <div class="grid grid-4 mb-24">
+    <div class="pdt-card">
+      <div class="l">PDT STATUS</div>
+      <div class="v" id="kpiStatus">--</div>
+      <div class="s" id="kpiStatusBody">--</div>
+    </div>
+    <div class="pdt-card">
+      <div class="l">DAY TRADES LEFT (5d)</div>
+      <div class="v" id="kpiTrades">--</div>
+      <div class="s" id="kpiTradesBody">Rolling 5 business days</div>
+    </div>
+    <div class="pdt-card">
+      <div class="l">BUYING POWER</div>
+      <div class="v" style="color:var(--accent);" id="kpiBP">--</div>
+      <div class="s" id="kpiBPBody">Reg-T 2× equity</div>
+    </div>
+    <div class="pdt-card">
+      <div class="l">DAY-TRADE BUYING POWER</div>
+      <div class="v" style="color:var(--yellow);" id="kpiDTBP">--</div>
+      <div class="s">4× excess maintenance margin</div>
+    </div>
+  </div>
+
+  <!-- TODAY's DAY TRADES -->
+  <div class="card mb-24" style="padding:0;">
+    <div class="card-header" style="padding:14px 16px;">
+      <div class="card-title">📊 Recent Day Trades (rolling 5d)</div>
+      <button class="btn btn-secondary" id="addTradeBtn" style="font-size:11px;">+ Log Day Trade</button>
+    </div>
+    <div class="dtcb-row" style="background:var(--bg-elevated);font-size:9px;color:var(--text-muted);font-weight:800;letter-spacing:0.5px;">
+      <div>DATE</div><div>SYM</div><div>SIDE</div><div>P&amp;L</div><div>NOTE</div>
+    </div>
+    <div id="dtcbBody"></div>
+  </div>
+
+  <!-- RULES -->
+  <div class="card">
+    <div class="card-header"><div class="card-title">📜 The PDT Rules — what you need to know</div></div>
+    <div style="font-size:13px;color:var(--text-secondary);line-height:1.8;">
+      <ul style="margin-left:18px;padding-left:0;">
+        <li><strong>Pattern Day Trader designation</strong> — 4+ day trades within 5 business days triggers PDT. Once flagged, you need $25k minimum equity to continue day-trading.</li>
+        <li><strong>Below $25k = day-trading lockout</strong> — broker locks you to 0 day trades for 90 days unless equity restored.</li>
+        <li><strong>Day-Trade Buying Power (DTBP)</strong> — Reg-T account: 4× excess maintenance margin (typically 4× cash + securities − overnight positions).</li>
+        <li><strong>Free-riding</strong> — selling securities purchased with unsettled funds. Two violations = 90-day cash-only restriction.</li>
+        <li><strong>Margin call</strong> — if equity drops below maintenance requirement (25% Reg-T), broker can liquidate without notice.</li>
+        <li><strong>Workarounds</strong> — separate cash accounts (no PDT but T+2 settlement), prop firm accounts, or futures (no PDT rule). Trade-offs apply.</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script>
+buildNav('pdt-dashboard');
+
+const KEY = 'bpleone_pdt_v1';
+function load() { try { return JSON.parse(localStorage.getItem(KEY) || '{"equity":25000,"cash":8500,"margin":"reg-t","trades":[]}'); } catch (e) { return { equity: 25000, cash: 8500, margin: 'reg-t', trades: [] }; } }
+function save(d) { try { localStorage.setItem(KEY, JSON.stringify(d)); } catch (e) {} }
+
+let data = load();
+
+function paint() {
+  document.getElementById('equity').value = data.equity;
+  document.getElementById('cash').value = data.cash;
+  document.getElementById('margin').value = data.margin;
+
+  // PDT status
+  const pdt = data.equity >= 25000;
+  document.getElementById('kpiStatus').textContent = pdt ? '✓ ELIGIBLE' : '⚠ BELOW $25K';
+  document.getElementById('kpiStatus').style.color = pdt ? 'var(--green)' : 'var(--red)';
+  document.getElementById('kpiStatusBody').textContent = pdt ? 'Account meets $25k minimum for day trading' : 'Day-trading restricted until equity ≥ $25k';
+
+  // Day trades in rolling 5 business days
+  const cutoff = Date.now() - 7 * 24 * 60 * 60 * 1000; // approximate 5 business days
+  const recent = data.trades.filter(t => t.ts > cutoff);
+  const remaining = Math.max(0, 3 - recent.length);
+  document.getElementById('kpiTrades').textContent = pdt ? '∞' : remaining + ' / 3';
+  document.getElementById('kpiTrades').style.color = !pdt && remaining === 0 ? 'var(--red)' : !pdt && remaining === 1 ? 'var(--yellow)' : 'var(--green)';
+  document.getElementById('kpiTradesBody').textContent = pdt ? 'Unlimited (PDT eligible)' : `Used ${recent.length} of 3 allowed for non-PDT account`;
+
+  // Buying power
+  const bp = data.margin === 'cash' ? data.cash : data.margin === 'reg-t' ? data.equity * 2 : data.equity * 6;
+  document.getElementById('kpiBP').textContent = '$' + bp.toLocaleString();
+  document.getElementById('kpiBPBody').textContent = data.margin === 'cash' ? 'Cash account (T+2 settlement)' : data.margin === 'reg-t' ? 'Reg-T margin 2× equity' : 'Portfolio margin ~6× equity';
+
+  // DTBP
+  const dtbp = data.margin === 'cash' ? 0 : data.margin === 'reg-t' ? data.equity * 4 : data.equity * 6;
+  document.getElementById('kpiDTBP').textContent = dtbp > 0 ? '$' + dtbp.toLocaleString() : 'n/a (cash)';
+
+  // Trades table
+  const body = document.getElementById('dtcbBody');
+  body.innerHTML = '';
+  if (recent.length === 0) {
+    body.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-muted);font-size:12px;">No day trades logged this week.</div>';
+  } else {
+    recent.sort((a, b) => b.ts - a.ts).forEach(t => {
+      const date = new Date(t.ts).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+      const row = document.createElement('div');
+      row.className = 'dtcb-row';
+      row.innerHTML = '<div>' + date + '</div>'
+        + '<div><strong>' + t.sym + '</strong></div>'
+        + '<div>' + t.side + '</div>'
+        + '<div style="color:' + (t.pnl >= 0 ? 'var(--green)' : 'var(--red)') + ';font-weight:700;">' + (t.pnl >= 0 ? '+$' : '−$') + Math.abs(t.pnl) + '</div>'
+        + '<div style="color:var(--text-muted);font-family:Inter;font-size:11px;">' + (t.note || '') + '</div>';
+      body.appendChild(row);
+    });
+  }
+}
+paint();
+
+document.getElementById('updateBtn').addEventListener('click', () => {
+  data.equity = +document.getElementById('equity').value || 0;
+  data.cash = +document.getElementById('cash').value || 0;
+  data.margin = document.getElementById('margin').value;
+  save(data);
+  paint();
+});
+document.getElementById('addTradeBtn').addEventListener('click', () => {
+  const sym = prompt('Symbol?');
+  if (!sym) return;
+  const side = prompt('Side (LONG/SHORT)?');
+  const pnl = +prompt('P&L ($)?');
+  const note = prompt('Note (optional)?') || '';
+  data.trades.push({ ts: Date.now(), sym: sym.toUpperCase(), side, pnl, note });
+  save(data);
+  paint();
+});
+document.getElementById('resetBtn').addEventListener('click', () => {
+  if (!confirm('Reset all logged day trades?')) return;
+  data.trades = [];
+  save(data);
+  paint();
+});
+</script>
+</body>
+</html>

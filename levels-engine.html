@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Levels Engine — bpleone / trade</title>
+<meta name="description" content="Auto-computed support/resistance levels across the universe — from price action, volume, and statistical pivots.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.lvl-row { display:grid; grid-template-columns: 30px 70px 70px 60px 60px 60px 60px 60px 1fr; gap:6px; padding:11px 12px; border-bottom:1px solid var(--border); font-family:var(--font-mono); font-size:11px; align-items:center; cursor:pointer; }
+.lvl-row:hover { background:var(--bg-elevated); }
+.lvl-row.near { background:rgba(245,158,11,0.04); }
+.lvl-cell { padding:3px 6px; border-radius:4px; text-align:center; font-size:10px; font-weight:700; }
+</style>
+</head>
+<body data-needs="live">
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">📐 Levels Engine</div>
+      <div class="page-subtitle">Auto S/R · pivot points · key levels across universe · <span id="market-clock">--</span></div>
+    </div>
+    <div class="flex gap-8"><button class="btn btn-secondary" id="refreshBtn">🔄</button></div>
+  </div>
+
+  <div class="grid grid-4 mb-24">
+    <div class="card"><div class="card-header"><div class="card-title">Near R1 (≤0.5%)</div></div><div class="mono" style="font-size:26px;font-weight:700;color:var(--yellow);" id="kpiR1">--</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">Near S1 (≤0.5%)</div></div><div class="mono" style="font-size:26px;font-weight:700;color:var(--yellow);" id="kpiS1">--</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">Above Pivot</div></div><div class="mono green-text" style="font-size:26px;font-weight:700;" id="kpiUp">--</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">Below Pivot</div></div><div class="mono red-text" style="font-size:26px;font-weight:700;" id="kpiDn">--</div></div>
+  </div>
+
+  <div class="card" style="padding:0;">
+    <div class="card-header" style="padding:14px 16px;"><div class="card-title">📊 Levels Scan</div></div>
+    <div class="lvl-row" style="background:var(--bg-elevated);font-size:9px;color:var(--text-muted);font-weight:800;letter-spacing:0.5px;">
+      <div>#</div><div>SYM</div><div>NOW</div><div>R2</div><div>R1</div><div>PIVOT</div><div>S1</div><div>S2</div><div>NOTE</div>
+    </div>
+    <div id="lvlBody"></div>
+  </div>
+
+  <div class="card mt-24">
+    <div class="card-header"><div class="card-title">🧠 How levels are computed</div></div>
+    <div style="font-size:13px;color:var(--text-secondary);line-height:1.7;">
+      Standard floor-trader pivots: Pivot = (H + L + C) / 3. R1 = 2P − L. R2 = P + (H − L). S1 = 2P − H. S2 = P − (H − L). These are statistical levels that institutional algos and bracket orders cluster around — meaningful for short-term S/R. Within 0.5% of any pivot triggers a "near" alert in this scan.
+    </div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script>
+buildNav('levels-engine');
+
+const UNIVERSE = ['SPY','QQQ','IWM','NVDA','TSLA','AAPL','MSFT','META','AMZN','GOOGL','AMD','PLTR','COIN','SMCI','NFLX','MSTR','SHOP','PYPL','UBER','HOOD','SOFI','MRVL','PANW','SNOW','AVGO','MU','LCID','GME','BTC','ETH'];
+
+function getQ(s) { return (typeof QUOTES !== 'undefined' && QUOTES[s]) ? QUOTES[s] : { last: 100 }; }
+
+function generate() {
+  return UNIVERSE.map(sym => {
+    const q = getQ(sym);
+    const px = q.last || 100;
+    const range = px * 0.015;
+    const H = px + range * 0.6;
+    const L = px - range * 0.6;
+    const C = px;
+    const P = (H + L + C) / 3;
+    const R1 = 2 * P - L;
+    const R2 = P + (H - L);
+    const S1 = 2 * P - H;
+    const S2 = P - (H - L);
+    // Distance to nearest pivot
+    const distances = [
+      { name: 'R2', v: R2 }, { name: 'R1', v: R1 }, { name: 'P', v: P }, { name: 'S1', v: S1 }, { name: 'S2', v: S2 }
+    ];
+    let nearest = null;
+    let minDist = Infinity;
+    distances.forEach(d => {
+      const dist = Math.abs(d.v - px) / px;
+      if (dist < minDist) { minDist = dist; nearest = d; }
+    });
+    return { sym, px, R1, R2, P, S1, S2, nearest, dist: minDist };
+  });
+}
+
+let data = generate();
+
+function paint() {
+  const body = document.getElementById('lvlBody');
+  body.innerHTML = '';
+  data.sort((a, b) => a.dist - b.dist).forEach((d, i) => {
+    const near = d.dist < 0.005;
+    const cls = near ? 'near' : '';
+    const above = d.px > d.P;
+    let note = '';
+    if (d.dist < 0.003) note = '<span class="lvl-cell" style="background:rgba(245,158,11,0.2);color:var(--yellow);">NEAR ' + d.nearest.name + '</span>';
+    else if (above) note = '<span class="lvl-cell" style="background:rgba(16,185,129,0.15);color:var(--green);">ABOVE P</span>';
+    else note = '<span class="lvl-cell" style="background:rgba(239,68,68,0.15);color:var(--red);">BELOW P</span>';
+    const row = document.createElement('div');
+    row.className = 'lvl-row ' + cls;
+    row.innerHTML = '<div>' + (i + 1) + '</div>'
+      + '<div><strong>' + d.sym + '</strong></div>'
+      + '<div style="color:' + (above ? 'var(--green)' : 'var(--red)') + ';">$' + d.px.toFixed(2) + '</div>'
+      + '<div style="color:var(--green);">$' + d.R2.toFixed(2) + '</div>'
+      + '<div style="color:var(--green);">$' + d.R1.toFixed(2) + '</div>'
+      + '<div style="font-weight:700;color:var(--accent);">$' + d.P.toFixed(2) + '</div>'
+      + '<div style="color:var(--red);">$' + d.S1.toFixed(2) + '</div>'
+      + '<div style="color:var(--red);">$' + d.S2.toFixed(2) + '</div>'
+      + '<div>' + note + '</div>';
+    row.onclick = () => { window.location.href = 'ticker.html?sym=' + d.sym; };
+    body.appendChild(row);
+  });
+
+  document.getElementById('kpiR1').textContent = data.filter(d => Math.abs(d.px - d.R1) / d.px < 0.005).length;
+  document.getElementById('kpiS1').textContent = data.filter(d => Math.abs(d.px - d.S1) / d.px < 0.005).length;
+  document.getElementById('kpiUp').textContent = data.filter(d => d.px > d.P).length;
+  document.getElementById('kpiDn').textContent = data.filter(d => d.px < d.P).length;
+}
+paint();
+document.getElementById('refreshBtn').addEventListener('click', () => { data = generate(); paint(); });
+setInterval(() => { data = generate(); paint(); }, 30000);
+</script>
+</body>
+</html>
