@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Brain Questions — bpleone / trade</title>
+<meta name="description" content="Pre-built questions you can ask the brain. One-click answers from your own data, no LLM required.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.q-card { padding:18px;background:var(--bg-elevated);border:1px solid var(--border);border-radius:12px;cursor:pointer;transition:all 0.15s; }
+.q-card:hover { border-color:var(--accent);transform:translateY(-2px); }
+.q-card h4 { font-size:14px;font-weight:700;margin-bottom:8px; }
+.q-card .cat { display:inline-block;font-size:9px;padding:2px 8px;border-radius:10px;background:rgba(0,212,255,0.15);color:var(--accent);text-transform:uppercase;letter-spacing:0.5px;font-weight:700;margin-bottom:8px; }
+.answer-card { padding:24px;background:rgba(0,212,255,0.05);border:1px solid rgba(0,212,255,0.25);border-radius:12px;margin-bottom:24px; }
+.answer-card .q { font-size:14px;font-weight:600;color:var(--text-muted);margin-bottom:14px;padding-bottom:14px;border-bottom:1px solid var(--border); }
+.answer-card .a { font-size:15px;line-height:1.85;color:var(--text-primary); }
+.answer-card .a strong { color:var(--accent); }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">🤔 Brain Questions</div>
+      <div class="page-subtitle">Pre-built questions · one-click answers from YOUR data · no LLM needed · <span id="market-clock">--</span></div>
+    </div>
+  </div>
+
+  <div id="answer"></div>
+
+  <div class="grid grid-3" id="qGrid" style="gap:14px;"></div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script src="js/model.js"></script>
+<script>
+buildNav('brain-questions');
+
+function loadTrain() { try { return JSON.parse(localStorage.getItem('bpleone_train_v1') || '[]'); } catch(e) { return []; } }
+function loadFindings() { try { return JSON.parse(localStorage.getItem('bpleone_brain_findings_v1') || '{"items":[]}').items; } catch(e) { return []; } }
+function loadJournal() { try { return JSON.parse(localStorage.getItem('bpleone_journal_pro_v1') || '[]'); } catch(e) { return []; } }
+
+const QUESTIONS = [
+  { cat:'performance', q:'How am I doing this week?', a:() => {
+    const train = loadTrain().filter(t => t.ts >= Date.now() - 7*86400000);
+    if (train.length === 0) return 'No closed trades this week yet — close some via Journal PRO or Autopilot.';
+    const wins = train.filter(t => t.y === 1).length;
+    const r = train.reduce((a, t) => a + (t.y === 1 ? (t.r || 1.5) : -1.0), 0);
+    return 'You\'ve closed <strong>' + train.length + '</strong> trades this week. <strong>' + ((wins/train.length)*100).toFixed(0) + '%</strong> win rate, <strong>' + (r >= 0 ? '+' : '') + r.toFixed(1) + 'R</strong> total. ' + (r > 2 ? 'Solid week.' : r < -2 ? 'Tough week — postmortem recommended.' : 'Mixed.');
+  }},
+  { cat:'performance', q:'What\'s my best symbol ever?', a:() => {
+    const train = loadTrain();
+    const bySym = {};
+    train.forEach(t => { const s = t.meta?.sym || 'UNK'; if (!bySym[s]) bySym[s] = { n:0, r:0 }; bySym[s].n++; bySym[s].r += t.y === 1 ? (t.r || 1.5) : -1.0; });
+    const arr = Object.entries(bySym).filter(([,v]) => v.n >= 3).sort((a,b) => b[1].r/b[1].n - a[1].r/a[1].n);
+    if (arr.length === 0) return 'Not enough data per symbol yet (need 3+ trades).';
+    const [sym, v] = arr[0];
+    return 'Your best symbol is <strong>' + sym + '</strong> at <strong>+' + (v.r/v.n).toFixed(2) + 'R per trade</strong> across ' + v.n + ' trades. Trade it more.';
+  }},
+  { cat:'performance', q:'What\'s my worst symbol?', a:() => {
+    const train = loadTrain();
+    const bySym = {};
+    train.forEach(t => { const s = t.meta?.sym || 'UNK'; if (!bySym[s]) bySym[s] = { n:0, r:0 }; bySym[s].n++; bySym[s].r += t.y === 1 ? (t.r || 1.5) : -1.0; });
+    const arr = Object.entries(bySym).filter(([,v]) => v.n >= 3).sort((a,b) => a[1].r/a[1].n - b[1].r/b[1].n);
+    if (arr.length === 0) return 'Not enough data per symbol yet.';
+    const [sym, v] = arr[0];
+    return '<strong>' + sym + '</strong> is bleeding you — <strong>' + (v.r/v.n).toFixed(2) + 'R per trade</strong> across ' + v.n + ' trades. Consider removing it from your watchlist.';
+  }},
+  { cat:'patterns', q:'Which setup actually makes money?', a:() => {
+    const train = loadTrain();
+    const bySetup = {};
+    train.forEach(t => { const s = t.meta?.setup || 'unknown'; if (!bySetup[s]) bySetup[s] = { n:0, r:0 }; bySetup[s].n++; bySetup[s].r += t.y === 1 ? (t.r || 1.5) : -1.0; });
+    const arr = Object.entries(bySetup).filter(([,v]) => v.n >= 3).sort((a,b) => b[1].r/b[1].n - a[1].r/a[1].n);
+    if (arr.length === 0) return 'No setup has 3+ trades yet.';
+    const [s, v] = arr[0];
+    return 'The <strong>' + s + '</strong> setup is your edge: <strong>+' + (v.r/v.n).toFixed(2) + 'R per trade</strong> over ' + v.n + ' trades. Look for more of these.';
+  }},
+  { cat:'timing', q:'What\'s my best hour of the day?', a:() => {
+    const train = loadTrain();
+    const byHour = Array(24).fill(0).map(() => ({ n:0, r:0 }));
+    train.forEach(t => { const h = new Date(t.ts).getHours(); byHour[h].n++; byHour[h].r += t.y === 1 ? (t.r || 1.5) : -1.0; });
+    const arr = byHour.map((v, h) => ({ h, ...v })).filter(v => v.n >= 3).sort((a,b) => b.r/b.n - a.r/a.n);
+    if (arr.length === 0) return 'Need 3+ trades per hour.';
+    return 'You\'re sharpest at <strong>' + arr[0].h + ':00</strong> — <strong>+' + (arr[0].r/arr[0].n).toFixed(2) + 'R/trade</strong> across ' + arr[0].n + ' trades. Schedule your focus around this hour.';
+  }},
+  { cat:'timing', q:'What\'s my worst day of the week?', a:() => {
+    const train = loadTrain();
+    const dayNames = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+    const byDow = Array(7).fill(0).map(() => ({ n:0, r:0 }));
+    train.forEach(t => { const d = new Date(t.ts).getDay(); byDow[d].n++; byDow[d].r += t.y === 1 ? (t.r || 1.5) : -1.0; });
+    const arr = byDow.map((v, d) => ({ d, ...v })).filter(v => v.n >= 2).sort((a,b) => a.r/a.n - b.r/b.n);
+    if (arr.length === 0) return 'Need 2+ trades per weekday.';
+    return '<strong>' + dayNames[arr[0].d] + '</strong> is your worst day — <strong>' + (arr[0].r/arr[0].n).toFixed(2) + 'R/trade</strong> across ' + arr[0].n + ' trades. Consider paper-only on this day.';
+  }},
+  { cat:'risk', q:'Is my model overconfident?', a:() => {
+    const train = loadTrain();
+    if (train.length < 10) return 'Need 10+ labeled trades.';
+    const probs = train.map(t => { try { return { p: window.predictForFinding ? window.predictForFinding(t).prob : null, y: t.y }; } catch(e){return null;} }).filter(x => x && x.p != null);
+    const high = probs.filter(x => x.p >= 0.7);
+    const hitHigh = high.length > 0 ? high.filter(x => x.y === 1).length / high.length : 0;
+    if (high.length < 5) return 'Need more high-conf trades.';
+    const diff = 0.7 - hitHigh;  // crude — true Brier would be better
+    if (diff > 0.1) return '<strong style="color:var(--red);">Yes</strong> — model says 70%+ confident but actually wins ' + (hitHigh*100).toFixed(0) + '%. Re-train recommended.';
+    return '<strong style="color:var(--green);">No</strong> — high-conf predictions actually win ' + (hitHigh*100).toFixed(0) + '%. Model is calibrated.';
+  }},
+  { cat:'risk', q:'How concentrated am I?', a:() => {
+    const train = loadTrain();
+    if (train.length === 0) return 'No trades yet.';
+    const bySym = {};
+    train.forEach(t => { const s = t.meta?.sym || 'UNK'; bySym[s] = (bySym[s] || 0) + 1; });
+    const arr = Object.entries(bySym).sort((a,b) => b[1] - a[1]);
+    const top3Pct = (arr.slice(0, 3).reduce((a, x) => a + x[1], 0) / train.length * 100).toFixed(0);
+    return 'Your top 3 symbols (' + arr.slice(0, 3).map(x => x[0]).join(', ') + ') account for <strong>' + top3Pct + '%</strong> of your trades. ' + (top3Pct > 60 ? 'Concentrated — diversify.' : 'Reasonable diversification.');
+  }},
+  { cat:'signals', q:'Anything hot right now?', a:() => {
+    const findings = loadFindings().filter(f => Date.now() - f.ts < 3600 * 1000);
+    if (findings.length === 0) return 'No signals in the last hour. Brain is quiet.';
+    const ranked = findings.map(f => { let p = null; try { if (window.predictForFinding) { const r = window.predictForFinding(f); p = r ? r.prob : null; } } catch(e) {} return { ...f, p }; }).filter(f => f.p != null).sort((a,b) => b.p - a.p);
+    if (ranked.length === 0) return findings.length + ' signal(s) in the last hour, but no model probabilities yet.';
+    const top = ranked[0];
+    return '<strong>' + top.meta?.sym + '</strong> is hot — <strong>' + (top.p*100).toFixed(0) + '%</strong> model confidence on a <strong>' + (top.meta?.setup || 'signal') + '</strong> setup right now. <a href="trade-coach.html?sym=' + top.meta?.sym + '" style="color:var(--accent);">Build plan →</a>';
+  }},
+  { cat:'discipline', q:'Did I follow my plan last 10 trades?', a:() => {
+    const journal = loadJournal().filter(t => t.exit != null).slice(0, 10);
+    if (journal.length === 0) return 'No closed trades in Journal PRO yet.';
+    return 'Check <a href="trade-vs-plan.html" style="color:var(--accent);">Trade vs Plan</a> for a full breakdown. Quick: of your last ' + journal.length + ' closed trades, the adherence grade is computed there.';
+  }},
+  { cat:'discipline', q:'Am I revenge-trading?', a:() => {
+    const journal = loadJournal().slice(0, 20);
+    let revenges = 0;
+    for (let i = 1; i < journal.length; i++) {
+      const cur = journal[i-1], prev = journal[i];
+      if (prev.pnl < 0 && cur.ts - prev.ts < 15 * 60 * 1000) revenges++;
+    }
+    if (revenges === 0) return '<strong style="color:var(--green);">No</strong> — no trades within 15 min of a losing trade. Good discipline.';
+    return '<strong style="color:var(--red);">Maybe</strong> — ' + revenges + ' of your last 20 trades came within 15 min of a previous loss. That\'s the tilt zone.';
+  }},
+  { cat:'meta', q:'How much has the brain learned?', a:() => {
+    const train = loadTrain();
+    return 'The brain has trained on <strong>' + train.length + '</strong> labeled trades. ' + (train.length < 50 ? 'Still bootstrapping — let it cook longer.' : train.length < 200 ? 'Getting somewhere — predictions are stabilizing.' : 'Mature — patterns are well-learned. Keep feeding it.');
+  }}
+];
+
+function answer(q) {
+  const ans = q.a();
+  document.getElementById('answer').innerHTML = '<div class="answer-card">'
+    + '<div class="q">🤔 ' + q.q + '</div>'
+    + '<div class="a">' + ans + '</div>'
+    + '</div>';
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+document.getElementById('qGrid').innerHTML = QUESTIONS.map((q, i) =>
+  '<div class="q-card" data-i="' + i + '">'
+  + '<div class="cat">' + q.cat + '</div>'
+  + '<h4>' + q.q + '</h4>'
+  + '<div style="font-size:11px;color:var(--text-muted);">Click for instant answer →</div>'
+  + '</div>'
+).join('');
+
+document.querySelectorAll('.q-card').forEach(c => c.addEventListener('click', () => {
+  answer(QUESTIONS[+c.dataset.i]);
+}));
+</script>
+</body>
+</html>

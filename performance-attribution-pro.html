@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Performance Attribution PRO — bpleone / trade</title>
+<meta name="description" content="Where does your P&L come from? Sector / setup / time / size / symbol breakdown of every dollar made or lost.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<style>
+.attrib-row { display:grid;grid-template-columns:1fr 80px 80px 80px 100px;gap:14px;padding:11px 14px;border-bottom:1px solid var(--border);font-size:12px;align-items:center; }
+.attrib-row.hdr { background:var(--bg-elevated);font-size:9px;color:var(--text-muted);font-weight:800;letter-spacing:0.5px; }
+.bar-inline { height:10px;background:var(--bg);border-radius:5px;overflow:hidden;position:relative;width:80px;display:inline-block;vertical-align:middle; }
+.bar-inline > div { height:100%; }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">📊 Performance Attribution PRO</div>
+      <div class="page-subtitle">Where does P&amp;L actually come from? Find your real edge · <span id="market-clock">--</span></div>
+    </div>
+    <div class="flex gap-8">
+      <select id="window" class="btn btn-secondary" style="background:var(--bg-elevated);border:1px solid var(--border);color:var(--text-primary);padding:8px 14px;">
+        <option value="7">Last 7 days</option>
+        <option value="30" selected>Last 30 days</option>
+        <option value="90">Last 90 days</option>
+        <option value="365">Last year</option>
+        <option value="all">All time</option>
+      </select>
+    </div>
+  </div>
+
+  <div class="grid grid-4 mb-24">
+    <div class="card"><div class="card-header"><div class="card-title">Total P&L</div></div><div class="mono" style="font-size:28px;font-weight:800;" id="kTotal">--</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">Win rate</div></div><div class="mono" style="font-size:28px;font-weight:800;color:var(--accent);" id="kWin">--</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">Avg R</div></div><div class="mono" style="font-size:28px;font-weight:800;" id="kAvgR">--</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">Profit factor</div></div><div class="mono" style="font-size:28px;font-weight:800;" id="kPf">--</div></div>
+  </div>
+
+  <div class="grid grid-2 mb-24">
+    <div class="card">
+      <div class="card-header"><div class="card-title">🏗 P&L by setup type</div></div>
+      <canvas id="setupChart" height="240"></canvas>
+    </div>
+    <div class="card">
+      <div class="card-header"><div class="card-title">📊 P&L by sector</div></div>
+      <canvas id="sectorChart" height="240"></canvas>
+    </div>
+  </div>
+
+  <div class="grid grid-2 mb-24">
+    <div class="card">
+      <div class="card-header"><div class="card-title">📅 P&L by day of week</div></div>
+      <canvas id="dowChart" height="240"></canvas>
+    </div>
+    <div class="card">
+      <div class="card-header"><div class="card-title">📏 P&L by trade size</div></div>
+      <canvas id="sizeChart" height="240"></canvas>
+    </div>
+  </div>
+
+  <div class="card mb-24" style="padding:0;">
+    <div class="attrib-row hdr">
+      <div>BUCKET</div><div>TRADES</div><div>WIN %</div><div>AVG R</div><div>CONTRIBUTION</div>
+    </div>
+    <div id="topContrib"></div>
+  </div>
+
+  <div class="card">
+    <div class="card-header"><div class="card-title">🎯 What this tells you</div></div>
+    <div style="font-size:13px;color:var(--text-secondary);line-height:1.7;">
+      <strong>The Pareto effect:</strong> Usually 80% of your P&L comes from 20% of your setups, symbols, or hours. The table above shows you that 20%.
+      <br><br>
+      <strong>Cut what's not working:</strong> If a setup type has negative contribution and 5+ trades, stop trading it. Probably emotional / chasing.<br>
+      <strong>Concentrate on what works:</strong> Your A-grade setups deserve more attention, bigger size, more focused scans.<br>
+      <strong>Beware survivorship:</strong> "I made money in tech this year" might just mean tech ran. Compare your alpha vs SPY in <a href="brain-vs-spy.html" style="color:var(--accent);">Brain vs SPY</a>.
+    </div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script src="js/model.js"></script>
+<script>
+buildNav('performance-attribution-pro');
+
+const SECTORS = {
+  'AAPL':'Tech','MSFT':'Tech','GOOGL':'Tech','META':'Tech','NVDA':'Tech','AMD':'Tech','INTC':'Tech','TSLA':'Auto','AMZN':'Consumer','NFLX':'Consumer',
+  'JPM':'Financial','BAC':'Financial','GS':'Financial','MS':'Financial','XOM':'Energy','CVX':'Energy','JNJ':'Health','PFE':'Health','UNH':'Health',
+  'SPY':'Index','QQQ':'Index','IWM':'Index','BTC':'Crypto','ETH':'Crypto','COIN':'Crypto','MSTR':'Crypto','PLTR':'Tech','SMCI':'Tech','HOOD':'Financial'
+};
+
+function loadTrain() { try { return JSON.parse(localStorage.getItem('bpleone_train_v1') || '[]'); } catch(e) { return []; } }
+
+function compute() {
+  const winStr = document.getElementById('window').value;
+  const since = winStr === 'all' ? 0 : Date.now() - parseInt(winStr) * 86400000;
+  return loadTrain().filter(t => t.ts >= since);
+}
+
+function aggregate(arr, keyFn) {
+  const buckets = {};
+  arr.forEach(t => {
+    const k = keyFn(t);
+    if (!buckets[k]) buckets[k] = { key: k, n: 0, w: 0, r: 0 };
+    buckets[k].n++;
+    if (t.y === 1) { buckets[k].w++; buckets[k].r += (t.r || 1.5); }
+    else buckets[k].r -= 1.0;
+  });
+  return Object.values(buckets);
+}
+
+function chartIt(canvasId, agg, sortFn) {
+  agg.sort(sortFn || ((a,b) => b.r - a.r));
+  const existing = window['_' + canvasId];
+  if (existing) existing.destroy();
+  window['_' + canvasId] = new Chart(document.getElementById(canvasId), {
+    type: 'bar',
+    data: { labels: agg.map(a => a.key), datasets: [{ data: agg.map(a => a.r), backgroundColor: agg.map(a => a.r > 0 ? '#10b981' : '#ef4444') }] },
+    options: { indexAxis:'y', responsive:true, maintainAspectRatio:false, plugins:{legend:{display:false}}, scales:{x:{ticks:{color:'#888',callback:v=>v+'R'},grid:{color:'#222'}},y:{ticks:{color:'#888'},grid:{display:false}}} }
+  });
+}
+
+function render() {
+  const arr = compute();
+  if (arr.length === 0) {
+    document.getElementById('kTotal').textContent = '0R';
+    return;
+  }
+  const totalR = arr.reduce((a, t) => a + (t.y === 1 ? (t.r || 1.5) : -1.0), 0);
+  const wins = arr.filter(t => t.y === 1).length;
+  const winRate = wins / arr.length;
+  const avgR = totalR / arr.length;
+  const grossWins = arr.filter(t => t.y === 1).reduce((a, t) => a + (t.r || 1.5), 0);
+  const grossLosses = Math.abs(arr.filter(t => t.y === 0).length * 1.0);
+  const pf = grossLosses > 0 ? grossWins / grossLosses : Infinity;
+
+  document.getElementById('kTotal').textContent = (totalR >= 0 ? '+' : '') + totalR.toFixed(1) + 'R';
+  document.getElementById('kTotal').style.color = totalR > 0 ? 'var(--green)' : 'var(--red)';
+  document.getElementById('kWin').textContent = (winRate * 100).toFixed(0) + '%';
+  document.getElementById('kAvgR').textContent = (avgR >= 0 ? '+' : '') + avgR.toFixed(2);
+  document.getElementById('kAvgR').style.color = avgR > 0 ? 'var(--green)' : 'var(--red)';
+  document.getElementById('kPf').textContent = pf === Infinity ? '∞' : pf.toFixed(2);
+  document.getElementById('kPf').style.color = pf >= 2 ? 'var(--green)' : pf >= 1 ? 'var(--accent)' : 'var(--red)';
+
+  // Charts
+  chartIt('setupChart',  aggregate(arr, t => t.meta?.setup || 'unknown'));
+  chartIt('sectorChart', aggregate(arr, t => SECTORS[t.meta?.sym] || 'Other'));
+  chartIt('dowChart',    aggregate(arr, t => ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][new Date(t.ts).getDay()]), (a,b) => ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].indexOf(a.key) - ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].indexOf(b.key));
+  chartIt('sizeChart', aggregate(arr, t => {
+    const sz = (t.size || 1);
+    if (sz <= 0.5) return 'Half size';
+    if (sz <= 1.0) return 'Full size';
+    if (sz <= 1.5) return '1.5x';
+    return '2x+';
+  }));
+
+  // Top contributors (combined setup × sector)
+  const combined = aggregate(arr, t => ((t.meta?.setup || '?') + ' · ' + (SECTORS[t.meta?.sym] || '?'))).filter(b => b.n >= 2);
+  combined.sort((a, b) => Math.abs(b.r) - Math.abs(a.r));
+  const top10 = combined.slice(0, 10);
+  const maxR = Math.max(...top10.map(b => Math.abs(b.r)), 1);
+  document.getElementById('topContrib').innerHTML = top10.map(b => {
+    const pct = (Math.abs(b.r) / maxR) * 100;
+    const col = b.r > 0 ? '#10b981' : '#ef4444';
+    return '<div class="attrib-row">'
+      + '<div><strong>' + b.key + '</strong></div>'
+      + '<div style="font-family:var(--font-mono);">' + b.n + '</div>'
+      + '<div style="font-family:var(--font-mono);color:' + (b.w/b.n >= 0.55 ? 'var(--green)' : b.w/b.n >= 0.45 ? 'var(--text-primary)' : 'var(--red)') + ';">' + ((b.w/b.n)*100).toFixed(0) + '%</div>'
+      + '<div style="font-family:var(--font-mono);color:' + col + ';font-weight:700;">' + (b.r >= 0 ? '+' : '') + b.r.toFixed(2) + 'R</div>'
+      + '<div><div class="bar-inline"><div style="width:' + pct + '%;background:' + col + ';"></div></div></div>'
+      + '</div>';
+  }).join('') || '<div style="padding:24px;text-align:center;color:var(--text-muted);font-size:13px;">Need at least 2 trades per bucket. Trade more.</div>';
+}
+
+document.getElementById('window').addEventListener('change', render);
+render();
+</script>
+</body>
+</html>

@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Brain Pulse — bpleone / trade</title>
+<meta name="description" content="Always-on mini dashboard. Optimized for second-screen / TV / phone. The brain's heartbeat at a glance.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+body { background:#000; }
+.pulse-grid { display:grid;grid-template-columns:repeat(3, 1fr);grid-template-rows:repeat(3, 1fr);gap:14px;height:calc(100vh - 160px);padding:14px; }
+.pulse-tile { background:var(--bg-elevated);border:1px solid var(--border);border-radius:14px;padding:24px;display:flex;flex-direction:column;justify-content:space-between;position:relative;overflow:hidden; }
+.pulse-tile.big { grid-column:span 2;grid-row:span 2; }
+.pulse-tile .lbl { font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:1.2px;font-weight:700; }
+.pulse-tile .val { font-family:var(--font-mono);font-size:48px;font-weight:800;line-height:1; }
+.pulse-tile.big .val { font-size:88px; }
+.pulse-tile .sub { font-size:12px;color:var(--text-secondary); }
+.pulse-tile.live::before { content:'';position:absolute;top:14px;right:14px;width:10px;height:10px;background:var(--green);border-radius:50%;animation:pulse 1.6s infinite; }
+@keyframes pulse { 0%, 100% { opacity:1; transform:scale(1); } 50% { opacity:0.3; transform:scale(0.85); } }
+.heart { font-size:14px;color:var(--green);animation:beat 1.4s infinite; }
+@keyframes beat { 0%,100%{transform:scale(1);}25%{transform:scale(1.2);}50%{transform:scale(1);} }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">💓 Brain Pulse</div>
+      <div class="page-subtitle"><span class="heart">●</span> Always-on monitor · second-screen friendly · <span id="market-clock">--</span></div>
+    </div>
+    <div class="flex gap-8">
+      <button class="btn btn-ghost" id="fullscreenBtn">⛶ Fullscreen</button>
+    </div>
+  </div>
+
+  <div class="pulse-grid">
+    <div class="pulse-tile big live">
+      <div class="lbl">🎯 Top ML pick</div>
+      <div id="topPick"></div>
+    </div>
+    <div class="pulse-tile">
+      <div class="lbl">Brain grade</div>
+      <div class="val" id="grade">--</div>
+      <div class="sub" id="gradeNote">--</div>
+    </div>
+    <div class="pulse-tile">
+      <div class="lbl">7d Hit rate</div>
+      <div class="val" id="hit">--</div>
+      <div class="sub" id="hitSub">--</div>
+    </div>
+    <div class="pulse-tile">
+      <div class="lbl">Signals (1h)</div>
+      <div class="val" id="sig">--</div>
+      <div class="sub">live throughput</div>
+    </div>
+    <div class="pulse-tile">
+      <div class="lbl">High conf today</div>
+      <div class="val" id="highConf" style="color:var(--accent);">--</div>
+      <div class="sub">≥ 70% ML</div>
+    </div>
+    <div class="pulse-tile">
+      <div class="lbl">Open positions</div>
+      <div class="val" id="positions">--</div>
+      <div class="sub" id="posSub">--</div>
+    </div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script src="js/model.js"></script>
+<script>
+buildNav('brain-pulse');
+
+function loadFindings() { try { return JSON.parse(localStorage.getItem('bpleone_brain_findings_v1') || '{"items":[]}').items; } catch(e) { return []; } }
+function loadTrain() { try { return JSON.parse(localStorage.getItem('bpleone_train_v1') || '[]'); } catch(e) { return []; } }
+function loadPositions() { try { return JSON.parse(localStorage.getItem('bpleone_positions_live_v1') || '[]'); } catch(e) { return []; } }
+
+function render() {
+  const findings = loadFindings();
+  const train = loadTrain();
+  const positions = loadPositions();
+  const now = Date.now();
+  const weekAgo = now - 7 * 86400000;
+  const hourAgo = now - 3600 * 1000;
+  const today0 = new Date(); today0.setHours(0,0,0,0);
+
+  // Top pick
+  const todayF = findings.filter(f => f.ts >= today0.getTime());
+  const ranked = todayF.map(f => {
+    let prob = null; try { if (window.predictForFinding) { const p = window.predictForFinding(f); prob = p ? p.prob : null; } } catch(e) {}
+    return { ...f, prob };
+  }).filter(f => f.prob != null).sort((a,b) => b.prob - a.prob);
+  const top = ranked[0];
+  if (top) {
+    const q = (typeof QUOTES !== 'undefined' && QUOTES[top.meta?.sym]) ? QUOTES[top.meta.sym] : null;
+    document.getElementById('topPick').innerHTML =
+      '<div class="val" style="color:var(--accent);text-align:center;font-size:120px;">' + top.meta?.sym + '</div>'
+      + '<div style="text-align:center;margin-top:14px;">'
+        + '<div style="font-size:18px;color:var(--text-muted);text-transform:uppercase;letter-spacing:1px;">' + (top.meta?.setup || 'signal') + '</div>'
+        + '<div style="font-family:var(--font-mono);font-size:48px;font-weight:800;color:var(--green);margin-top:6px;">' + (top.prob*100).toFixed(0) + '%</div>'
+        + (q ? '<div style="font-family:var(--font-mono);font-size:18px;color:var(--text-secondary);margin-top:4px;">$' + q.last.toFixed(2) + ' · <span style="color:' + (q.changePct >= 0 ? 'var(--green)' : 'var(--red)') + ';">' + (q.changePct >= 0 ? '+' : '') + q.changePct.toFixed(2) + '%</span></div>' : '')
+      + '</div>';
+  } else {
+    document.getElementById('topPick').innerHTML = '<div style="text-align:center;padding:40px;font-size:20px;color:var(--text-muted);">Brain is scanning. Top pick appears here when a high-conf signal fires.</div>';
+  }
+
+  // Grade
+  const week = train.filter(t => t.ts >= weekAgo);
+  const hit = week.length > 0 ? week.filter(t => t.y === 1).length / week.length : 0;
+  const grade = hit >= 0.7 ? 'A' : hit >= 0.6 ? 'B' : hit >= 0.5 ? 'C' : hit >= 0.4 ? 'D' : 'F';
+  const gradeCol = grade === 'A' ? 'var(--green)' : grade === 'B' ? '#84cc16' : grade === 'C' ? 'var(--yellow)' : grade === 'D' ? '#f97316' : 'var(--red)';
+  document.getElementById('grade').textContent = grade;
+  document.getElementById('grade').style.color = gradeCol;
+  document.getElementById('gradeNote').textContent = (hit*100).toFixed(0) + '% / 7d';
+
+  // Hit
+  document.getElementById('hit').textContent = (hit*100).toFixed(0) + '%';
+  document.getElementById('hit').style.color = hit >= 0.55 ? 'var(--green)' : 'var(--red)';
+  document.getElementById('hitSub').textContent = week.filter(t => t.y === 1).length + '/' + week.length + ' wins';
+
+  // Signals
+  document.getElementById('sig').textContent = findings.filter(f => f.ts >= hourAgo).length;
+
+  // High conf today
+  document.getElementById('highConf').textContent = ranked.filter(f => f.prob >= 0.7).length;
+
+  // Positions
+  document.getElementById('positions').textContent = positions.length;
+  let totalExp = 0;
+  positions.forEach(p => {
+    const q = (typeof QUOTES !== 'undefined' && QUOTES[p.sym]) ? QUOTES[p.sym] : null;
+    if (q) totalExp += q.last * p.qty;
+  });
+  document.getElementById('posSub').textContent = '$' + totalExp.toFixed(0) + ' exposure';
+}
+
+document.getElementById('fullscreenBtn').addEventListener('click', () => {
+  if (document.fullscreenElement) document.exitFullscreen();
+  else document.documentElement.requestFullscreen();
+});
+
+render();
+setInterval(render, 3000);
+</script>
+</body>
+</html>
