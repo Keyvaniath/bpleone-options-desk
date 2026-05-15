@@ -279,51 +279,112 @@ const Learn = (function () {
     return trade;
   }
 
-  // Re-weight signal types based on rolling realized expectancy
-  // Two upgrades on top of the simple avg:
+  // Re-weight signal types based on rolling realized expectancy.
+  // Upgrades:
   //   1) DRIFT DECAY: trades > 90 days old get exponentially less weight
   //   2) CONFIDENCE SHRINKAGE: weights with low n shrink toward 1.0 (Bayesian-ish)
+  //   3) PER-SYMBOL WEIGHTS: separate edge file per symbol so SPY/TSLA specialize
+  function _computeWeight(arr, halfLifeDays, fullTrustAt) {
+    const HALF = halfLifeDays || 90;
+    const fullTrust = fullTrustAt || 20;
+    const now = Date.now();
+    const items = arr.map(t => ({
+      R: t.R || 0,
+      w: Math.pow(0.5, Math.max(0, (now - (t.closedTs || t.ts)) / 86400000) / HALF)
+    }));
+    const totalW = items.reduce((a, x) => a + x.w, 0);
+    if (!totalW) return null;
+    const wSum = items.reduce((a, x) => a + x.R * x.w, 0);
+    const expectancy = wSum / totalW;
+    const ess = totalW;
+    const trust = Math.min(1, Math.max(0, (ess - 1) / (fullTrust - 1)));
+    const raw = 1 + expectancy * 0.3;
+    const blended = trust * raw + (1 - trust) * 1.0;
+    return { w: +Math.max(0.5, Math.min(1.6, blended)).toFixed(3), n: arr.length, ess, expectancy };
+  }
+
   function rebalanceWeights() {
     const state = load();
-    const HALF_LIFE_DAYS = 90;
-    const now = Date.now();
+    if (!state.symbolWeights) state.symbolWeights = {};
+
+    // Global weights (across all symbols) — back-compat
     const byType = {};
+    const bySymType = {};  // { 'SPY|macd-cross': [trade,...] }
     state.trades.forEach(t => {
       if (t.result == null) return;
       if (!byType[t.setup]) byType[t.setup] = [];
-      // age in days, recency weight = 0.5^(age / half-life)
-      const ageDays = Math.max(0, (now - (t.closedTs || t.ts)) / 86400000);
-      const w = Math.pow(0.5, ageDays / HALF_LIFE_DAYS);
-      byType[t.setup].push({ R: t.R || 0, w });
+      byType[t.setup].push(t);
+      if (t.symbol) {
+        const key = t.symbol + '|' + t.setup;
+        if (!bySymType[key]) bySymType[key] = [];
+        bySymType[key].push(t);
+      }
     });
     Object.keys(state.weights).forEach(type => {
       const arr = byType[type] || [];
       if (arr.length < 3) {
-        // Discovered setup but not enough samples — let auto-tag types still get registered
         if (arr.length === 0 && state.weights[type] !== 1.0) state.weights[type] = 1.0;
         return;
       }
-      // Weighted expectancy
-      const totalW = arr.reduce((a, x) => a + x.w, 0);
-      const wSum = arr.reduce((a, x) => a + x.R * x.w, 0);
-      const expectancy = totalW > 0 ? wSum / totalW : 0;
-      // Confidence shrinkage: blend toward 1.0 based on effective sample size
-      // ess = totalW (recency-weighted n). At ess=3 we blend 50/50, at ess>=20 we trust it fully.
-      const ess = totalW;
-      const trust = Math.min(1, (ess - 1) / 19);   // 0 at ess=1, 1 at ess=20
-      const raw = 1 + expectancy * 0.3;
-      const blended = trust * raw + (1 - trust) * 1.0;
-      const w = Math.max(0.5, Math.min(1.6, blended));
-      state.weights[type] = +w.toFixed(3);
+      const c = _computeWeight(arr);
+      if (c) state.weights[type] = c.w;
     });
-    // Also register any auto-discovered setup types not in the seed list
     Object.keys(byType).forEach(type => {
-      if (!(type in state.weights)) {
-        state.weights[type] = 1.0;  // start neutral, will rebalance next cycle
-      }
+      if (!(type in state.weights)) state.weights[type] = 1.0;
+    });
+
+    // Per-symbol weights — same math, but on the symbol-specific slice.
+    // Specialized weight requires ≥ 5 samples to count; below that we fall back to global.
+    Object.keys(bySymType).forEach(key => {
+      const [sym, type] = key.split('|');
+      const arr = bySymType[key];
+      if (arr.length < 5) return;
+      const c = _computeWeight(arr, 90, 15);
+      if (!c) return;
+      if (!state.symbolWeights[sym]) state.symbolWeights[sym] = {};
+      state.symbolWeights[sym][type] = { w: c.w, n: c.n, expectancy: +c.expectancy.toFixed(3) };
     });
     save(state);
     return state.weights;
+  }
+
+  // Returns the blended weight: per-symbol if enough samples, else global.
+  // alpha grows with sample size — at n=5 use 0.25 symbol/0.75 global, at n=20 use 0.7/0.3.
+  function weightFor(setup, opts) {
+    opts = opts || {};
+    const state = load();
+    const g = state.weights[setup] != null ? state.weights[setup] : 1.0;
+    if (!opts.symbol || !state.symbolWeights || !state.symbolWeights[opts.symbol]) return g;
+    const s = state.symbolWeights[opts.symbol][setup];
+    if (!s) return g;
+    // Blend factor: 0 at n=0, ~0.7 at n=20 (asymptotes towards 1)
+    const alpha = Math.min(0.7, s.n / 30);
+    return +(alpha * s.w + (1 - alpha) * g).toFixed(3);
+  }
+
+  // Per-symbol stats roll-up for UIs
+  function symbolStats(symbol) {
+    const state = load();
+    const trades = state.trades.filter(t => t.symbol === symbol && t.result);
+    if (!trades.length) return { n: 0, wins: 0, totalR: 0, winRate: 0, bySetup: {} };
+    const wins = trades.filter(t => t.R > 0);
+    const totalR = trades.reduce((a, t) => a + (+t.R || 0), 0);
+    const bySetup = {};
+    trades.forEach(t => {
+      if (!bySetup[t.setup]) bySetup[t.setup] = { n: 0, totalR: 0, wins: 0 };
+      bySetup[t.setup].n++;
+      bySetup[t.setup].totalR += +t.R || 0;
+      if (t.R > 0) bySetup[t.setup].wins++;
+    });
+    return {
+      n: trades.length,
+      wins: wins.length,
+      losses: trades.length - wins.length,
+      winRate: wins.length / trades.length,
+      totalR,
+      avgR: totalR / trades.length,
+      bySetup
+    };
   }
 
   function recordSignal(s) {
@@ -339,10 +400,10 @@ const Learn = (function () {
     return sig;
   }
 
-  // Adjust a raw signal score by current learned weight for its type
-  function adjustedScore(rawScore, type) {
-    const state = load();
-    const w = state.weights[type] || 1.0;
+  // Adjust a raw signal score by current learned weight for its type.
+  // Pass { symbol } to consult per-symbol weights (specialized when available).
+  function adjustedScore(rawScore, type, opts) {
+    const w = weightFor(type, opts);
     return Math.max(0, Math.min(100, Math.round(rawScore * w)));
   }
 
@@ -608,6 +669,8 @@ const Learn = (function () {
     rebalanceConditional, adjustedScoreCtx, explain, insights, tagRegime,
     // feature extraction / auto-tagging / MFE-MAE
     captureMarketContext, autoTagSetup, updateExcursion,
+    // per-symbol weights
+    weightFor, symbolStats,
     // helpers
     bucketVixRegime, currentVix
   };

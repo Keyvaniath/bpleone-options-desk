@@ -86,7 +86,7 @@ function buildNav(activePage) {
   activePage = activePage || '';
   const playsGrp = ['totd','plays','signals','earnings','earnings-preview','pre-market','zero-dte','setup-wizard','paper-trade','game-plan','hot-movers','squeeze-radar','trade-plan'];
   const tradeGrp = ['flow','chain','ta','momentum','market-internals','smart-money','heatmap','watchlists','vol-surface','gex','tape','sectors','pairs','calendar-analyzer','vol-cone','dark-pool','short-interest','etf-flows','volume-profile','order-flow','ticker','multi-leg-builder','bracket-builder','spread-scanner','wheel','correlation'];
-  const toolsGrp = ['risk','fundamentals','backtester','edge','learn','learn-engine-explained','crypto','journal','alerts','macro','news','screener','anomalies','assistant','ai-scout','portfolio-builder','position-sizing','execution','strategies','api','seasonality','economic-events','settings','mindset','changelog','friday-summary','replay','live-positions','risk-attribution','edge-scanner','hypothetical','account','setup-combos','kelly-sizer','potd-backtest','news-reactions','live-train','radar'];
+  const toolsGrp = ['risk','fundamentals','backtester','edge','learn','learn-engine-explained','crypto','journal','alerts','macro','news','screener','anomalies','assistant','ai-scout','portfolio-builder','position-sizing','execution','strategies','api','seasonality','economic-events','settings','mindset','changelog','friday-summary','replay','live-positions','risk-attribution','edge-scanner','hypothetical','account','setup-combos','kelly-sizer','potd-backtest','news-reactions','live-train','radar','ai-cotrader'];
   const isTrade = tradeGrp.indexOf(activePage) !== -1;
   const isPlays = playsGrp.indexOf(activePage) !== -1;
   const isTools = toolsGrp.indexOf(activePage) !== -1;
@@ -158,6 +158,7 @@ function buildNav(activePage) {
     + '<a href="replay.html">🎬 Replay Mode <span class="feat-badge feat-new" style="font-size:8px;padding:0 5px;">NEW</span></a>'
     + '<a href="live-positions.html">📡 Live Position Monitor <span class="feat-badge feat-new" style="font-size:8px;padding:0 5px;">NEW</span></a>'
     + '<a href="risk-attribution.html">🎯 Risk Attribution <span class="feat-badge feat-new" style="font-size:8px;padding:0 5px;">NEW</span></a>'
+    + '<a href="ai-cotrader.html">🤖 AI Co-Trader <span class="feat-badge feat-new" style="font-size:8px;padding:0 5px;">NEW</span></a>'
     + '<a href="live-train.html">🎓 Live AI Trainer <span class="feat-badge feat-live" style="font-size:8px;padding:0 5px;">LIVE</span></a>'
     + '<a href="radar.html">📡 Multi-Symbol Radar <span class="feat-badge feat-live" style="font-size:8px;padding:0 5px;">LIVE</span></a>'
     + '<a href="edge-scanner.html">🛰 Live Edge Scanner <span class="feat-badge feat-live" style="font-size:8px;padding:0 5px;">LIVE</span></a>'
@@ -375,6 +376,7 @@ function buildFooter() {
     + '<li><a href="replay.html">Replay Mode</a></li>'
     + '<li><a href="live-positions.html">Live Positions</a></li>'
     + '<li><a href="risk-attribution.html">Risk Attribution</a></li>'
+    + '<li><a href="ai-cotrader.html">AI Co-Trader</a></li>'
     + '<li><a href="live-train.html">Live AI Trainer</a></li>'
     + '<li><a href="radar.html">Multi-Symbol Radar</a></li>'
     + '<li><a href="edge-scanner.html">Edge Scanner</a></li>'

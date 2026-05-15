@@ -1,0 +1,458 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AI Co-Trader — bpleone / trade</title>
+<meta name="description" content="Claude reads the live TA + your learned edge and recommends entries in real time. The brain talks back.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.cotrader-banner { background: linear-gradient(135deg, rgba(139,92,246,0.10), rgba(0,212,255,0.08)); border: 1px solid rgba(139,92,246,0.25); border-radius: 12px; padding: 16px 20px; margin-bottom: 20px; display: flex; gap: 14px; align-items: center; flex-wrap: wrap; }
+.rec-card { background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 12px; padding: 18px; position: relative; overflow: hidden; }
+.rec-card.long { border-left: 4px solid var(--green); }
+.rec-card.short { border-left: 4px solid var(--red); }
+.rec-card.wait { border-left: 4px solid var(--text-muted); }
+.rec-card .head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 14px; }
+.rec-card .verdict { font-family: var(--font-mono); font-weight: 800; font-size: 28px; }
+.rec-card .verdict.long { color: var(--green); }
+.rec-card .verdict.short { color: var(--red); }
+.rec-card .verdict.wait { color: var(--text-muted); }
+.rec-card .conviction { font-family: var(--font-mono); font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; }
+.tile-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin: 14px 0; }
+.mini { background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 8px; padding: 10px; }
+.mini .lab { font-size: 9px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; }
+.mini .val { font-family: var(--font-mono); font-weight: 700; font-size: 14px; margin-top: 2px; }
+.thesis-card { background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 8px; padding: 14px; margin-top: 14px; font-size: 13px; line-height: 1.6; color: var(--text-primary); }
+.history-row { display: grid; grid-template-columns: 70px 90px 60px 90px 1fr 70px; gap: 10px; padding: 8px 0; border-top: 1px solid var(--border); font-size: 12px; align-items: center; }
+.history-row .mono { font-family: var(--font-mono); }
+.btn-row { display: flex; gap: 8px; margin-top: 14px; flex-wrap: wrap; }
+.kpi-strip { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 18px; }
+.tile-k { background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; text-align: center; }
+.tile-k .lab { font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; }
+.tile-k .val { font-family: var(--font-mono); font-weight: 700; font-size: 18px; margin-top: 4px; }
+.r-pos { color: var(--green); } .r-neg { color: var(--red); }
+.tag { display: inline-block; padding: 2px 8px; border-radius: 4px; background: var(--bg-secondary); border: 1px solid var(--border); font-family: var(--font-mono); font-size: 10px; margin-right: 4px; }
+.tag.bull { background: rgba(16,185,129,0.12); color: var(--green); border-color: rgba(16,185,129,0.3); }
+.tag.bear { background: rgba(239,68,68,0.12); color: var(--red); border-color: rgba(239,68,68,0.3); }
+.tag.wait { background: var(--bg-secondary); color: var(--text-muted); }
+.thinking { display: inline-block; padding: 4px 12px; border-radius: 999px; background: rgba(139,92,246,0.10); color: var(--purple); font-size: 11px; font-family: var(--font-mono); }
+.thinking::after { content: ''; display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--purple); margin-left: 6px; animation: pulse 1.4s ease-in-out infinite; vertical-align: middle; }
+@keyframes pulse { 0%, 100% { opacity: 0.4; } 50% { opacity: 1; } }
+.no-key-warning { background: rgba(245,158,11,0.10); border: 1px solid rgba(245,158,11,0.3); border-radius: 10px; padding: 14px; color: var(--yellow); }
+.no-key-warning strong { color: var(--yellow); }
+.no-key-warning a { color: var(--accent); }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">AI Co-Trader <span class="feat-badge feat-new">NEW</span> <span class="feat-badge feat-live">LIVE</span></div>
+      <div class="page-subtitle">Claude reads the live TA snapshot + your learned edge weights and recommends entries. Refresh on demand or auto-poll. · <span id="market-clock">--</span></div>
+    </div>
+    <div class="flex gap-8">
+      <a href="live-train.html" class="btn btn-ghost">🎓 Trainer</a>
+      <a href="radar.html" class="btn btn-ghost">📡 Radar</a>
+      <a href="kelly-sizer.html" class="btn btn-ghost">📐 Kelly</a>
+    </div>
+  </div>
+
+  <!-- Cotrader controls -->
+  <div class="cotrader-banner">
+    <select id="symSelect" style="background:var(--bg-elevated);border:1px solid var(--accent);color:var(--text-primary);padding:8px 14px;border-radius:8px;font-family:var(--font-mono);font-size:18px;font-weight:700;">
+      <option value="SPY">SPY</option><option value="QQQ">QQQ</option><option value="IWM">IWM</option>
+      <option value="NVDA">NVDA</option><option value="AAPL">AAPL</option><option value="TSLA">TSLA</option>
+      <option value="MSFT">MSFT</option><option value="META">META</option><option value="AMZN">AMZN</option>
+      <option value="GOOGL">GOOGL</option><option value="AMD">AMD</option><option value="COIN">COIN</option>
+      <option value="PLTR">PLTR</option><option value="SMCI">SMCI</option>
+    </select>
+    <div style="display:flex;flex-direction:column;">
+      <span style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;">Auto-poll</span>
+      <select id="cadence" style="background:var(--bg-secondary);border:1px solid var(--border);color:var(--text-primary);padding:4px 8px;border-radius:6px;font-size:12px;">
+        <option value="0">Off (manual)</option>
+        <option value="60">Every 1 min</option>
+        <option value="180" selected>Every 3 min</option>
+        <option value="300">Every 5 min</option>
+        <option value="600">Every 10 min</option>
+      </select>
+    </div>
+    <div style="display:flex;flex-direction:column;">
+      <span style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;">Style</span>
+      <select id="style" style="background:var(--bg-secondary);border:1px solid var(--border);color:var(--text-primary);padding:4px 8px;border-radius:6px;font-size:12px;">
+        <option value="day-trader">Day trader (intraday)</option>
+        <option value="swing" selected>Swing (1-5 days)</option>
+        <option value="conservative">Conservative (only ≥0.75 conviction)</option>
+      </select>
+    </div>
+    <button id="btnRefresh" class="btn btn-primary" style="margin-left:auto;">🤖 Ask Claude now</button>
+    <span id="status"></span>
+  </div>
+
+  <!-- KPI strip: per-symbol edge -->
+  <div class="kpi-strip">
+    <div class="tile-k"><div class="lab">Your trades on this</div><div class="val mono" id="kSymTrades">—</div></div>
+    <div class="tile-k"><div class="lab">Your win-rate</div><div class="val mono" id="kSymWR">—</div></div>
+    <div class="tile-k"><div class="lab">Best setup here</div><div class="val mono" id="kSymBest" style="font-size:14px;">—</div></div>
+    <div class="tile-k"><div class="lab">Recs given</div><div class="val mono" id="kRecCount">0</div></div>
+  </div>
+
+  <!-- Recommendation -->
+  <div id="recCard" class="rec-card wait" style="margin-bottom:18px;">
+    <div class="head">
+      <div>
+        <div class="conviction">Latest recommendation · <span id="recAge">—</span></div>
+        <div id="recVerdict" class="verdict wait">WAITING…</div>
+        <div id="recConv" class="mono" style="font-size:13px;color:var(--text-muted);margin-top:4px;">conviction —</div>
+      </div>
+      <div style="text-align:right;">
+        <div style="font-family:var(--font-mono);font-weight:700;font-size:22px;" id="recPx">—</div>
+        <div id="recChg" class="mono" style="font-size:13px;">—</div>
+      </div>
+    </div>
+    <div class="tile-row">
+      <div class="mini"><div class="lab">Entry</div><div class="val" id="recEntry">—</div></div>
+      <div class="mini"><div class="lab">Stop</div><div class="val" id="recStop">—</div></div>
+      <div class="mini"><div class="lab">Target</div><div class="val" id="recTarget">—</div></div>
+      <div class="mini"><div class="lab">R:R</div><div class="val" id="recRR">—</div></div>
+    </div>
+    <div class="thesis-card" id="recThesis">Click <strong>Ask Claude now</strong> or wait for auto-poll. Claude will analyze the current TA snapshot + your learned edge weights on <span id="thesisSymbol">SPY</span> and recommend an action.</div>
+    <div id="setupTags" style="margin-top:10px;"></div>
+    <div class="btn-row">
+      <a id="btnTrack" class="btn btn-primary" style="display:none;">📝 Track as hypothetical</a>
+      <a id="btnPaper" class="btn btn-ghost" style="display:none;">🎮 Paper trade this</a>
+      <a id="btnSize" class="btn btn-ghost" style="display:none;">📐 Size it</a>
+    </div>
+  </div>
+
+  <!-- No-key fallback -->
+  <div id="noKeyWarn" class="no-key-warning" style="display:none;">
+    <strong>⚠ No Anthropic API key configured.</strong> The co-trader needs Claude to generate recommendations.
+    Get a key at <a href="https://console.anthropic.com/" target="_blank" rel="noopener">console.anthropic.com</a>, paste it in <a href="settings.html">Settings → Claude AI</a>, and refresh.
+    In the meantime, you'll see <em>heuristic</em> recommendations below — they use only your learned weights and TA, no LLM.
+  </div>
+
+  <!-- Recommendation history -->
+  <div class="card mt-24">
+    <div class="card-header"><div class="card-title">📜 Recent recommendations</div></div>
+    <div class="history-row" style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;font-weight:600;">
+      <div>Time</div>
+      <div>Symbol · Verdict</div>
+      <div style="text-align:right;">Conv</div>
+      <div style="text-align:right;">Entry → Stop → Tgt</div>
+      <div>Thesis</div>
+      <div style="text-align:right;">Action</div>
+    </div>
+    <div id="historyBody"></div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script src="js/ta.js"></script>
+<script src="js/learn.js"></script>
+<script src="js/discord.js"></script>
+<script>buildNav('assistant');</script>
+
+<script>
+(function () {
+  const KEY = 'bpleone_cotrader_v1';
+  let currentSym = 'SPY';
+  let pollTimer = null;
+  let busy = false;
+
+  function loadHist() { try { return JSON.parse(localStorage.getItem(KEY) || '{"recs":[]}'); } catch (e) { return { recs: [] }; } }
+  function saveHist(h) { try { localStorage.setItem(KEY, JSON.stringify(h)); } catch (e) {} }
+
+  function fmt$(v) { return v == null ? '—' : '$' + (+v).toFixed(2); }
+
+  function biasFromVerdict(v) {
+    if (!v) return 'wait';
+    const s = v.toLowerCase();
+    if (s.indexOf('long') !== -1 || s.indexOf('buy') !== -1) return 'long';
+    if (s.indexOf('short') !== -1 || s.indexOf('sell') !== -1) return 'short';
+    return 'wait';
+  }
+
+  function buildPrompt(snap, q, perSym, weights, style) {
+    const trend = snap.trend || 'unknown';
+    const summary = (snap.summary || []).join(' · ');
+    const setupWeights = Object.entries(weights || {}).sort((a, b) => b[1] - a[1]).slice(0, 8).map(([k, w]) => k + '=' + w.toFixed(2)).join(', ');
+    const stylePrompt = {
+      'day-trader': 'Time horizon: intraday. Stop at 0.5-1× ATR, target at 1.5-2.5× ATR. Prefer high-rvol, expansive regime.',
+      'swing': 'Time horizon: 1-5 days. Stop at 1.5× ATR, target at 3× ATR. Prefer trend continuation, MA reclaim.',
+      'conservative': 'Only recommend trade if conviction ≥ 0.75. Otherwise verdict = WAIT. Stop at 1× ATR, target at 3× ATR.'
+    }[style] || '';
+    return [
+      'You are an institutional trader-strategist sitting at a Bloomberg terminal. Look at the live TA snapshot below and recommend one action.',
+      '',
+      'SYMBOL: ' + currentSym + ' · last $' + (q.last || 0).toFixed(2) + ' · day ' + (q.changePct >= 0 ? '+' : '') + (q.changePct || 0).toFixed(2) + '%',
+      '',
+      'TA SNAPSHOT:',
+      '  Trend: ' + trend + (snap.trendStrong ? ' (strong, ADX≥25)' : ''),
+      '  Regime: ' + (snap.regime || 'unknown') + ' (ATR ' + (snap.atrPct ? snap.atrPct.toFixed(2) + '%' : '?') + ')',
+      '  RSI(5m): ' + (snap.rsi ? snap.rsi.toFixed(0) : '?'),
+      '  MACD hist: ' + (snap.hist != null ? snap.hist.toFixed(3) : '?'),
+      '  ADX: ' + (snap.adx ? snap.adx.toFixed(0) : '?'),
+      '  VWAP distance: ' + (snap.vwapDist != null ? snap.vwapDist.toFixed(2) + '%' : '?'),
+      '  Bollinger %B: ' + (snap.bbPct != null ? (snap.bbPct * 100).toFixed(0) + '%' : '?'),
+      '  Day range used: ' + (snap.dayRangePct ? snap.dayRangePct.toFixed(2) + '%' : '?'),
+      '  Summary: ' + summary,
+      '',
+      'YOUR LEARNED EDGE (specific to ' + currentSym + '): ' + (perSym && perSym.n ? perSym.n + ' trades, ' + (perSym.winRate * 100).toFixed(0) + '% win-rate, ' + (perSym.avgR >= 0 ? '+' : '') + perSym.avgR.toFixed(2) + 'R avg' : 'no per-symbol data yet'),
+      'GLOBAL SETUP WEIGHTS (top 8): ' + setupWeights,
+      '',
+      'STYLE: ' + stylePrompt,
+      '',
+      'Reply in this EXACT JSON format (and nothing else):',
+      '{"verdict": "LONG" | "SHORT" | "WAIT", "conviction": 0.0-1.0, "entry": price, "stop": price, "target": price, "thesis": "one-paragraph reasoning under 80 words", "setupTag": "setup name from current TA", "watchFor": "what would invalidate this"}'
+    ].join('\n');
+  }
+
+  function heuristicRec(snap, q, perSym, weights) {
+    // Lightweight fallback when Claude unavailable.
+    const features = {
+      last: q.last, prevClose: q.prevClose, dayHigh: q.dayHigh, dayLow: q.dayLow,
+      volume: q.volume, avgVolume: q.avgVolume
+    };
+    const tag = Learn.autoTagSetup(features, { symbol: currentSym });
+    const w = typeof Learn.weightFor === 'function' ? Learn.weightFor(tag.tag, { symbol: currentSym }) : 1.0;
+    const adj = tag.score * w;
+    const bias = (function () {
+      const bullTags = ['volume-breakout', '52w-break', '50ma-reclaim', 'macd-cross', 'bull-flag', 'cup-handle', 'vwap-reclaim'];
+      const bearTags = ['flush-on-volume', 'breakdown', 'bear-flag', 'vwap-rejection', 'overbought-fade'];
+      if (bullTags.indexOf(tag.tag) !== -1) return 'LONG';
+      if (bearTags.indexOf(tag.tag) !== -1) return 'SHORT';
+      return 'WAIT';
+    })();
+    const atrUnit = snap.atr || (q.last * 0.005);
+    const entry = q.last;
+    const stop = bias === 'LONG' ? entry - 1.5 * atrUnit : bias === 'SHORT' ? entry + 1.5 * atrUnit : null;
+    const target = bias === 'LONG' ? entry + 3 * atrUnit : bias === 'SHORT' ? entry - 3 * atrUnit : null;
+    return {
+      verdict: bias,
+      conviction: +adj.toFixed(2),
+      entry: stop ? entry : null,
+      stop, target,
+      thesis: 'Heuristic recommendation (no LLM key). Setup auto-tagged as ' + tag.tag + ' with adj-score ' + adj.toFixed(2) + '. Reasoning: ' + (tag.reasons || []).join(' · ') + '. ' + ((snap.summary || []).join(', ')),
+      setupTag: tag.tag,
+      watchFor: bias === 'WAIT' ? 'a high-conviction setup transition' : 'price closing the wrong side of VWAP or RSI flipping past 50 against the trade'
+    };
+  }
+
+  function parseJson(text) {
+    // Sometimes Claude wraps in code fences — strip them
+    const m = text.match(/\{[\s\S]*\}/);
+    if (!m) return null;
+    try { return JSON.parse(m[0]); } catch (e) { return null; }
+  }
+
+  function setBusy(b) {
+    busy = b;
+    const status = document.getElementById('status');
+    const btn = document.getElementById('btnRefresh');
+    if (b) {
+      status.innerHTML = '<span class="thinking">Thinking</span>';
+      btn.disabled = true;
+    } else {
+      status.innerHTML = '';
+      btn.disabled = false;
+    }
+  }
+
+  async function getRecommendation() {
+    if (busy) return;
+    if (typeof QUOTES === 'undefined' || !QUOTES[currentSym]) return;
+    const q = QUOTES[currentSym];
+    const snap = typeof TA !== 'undefined' ? TA.snapshot(currentSym) : null;
+    if (!snap) { setStatus('Brain warming up — TA needs ticks first.'); return; }
+    const learn = (function () { try { return JSON.parse(localStorage.getItem('bpleone_learn_v1') || '{}'); } catch (e) { return {}; } })();
+    const perSym = typeof Learn !== 'undefined' && Learn.symbolStats ? Learn.symbolStats(currentSym) : null;
+    const weights = learn.weights || {};
+    const style = document.getElementById('style').value;
+
+    setBusy(true);
+    let rec = null;
+    if (typeof AIClient !== 'undefined' && AIClient.isReady && AIClient.isReady()) {
+      document.getElementById('noKeyWarn').style.display = 'none';
+      try {
+        const prompt = buildPrompt(snap, q, perSym, weights, style);
+        const res = await AIClient.chat([{ role: 'user', content: prompt }], { maxTokens: 400 });
+        if (res && res.text) {
+          rec = parseJson(res.text);
+        }
+      } catch (e) { console.warn('claude call failed', e); }
+    } else {
+      document.getElementById('noKeyWarn').style.display = 'block';
+    }
+    if (!rec) {
+      // Fallback to heuristic
+      rec = heuristicRec(snap, q, perSym, weights);
+    }
+    rec.ts = Date.now();
+    rec.sym = currentSym;
+    rec.taSnap = { rsi: snap.rsi, hist: snap.hist, adx: snap.adx, vwap: snap.vwap, vwapDist: snap.vwapDist, trend: snap.trend, regime: snap.regime, atr: snap.atr };
+    saveRec(rec);
+    renderRec(rec);
+    renderHist();
+    setBusy(false);
+  }
+
+  function saveRec(rec) {
+    const h = loadHist();
+    h.recs.unshift(rec);
+    if (h.recs.length > 100) h.recs.pop();
+    saveHist(h);
+  }
+
+  function setStatus(msg) { document.getElementById('status').textContent = msg; setTimeout(() => { document.getElementById('status').textContent = ''; }, 3000); }
+
+  function renderRec(rec) {
+    if (!rec) return;
+    const bias = biasFromVerdict(rec.verdict);
+    const card = document.getElementById('recCard');
+    card.className = 'rec-card ' + bias;
+    const verdictEl = document.getElementById('recVerdict');
+    verdictEl.className = 'verdict ' + bias;
+    verdictEl.textContent = (rec.verdict || 'WAIT').toUpperCase();
+    document.getElementById('recConv').textContent = 'conviction ' + (rec.conviction != null ? (rec.conviction * 100).toFixed(0) + '%' : '—');
+    const ageSec = Math.floor((Date.now() - rec.ts) / 1000);
+    document.getElementById('recAge').textContent = ageSec < 60 ? ageSec + 's ago' : Math.floor(ageSec / 60) + 'm ago';
+
+    const q = QUOTES[currentSym] || {};
+    document.getElementById('recPx').textContent = q.last ? '$' + q.last.toFixed(2) : '—';
+    const chg = q.changePct || 0;
+    const chgEl = document.getElementById('recChg');
+    chgEl.textContent = (chg >= 0 ? '+' : '') + (q.change || 0).toFixed(2) + ' (' + (chg >= 0 ? '+' : '') + chg.toFixed(2) + '%)';
+    chgEl.style.color = chg >= 0 ? 'var(--green)' : 'var(--red)';
+
+    document.getElementById('recEntry').textContent = fmt$(rec.entry);
+    document.getElementById('recStop').textContent = fmt$(rec.stop);
+    document.getElementById('recTarget').textContent = fmt$(rec.target);
+    if (rec.entry && rec.stop && rec.target) {
+      const rr = Math.abs(rec.target - rec.entry) / Math.abs(rec.entry - rec.stop);
+      document.getElementById('recRR').textContent = rr.toFixed(2) + ' : 1';
+    } else {
+      document.getElementById('recRR').textContent = '—';
+    }
+    document.getElementById('recThesis').innerHTML = (rec.thesis || '') + (rec.watchFor ? '<br><br><em style="color:var(--text-muted);">Watch for: ' + rec.watchFor + '</em>' : '');
+
+    // Tag chips
+    document.getElementById('setupTags').innerHTML = rec.setupTag ? `<span class="tag ${bias === 'long' ? 'bull' : bias === 'short' ? 'bear' : 'wait'}">${rec.setupTag}</span>` : '';
+
+    // Wire action buttons
+    const params = new URLSearchParams({
+      sym: rec.sym, bias: bias === 'long' ? 'bull' : 'bear',
+      entry: rec.entry ? rec.entry.toFixed(2) : '',
+      stop: rec.stop ? rec.stop.toFixed(2) : '',
+      target: rec.target ? rec.target.toFixed(2) : '',
+      source: 'signals', note: 'AI co-trader · ' + (rec.setupTag || rec.verdict)
+    }).toString();
+    const trackBtn = document.getElementById('btnTrack');
+    const paperBtn = document.getElementById('btnPaper');
+    const sizeBtn = document.getElementById('btnSize');
+    if (bias !== 'wait' && rec.entry && rec.stop) {
+      trackBtn.style.display = ''; trackBtn.href = 'hypothetical.html?' + params;
+      paperBtn.style.display = ''; paperBtn.href = 'paper-trade.html?sym=' + rec.sym;
+      sizeBtn.style.display = ''; sizeBtn.href = 'kelly-sizer.html?sym=' + rec.sym;
+    } else {
+      trackBtn.style.display = 'none';
+      paperBtn.style.display = 'none';
+      sizeBtn.style.display = 'none';
+    }
+  }
+
+  function renderHist() {
+    const h = loadHist();
+    document.getElementById('kRecCount').textContent = h.recs.length;
+    const body = document.getElementById('historyBody');
+    if (!h.recs.length) { body.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-muted);font-size:12px;">No recommendations yet.</div>'; return; }
+    body.innerHTML = h.recs.slice(0, 30).map(r => {
+      const bias = biasFromVerdict(r.verdict);
+      const time = new Date(r.ts).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
+      const params = new URLSearchParams({ sym: r.sym, bias: bias === 'long' ? 'bull' : 'bear', entry: (r.entry || 0).toFixed(2), stop: (r.stop || 0).toFixed(2), target: (r.target || 0).toFixed(2), source: 'signals', note: 'AI co-trader · ' + (r.setupTag || r.verdict) }).toString();
+      const trackLink = bias !== 'wait' && r.entry && r.stop ? `<a href="hypothetical.html?${params}" style="color:var(--accent);font-size:11px;">📝 Track</a>` : '<span style="color:var(--text-muted);font-size:11px;">—</span>';
+      return `<div class="history-row">
+        <div class="mono" style="font-size:11px;color:var(--text-muted);">${time}</div>
+        <div><strong class="mono">${r.sym}</strong> <span class="tag ${bias === 'long' ? 'bull' : bias === 'short' ? 'bear' : 'wait'}">${(r.verdict || 'WAIT')}</span></div>
+        <div class="mono" style="text-align:right;">${r.conviction != null ? (r.conviction * 100).toFixed(0) + '%' : '—'}</div>
+        <div class="mono" style="text-align:right;font-size:11px;">${r.entry ? '$' + r.entry.toFixed(2) : '—'} / ${r.stop ? '$' + r.stop.toFixed(2) : '—'} / ${r.target ? '$' + r.target.toFixed(2) : '—'}</div>
+        <div style="font-size:11px;line-height:1.4;color:var(--text-muted);">${(r.thesis || '').slice(0, 130)}${r.thesis && r.thesis.length > 130 ? '…' : ''}</div>
+        <div style="text-align:right;">${trackLink}</div>
+      </div>`;
+    }).join('');
+  }
+
+  function renderPerSymKPI() {
+    if (typeof Learn === 'undefined' || !Learn.symbolStats) return;
+    const s = Learn.symbolStats(currentSym);
+    document.getElementById('kSymTrades').textContent = s.n || 0;
+    document.getElementById('kSymWR').textContent = s.n ? (s.winRate * 100).toFixed(0) + '%' : '—';
+    // Best setup for this symbol
+    let bestKey = '—', bestR = -Infinity;
+    Object.entries(s.bySetup || {}).forEach(([k, v]) => {
+      const avg = v.totalR / v.n;
+      if (v.n >= 2 && avg > bestR) { bestR = avg; bestKey = k + ' (+' + avg.toFixed(2) + 'R)'; }
+    });
+    document.getElementById('kSymBest').textContent = bestKey;
+  }
+
+  function setSymbol(sym) {
+    currentSym = sym;
+    document.getElementById('thesisSymbol').textContent = sym;
+    if (typeof TA !== 'undefined') TA.warmup(sym);
+    renderPerSymKPI();
+    // Show latest rec for this symbol if any
+    const h = loadHist();
+    const latest = h.recs.find(r => r.sym === sym);
+    if (latest) renderRec(latest);
+    renderHist();
+  }
+
+  function startPolling() {
+    if (pollTimer) clearInterval(pollTimer);
+    const sec = parseInt(document.getElementById('cadence').value, 10);
+    if (sec > 0) pollTimer = setInterval(getRecommendation, sec * 1000);
+  }
+
+  // Wire
+  document.getElementById('symSelect').addEventListener('change', e => setSymbol(e.target.value));
+  document.getElementById('btnRefresh').addEventListener('click', getRecommendation);
+  document.getElementById('cadence').addEventListener('change', startPolling);
+
+  // Init
+  setTimeout(() => {
+    const params = new URLSearchParams(location.search);
+    if (params.has('sym')) {
+      const s = (params.get('sym') || '').toUpperCase();
+      document.getElementById('symSelect').value = s;
+      setSymbol(s);
+    } else {
+      setSymbol('SPY');
+    }
+    renderHist();
+    startPolling();
+  }, 400);
+
+  // Update age timestamp every 10s
+  setInterval(() => {
+    const h = loadHist();
+    const latest = h.recs.find(r => r.sym === currentSym);
+    if (latest) {
+      const ageSec = Math.floor((Date.now() - latest.ts) / 1000);
+      document.getElementById('recAge').textContent = ageSec < 60 ? ageSec + 's ago' : Math.floor(ageSec / 60) + 'm ago';
+    }
+  }, 10000);
+})();
+</script>
+</body>
+</html>
