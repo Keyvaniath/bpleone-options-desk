@@ -53,6 +53,40 @@
 .checklist .item.warn .check { color: var(--yellow); }
 .refresh-btn { background: rgba(239,68,68,0.10); border: 1px solid rgba(239,68,68,0.30); color: var(--red); font-weight: 700; }
 .refresh-btn:hover { background: rgba(239,68,68,0.20); }
+
+/* Print-friendly layout — for "Save as PDF" */
+@media print {
+  body { background: white !important; color: black !important; }
+  #site-nav, #site-footer, .page-header, .controls, .actions, .mobile-tab-bar,
+  #bpleoneRecentBar, .ticker-tape, .navbar, footer { display: none !important; }
+  .container { max-width: none !important; padding: 0 !important; }
+  .ticket-card {
+    background: white !important; border: 2px solid #0a1a2a !important;
+    color: black !important; box-shadow: none !important; page-break-inside: avoid;
+  }
+  .ticket-card::before { color: #0a1a2a !important; }
+  .ticket-card .ticker-hero, .ticket-row { border-color: #ccc !important; }
+  .ticket-row .label { color: #555 !important; }
+  .ticket-row .value { color: #000 !important; }
+  .ticket-row .sub { color: #777 !important; }
+  .entry-cell, .stop-cell, .target-cell {
+    background: white !important; border: 1px solid #999 !important;
+  }
+  .target-cell { background: #f0fdf4 !important; }
+  .stop-cell { background: #fef2f2 !important; }
+  .entry-cell { background: #f0f9ff !important; }
+  .bias-tag.long { background: #d1fae5 !important; color: #047857 !important; }
+  .bias-tag.short { background: #fee2e2 !important; color: #b91c1c !important; }
+  .r-pos, .target-cell .lab, .target-cell { color: #047857 !important; }
+  .r-neg { color: #b91c1c !important; }
+  .thesis-card { background: white !important; border: 1px solid #999 !important; page-break-inside: avoid; }
+  .thesis-card h3 { color: #000 !important; }
+  .checklist .item.pass .check { color: #047857 !important; }
+  .checklist .item.fail .check { color: #b91c1c !important; }
+  .conviction-bar .dot.lit { background: #0a1a2a !important; border-color: #0a1a2a !important; box-shadow: none !important; }
+  a { color: #0a1a2a !important; text-decoration: none !important; }
+  @page { margin: 0.5in; size: letter portrait; }
+}
 </style>
 </head>
 <body>
@@ -412,6 +446,7 @@
       <a href="options-chain.html?sym=${sym}" class="btn btn-ghost">⛓ Options Chain</a>
       <button id="btnDiscord" class="btn btn-ghost">📨 Post ticket to Discord</button>
       <button id="btnCopy" class="btn btn-ghost">📋 Copy ticket</button>
+      <button id="btnPdf" class="btn btn-ghost">📄 Save as PDF / Print</button>
     </div>`;
 
     document.getElementById('ticketOut').innerHTML = html;
@@ -423,6 +458,13 @@
       const body = `\n**Entry:** $${entryLow.toFixed(2)} - $${entryHigh.toFixed(2)} · **Stop:** $${stopPx.toFixed(2)} · **T1:** $${t1Px.toFixed(2)} (${sc.t1R}R) · **T2:** $${t2Px.toFixed(2)} (${sc.t2R}R) · **T3:** $${t3Px.toFixed(2)} (${sc.t3R}R)\n**Size:** ${shares} shares · $${notional.toLocaleString(undefined, { maximumFractionDigits: 0 })} notional · ${riskDollars.toFixed(0)} risk\n**Horizon:** ${sc.holdLabel} · Checks ${passed}/${totalChecks}\n**Reasoning:** ${reasonLines[1].replace(/<[^>]+>/g, '')}`;
       await DiscordAlerts.fire(headline + body, { dedupKey: 'ticket:' + sym + ':' + tag.tag + ':' + new Date().toLocaleDateString('en-US') });
       alert('Posted to Discord');
+    });
+    document.getElementById('btnPdf').addEventListener('click', () => {
+      // Set a header that prints nicely
+      const oldTitle = document.title;
+      document.title = `Trade Ticket — ${sym} — ${new Date().toISOString().slice(0,10)}`;
+      window.print();
+      setTimeout(() => { document.title = oldTitle; }, 1000);
     });
     document.getElementById('btnCopy').addEventListener('click', () => {
       const text = `TRADE TICKET · ${sym} · ${new Date().toLocaleString('en-US')}\n` +

@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>IV Skew + Surface — bpleone / trade</title>
+<meta name="description" content="Implied volatility smile + term structure + skew. Visualize the IV surface for any symbol across strikes and expiries.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.banner { background: linear-gradient(135deg, rgba(139,92,246,0.10), rgba(0,212,255,0.06)); border: 1px solid rgba(139,92,246,0.25); border-radius: 12px; padding: 16px 18px; margin-bottom: 18px; }
+.kpi-strip { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; margin-bottom: 18px; }
+.tile { background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 10px; padding: 14px; text-align: center; }
+.tile .lab { font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; }
+.tile .val { font-family: var(--font-mono); font-weight: 700; font-size: 18px; margin-top: 4px; }
+.r-pos { color: var(--green); } .r-neg { color: var(--red); }
+.controls { display: flex; gap: 10px; align-items: end; flex-wrap: wrap; padding: 12px 16px; background: var(--bg-elevated); border-radius: 10px; border: 1px solid var(--border); margin-bottom: 16px; }
+.controls input, .controls select { background: var(--bg-secondary); border: 1px solid var(--border); color: var(--text-primary); padding: 6px 10px; border-radius: 6px; font-size: 12px; }
+.controls label { font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; display: block; margin-bottom: 4px; }
+.heatmap { display: grid; gap: 2px; padding: 14px; background: var(--bg-elevated); border-radius: 10px; border: 1px solid var(--border); margin-bottom: 16px; overflow-x: auto; }
+.cell { padding: 6px 4px; text-align: center; font-family: var(--font-mono); font-size: 11px; border-radius: 3px; cursor: help; transition: transform .12s; }
+.cell:hover { transform: scale(1.1); z-index: 10; }
+.row-label { padding: 6px 8px; font-family: var(--font-mono); font-weight: 700; font-size: 11px; }
+.col-label { padding: 6px 4px; font-family: var(--font-mono); font-size: 10px; color: var(--text-muted); text-align: center; }
+.chart-card { background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 10px; padding: 14px; }
+.legend-row { display: flex; align-items: center; gap: 10px; margin: 10px 0; font-family: var(--font-mono); font-size: 11px; color: var(--text-muted); }
+.legend-grad { width: 200px; height: 10px; background: linear-gradient(to right, rgba(16,185,129,0.7), var(--bg-secondary), rgba(245,158,11,0.7), rgba(239,68,68,0.85)); border-radius: 5px; }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">IV Skew + Surface <span class="feat-badge feat-pro">PRO</span></div>
+      <div class="page-subtitle">Implied vol smile · term structure · 25-delta skew. Read the market's fear gauge. · <span id="market-clock">--</span></div>
+    </div>
+    <div class="flex gap-8">
+      <a href="vol-surface.html" class="btn btn-ghost">🌐 Vol Surface (basic)</a>
+      <a href="options-chain.html" class="btn btn-ghost">⛓ Options Chain</a>
+      <a href="vol-cone.html" class="btn btn-ghost">🌗 Vol Cone</a>
+    </div>
+  </div>
+
+  <div class="banner">
+    <strong style="font-size:14px;">📈 What the surface tells you.</strong>
+    <div style="font-size:11px;color:var(--text-muted);margin-top:6px;line-height:1.6;">
+      <strong>Skew</strong> = IV difference between OTM puts and OTM calls. Positive skew (puts more expensive) = market fearful. Negative skew (calls bid) = euphoria / squeeze setups.
+      <strong>Term structure</strong> = IV by expiry. Steep contango (back-month IV > near-month) = vol expected to rise. Backwardation = event-day vol crush expected.
+      <strong>Smile</strong> = U-shaped IV curve across strikes. Reverse-skew (puts &gt; calls) is normal for equities; smile-flip during squeezes.
+    </div>
+  </div>
+
+  <div class="controls">
+    <div>
+      <label>Symbol</label>
+      <input id="symInput" value="SPY" style="text-transform:uppercase;font-family:var(--font-mono);font-weight:700;width:120px;font-size:14px;">
+    </div>
+    <button id="btnGen" class="btn btn-primary">📊 Build surface</button>
+    <span id="status" style="margin-left:auto;font-size:11px;color:var(--text-muted);align-self:center;"></span>
+  </div>
+
+  <!-- KPIs -->
+  <div class="kpi-strip">
+    <div class="tile"><div class="lab">ATM IV (30d)</div><div class="val mono" id="kAtm">—</div></div>
+    <div class="tile"><div class="lab">25Δ skew</div><div class="val mono" id="kSkew">—</div></div>
+    <div class="tile"><div class="lab">Term slope</div><div class="val mono" id="kTerm">—</div></div>
+    <div class="tile"><div class="lab">Risk reversal</div><div class="val mono" id="kRr">—</div></div>
+    <div class="tile"><div class="lab">Market read</div><div class="val mono" id="kRead" style="font-size:13px;">—</div></div>
+  </div>
+
+  <!-- Surface heatmap -->
+  <div style="font-size:13px;font-weight:700;margin-bottom:6px;">📊 IV Surface (% across moneyness × expiry)</div>
+  <div class="legend-row">
+    <span>Low IV</span>
+    <div class="legend-grad"></div>
+    <span>High IV</span>
+  </div>
+  <div id="heatmap" class="heatmap"></div>
+
+  <!-- Smile + term -->
+  <div class="grid grid-2">
+    <div class="chart-card">
+      <div style="font-weight:700;font-size:14px;margin-bottom:8px;">📈 Smile (30-day expiry)</div>
+      <div style="height:280px;"><canvas id="smileChart"></canvas></div>
+    </div>
+    <div class="chart-card">
+      <div style="font-weight:700;font-size:14px;margin-bottom:8px;">📊 Term structure (ATM IV by expiry)</div>
+      <div style="height:280px;"><canvas id="termChart"></canvas></div>
+    </div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script src="js/ta.js"></script>
+<script src="js/learn.js"></script>
+<script>buildNav('vol-surface');</script>
+
+<script>
+(function () {
+  let smileChart = null, termChart = null;
+
+  // Simulate IV surface from BS model + skew assumptions when no live chain data
+  function syntheticSurface(sym) {
+    const q = (typeof QUOTES !== 'undefined') ? QUOTES[sym] : null;
+    if (!q) return null;
+    const spot = q.last;
+    const snap = (typeof TA !== 'undefined') ? TA.snapshot(sym) : null;
+    const baseIv = snap && snap.atrPct ? snap.atrPct * 16 : 25; // ATR% → annualized IV approx
+    const expiries = [7, 14, 30, 45, 60, 90, 120, 180];
+    // Strikes as moneyness % (-15% to +15%)
+    const moneyness = [-15, -10, -7, -5, -3, 0, 3, 5, 7, 10, 15];
+
+    const surface = expiries.map(dte => {
+      const termFactor = Math.pow(30 / dte, 0.3);  // term structure
+      return moneyness.map(m => {
+        const skewBoost = m < 0 ? Math.abs(m) * 0.35 : m > 0 ? m * 0.15 : 0;
+        const smileBoost = Math.pow(Math.abs(m) / 10, 1.4) * 5;
+        const iv = baseIv * termFactor + skewBoost + smileBoost;
+        return Math.max(8, +iv.toFixed(1));
+      });
+    });
+    return { spot, expiries, moneyness, surface, atrPct: snap && snap.atrPct };
+  }
+
+  function colorForIv(iv, min, max) {
+    const t = Math.max(0, Math.min(1, (iv - min) / (max - min)));
+    if (t < 0.33) {
+      const k = t / 0.33;
+      return `rgba(16,185,129,${0.3 + k * 0.4})`;
+    } else if (t < 0.66) {
+      const k = (t - 0.33) / 0.33;
+      return `rgba(${250 - k * 5},${158 + k * 30},${11 + k * 30},${0.4 + k * 0.3})`;
+    } else {
+      const k = (t - 0.66) / 0.34;
+      return `rgba(239,${68 - k * 30},${68 - k * 30},${0.6 + k * 0.3})`;
+    }
+  }
+
+  function buildHeatmap(data) {
+    if (!data) return;
+    const { expiries, moneyness, surface } = data;
+    const flat = surface.flat();
+    const min = Math.min(...flat);
+    const max = Math.max(...flat);
+    const grid = document.createElement('div');
+    grid.style.display = 'grid';
+    grid.style.gridTemplateColumns = `100px repeat(${moneyness.length}, 1fr)`;
+    grid.style.gap = '2px';
+    // Header
+    const corner = document.createElement('div'); grid.appendChild(corner);
+    moneyness.forEach(m => {
+      const el = document.createElement('div');
+      el.className = 'col-label';
+      el.textContent = (m > 0 ? '+' : '') + m + '%';
+      grid.appendChild(el);
+    });
+    expiries.forEach((dte, i) => {
+      const row = document.createElement('div'); row.className = 'row-label'; row.textContent = dte + 'd'; grid.appendChild(row);
+      surface[i].forEach((iv, j) => {
+        const c = document.createElement('div'); c.className = 'cell';
+        c.style.background = colorForIv(iv, min, max);
+        c.style.color = iv > (min + max) / 2 ? '#fff' : 'var(--text-primary)';
+        c.textContent = iv.toFixed(1);
+        c.title = `${dte}d / ${moneyness[j] > 0 ? '+' : ''}${moneyness[j]}% moneyness: IV ${iv.toFixed(1)}%`;
+        grid.appendChild(c);
+      });
+    });
+    const container = document.getElementById('heatmap');
+    container.innerHTML = '';
+    container.appendChild(grid);
+  }
+
+  function buildSmile(data) {
+    if (!data) return;
+    const { moneyness, surface, expiries } = data;
+    const idx30 = expiries.indexOf(30) !== -1 ? expiries.indexOf(30) : 2;
+    const smile = surface[idx30];
+    const ctx = document.getElementById('smileChart').getContext('2d');
+    if (smileChart) smileChart.destroy();
+    smileChart = new Chart(ctx, {
+      type: 'line',
+      data: {
+        labels: moneyness.map(m => (m > 0 ? '+' : '') + m + '%'),
+        datasets: [{ label: 'IV %', data: smile, borderColor: '#8b5cf6', backgroundColor: 'rgba(139,92,246,0.10)', fill: true, tension: 0.3, pointRadius: 4, pointBackgroundColor: '#8b5cf6' }]
+      },
+      options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { ticks: { color: '#999', font: { family: 'JetBrains Mono', size: 10 } }, grid: { display: false } }, y: { ticks: { color: '#999', font: { family: 'JetBrains Mono' }, callback: v => v.toFixed(0) + '%' }, grid: { color: 'rgba(255,255,255,0.05)' } } } }
+    });
+  }
+
+  function buildTerm(data) {
+    if (!data) return;
+    const { expiries, surface, moneyness } = data;
+    const atmIdx = moneyness.indexOf(0);
+    const atmIv = surface.map(row => row[atmIdx]);
+    const ctx = document.getElementById('termChart').getContext('2d');
+    if (termChart) termChart.destroy();
+    termChart = new Chart(ctx, {
+      type: 'line',
+      data: {
+        labels: expiries.map(d => d + 'd'),
+        datasets: [{ label: 'ATM IV', data: atmIv, borderColor: '#00d4ff', backgroundColor: 'rgba(0,212,255,0.10)', fill: true, tension: 0.3, pointRadius: 4 }]
+      },
+      options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { ticks: { color: '#999', font: { family: 'JetBrains Mono', size: 10 } }, grid: { display: false } }, y: { ticks: { color: '#999', font: { family: 'JetBrains Mono' }, callback: v => v.toFixed(0) + '%' }, grid: { color: 'rgba(255,255,255,0.05)' } } } }
+    });
+  }
+
+  function build() {
+    const sym = (document.getElementById('symInput').value || '').toUpperCase().trim();
+    if (!sym || typeof QUOTES === 'undefined' || !QUOTES[sym]) {
+      document.getElementById('status').innerHTML = '<span style="color:var(--red);">Symbol not in QUOTES</span>';
+      return;
+    }
+    document.getElementById('status').textContent = 'building synthetic surface (live chain requires Tradier/Polygon)…';
+    const data = syntheticSurface(sym);
+    if (!data) return;
+    buildHeatmap(data);
+    buildSmile(data);
+    buildTerm(data);
+    // KPIs
+    const atmIdx = data.moneyness.indexOf(0);
+    const expIdx30 = data.expiries.indexOf(30) !== -1 ? data.expiries.indexOf(30) : 2;
+    const atm30 = data.surface[expIdx30][atmIdx];
+    const otm5p = data.surface[expIdx30][data.moneyness.indexOf(5)];
+    const otm5n = data.surface[expIdx30][data.moneyness.indexOf(-5)];
+    const skew = otm5n - otm5p;
+    const term = data.surface[data.expiries.indexOf(90) !== -1 ? data.expiries.indexOf(90) : data.surface.length - 1][atmIdx] - data.surface[0][atmIdx];
+    const rr25 = data.surface[expIdx30][data.moneyness.indexOf(10) !== -1 ? data.moneyness.indexOf(10) : data.moneyness.length - 1] - data.surface[expIdx30][data.moneyness.indexOf(-10) !== -1 ? data.moneyness.indexOf(-10) : 0];
+
+    document.getElementById('kAtm').textContent = atm30.toFixed(1) + '%';
+    document.getElementById('kSkew').textContent = (skew >= 0 ? '+' : '') + skew.toFixed(2) + ' pts';
+    document.getElementById('kSkew').className = 'val mono ' + (skew > 2 ? 'r-neg' : skew < -2 ? 'r-pos' : '');
+    document.getElementById('kTerm').textContent = (term >= 0 ? '+' : '') + term.toFixed(2);
+    document.getElementById('kTerm').className = 'val mono ' + (term > 0 ? 'r-neg' : 'r-pos');
+    document.getElementById('kRr').textContent = (rr25 >= 0 ? '+' : '') + rr25.toFixed(2);
+
+    // Market read
+    let read = '';
+    if (skew > 3 && term > 1) read = 'Defensive · vol bid for puts + contango';
+    else if (skew > 3) read = 'Fearful · put bid (downside protection demand)';
+    else if (skew < -2) read = 'Euphoric · call bid (squeeze setup possible)';
+    else if (term < -1) read = 'Backwardation · event-day vol crush coming';
+    else read = 'Neutral · smile + term structure normal';
+    document.getElementById('kRead').textContent = read;
+    document.getElementById('status').textContent = '';
+  }
+
+  document.getElementById('btnGen').addEventListener('click', build);
+  document.getElementById('symInput').addEventListener('keydown', e => { if (e.key === 'Enter') build(); });
+
+  // URL params
+  const params = new URLSearchParams(location.search);
+  if (params.has('sym')) document.getElementById('symInput').value = (params.get('sym') || '').toUpperCase();
+
+  setTimeout(build, 600);
+})();
+</script>
+</body>
+</html>

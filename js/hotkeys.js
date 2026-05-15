@@ -155,6 +155,15 @@ const Hotkeys = (function() {
       return;
     }
     if (e.key === 'g') { e.preventDefault(); startChord('g'); return; }
+    // Quick-trade: press T (uppercase) → prompt for symbol → open Trade Ticket
+    if (e.key === 'T') {
+      e.preventDefault();
+      const sym = prompt('Quick-trade · enter ticker:');
+      if (sym && /^[A-Z]{1,6}(\.[A-Z]+)?$/.test(sym.trim().toUpperCase())) {
+        location.href = 'trade-ticket.html?sym=' + sym.trim().toUpperCase();
+      }
+      return;
+    }
     if (e.key === 'n') {
       if (typeof Notify !== 'undefined' && Notify.permission() === 'granted') {
         Notify.setMuted(!Notify.isMuted());

@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Split Desk — bpleone / trade</title>
+<meta name="description" content="Multi-tab split-screen desk layout. Pick any two pages side-by-side. Save your layouts.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.split-shell { display: grid; grid-template-rows: auto 1fr; height: calc(100vh - 80px); margin-top: 8px; }
+.split-controls { display: flex; gap: 10px; align-items: center; padding: 10px 14px; background: var(--bg-elevated); border-radius: 10px; border: 1px solid var(--border); margin-bottom: 8px; flex-wrap: wrap; }
+.split-controls select, .split-controls input { background: var(--bg-secondary); border: 1px solid var(--border); color: var(--text-primary); padding: 6px 10px; border-radius: 6px; font-size: 12px; }
+.split-controls label { font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; }
+.split-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; height: 100%; }
+.split-grid.layout-2x2 { grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; }
+.split-grid.layout-3 { grid-template-columns: 1fr 1fr 1fr; }
+.pane { background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; display: flex; flex-direction: column; }
+.pane-head { padding: 6px 12px; background: var(--bg-secondary); border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; font-size: 11px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; }
+.pane-head select { background: var(--bg-elevated); border: 1px solid var(--border); color: var(--text-primary); padding: 3px 6px; border-radius: 4px; font-size: 11px; font-weight: 700; }
+.pane-body { flex: 1; background: var(--bg-primary); }
+.pane-body iframe { width: 100%; height: 100%; border: 0; }
+.empty-pane { display: flex; align-items: center; justify-content: center; color: var(--text-muted); font-size: 12px; }
+.layout-btn { padding: 4px 10px; background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 6px; cursor: pointer; font-family: var(--font-mono); font-size: 11px; color: var(--text-muted); }
+.layout-btn.active { background: var(--accent); color: #052838; border-color: var(--accent); font-weight: 700; }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container" style="max-width:none;padding:0 16px;">
+  <div style="display:flex;justify-content:space-between;align-items:baseline;padding:8px 0;">
+    <div>
+      <div class="page-title" style="font-size:18px;">Split Desk <span class="feat-badge feat-pro">PRO</span></div>
+      <div style="font-size:11px;color:var(--text-muted);">Pick any 2-4 pages side-by-side. Auto-saves layout. · <span id="market-clock">--</span></div>
+    </div>
+    <div style="display:flex;gap:6px;">
+      <button class="layout-btn active" data-layout="2col">▌▌ 2-col</button>
+      <button class="layout-btn" data-layout="2x2">⊞ 2x2</button>
+      <button class="layout-btn" data-layout="3">▌▌▌ 3-col</button>
+    </div>
+  </div>
+
+  <div class="split-controls">
+    <label>Symbol shared by all panes:</label>
+    <input id="globalSym" placeholder="NVDA" style="text-transform:uppercase;font-family:var(--font-mono);font-weight:700;width:100px;">
+    <button id="btnApply" class="btn btn-primary" style="padding:6px 14px;font-size:12px;">Apply to all</button>
+    <span style="margin-left:auto;font-size:11px;color:var(--text-muted);">Layouts auto-save · refresh-safe</span>
+  </div>
+
+  <div id="splitGrid" class="split-grid"></div>
+</div>
+
+<div id="site-footer" style="margin-top:8px;"></div>
+<script src="js/app.js"></script>
+<script>buildNav('plays');</script>
+
+<script>
+(function () {
+  const KEY = 'bpleone_desk_split_v1';
+
+  // Page options — paired with whether they accept ?sym=
+  const PAGES = [
+    { url: 'trade-ticket.html', name: '🎯 Trade Ticket', sym: true },
+    { url: 'live-train.html', name: '🎓 Live AI Trainer', sym: true },
+    { url: 'ai-cotrader.html', name: '🤖 AI Co-Trader', sym: true },
+    { url: 'conviction-board.html', name: '⭐ Conviction Board', sym: false },
+    { url: 'trade-blotter.html', name: '📋 Trade Blotter', sym: false },
+    { url: 'radar.html', name: '📡 Radar', sym: false },
+    { url: 'edge-scanner.html', name: '🛰 Edge Scanner', sym: false },
+    { url: 'ticker.html', name: '🔍 Ticker Focus', sym: true },
+    { url: 'options-chain.html', name: '⛓ Options Chain', sym: true },
+    { url: 'iv-skew.html', name: '📈 IV Skew', sym: true },
+    { url: 'kelly-sizer.html', name: '📐 Kelly Sizer', sym: true },
+    { url: 'live-positions.html', name: '📡 Live Positions', sym: false },
+    { url: 'hypothetical.html', name: '📝 Hypothetical', sym: true },
+    { url: 'paper-trade.html', name: '🎮 Paper Trade', sym: true },
+    { url: 'after-hours-scanner.html', name: '🌙 After-Hours', sym: false },
+    { url: 'pre-market-scanner.html', name: '🌅 Pre-Market', sym: false },
+    { url: 'tomorrow-playbook.html', name: '📋 Tomorrow Playbook', sym: false },
+    { url: 'sector-rotation.html', name: '🔄 Sector Rotation', sym: false },
+    { url: 'cross-asset-correlations.html', name: '🔗 Correlations', sym: false },
+    { url: 'global-markets.html', name: '🌐 Global Markets', sym: false },
+    { url: 'crypto-commodities.html', name: '🌍 Crypto+Comm', sym: false },
+    { url: 'crypto-basis.html', name: '⚡ Crypto Basis', sym: false },
+    { url: 'squeeze-radar-pro.html', name: '🔥 Squeeze Radar', sym: false },
+    { url: 'insider-congress-flow.html', name: '🏛 Insider Flow', sym: false },
+    { url: 'calendar-plays.html', name: '📅 Calendar Plays', sym: false },
+    { url: 'pair-trades.html', name: '⚖ Pair Trades', sym: false },
+    { url: 'earnings-tonight.html', name: '⚡ Earnings Tonight', sym: false },
+    { url: 'options-flow-live.html', name: '📡 Options Flow Live', sym: false },
+    { url: 'weight-heatmap.html', name: '🌡 Weight Heatmap', sym: false },
+    { url: 'risk-attribution.html', name: '🎯 Attribution', sym: false }
+  ];
+
+  function loadState() {
+    try { return Object.assign({ layout: '2col', panes: ['trade-ticket.html', 'live-train.html', 'ai-cotrader.html', 'conviction-board.html'], sym: 'NVDA' }, JSON.parse(localStorage.getItem(KEY) || '{}')); }
+    catch (e) { return { layout: '2col', panes: ['trade-ticket.html', 'live-train.html', 'ai-cotrader.html', 'conviction-board.html'], sym: 'NVDA' }; }
+  }
+  function saveState(s) { try { localStorage.setItem(KEY, JSON.stringify(s)); } catch (e) {} }
+
+  function paneSrc(url, sym) {
+    const meta = PAGES.find(p => p.url === url);
+    if (meta && meta.sym && sym) return `${url}?sym=${sym}`;
+    return url;
+  }
+
+  function buildPane(idx, currentUrl, currentSym) {
+    const meta = PAGES.find(p => p.url === currentUrl);
+    const opts = PAGES.map(p => `<option value="${p.url}" ${p.url === currentUrl ? 'selected' : ''}>${p.name}</option>`).join('');
+    return `<div class="pane">
+      <div class="pane-head">
+        <select data-pane="${idx}">${opts}</select>
+        <a href="${paneSrc(currentUrl, currentSym)}" target="_blank" rel="noopener" title="Open in new tab" style="color:var(--text-muted);text-decoration:none;font-size:14px;">↗</a>
+      </div>
+      <div class="pane-body">
+        <iframe src="${paneSrc(currentUrl, currentSym)}" referrerpolicy="no-referrer-when-downgrade"></iframe>
+      </div>
+    </div>`;
+  }
+
+  function paneCount(layout) { return layout === '2x2' ? 4 : layout === '3' ? 3 : 2; }
+
+  function render() {
+    const s = loadState();
+    const grid = document.getElementById('splitGrid');
+    grid.className = 'split-grid layout-' + s.layout;
+    const n = paneCount(s.layout);
+    let html = '';
+    for (let i = 0; i < n; i++) html += buildPane(i, s.panes[i] || PAGES[i].url, s.sym);
+    grid.innerHTML = html;
+    document.querySelectorAll('.pane-head select').forEach(sel => {
+      sel.addEventListener('change', e => {
+        const i = parseInt(e.target.dataset.pane, 10);
+        const cur = loadState();
+        cur.panes[i] = e.target.value;
+        saveState(cur);
+        render();
+      });
+    });
+    document.getElementById('globalSym').value = s.sym;
+  }
+
+  document.querySelectorAll('.layout-btn').forEach(b => {
+    b.addEventListener('click', () => {
+      document.querySelectorAll('.layout-btn').forEach(x => x.classList.remove('active'));
+      b.classList.add('active');
+      const s = loadState(); s.layout = b.dataset.layout; saveState(s); render();
+    });
+  });
+  document.getElementById('btnApply').addEventListener('click', () => {
+    const sym = (document.getElementById('globalSym').value || '').toUpperCase().trim();
+    const s = loadState(); s.sym = sym; saveState(s); render();
+  });
+  document.getElementById('globalSym').addEventListener('keydown', e => { if (e.key === 'Enter') document.getElementById('btnApply').click(); });
+
+  setTimeout(() => {
+    // Set initial layout button state
+    const s = loadState();
+    document.querySelectorAll('.layout-btn').forEach(x => x.classList.toggle('active', x.dataset.layout === s.layout));
+    render();
+  }, 300);
+})();
+</script>
+</body>
+</html>
