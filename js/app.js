@@ -99,7 +99,7 @@ function buildNav(activePage) {
   activePage = activePage || '';
   const playsGrp = ['totd','plays','signals','earnings','earnings-preview','pre-market','zero-dte','setup-wizard','paper-trade','game-plan','hot-movers','squeeze-radar','trade-plan'];
   const tradeGrp = ['flow','chain','ta','momentum','market-internals','smart-money','heatmap','watchlists','vol-surface','gex','tape','sectors','pairs','calendar-analyzer','vol-cone','dark-pool','short-interest','etf-flows','volume-profile','order-flow','ticker','multi-leg-builder','bracket-builder','spread-scanner','wheel','correlation'];
-  const toolsGrp = ['risk','fundamentals','backtester','edge','learn','learn-engine-explained','crypto','journal','alerts','macro','news','screener','anomalies','assistant','ai-scout','portfolio-builder','position-sizing','execution','strategies','api','seasonality','economic-events','settings','mindset','changelog','friday-summary','replay','live-positions','risk-attribution','edge-scanner','hypothetical','account','setup-combos','kelly-sizer','potd-backtest','news-reactions','live-train','radar','ai-cotrader','train-history','alerts-dashboard','weight-heatmap','sector-rotation','options-flow-live','earnings-playbook','daily-debrief','multi-backtest','pre-market-scanner','position-stacking','crypto-commodities','after-hours-scanner','tomorrow-playbook','earnings-tonight','global-markets','cross-asset-correlations','trade-ticket','trade-blotter','conviction-board','squeeze-radar-pro','insider-congress-flow','calendar-plays','pair-trades','iv-skew','crypto-basis','desk-split','confluence-scanner','live-pnl-heatmap','time-of-day-pnl','brain-heartbeat','discoveries','comparison','strike-chaser','yield-curve','ml-feedback','dark-pool-pro'];
+  const toolsGrp = ['risk','fundamentals','backtester','edge','learn','learn-engine-explained','crypto','journal','alerts','macro','news','screener','anomalies','assistant','ai-scout','portfolio-builder','position-sizing','execution','strategies','api','seasonality','economic-events','settings','mindset','changelog','friday-summary','replay','live-positions','risk-attribution','edge-scanner','hypothetical','account','setup-combos','kelly-sizer','potd-backtest','news-reactions','live-train','radar','ai-cotrader','train-history','alerts-dashboard','weight-heatmap','sector-rotation','options-flow-live','earnings-playbook','daily-debrief','multi-backtest','pre-market-scanner','position-stacking','crypto-commodities','after-hours-scanner','tomorrow-playbook','earnings-tonight','global-markets','cross-asset-correlations','trade-ticket','trade-blotter','conviction-board','squeeze-radar-pro','insider-congress-flow','calendar-plays','pair-trades','iv-skew','crypto-basis','desk-split','confluence-scanner','live-pnl-heatmap','time-of-day-pnl','brain-heartbeat','discoveries','comparison','strike-chaser','yield-curve','ml-feedback','dark-pool-pro','conviction-stack','cross-asset-pulse','vol-term','squeeze-composite','big-bets','setup-library','brain-audit','liquidity-health','sector-flow','iv-crush-tracker','morning-brief'];
   const isTrade = tradeGrp.indexOf(activePage) !== -1;
   const isPlays = playsGrp.indexOf(activePage) !== -1;
   const isTools = toolsGrp.indexOf(activePage) !== -1;
@@ -208,6 +208,17 @@ function buildNav(activePage) {
     + '<a href="yield-curve.html">📈 Yield Curve LIVE <span class="feat-badge feat-live" style="font-size:8px;padding:0 5px;">LIVE</span></a>'
     + '<a href="ml-feedback.html">🧬 ML Feedback Loop <span class="feat-badge feat-new" style="font-size:8px;padding:0 5px;">NEW</span></a>'
     + '<a href="dark-pool-pro.html">🌑 Dark Pool PRO <span class="feat-badge feat-pro" style="font-size:8px;padding:0 5px;">PRO</span></a>'
+    + '<a href="morning-brief.html">☀ Morning Brief <span class="feat-badge feat-new" style="font-size:8px;padding:0 5px;">NEW</span></a>'
+    + '<a href="conviction-stack.html">⭐ Conviction Stack <span class="feat-badge feat-pro" style="font-size:8px;padding:0 5px;">PRO</span></a>'
+    + '<a href="cross-asset-pulse.html">🌐 Cross-Asset Pulse <span class="feat-badge feat-live" style="font-size:8px;padding:0 5px;">LIVE</span></a>'
+    + '<a href="vol-term.html">📉 Vol Term Structure <span class="feat-badge feat-pro" style="font-size:8px;padding:0 5px;">PRO</span></a>'
+    + '<a href="squeeze-composite.html">⛓ Squeeze Composite <span class="feat-badge feat-pro" style="font-size:8px;padding:0 5px;">PRO</span></a>'
+    + '<a href="big-bets.html">💰 Big Bets Feed <span class="feat-badge feat-live" style="font-size:8px;padding:0 5px;">LIVE</span></a>'
+    + '<a href="setup-library.html">📚 Setup Library <span class="feat-badge feat-new" style="font-size:8px;padding:0 5px;">NEW</span></a>'
+    + '<a href="brain-audit.html">🩺 Brain Audit <span class="feat-badge feat-new" style="font-size:8px;padding:0 5px;">NEW</span></a>'
+    + '<a href="liquidity-health.html">💧 Liquidity Health <span class="feat-badge feat-pro" style="font-size:8px;padding:0 5px;">PRO</span></a>'
+    + '<a href="sector-flow.html">🔄 Sector Flow <span class="feat-badge feat-new" style="font-size:8px;padding:0 5px;">NEW</span></a>'
+    + '<a href="iv-crush-tracker.html">💥 IV Crush Tracker <span class="feat-badge feat-new" style="font-size:8px;padding:0 5px;">NEW</span></a>'
     + '<a href="position-stacking.html">🛡 Position Stacking <span class="feat-badge feat-new" style="font-size:8px;padding:0 5px;">NEW</span></a>'
     + '<a href="crypto-commodities.html">🌍 Crypto + Commodities <span class="feat-badge feat-live" style="font-size:8px;padding:0 5px;">LIVE</span></a>'
     + '<a href="edge-scanner.html">🛰 Live Edge Scanner <span class="feat-badge feat-live" style="font-size:8px;padding:0 5px;">LIVE</span></a>'
@@ -486,6 +497,17 @@ function buildFooter() {
     + '<li><a href="yield-curve.html">Yield Curve LIVE</a></li>'
     + '<li><a href="ml-feedback.html">ML Feedback Loop</a></li>'
     + '<li><a href="dark-pool-pro.html">Dark Pool PRO</a></li>'
+    + '<li><a href="morning-brief.html">Morning Brief</a></li>'
+    + '<li><a href="conviction-stack.html">Conviction Stack</a></li>'
+    + '<li><a href="cross-asset-pulse.html">Cross-Asset Pulse</a></li>'
+    + '<li><a href="vol-term.html">Vol Term Structure</a></li>'
+    + '<li><a href="squeeze-composite.html">Squeeze Composite</a></li>'
+    + '<li><a href="big-bets.html">Big Bets Feed</a></li>'
+    + '<li><a href="setup-library.html">Setup Library</a></li>'
+    + '<li><a href="brain-audit.html">Brain Audit</a></li>'
+    + '<li><a href="liquidity-health.html">Liquidity Health</a></li>'
+    + '<li><a href="sector-flow.html">Sector Flow</a></li>'
+    + '<li><a href="iv-crush-tracker.html">IV Crush Tracker</a></li>'
     + '<li><a href="position-stacking.html">Position Stacking</a></li>'
     + '<li><a href="crypto-commodities.html">Crypto + Commodities</a></li>'
     + '<li><a href="edge-scanner.html">Edge Scanner</a></li>'

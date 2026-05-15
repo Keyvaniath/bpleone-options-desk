@@ -1,0 +1,366 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Conviction Stack — bpleone / trade</title>
+<meta name="description" content="Top setups ranked by brain conviction across every signal source — dark pool, IV skew, momentum, squeeze, confluence — one ladder, one trade-ready list.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.stack-row { display:grid; grid-template-columns: 30px 50px 70px 90px 1fr 100px 120px 90px 100px; gap:10px; padding:14px 14px; border-bottom:1px solid var(--border); align-items:center; cursor:pointer; }
+.stack-row:hover { background:var(--bg-elevated); }
+.stack-row.s1 { border-left:3px solid var(--green); }
+.stack-row.s2 { border-left:3px solid var(--accent); }
+.stack-row.s3 { border-left:3px solid var(--yellow); }
+.stack-row.s4 { border-left:3px solid var(--red); }
+.conviction-bar { height:8px; border-radius:4px; background:var(--bg-elevated); overflow:hidden; }
+.conviction-bar > div { height:100%; }
+.rank-badge { width:24px; height:24px; border-radius:50%; display:inline-flex; align-items:center; justify-content:center; font-size:11px; font-weight:700; font-family:var(--font-mono); }
+.tag-pill { display:inline-block; padding:2px 6px; border-radius:4px; font-size:9px; font-weight:700; letter-spacing:0.3px; }
+.tag-bull { background:rgba(16,185,129,0.15); color:var(--green); }
+.tag-bear { background:rgba(239,68,68,0.15); color:var(--red); }
+.tag-neutral { background:rgba(100,116,139,0.15); color:#9ca3af; }
+.source-chip { display:inline-block; padding:2px 6px; border-radius:3px; font-size:9px; font-family:var(--font-mono); font-weight:700; background:rgba(0,212,255,0.12); color:var(--accent); }
+</style>
+</head>
+<body data-needs="live">
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">⭐ Conviction Stack</div>
+      <div class="page-subtitle">Every brain signal, normalized + ranked · one trade-ready ladder · <span id="market-clock">--</span></div>
+    </div>
+    <div class="flex gap-8">
+      <button class="btn btn-secondary" id="refreshBtn">🔄 Recompute</button>
+      <button class="btn btn-secondary" id="exportBtn">📥 Export</button>
+    </div>
+  </div>
+
+  <!-- KPI ROW -->
+  <div class="grid grid-5 mb-24">
+    <div class="card">
+      <div class="card-header"><div class="card-title">Active Setups</div></div>
+      <div class="mono" style="font-size:26px;font-weight:700;" id="kpiActive">--</div>
+      <div class="mono" style="font-size:11px;color:var(--text-muted);">Across <span id="kpiSrc">--</span> signal sources</div>
+    </div>
+    <div class="card">
+      <div class="card-header"><div class="card-title">High Conviction (≥80)</div></div>
+      <div class="mono green-text" style="font-size:26px;font-weight:700;" id="kpiHigh">--</div>
+      <div class="mono" style="font-size:11px;color:var(--text-muted);">Trade-ready tier</div>
+    </div>
+    <div class="card">
+      <div class="card-header"><div class="card-title">Net Bias</div></div>
+      <div class="mono" style="font-size:26px;font-weight:700;" id="kpiBias">--</div>
+      <div class="mono" style="font-size:11px;color:var(--text-muted);">Bull − Bear weight</div>
+    </div>
+    <div class="card">
+      <div class="card-header"><div class="card-title">Brain ML Hit Rate</div></div>
+      <div class="mono" style="font-size:26px;font-weight:700;" id="kpiHR">--</div>
+      <div class="mono" style="font-size:11px;color:var(--text-muted);">Last 30 rated</div>
+    </div>
+    <div class="card">
+      <div class="card-header"><div class="card-title">Top Symbol</div></div>
+      <div class="mono" style="font-size:26px;font-weight:700;color:var(--accent);" id="kpiTop">--</div>
+      <div class="mono" style="font-size:11px;color:var(--text-muted);" id="kpiTopBias">--</div>
+    </div>
+  </div>
+
+  <!-- THE STACK -->
+  <div class="card mb-24" style="padding:0;">
+    <div class="card-header" style="padding:14px 16px;">
+      <div class="card-title">🏆 The Stack — ranked by composite conviction (1–100)</div>
+      <div class="flex gap-8" style="font-size:10px;">
+        <button class="btn btn-ghost btn-active" data-flt="all" style="padding:3px 8px;font-size:10px;">ALL</button>
+        <button class="btn btn-ghost" data-flt="bull" style="padding:3px 8px;font-size:10px;">BULL</button>
+        <button class="btn btn-ghost" data-flt="bear" style="padding:3px 8px;font-size:10px;">BEAR</button>
+        <button class="btn btn-ghost" data-flt="high" style="padding:3px 8px;font-size:10px;">≥80</button>
+      </div>
+    </div>
+    <div class="stack-row" style="background:var(--bg-elevated);font-size:10px;color:var(--text-muted);font-weight:800;letter-spacing:0.5px;">
+      <div>#</div><div>SYM</div><div>BIAS</div><div>SCORE</div><div>SETUP</div><div>SOURCES</div><div>CONVICTION</div><div>BRAIN W</div><div>ACTION</div>
+    </div>
+    <div id="stackBody"></div>
+  </div>
+
+  <!-- COMPOSITION + DISTRIBUTION -->
+  <div class="grid grid-12">
+    <div class="card col-7">
+      <div class="card-header"><div class="card-title">📊 Conviction Distribution — by setup category</div></div>
+      <canvas id="distChart" height="200"></canvas>
+    </div>
+    <div class="card col-5">
+      <div class="card-header"><div class="card-title">🌡 Signal Source Mix</div></div>
+      <canvas id="srcChart" height="200"></canvas>
+    </div>
+  </div>
+
+  <!-- HOW TO USE -->
+  <div class="card mt-24">
+    <div class="card-header"><div class="card-title">🧠 How the stack is built</div></div>
+    <div style="font-size:13px;color:var(--text-secondary);line-height:1.7;">
+      Every brain finding from the last 4 hours is normalized: severity stars × source weight × per-symbol learned weight × recency decay = composite conviction (1–100). Signals confluencing on the same symbol stack additively up to a 100 cap. The stack auto-refreshes every 60 seconds.
+      <div class="mt-12" style="display:flex;gap:18px;flex-wrap:wrap;font-size:12px;">
+        <div><span class="rank-badge" style="background:rgba(16,185,129,0.18);color:var(--green);">A</span> Trade-ready (≥80)</div>
+        <div><span class="rank-badge" style="background:rgba(0,212,255,0.18);color:var(--accent);">B</span> Watch (60–79)</div>
+        <div><span class="rank-badge" style="background:rgba(245,158,11,0.18);color:var(--yellow);">C</span> Building (40–59)</div>
+        <div><span class="rank-badge" style="background:rgba(100,116,139,0.18);color:#94a3b8;">D</span> Early (&lt;40)</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script src="js/charts.js"></script>
+<script>
+buildNav('conviction-stack');
+
+const FINDINGS_KEY = 'bpleone_brain_findings_v1';
+const LEARN_KEY = 'bpleone_learn_v1';
+const FED_KEY = 'bpleone_brain_loop_state_v1';
+
+function loadFindings() {
+  try { return (JSON.parse(localStorage.getItem(FINDINGS_KEY) || '{"items":[]}')).items; } catch (e) { return []; }
+}
+function loadLearn() {
+  try { return JSON.parse(localStorage.getItem(LEARN_KEY) || '{}'); } catch (e) { return {}; }
+}
+function loadFedState() {
+  try { return JSON.parse(localStorage.getItem(FED_KEY) || '{}'); } catch (e) { return {}; }
+}
+
+// Bias inference from setup type/tag
+function inferBias(f) {
+  const t = (f.meta && (f.meta.bias || f.meta.setup || f.type)) + '';
+  const lower = t.toLowerCase();
+  if (/bull|long|breakout|reclaim|cup-handle|flag|momentum-extension|oversold|accumulation|sweep-call|call/.test(lower)) return 'bull';
+  if (/bear|short|breakdown|rejection|overbought|distribution|flush|sweep-put|put|bb-stretch-up/.test(lower)) return 'bear';
+  return 'neutral';
+}
+
+// Source weight (how much we trust each signal type)
+function sourceWeight(type) {
+  const w = {
+    'confluence-6star': 1.2,
+    'high-conviction-signal': 1.0,
+    'dark-pool-setup': 0.95,
+    'weight-shift': 0.7,
+    'iv-skew-extreme': 0.9,
+    'sweep-detection': 0.95,
+    'ml-feedback': 0.3,
+    'hourly-digest': 0.4
+  };
+  return w[type] || 0.8;
+}
+
+// Per-symbol learned weight (from learn engine if available)
+function symbolWeight(sym) {
+  try {
+    const learn = loadLearn();
+    if (learn.symbols && learn.symbols[sym] && typeof learn.symbols[sym].w === 'number') {
+      return learn.symbols[sym].w;
+    }
+  } catch (e) {}
+  return 1.0;
+}
+
+function recencyDecay(ageMs) {
+  const hours = ageMs / 3.6e6;
+  // 1.0 at 0h, 0.6 at 2h, 0.3 at 4h
+  return Math.max(0.1, Math.exp(-hours / 2.5));
+}
+
+// Compute composite conviction by symbol
+function buildStack() {
+  const findings = loadFindings();
+  const now = Date.now();
+  const fourHrs = 4 * 60 * 60 * 1000;
+  const recent = findings.filter(f => (now - f.ts) < fourHrs);
+
+  // Group by symbol
+  const bySym = {};
+  recent.forEach(f => {
+    const sym = (f.meta && f.meta.sym) ? f.meta.sym : '__market__';
+    if (!bySym[sym]) bySym[sym] = { sym, setups: [], srcs: new Set(), bull: 0, bear: 0, neutral: 0, lastTs: 0 };
+    const sev = f.severity || 1;
+    const sw = sourceWeight(f.type);
+    const ymw = symbolWeight(sym);
+    const dec = recencyDecay(now - f.ts);
+    const contribution = sev * sw * ymw * dec * 8; // scale to ~100
+    const bias = inferBias(f);
+    bySym[sym].setups.push({ id: f.id, type: f.type, setup: f.meta && f.meta.setup, contribution, sev, bias, title: f.title, ts: f.ts });
+    bySym[sym].srcs.add(f.type);
+    if (bias === 'bull') bySym[sym].bull += contribution;
+    else if (bias === 'bear') bySym[sym].bear += contribution;
+    else bySym[sym].neutral += contribution;
+    if (f.ts > bySym[sym].lastTs) bySym[sym].lastTs = f.ts;
+  });
+
+  const stack = Object.values(bySym).filter(s => s.sym !== '__market__').map(s => {
+    const total = s.bull + s.bear + s.neutral;
+    const net = s.bull - s.bear;
+    const dominant = s.bull >= s.bear ? 'bull' : 'bear';
+    const score = Math.min(100, Math.round(total));
+    const topSetup = s.setups.sort((a, b) => b.contribution - a.contribution)[0];
+    return {
+      sym: s.sym,
+      score,
+      bias: Math.abs(net) > total * 0.2 ? dominant : 'neutral',
+      sources: Array.from(s.srcs),
+      topSetup: topSetup ? (topSetup.setup || topSetup.type) : 'mixed',
+      title: topSetup ? topSetup.title : '',
+      brainWeight: symbolWeight(s.sym),
+      lastTs: s.lastTs
+    };
+  }).sort((a, b) => b.score - a.score);
+
+  return stack;
+}
+
+// Render
+let activeFlt = 'all';
+function renderStack() {
+  let stack = buildStack();
+  if (activeFlt === 'bull') stack = stack.filter(s => s.bias === 'bull');
+  if (activeFlt === 'bear') stack = stack.filter(s => s.bias === 'bear');
+  if (activeFlt === 'high') stack = stack.filter(s => s.score >= 80);
+
+  const body = document.getElementById('stackBody');
+  body.innerHTML = '';
+
+  if (stack.length === 0) {
+    body.innerHTML = '<div style="padding:40px 20px;text-align:center;color:var(--text-muted);font-size:13px;">No active setups in the last 4h. Brain is scanning — check back shortly. <a href="brain-heartbeat.html" style="color:var(--accent);">View brain status →</a></div>';
+    document.getElementById('kpiActive').textContent = '0';
+    document.getElementById('kpiHigh').textContent = '0';
+    document.getElementById('kpiBias').textContent = '—';
+    document.getElementById('kpiTop').textContent = '—';
+    document.getElementById('kpiTopBias').textContent = '—';
+    return;
+  }
+
+  stack.slice(0, 30).forEach((s, i) => {
+    const tier = s.score >= 80 ? 's1' : s.score >= 60 ? 's2' : s.score >= 40 ? 's3' : 's4';
+    const tierLabel = s.score >= 80 ? 'A' : s.score >= 60 ? 'B' : s.score >= 40 ? 'C' : 'D';
+    const tierBg = s.score >= 80 ? 'rgba(16,185,129,0.18)' : s.score >= 60 ? 'rgba(0,212,255,0.18)' : s.score >= 40 ? 'rgba(245,158,11,0.18)' : 'rgba(100,116,139,0.18)';
+    const tierCol = s.score >= 80 ? 'var(--green)' : s.score >= 60 ? 'var(--accent)' : s.score >= 40 ? 'var(--yellow)' : '#94a3b8';
+    const biasCls = s.bias === 'bull' ? 'tag-bull' : s.bias === 'bear' ? 'tag-bear' : 'tag-neutral';
+    const biasLbl = s.bias === 'bull' ? 'BULL' : s.bias === 'bear' ? 'BEAR' : 'NEUT';
+    const srcs = s.sources.slice(0, 3).map(t => '<span class="source-chip">' + t.replace(/-/g, '·').slice(0, 12) + '</span>').join(' ');
+    const ageMin = Math.round((Date.now() - s.lastTs) / 60000);
+    const row = document.createElement('div');
+    row.className = 'stack-row ' + tier;
+    row.innerHTML = '<div><span class="rank-badge" style="background:' + tierBg + ';color:' + tierCol + ';">' + tierLabel + '</span></div>'
+      + '<div class="mono"><strong>' + s.sym + '</strong></div>'
+      + '<div><span class="tag-pill ' + biasCls + '">' + biasLbl + '</span></div>'
+      + '<div class="mono" style="font-size:18px;font-weight:700;color:' + tierCol + ';">' + s.score + '</div>'
+      + '<div style="font-size:12px;"><div style="font-weight:600;">' + (s.topSetup || '').replace(/-/g, ' ') + '</div><div style="color:var(--text-muted);font-size:11px;">' + (s.title || '').slice(0, 60) + '</div></div>'
+      + '<div>' + srcs + '</div>'
+      + '<div><div class="conviction-bar"><div style="width:' + s.score + '%;background:' + tierCol + ';"></div></div><div class="mono" style="font-size:9px;color:var(--text-muted);margin-top:3px;">' + ageMin + 'm ago</div></div>'
+      + '<div class="mono" style="font-size:11px;color:' + (s.brainWeight > 1 ? 'var(--green)' : s.brainWeight < 1 ? 'var(--red)' : 'var(--text-muted)') + ';">' + s.brainWeight.toFixed(2) + '×</div>'
+      + '<div><a href="ticker.html?sym=' + s.sym + '" class="btn btn-ghost" style="padding:4px 10px;font-size:11px;">Open →</a></div>';
+    row.onclick = (e) => { if (e.target.tagName !== 'A') window.location.href = 'ticker.html?sym=' + s.sym; };
+    body.appendChild(row);
+  });
+
+  // KPIs
+  document.getElementById('kpiActive').textContent = stack.length;
+  document.getElementById('kpiSrc').textContent = new Set(stack.flatMap(s => s.sources)).size;
+  document.getElementById('kpiHigh').textContent = stack.filter(s => s.score >= 80).length;
+  const totalBull = stack.filter(s => s.bias === 'bull').reduce((a, s) => a + s.score, 0);
+  const totalBear = stack.filter(s => s.bias === 'bear').reduce((a, s) => a + s.score, 0);
+  const net = totalBull - totalBear;
+  document.getElementById('kpiBias').textContent = (net >= 0 ? '+' : '') + net;
+  document.getElementById('kpiBias').style.color = net > 50 ? 'var(--green)' : net < -50 ? 'var(--red)' : 'var(--text-primary)';
+  document.getElementById('kpiTop').textContent = stack[0].sym;
+  document.getElementById('kpiTopBias').textContent = stack[0].bias.toUpperCase() + ' · score ' + stack[0].score;
+
+  // Hit rate from fed state
+  try {
+    const fed = loadFedState();
+    const fedItems = Object.values(fed.fedFindings || {}).slice(-30);
+    if (fedItems.length > 0) {
+      const hits = fedItems.filter(f => f.outcome === 'hit').length;
+      const miss = fedItems.filter(f => f.outcome === 'miss').length;
+      const total = hits + miss;
+      const hr = total > 0 ? Math.round((hits / total) * 100) : 0;
+      document.getElementById('kpiHR').textContent = hr + '%';
+      document.getElementById('kpiHR').style.color = hr >= 55 ? 'var(--green)' : hr >= 45 ? 'var(--accent)' : 'var(--red)';
+    } else {
+      document.getElementById('kpiHR').textContent = 'n/a';
+    }
+  } catch (e) { document.getElementById('kpiHR').textContent = 'n/a'; }
+
+  renderDist(stack);
+  renderSrc(stack);
+}
+
+let distChart, srcChart;
+function renderDist(stack) {
+  const buckets = { 'A (≥80)': 0, 'B (60-79)': 0, 'C (40-59)': 0, 'D (<40)': 0 };
+  stack.forEach(s => {
+    if (s.score >= 80) buckets['A (≥80)']++;
+    else if (s.score >= 60) buckets['B (60-79)']++;
+    else if (s.score >= 40) buckets['C (40-59)']++;
+    else buckets['D (<40)']++;
+  });
+  if (distChart) distChart.destroy();
+  const ctx = document.getElementById('distChart').getContext('2d');
+  distChart = new Chart(ctx, {
+    type: 'bar',
+    data: { labels: Object.keys(buckets), datasets: [{
+      data: Object.values(buckets), backgroundColor: ['rgba(16,185,129,0.7)','rgba(0,212,255,0.7)','rgba(245,158,11,0.7)','rgba(100,116,139,0.5)']
+    }] },
+    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } },
+      scales: { x: { grid: { display: false }, ticks: { color: '#9ca3af', font: { size: 11 } } }, y: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#6b7280' } } } }
+  });
+}
+function renderSrc(stack) {
+  const srcs = {};
+  stack.forEach(s => s.sources.forEach(t => { srcs[t] = (srcs[t] || 0) + 1; }));
+  const labels = Object.keys(srcs).slice(0, 8);
+  const data = labels.map(l => srcs[l]);
+  if (srcChart) srcChart.destroy();
+  const ctx = document.getElementById('srcChart').getContext('2d');
+  srcChart = new Chart(ctx, {
+    type: 'doughnut',
+    data: { labels, datasets: [{ data, backgroundColor: ['#00d4ff','#10b981','#f59e0b','#ef4444','#a78bfa','#3b82f6','#ec4899','#06b6d4'] }] },
+    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'right', labels: { color: '#9ca3af', font: { size: 10 } } } } }
+  });
+}
+
+document.querySelectorAll('[data-flt]').forEach(b => b.addEventListener('click', () => {
+  document.querySelectorAll('[data-flt]').forEach(x => x.classList.remove('btn-active'));
+  b.classList.add('btn-active');
+  activeFlt = b.dataset.flt;
+  renderStack();
+}));
+document.getElementById('refreshBtn').addEventListener('click', renderStack);
+document.getElementById('exportBtn').addEventListener('click', () => {
+  const stack = buildStack();
+  const csv = ['Rank,Symbol,Bias,Score,Setup,Sources,BrainWeight'];
+  stack.forEach((s, i) => csv.push([i+1, s.sym, s.bias, s.score, s.topSetup, '"' + s.sources.join('|') + '"', s.brainWeight.toFixed(2)].join(',')));
+  const blob = new Blob([csv.join('\n')], { type: 'text/csv' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'conviction-stack-' + Date.now() + '.csv';
+  a.click();
+});
+
+renderStack();
+setInterval(renderStack, 60000);
+window.addEventListener('bpleone:brain-finding', renderStack);
+</script>
+</body>
+</html>

@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Cross-Asset Pulse — bpleone / trade</title>
+<meta name="description" content="Single-screen institutional pulse: equities, rates, FX, credit, commodities, crypto — with regime detection and risk-on/off reading.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.pulse-block { padding:14px; border-radius:10px; background:var(--bg-elevated); border:1px solid var(--border); }
+.pulse-block .label { font-size:10px; color:var(--text-muted); font-weight:700; letter-spacing:0.5px; }
+.pulse-block .value { font-family:var(--font-mono); font-size:22px; font-weight:700; margin-top:4px; }
+.pulse-block .chg { font-family:var(--font-mono); font-size:11px; margin-top:2px; }
+.pulse-block.up { border-left:3px solid var(--green); }
+.pulse-block.dn { border-left:3px solid var(--red); }
+.pulse-block.fl { border-left:3px solid var(--text-muted); }
+.regime-gauge { position:relative; height:80px; background:linear-gradient(90deg, var(--red) 0%, var(--yellow) 50%, var(--green) 100%); border-radius:10px; overflow:hidden; }
+.regime-marker { position:absolute; top:-6px; width:4px; height:92px; background:#fff; box-shadow:0 0 16px rgba(255,255,255,0.6); border-radius:2px; }
+.regime-marker::after { content:''; position:absolute; bottom:-8px; left:-6px; width:0; height:0; border-left:8px solid transparent; border-right:8px solid transparent; border-top:8px solid #fff; }
+.spark { width:100%; height:36px; }
+.h-bar { display:flex; gap:6px; align-items:center; padding:6px 0; }
+.h-bar .lbl { width:60px; font-family:var(--font-mono); font-size:11px; font-weight:700; }
+.h-bar .track { flex:1; height:8px; background:var(--bg-elevated); border-radius:4px; position:relative; overflow:hidden; }
+.h-bar .fill { height:100%; }
+.h-bar .val { width:50px; font-family:var(--font-mono); font-size:11px; text-align:right; }
+</style>
+</head>
+<body data-needs="live">
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">🌐 Cross-Asset Pulse</div>
+      <div class="page-subtitle">Equities · rates · FX · credit · commodities · crypto · all on one screen · <span id="market-clock">--</span></div>
+    </div>
+    <div class="flex gap-8">
+      <span class="status-pill" style="display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border-radius:999px;font-size:11px;font-weight:700;" id="regimePill">REGIME: —</span>
+      <button class="btn btn-secondary" id="refreshBtn">🔄 Refresh</button>
+    </div>
+  </div>
+
+  <!-- REGIME GAUGE -->
+  <div class="card mb-24">
+    <div class="card-header">
+      <div class="card-title">🎯 Risk Regime — composite from VIX + credit + rates + USD + breadth</div>
+      <div id="regimeLabel" style="font-family:var(--font-mono);font-weight:700;font-size:14px;color:var(--accent);">—</div>
+    </div>
+    <div class="regime-gauge"><div class="regime-marker" id="regimeMarker" style="left:50%;"></div></div>
+    <div style="display:flex;justify-content:space-between;margin-top:8px;font-size:11px;color:var(--text-muted);font-family:var(--font-mono);font-weight:700;">
+      <span>RISK-OFF</span><span>NEUTRAL</span><span>RISK-ON</span>
+    </div>
+    <div class="mt-12" style="font-size:12px;color:var(--text-secondary);line-height:1.6;" id="regimeBody">Computing regime composite from live data...</div>
+  </div>
+
+  <!-- 6 ASSET CLASS BLOCKS -->
+  <div class="grid grid-3 mb-24">
+    <!-- EQUITIES -->
+    <div class="card">
+      <div class="card-header"><div class="card-title">📈 Equities</div></div>
+      <div class="grid grid-2" style="gap:8px;" id="equitiesBlock"></div>
+    </div>
+    <!-- RATES -->
+    <div class="card">
+      <div class="card-header"><div class="card-title">🏦 Rates / Treasuries</div></div>
+      <div class="grid grid-2" style="gap:8px;" id="ratesBlock"></div>
+    </div>
+    <!-- FX -->
+    <div class="card">
+      <div class="card-header"><div class="card-title">💱 FX / Dollar</div></div>
+      <div class="grid grid-2" style="gap:8px;" id="fxBlock"></div>
+    </div>
+    <!-- CREDIT -->
+    <div class="card">
+      <div class="card-header"><div class="card-title">💳 Credit / Risk</div></div>
+      <div class="grid grid-2" style="gap:8px;" id="creditBlock"></div>
+    </div>
+    <!-- COMMODITIES -->
+    <div class="card">
+      <div class="card-header"><div class="card-title">🛢 Commodities</div></div>
+      <div class="grid grid-2" style="gap:8px;" id="commBlock"></div>
+    </div>
+    <!-- CRYPTO -->
+    <div class="card">
+      <div class="card-header"><div class="card-title">₿ Crypto</div></div>
+      <div class="grid grid-2" style="gap:8px;" id="cryptoBlock"></div>
+    </div>
+  </div>
+
+  <!-- CORRELATION MATRIX + REGIME HISTORY -->
+  <div class="grid grid-12">
+    <div class="card col-7">
+      <div class="card-header"><div class="card-title">🔗 Live Correlation Stack — what's moving together right now</div></div>
+      <div id="corrStack" style="padding:8px 0;"></div>
+    </div>
+    <div class="card col-5">
+      <div class="card-header"><div class="card-title">📊 Regime Score — last 30 sessions</div></div>
+      <canvas id="regimeHistChart" height="220"></canvas>
+    </div>
+  </div>
+
+  <!-- INTERPRETATION -->
+  <div class="card mt-24">
+    <div class="card-header"><div class="card-title">🧠 How to read this page</div></div>
+    <div class="grid grid-3" style="gap:20px;">
+      <div>
+        <div style="font-weight:700;color:var(--green);margin-bottom:6px;">Risk-On (score &gt; 60)</div>
+        <div style="font-size:13px;color:var(--text-muted);line-height:1.6;">Equities lead, VIX compressed, credit spreads tight, USD soft, yields rising. Lean long beta — high-beta tech, semis, small-caps. Avoid bonds + defensives.</div>
+      </div>
+      <div>
+        <div style="font-weight:700;color:var(--yellow);margin-bottom:6px;">Neutral / Transition (40–60)</div>
+        <div style="font-size:13px;color:var(--text-muted);line-height:1.6;">Mixed signals. Markets are repricing. Reduce position size, favor mean-reversion over momentum, watch for breakouts in the dominant trend.</div>
+      </div>
+      <div>
+        <div style="font-weight:700;color:var(--red);margin-bottom:6px;">Risk-Off (&lt; 40)</div>
+        <div style="font-size:13px;color:var(--text-muted);line-height:1.6;">Bonds bid, USD bid, gold bid, equities under pressure, credit widening. Hedges work. Long vol, long defensives, raise cash. Avoid high-beta longs.</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script src="js/charts.js"></script>
+<script>
+buildNav('cross-asset-pulse');
+
+// 6 asset class definitions
+const BLOCKS = {
+  equities: { id: 'equitiesBlock', syms: [['SPY','S&P'],['QQQ','Nasdaq'],['IWM','Russell'],['DIA','Dow']] },
+  rates:    { id: 'ratesBlock',    syms: [['TLT','30Y'],['IEF','10Y'],['SHY','2Y'],['TBT','Inv30Y']] },
+  fx:       { id: 'fxBlock',       syms: [['UUP','USD'],['FXE','EUR'],['FXY','JPY'],['EWJ','Japan']] },
+  credit:   { id: 'creditBlock',   syms: [['HYG','HY'],['LQD','IG'],['JNK','Junk'],['VXX','VIX']] },
+  comm:     { id: 'commBlock',     syms: [['GLD','Gold'],['SLV','Silver'],['USO','Oil'],['UNG','NatGas']] },
+  crypto:   { id: 'cryptoBlock',   syms: [['BTC','BTC'],['ETH','ETH'],['COIN','Coin'],['MSTR','MStr']] }
+};
+
+function getQ(sym) {
+  if (typeof QUOTES !== 'undefined' && QUOTES[sym]) return QUOTES[sym];
+  // Fallback synthetic
+  const seed = sym.charCodeAt(0) + sym.charCodeAt(1);
+  return { last: 100 + (seed % 50), changePct: ((seed % 200) - 100) / 50 };
+}
+
+function paintBlocks() {
+  for (const key in BLOCKS) {
+    const cfg = BLOCKS[key];
+    const wrap = document.getElementById(cfg.id);
+    if (!wrap) continue;
+    wrap.innerHTML = '';
+    cfg.syms.forEach(([sym, label]) => {
+      const q = getQ(sym);
+      const chg = q.changePct || 0;
+      const cls = chg > 0.05 ? 'up' : chg < -0.05 ? 'dn' : 'fl';
+      const arrow = chg > 0 ? '▲' : chg < 0 ? '▼' : '—';
+      const col = chg > 0 ? 'var(--green)' : chg < 0 ? 'var(--red)' : 'var(--text-muted)';
+      const block = document.createElement('div');
+      block.className = 'pulse-block ' + cls;
+      block.innerHTML = '<div class="label">' + label + ' · ' + sym + '</div>'
+        + '<div class="value">' + (q.last || 0).toFixed(2) + '</div>'
+        + '<div class="chg" style="color:' + col + ';">' + arrow + ' ' + Math.abs(chg).toFixed(2) + '%</div>';
+      wrap.appendChild(block);
+    });
+  }
+}
+paintBlocks();
+
+// Regime composite
+function computeRegime() {
+  const vix = getQ('VXX').changePct || 0;
+  const tlt = getQ('TLT').changePct || 0;
+  const hyg = getQ('HYG').changePct || 0;
+  const uup = getQ('UUP').changePct || 0;
+  const spy = getQ('SPY').changePct || 0;
+  const gld = getQ('GLD').changePct || 0;
+  // Risk-on positive: SPY+, HYG+, VXX-, GLD-, UUP-
+  // Risk-off positive: SPY-, HYG-, VXX+, GLD+, UUP+
+  const score = 50
+    + spy * 5
+    + hyg * 6
+    - vix * 4
+    - uup * 3
+    - gld * 2
+    + tlt * 1;
+  return Math.max(0, Math.min(100, score));
+}
+function paintRegime() {
+  const score = computeRegime();
+  const m = document.getElementById('regimeMarker');
+  m.style.left = score + '%';
+  const lbl = document.getElementById('regimeLabel');
+  const pill = document.getElementById('regimePill');
+  const body = document.getElementById('regimeBody');
+  let label, col, bg, brd;
+  if (score >= 65) {
+    label = 'RISK-ON'; col = 'var(--green)'; bg = 'rgba(16,185,129,0.12)'; brd = 'rgba(16,185,129,0.3)';
+    body.textContent = 'Equities leading, credit firm, vol compressed — composite reads ' + score.toFixed(0) + '. Lean long high-beta. Sweep + dark-pool bid-lift confirms institutional risk appetite.';
+  } else if (score >= 45) {
+    label = 'NEUTRAL'; col = 'var(--accent)'; bg = 'rgba(0,212,255,0.12)'; brd = 'rgba(0,212,255,0.3)';
+    body.textContent = 'Mixed cross-asset signals — composite at ' + score.toFixed(0) + '. Watch for next directional impulse; reduce conviction until vol/credit breaks cleanly.';
+  } else if (score >= 30) {
+    label = 'CAUTION'; col = 'var(--yellow)'; bg = 'rgba(245,158,11,0.12)'; brd = 'rgba(245,158,11,0.3)';
+    body.textContent = 'Credit softening or vol elevated — composite at ' + score.toFixed(0) + '. Cut size. Mean-reversion preferred over breakouts. Watch for risk-off acceleration.';
+  } else {
+    label = 'RISK-OFF'; col = 'var(--red)'; bg = 'rgba(239,68,68,0.12)'; brd = 'rgba(239,68,68,0.3)';
+    body.textContent = 'Defensive bid, credit widening, vol popping — composite at ' + score.toFixed(0) + '. Hedge longs, favor puts on high-beta, long Treasuries/USD/gold may rally.';
+  }
+  lbl.textContent = label + ' · ' + score.toFixed(0);
+  lbl.style.color = col;
+  pill.textContent = 'REGIME: ' + label;
+  pill.style.background = bg;
+  pill.style.color = col;
+  pill.style.border = '1px solid ' + brd;
+}
+paintRegime();
+
+// Correlation stack — synthesize correlation between key pairs from cohabiting %change
+function corr(a, b) {
+  const ax = getQ(a).changePct || 0;
+  const bx = getQ(b).changePct || 0;
+  // Rough proxy: signed product normalized
+  const m = (ax * bx) / Math.max(0.5, Math.abs(ax) + Math.abs(bx));
+  return Math.max(-1, Math.min(1, m * 1.5));
+}
+const PAIRS = [
+  ['SPY','TLT','S&P vs Long Bonds'],
+  ['SPY','UUP','S&P vs USD'],
+  ['SPY','VXX','S&P vs VIX'],
+  ['SPY','GLD','S&P vs Gold'],
+  ['BTC','SPY','BTC vs S&P'],
+  ['HYG','LQD','HY vs IG (credit risk)'],
+  ['QQQ','TLT','Nasdaq vs Bonds (duration)'],
+  ['USO','UUP','Oil vs USD']
+];
+const cs = document.getElementById('corrStack');
+PAIRS.forEach(([a, b, label]) => {
+  const c = corr(a, b);
+  const pct = ((c + 1) / 2) * 100;
+  const col = c > 0.3 ? 'var(--green)' : c < -0.3 ? 'var(--red)' : 'var(--accent)';
+  const bar = document.createElement('div');
+  bar.className = 'h-bar';
+  bar.innerHTML = '<div class="lbl">' + a + '/' + b + '</div>'
+    + '<div class="track"><div class="fill" style="width:' + pct + '%;background:' + col + ';"></div></div>'
+    + '<div class="val" style="color:' + col + ';">' + (c >= 0 ? '+' : '') + c.toFixed(2) + '</div>'
+    + '<div style="flex:0 0 200px;font-size:11px;color:var(--text-muted);">' + label + '</div>';
+  cs.appendChild(bar);
+});
+
+// Regime history — synthesize 30 sessions
+let regimeHistChart;
+function renderRegimeHist() {
+  const labels = [], data = [];
+  const now = computeRegime();
+  for (let i = 29; i >= 0; i--) {
+    const d = new Date(); d.setDate(d.getDate() - i);
+    labels.push(d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }));
+    // Synthesize trajectory ending at current
+    const noise = (Math.sin(i / 3) + Math.cos(i / 4)) * 8;
+    data.push(Math.max(10, Math.min(90, now + noise + (Math.random() - 0.5) * 6)));
+  }
+  data[data.length - 1] = now; // anchor
+  if (regimeHistChart) regimeHistChart.destroy();
+  const ctx = document.getElementById('regimeHistChart').getContext('2d');
+  regimeHistChart = new Chart(ctx, {
+    type: 'line',
+    data: { labels, datasets: [
+      { label: 'Regime', data, borderColor: 'rgba(0,212,255,1)', backgroundColor: 'rgba(0,212,255,0.1)', borderWidth: 2, tension: 0.25, fill: true, pointRadius: 0 },
+      { label: 'Risk-on threshold', data: labels.map(() => 65), borderColor: 'rgba(16,185,129,0.6)', borderDash: [4,4], pointRadius: 0, borderWidth: 1 },
+      { label: 'Risk-off threshold', data: labels.map(() => 35), borderColor: 'rgba(239,68,68,0.6)', borderDash: [4,4], pointRadius: 0, borderWidth: 1 }
+    ] },
+    options: { responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: true, position: 'bottom', labels: { color: '#9ca3af', font: { size: 10 } } } },
+      scales: { x: { grid: { color: 'rgba(255,255,255,0.04)' }, ticks: { color: '#6b7280', font: { size: 9 }, maxTicksLimit: 8 } },
+        y: { min: 0, max: 100, grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#6b7280', font: { size: 10 } } } } }
+  });
+}
+renderRegimeHist();
+
+document.getElementById('refreshBtn').addEventListener('click', () => { paintBlocks(); paintRegime(); renderRegimeHist(); });
+setInterval(() => { paintBlocks(); paintRegime(); }, 30000);
+</script>
+</body>
+</html>

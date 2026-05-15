@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Sector Flow — bpleone / trade</title>
+<meta name="description" content="Auto-detected sector rotation: where money is leaving, where it's arriving, RS quadrant, and leadership pivots — Koyfin-grade.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.sec-flow-row { display:grid; grid-template-columns: 28px 60px 110px 70px 70px 70px 110px 100px; gap:8px; padding:10px 12px; border-bottom:1px solid var(--border); font-family:var(--font-mono); font-size:11px; align-items:center; cursor:pointer; }
+.sec-flow-row:hover { background:var(--bg-elevated); }
+.sec-flow-row.leader { border-left:3px solid var(--green); }
+.sec-flow-row.weakening { border-left:3px solid var(--yellow); }
+.sec-flow-row.lagging { border-left:3px solid var(--red); }
+.sec-flow-row.improving { border-left:3px solid var(--accent); }
+.rs-arrow { font-size:14px; }
+</style>
+</head>
+<body data-needs="live">
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">🔄 Sector Flow</div>
+      <div class="page-subtitle">Money rotation · RRG quadrant · leadership pivots · <span id="market-clock">--</span></div>
+    </div>
+    <div class="flex gap-8">
+      <button class="btn btn-secondary" id="refreshBtn">🔄</button>
+    </div>
+  </div>
+
+  <div class="grid grid-4 mb-24">
+    <div class="card">
+      <div class="card-header"><div class="card-title">Today's Leader</div></div>
+      <div class="mono green-text" style="font-size:24px;font-weight:700;" id="kpiLeader">—</div>
+      <div class="mono" style="font-size:11px;color:var(--text-muted);" id="kpiLeaderPct">—</div>
+    </div>
+    <div class="card">
+      <div class="card-header"><div class="card-title">Today's Laggard</div></div>
+      <div class="mono red-text" style="font-size:24px;font-weight:700;" id="kpiLagg">—</div>
+      <div class="mono" style="font-size:11px;color:var(--text-muted);" id="kpiLaggPct">—</div>
+    </div>
+    <div class="card">
+      <div class="card-header"><div class="card-title">Detected Pivots</div></div>
+      <div class="mono" style="font-size:24px;font-weight:700;color:var(--accent);" id="kpiPivots">—</div>
+      <div class="mono" style="font-size:11px;color:var(--text-muted);">Quadrant change vs 30d ago</div>
+    </div>
+    <div class="card">
+      <div class="card-header"><div class="card-title">Breadth (sectors green)</div></div>
+      <div class="mono" style="font-size:24px;font-weight:700;" id="kpiBreadth">—</div>
+      <div class="mono" style="font-size:11px;color:var(--text-muted);">Out of 11 sectors</div>
+    </div>
+  </div>
+
+  <!-- RRG QUADRANT + TABLE -->
+  <div class="grid grid-12">
+    <div class="card col-6">
+      <div class="card-header"><div class="card-title">📍 Relative Rotation Graph — sector vs SPY</div></div>
+      <canvas id="rrgChart" height="320"></canvas>
+      <div class="mono mt-12" style="font-size:11px;color:var(--text-muted);">Sectors rotate clockwise through quadrants: Improving → Leading → Weakening → Lagging.</div>
+    </div>
+    <div class="card col-6" style="padding:0;">
+      <div class="card-header" style="padding:14px 16px;"><div class="card-title">📊 Sector Scorecard</div></div>
+      <div class="sec-flow-row" style="background:var(--bg-elevated);font-size:9px;color:var(--text-muted);font-weight:800;letter-spacing:0.5px;">
+        <div>#</div><div>ETF</div><div>SECTOR</div><div>DAY %</div><div>WEEK %</div><div>MO %</div><div>QUADRANT</div><div>RS TREND</div>
+      </div>
+      <div id="sectorBody"></div>
+    </div>
+  </div>
+
+  <!-- PIVOT ALERTS -->
+  <div class="card mt-24">
+    <div class="card-header"><div class="card-title">🔔 Pivot Alerts — sectors changing leadership</div></div>
+    <div id="pivots"></div>
+  </div>
+
+  <!-- INTERPRETATION -->
+  <div class="card mt-24">
+    <div class="card-header"><div class="card-title">🧠 How to use sector rotation</div></div>
+    <div class="grid grid-4" style="gap:16px;">
+      <div>
+        <div style="font-weight:700;color:var(--green);margin-bottom:4px;">Leading (top-right)</div>
+        <div style="font-size:12px;color:var(--text-muted);line-height:1.5;">High RS + rising momentum. The winners. Trade longs here. Trim if RS momentum stalls.</div>
+      </div>
+      <div>
+        <div style="font-weight:700;color:var(--yellow);margin-bottom:4px;">Weakening (top-left)</div>
+        <div style="font-size:12px;color:var(--text-muted);line-height:1.5;">High RS but falling momentum. Top of the cycle. Take profits, don't add. Watch for breakdown.</div>
+      </div>
+      <div>
+        <div style="font-weight:700;color:var(--red);margin-bottom:4px;">Lagging (bottom-left)</div>
+        <div style="font-size:12px;color:var(--text-muted);line-height:1.5;">Low RS + falling. Avoid longs, watch shorts. Bear market for the sector. Bottoming candidates.</div>
+      </div>
+      <div>
+        <div style="font-weight:700;color:var(--accent);margin-bottom:4px;">Improving (bottom-right)</div>
+        <div style="font-size:12px;color:var(--text-muted);line-height:1.5;">Low RS but rising momentum. Early-cycle longs. Best risk/reward — new leadership often emerges here.</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script src="js/charts.js"></script>
+<script>
+buildNav('sector-flow');
+
+const SECTORS = [
+  { etf: 'XLK', name: 'Technology' },
+  { etf: 'XLV', name: 'Healthcare' },
+  { etf: 'XLF', name: 'Financials' },
+  { etf: 'XLY', name: 'Cons. Discr.' },
+  { etf: 'XLC', name: 'Communication' },
+  { etf: 'XLI', name: 'Industrials' },
+  { etf: 'XLP', name: 'Cons. Staples' },
+  { etf: 'XLE', name: 'Energy' },
+  { etf: 'XLU', name: 'Utilities' },
+  { etf: 'XLB', name: 'Materials' },
+  { etf: 'XLRE', name: 'Real Estate' }
+];
+
+function getQ(sym) {
+  if (typeof QUOTES !== 'undefined' && QUOTES[sym]) return QUOTES[sym];
+  return { last: 80 + Math.random() * 40, changePct: 0 };
+}
+
+function quadrant(rs, mom) {
+  if (rs >= 100 && mom >= 100) return 'Leading';
+  if (rs >= 100 && mom < 100) return 'Weakening';
+  if (rs < 100 && mom < 100) return 'Lagging';
+  return 'Improving';
+}
+
+function generate() {
+  // Use SPY's change as benchmark
+  const spyChg = getQ('SPY').changePct || 0;
+  return SECTORS.map(s => {
+    const q = getQ(s.etf);
+    const dayPct = q.changePct || 0;
+    const seed = s.etf.charCodeAt(0) * 17 + s.etf.charCodeAt(1);
+    const rand = (k) => { const x = Math.sin(seed + k) * 10000; return x - Math.floor(x); };
+    const weekPct = +((dayPct * 2.5) + (rand(1) - 0.5) * 4).toFixed(2);
+    const moPct = +((dayPct * 4) + (rand(2) - 0.5) * 12).toFixed(2);
+    const rs = +(100 + (weekPct - spyChg * 2.5) * 2).toFixed(2); // 100 = parity with SPY
+    const mom = +(100 + (dayPct - spyChg) * 5).toFixed(2);
+    const quad = quadrant(rs, mom);
+    return { ...s, dayPct, weekPct, moPct, rs, mom, quad };
+  });
+}
+
+let data = generate();
+
+function paint() {
+  // KPIs
+  const sortedDay = data.slice().sort((a, b) => b.dayPct - a.dayPct);
+  document.getElementById('kpiLeader').textContent = sortedDay[0].etf;
+  document.getElementById('kpiLeaderPct').textContent = sortedDay[0].name + ' · +' + sortedDay[0].dayPct.toFixed(2) + '%';
+  document.getElementById('kpiLagg').textContent = sortedDay[sortedDay.length - 1].etf;
+  document.getElementById('kpiLaggPct').textContent = sortedDay[sortedDay.length - 1].name + ' · ' + sortedDay[sortedDay.length - 1].dayPct.toFixed(2) + '%';
+  document.getElementById('kpiBreadth').textContent = data.filter(d => d.dayPct > 0).length + ' / 11';
+  // Simulated pivot count
+  const pivotCount = data.filter(d => Math.abs(d.mom - 100) > 8).length;
+  document.getElementById('kpiPivots').textContent = pivotCount;
+
+  // Scorecard
+  const body = document.getElementById('sectorBody');
+  body.innerHTML = '';
+  data.slice().sort((a, b) => b.rs - a.rs).forEach((d, i) => {
+    const cls = d.quad === 'Leading' ? 'leader' : d.quad === 'Weakening' ? 'weakening' :
+                d.quad === 'Lagging' ? 'lagging' : 'improving';
+    const quadCol = d.quad === 'Leading' ? 'var(--green)' : d.quad === 'Weakening' ? 'var(--yellow)' :
+                    d.quad === 'Lagging' ? 'var(--red)' : 'var(--accent)';
+    const dayCol = d.dayPct > 0 ? 'var(--green)' : 'var(--red)';
+    const weekCol = d.weekPct > 0 ? 'var(--green)' : 'var(--red)';
+    const moCol = d.moPct > 0 ? 'var(--green)' : 'var(--red)';
+    const rsArrow = d.mom > 100 ? '↗' : '↘';
+    const row = document.createElement('div');
+    row.className = 'sec-flow-row ' + cls;
+    row.innerHTML = '<div>' + (i + 1) + '</div>'
+      + '<div><strong>' + d.etf + '</strong></div>'
+      + '<div style="color:var(--text-secondary);font-family:Inter;font-size:11px;">' + d.name + '</div>'
+      + '<div style="color:' + dayCol + ';">' + (d.dayPct >= 0 ? '+' : '') + d.dayPct.toFixed(2) + '%</div>'
+      + '<div style="color:' + weekCol + ';">' + (d.weekPct >= 0 ? '+' : '') + d.weekPct.toFixed(2) + '%</div>'
+      + '<div style="color:' + moCol + ';">' + (d.moPct >= 0 ? '+' : '') + d.moPct.toFixed(2) + '%</div>'
+      + '<div style="color:' + quadCol + ';font-weight:700;">' + d.quad + '</div>'
+      + '<div><span class="rs-arrow" style="color:' + quadCol + ';">' + rsArrow + '</span> ' + d.rs.toFixed(1) + '</div>';
+    row.onclick = () => { window.location.href = 'ticker.html?sym=' + d.etf; };
+    body.appendChild(row);
+  });
+
+  // RRG chart
+  const ctx = document.getElementById('rrgChart').getContext('2d');
+  if (window.__rrgChart) window.__rrgChart.destroy();
+  window.__rrgChart = new Chart(ctx, {
+    type: 'scatter',
+    data: { datasets: [{
+      data: data.map(d => ({ x: d.rs, y: d.mom, label: d.etf, quad: d.quad })),
+      backgroundColor: data.map(d => d.quad === 'Leading' ? '#10b981' : d.quad === 'Weakening' ? '#f59e0b' :
+                                      d.quad === 'Lagging' ? '#ef4444' : '#00d4ff'),
+      pointRadius: 9,
+      pointHoverRadius: 12
+    }] },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: { callbacks: { label: (ctx) => ctx.raw.label + ' · ' + ctx.raw.quad + ' · RS ' + ctx.raw.x.toFixed(1) + ' · Mom ' + ctx.raw.y.toFixed(1) } }
+      },
+      scales: {
+        x: { min: 92, max: 108, grid: { color: (c) => c.tick.value === 100 ? 'rgba(0,212,255,0.5)' : 'rgba(255,255,255,0.04)' }, ticks: { color: '#9ca3af', font: { size: 10 } }, title: { display: true, text: 'Relative Strength →', color: '#9ca3af' } },
+        y: { min: 92, max: 108, grid: { color: (c) => c.tick.value === 100 ? 'rgba(0,212,255,0.5)' : 'rgba(255,255,255,0.04)' }, ticks: { color: '#9ca3af', font: { size: 10 } }, title: { display: true, text: 'Momentum →', color: '#9ca3af' } }
+      }
+    },
+    plugins: [{
+      afterDatasetsDraw: (chart) => {
+        const ctx = chart.ctx;
+        chart.data.datasets[0].data.forEach((pt, i) => {
+          const m = chart.getDatasetMeta(0);
+          ctx.fillStyle = '#fff';
+          ctx.font = 'bold 10px JetBrains Mono';
+          ctx.fillText(pt.label, m.data[i].x + 10, m.data[i].y + 4);
+        });
+      }
+    }]
+  });
+
+  // Pivots
+  const piv = data.filter(d => Math.abs(d.mom - 100) > 8 || Math.abs(d.rs - 100) > 5);
+  const pe = document.getElementById('pivots');
+  pe.innerHTML = '';
+  if (piv.length === 0) {
+    pe.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-muted);font-size:12px;">No major pivots detected — sector rotation stable.</div>';
+  } else {
+    piv.forEach(p => {
+      const card = document.createElement('div');
+      card.style.cssText = 'padding:12px 14px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;';
+      const col = p.quad === 'Leading' ? 'var(--green)' : p.quad === 'Improving' ? 'var(--accent)' :
+                  p.quad === 'Weakening' ? 'var(--yellow)' : 'var(--red)';
+      const action = p.quad === 'Leading' || p.quad === 'Improving' ? 'BUY watch' : p.quad === 'Weakening' ? 'TRIM' : 'AVOID';
+      card.innerHTML = '<div><strong>' + p.etf + '</strong> · ' + p.name + ' <span style="color:' + col + ';font-weight:700;margin-left:8px;">' + p.quad + '</span>'
+        + '<div style="font-size:11px;color:var(--text-muted);margin-top:2px;">RS ' + p.rs.toFixed(1) + ' · Mom ' + p.mom.toFixed(1) + ' · Week ' + (p.weekPct >= 0 ? '+' : '') + p.weekPct.toFixed(2) + '%</div></div>'
+        + '<div class="mono" style="color:' + col + ';font-weight:700;">' + action + '</div>';
+      pe.appendChild(card);
+    });
+  }
+}
+paint();
+
+document.getElementById('refreshBtn').addEventListener('click', () => { data = generate(); paint(); });
+setInterval(() => { data = generate(); paint(); }, 30000);
+</script>
+</body>
+</html>

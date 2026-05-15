@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Liquidity Health — bpleone / trade</title>
+<meta name="description" content="Bid-ask spread quality, depth-of-book, and execution friction across the universe. Where you can size — and where you can't.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.liq-row { display:grid; grid-template-columns: 30px 60px 70px 70px 80px 80px 110px 1fr; gap:8px; padding:10px 12px; border-bottom:1px solid var(--border); font-family:var(--font-mono); font-size:11px; align-items:center; cursor:pointer; }
+.liq-row:hover { background:var(--bg-elevated); }
+.liq-row.good { border-left:3px solid var(--green); }
+.liq-row.warn { border-left:3px solid var(--yellow); }
+.liq-row.bad  { border-left:3px solid var(--red); }
+.health-grade { width:28px; height:28px; border-radius:50%; display:inline-flex; align-items:center; justify-content:center; font-weight:800; font-family:var(--font-mono); }
+.depth-bar { display:flex; gap:1px; align-items:flex-end; height:24px; }
+.depth-bar > div { flex:1; min-width:3px; }
+</style>
+</head>
+<body data-needs="live">
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">💧 Liquidity Health</div>
+      <div class="page-subtitle">Bid-ask spreads · depth of book · execution friction · <span id="market-clock">--</span></div>
+    </div>
+    <div class="flex gap-8">
+      <button class="btn btn-secondary" id="refreshBtn">🔄</button>
+    </div>
+  </div>
+
+  <div class="grid grid-5 mb-24">
+    <div class="card">
+      <div class="card-header"><div class="card-title">A-grade Liquidity</div></div>
+      <div class="mono" style="font-size:26px;font-weight:700;color:var(--green);" id="kpiA">--</div>
+      <div class="mono" style="font-size:11px;color:var(--text-muted);">Spread &lt; 2bps · size easily</div>
+    </div>
+    <div class="card">
+      <div class="card-header"><div class="card-title">Avg Spread (bps)</div></div>
+      <div class="mono" style="font-size:26px;font-weight:700;" id="kpiSpread">--</div>
+      <div class="mono" style="font-size:11px;color:var(--text-muted);">Watch list aggregate</div>
+    </div>
+    <div class="card">
+      <div class="card-header"><div class="card-title">Friction Stocks</div></div>
+      <div class="mono" style="font-size:26px;font-weight:700;color:var(--red);" id="kpiBad">--</div>
+      <div class="mono" style="font-size:11px;color:var(--text-muted);">Avoid &gt;$10k orders</div>
+    </div>
+    <div class="card">
+      <div class="card-header"><div class="card-title">Best Liquidity</div></div>
+      <div class="mono" style="font-size:26px;font-weight:700;color:var(--accent);" id="kpiBest">--</div>
+      <div class="mono" style="font-size:11px;color:var(--text-muted);" id="kpiBestLbl">--</div>
+    </div>
+    <div class="card">
+      <div class="card-header"><div class="card-title">Worst Liquidity</div></div>
+      <div class="mono" style="font-size:26px;font-weight:700;color:var(--red);" id="kpiWorst">--</div>
+      <div class="mono" style="font-size:11px;color:var(--text-muted);" id="kpiWorstLbl">--</div>
+    </div>
+  </div>
+
+  <div class="card" style="padding:0;">
+    <div class="card-header" style="padding:14px 16px;">
+      <div class="card-title">📊 Liquidity Scorecard</div>
+      <div class="flex gap-8" style="font-size:10px;">
+        <button class="btn btn-ghost btn-active" data-sort="grade" style="padding:3px 8px;font-size:10px;">GRADE</button>
+        <button class="btn btn-ghost" data-sort="spread" style="padding:3px 8px;font-size:10px;">SPREAD</button>
+        <button class="btn btn-ghost" data-sort="depth" style="padding:3px 8px;font-size:10px;">DEPTH</button>
+        <button class="btn btn-ghost" data-sort="volume" style="padding:3px 8px;font-size:10px;">$ VOL</button>
+      </div>
+    </div>
+    <div class="liq-row" style="background:var(--bg-elevated);font-size:9px;color:var(--text-muted);font-weight:800;letter-spacing:0.5px;">
+      <div>#</div><div>SYM</div><div>GRADE</div><div>SPRD (bps)</div><div>DEPTH ($k)</div><div>$ VOL (M)</div><div>SIZE BUDGET</div><div>DEPTH PROFILE</div>
+    </div>
+    <div id="liqBody"></div>
+  </div>
+
+  <!-- HOW TO READ -->
+  <div class="card mt-24">
+    <div class="card-header"><div class="card-title">🧠 How to use this</div></div>
+    <div class="grid grid-3" style="gap:20px;">
+      <div>
+        <div style="font-weight:700;color:var(--green);margin-bottom:6px;">A-grade (spread &lt;2bps)</div>
+        <div style="font-size:13px;color:var(--text-muted);line-height:1.6;">Size with confidence. $100k+ orders without meaningful slippage. SPY, QQQ, AAPL, MSFT live here. Best for tactical, fast-rotation, scalping.</div>
+      </div>
+      <div>
+        <div style="font-weight:700;color:var(--yellow);margin-bottom:6px;">B/C grade (2–8 bps)</div>
+        <div style="font-size:13px;color:var(--text-muted);line-height:1.6;">Workable. Cap orders at the 5-min ADV / 50 rule, scale in across 3–5 prints. Use limit orders. Most large-caps live here.</div>
+      </div>
+      <div>
+        <div style="font-weight:700;color:var(--red);margin-bottom:6px;">D/F grade (&gt;8 bps)</div>
+        <div style="font-size:13px;color:var(--text-muted);line-height:1.6;">Friction zone. Spreads eat alpha. Either size much smaller, route via dark-pool TWAP, or skip. Small-caps, low-floats, OTC ADRs live here.</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script src="js/charts.js"></script>
+<script>
+buildNav('liquidity-health');
+
+const UNIVERSE = ['SPY','QQQ','IWM','DIA','NVDA','AAPL','MSFT','META','AMZN','GOOGL','TSLA','AMD','AVGO','MU','SMCI','PLTR','COIN','MSTR','SHOP','UBER','PYPL','ROKU','NFLX','DIS','HOOD','SOFI','CVNA','GME','AMC','MARA','RIOT','LCID','RIVN','SIRI','BIRD'];
+
+function getQ(sym) {
+  if (typeof QUOTES !== 'undefined' && QUOTES[sym]) return QUOTES[sym];
+  return { last: 50 + Math.random() * 200, volume: 1e6 };
+}
+
+function generateLiquidity() {
+  return UNIVERSE.map(sym => {
+    const q = getQ(sym);
+    const seed = sym.charCodeAt(0) * 13 + (sym.charCodeAt(1) || 0);
+    const rand = (s) => { let x = Math.sin(s) * 10000; return x - Math.floor(x); };
+    // Mega-caps: tight spreads, deep books
+    const megaCaps = ['SPY','QQQ','IWM','DIA','NVDA','AAPL','MSFT','META','AMZN','GOOGL','TSLA','AMD'];
+    const isMega = megaCaps.includes(sym);
+    const spreadBps = isMega ? +(0.3 + rand(seed) * 2).toFixed(2) : +(1.5 + rand(seed) * 22).toFixed(2);
+    const depth = isMega ? Math.floor(200 + rand(seed + 1) * 800) : Math.floor(8 + rand(seed + 1) * 150);
+    const dollarVol = isMega ? +(800 + rand(seed + 2) * 4000).toFixed(0) : +(40 + rand(seed + 2) * 900).toFixed(0);
+    // Score: spread (lower=better) + depth (higher=better) + volume (higher=better)
+    const spreadScore = Math.max(0, 100 - spreadBps * 5);
+    const depthScore = Math.min(100, depth / 6);
+    const volScore = Math.min(100, dollarVol / 50);
+    const composite = (spreadScore * 0.5 + depthScore * 0.3 + volScore * 0.2);
+    const grade = composite >= 85 ? 'A' : composite >= 70 ? 'B' : composite >= 55 ? 'C' : composite >= 40 ? 'D' : 'F';
+    const sizeBudget = Math.floor(depth * 0.3 * 1000); // $ comfortable order
+    return { sym, spreadBps, depth, dollarVol, composite, grade, sizeBudget };
+  });
+}
+
+let data = generateLiquidity();
+let sortBy = 'grade';
+
+function paint() {
+  let rows = data.slice();
+  if (sortBy === 'grade') rows.sort((a, b) => b.composite - a.composite);
+  else if (sortBy === 'spread') rows.sort((a, b) => a.spreadBps - b.spreadBps);
+  else if (sortBy === 'depth') rows.sort((a, b) => b.depth - a.depth);
+  else if (sortBy === 'volume') rows.sort((a, b) => b.dollarVol - a.dollarVol);
+
+  const body = document.getElementById('liqBody');
+  body.innerHTML = '';
+  rows.forEach((r, i) => {
+    const cls = r.grade === 'A' || r.grade === 'B' ? 'good' : r.grade === 'C' ? 'warn' : 'bad';
+    const gradeCol = r.grade === 'A' ? 'rgba(16,185,129,0.2)' : r.grade === 'B' ? 'rgba(16,185,129,0.12)' :
+                     r.grade === 'C' ? 'rgba(245,158,11,0.15)' : r.grade === 'D' ? 'rgba(239,68,68,0.12)' : 'rgba(239,68,68,0.2)';
+    const gradeTextCol = r.grade === 'A' || r.grade === 'B' ? 'var(--green)' : r.grade === 'C' ? 'var(--yellow)' : 'var(--red)';
+    // Depth profile bars (synthesized)
+    let depthBars = '<div class="depth-bar">';
+    for (let j = 0; j < 10; j++) {
+      const v = r.depth * (1 - j * 0.08) * (0.7 + Math.random() * 0.4);
+      const h = Math.min(100, (v / r.depth) * 100);
+      const c = j < 5 ? 'var(--green)' : 'var(--red)';
+      depthBars += '<div style="height:' + h + '%;background:' + c + ';opacity:0.6;"></div>';
+    }
+    depthBars += '</div>';
+
+    const row = document.createElement('div');
+    row.className = 'liq-row ' + cls;
+    row.innerHTML = '<div>' + (i + 1) + '</div>'
+      + '<div><strong>' + r.sym + '</strong></div>'
+      + '<div><span class="health-grade" style="background:' + gradeCol + ';color:' + gradeTextCol + ';">' + r.grade + '</span></div>'
+      + '<div style="color:' + (r.spreadBps < 2 ? 'var(--green)' : r.spreadBps < 8 ? 'var(--yellow)' : 'var(--red)') + ';">' + r.spreadBps.toFixed(2) + '</div>'
+      + '<div>$' + r.depth + 'k</div>'
+      + '<div>$' + r.dollarVol + 'M</div>'
+      + '<div style="color:var(--accent);font-weight:600;">$' + (r.sizeBudget / 1000).toFixed(0) + 'k</div>'
+      + '<div>' + depthBars + '</div>';
+    row.onclick = () => { window.location.href = 'ticker.html?sym=' + r.sym; };
+    body.appendChild(row);
+  });
+
+  // KPIs
+  document.getElementById('kpiA').textContent = data.filter(d => d.grade === 'A').length;
+  const avgSpread = (data.reduce((a, d) => a + d.spreadBps, 0) / data.length).toFixed(1);
+  document.getElementById('kpiSpread').textContent = avgSpread;
+  document.getElementById('kpiBad').textContent = data.filter(d => d.grade === 'D' || d.grade === 'F').length;
+  const best = data.slice().sort((a, b) => b.composite - a.composite)[0];
+  const worst = data.slice().sort((a, b) => a.composite - b.composite)[0];
+  document.getElementById('kpiBest').textContent = best.sym;
+  document.getElementById('kpiBestLbl').textContent = best.spreadBps.toFixed(1) + ' bps';
+  document.getElementById('kpiWorst').textContent = worst.sym;
+  document.getElementById('kpiWorstLbl').textContent = worst.spreadBps.toFixed(1) + ' bps';
+}
+paint();
+
+document.querySelectorAll('[data-sort]').forEach(b => b.addEventListener('click', () => {
+  document.querySelectorAll('[data-sort]').forEach(x => x.classList.remove('btn-active'));
+  b.classList.add('btn-active');
+  sortBy = b.dataset.sort;
+  paint();
+}));
+document.getElementById('refreshBtn').addEventListener('click', () => { data = generateLiquidity(); paint(); });
+setInterval(() => { data = generateLiquidity(); paint(); }, 60000);
+</script>
+</body>
+</html>

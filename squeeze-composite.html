@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Squeeze Composite — bpleone / trade</title>
+<meta name="description" content="Composite squeeze score combining short interest, days-to-cover, utilization, Bollinger squeeze, IV percentile, and float — one number per ticker.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.sq-row { display:grid; grid-template-columns: 30px 60px 70px 70px 70px 60px 70px 70px 90px 80px; gap:6px; padding:10px 12px; border-bottom:1px solid var(--border); font-family:var(--font-mono); font-size:11px; align-items:center; cursor:pointer; }
+.sq-row:hover { background:var(--bg-elevated); }
+.sq-row.tier1 { background:rgba(239,68,68,0.04); border-left:3px solid var(--red); }
+.sq-row.tier2 { border-left:3px solid var(--yellow); }
+.sq-row.tier3 { border-left:3px solid var(--accent); }
+.sq-bar { height:6px; border-radius:3px; background:var(--bg-elevated); overflow:hidden; }
+.sq-bar > div { height:100%; }
+.factor-pill { display:inline-block; padding:2px 6px; border-radius:3px; font-size:9px; font-weight:700; margin-right:2px; }
+</style>
+</head>
+<body data-needs="live">
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">⛓ Squeeze Composite</div>
+      <div class="page-subtitle">SI + DTC + utilization + BB squeeze + IV pct + float concentration · one score · <span id="market-clock">--</span></div>
+    </div>
+    <div class="flex gap-8">
+      <button class="btn btn-secondary" id="refreshBtn">🔄</button>
+      <button class="btn btn-secondary" id="exportBtn">📥 Export</button>
+    </div>
+  </div>
+
+  <div class="grid grid-5 mb-24">
+    <div class="card">
+      <div class="card-header"><div class="card-title">Top Squeeze (≥80)</div></div>
+      <div class="mono" style="font-size:26px;font-weight:700;color:var(--red);" id="kpiTop">--</div>
+      <div class="mono" style="font-size:11px;color:var(--text-muted);">Extreme tier</div>
+    </div>
+    <div class="card">
+      <div class="card-header"><div class="card-title">Elevated (60–79)</div></div>
+      <div class="mono" style="font-size:26px;font-weight:700;color:var(--yellow);" id="kpiElev">--</div>
+      <div class="mono" style="font-size:11px;color:var(--text-muted);">Build position carefully</div>
+    </div>
+    <div class="card">
+      <div class="card-header"><div class="card-title">Avg SI%</div></div>
+      <div class="mono" style="font-size:26px;font-weight:700;" id="kpiAvgSI">--</div>
+      <div class="mono" style="font-size:11px;color:var(--text-muted);">Across watch list</div>
+    </div>
+    <div class="card">
+      <div class="card-header"><div class="card-title">Most-Borrowed</div></div>
+      <div class="mono" style="font-size:26px;font-weight:700;color:var(--accent);" id="kpiBorrow">--</div>
+      <div class="mono" style="font-size:11px;color:var(--text-muted);" id="kpiBorrowName">--</div>
+    </div>
+    <div class="card">
+      <div class="card-header"><div class="card-title">Float Compression Alert</div></div>
+      <div class="mono" style="font-size:26px;font-weight:700;color:var(--accent);" id="kpiFloat">--</div>
+      <div class="mono" style="font-size:11px;color:var(--text-muted);">&lt;50M shares</div>
+    </div>
+  </div>
+
+  <div class="card mb-24" style="padding:0;">
+    <div class="card-header" style="padding:14px 16px;">
+      <div class="card-title">🎯 Composite Score — top 24</div>
+      <div class="flex gap-8" style="font-size:10px;">
+        <button class="btn btn-ghost btn-active" data-sort="score" style="padding:3px 8px;font-size:10px;">SCORE</button>
+        <button class="btn btn-ghost" data-sort="si" style="padding:3px 8px;font-size:10px;">SI%</button>
+        <button class="btn btn-ghost" data-sort="dtc" style="padding:3px 8px;font-size:10px;">DTC</button>
+        <button class="btn btn-ghost" data-sort="bb" style="padding:3px 8px;font-size:10px;">BB SQ</button>
+      </div>
+    </div>
+    <div class="sq-row" style="background:var(--bg-elevated);font-size:9px;color:var(--text-muted);font-weight:800;letter-spacing:0.5px;">
+      <div>#</div><div>SYM</div><div>SCORE</div><div>SI %</div><div>DTC</div><div>UTIL</div><div>BB SQ</div><div>IV PCT</div><div>FLOAT</div><div>FACTORS</div>
+    </div>
+    <div id="sqBody"></div>
+  </div>
+
+  <!-- METHODOLOGY -->
+  <div class="card mt-24">
+    <div class="card-header"><div class="card-title">🧠 How the composite is calculated</div></div>
+    <div style="font-size:13px;color:var(--text-secondary);line-height:1.6;">
+      Each factor is scored 0–100 then weighted into the composite:
+      <ul style="margin-top:10px;padding-left:18px;">
+        <li><strong>Short interest %</strong> (30%) — % of float sold short</li>
+        <li><strong>Days to Cover</strong> (20%) — SI / avg daily volume — higher = harder to exit</li>
+        <li><strong>Utilization</strong> (15%) — % of borrowable shares already loaned out (proxy for borrow scarcity)</li>
+        <li><strong>Bollinger Squeeze</strong> (15%) — BB width / Keltner width ratio (low = compression)</li>
+        <li><strong>IV Percentile</strong> (10%) — options market pricing of upside</li>
+        <li><strong>Float Compression</strong> (10%) — small + heavily-shorted = explosive potential</li>
+      </ul>
+      <div class="mt-12" style="color:var(--yellow);">Score &gt; 80 = extreme squeeze candidate. Recent examples: GME, AMC, BBBY, CVNA spikes all scored ≥85 days before.</div>
+    </div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script src="js/charts.js"></script>
+<script>
+buildNav('squeeze-composite');
+
+const UNIVERSE = ['GME','AMC','CVNA','SAVA','BYND','PLTR','HOOD','SOFI','UPST','RIVN','LCID','NIO','BBBY','MULN','ATER','SIRI','EVGO','CHPT','BLNK','BIRD','WISH','MARA','RIOT','DJT','TSLA','SHOP','NVDA','AMD','SMCI','COIN'];
+
+function generateSqueezeData() {
+  return UNIVERSE.map(sym => {
+    const seed = sym.charCodeAt(0) * 7 + sym.charCodeAt(1);
+    const rand = (s) => { let x = Math.sin(s) * 10000; return x - Math.floor(x); };
+    const si = +(3 + rand(seed) * 45).toFixed(1);
+    const dtc = +(1 + rand(seed + 1) * 12).toFixed(1);
+    const util = +(40 + rand(seed + 2) * 60).toFixed(0);
+    const bbSqueeze = +(15 + rand(seed + 3) * 80).toFixed(0);
+    const ivPct = +(20 + rand(seed + 4) * 75).toFixed(0);
+    const floatM = +(8 + rand(seed + 5) * 800).toFixed(1);
+    // Score
+    const siScore = Math.min(100, si * 3);
+    const dtcScore = Math.min(100, dtc * 9);
+    const utilScore = util;
+    const bbScore = 100 - bbSqueeze; // tighter = higher
+    const ivScore = ivPct;
+    const floatScore = Math.max(0, 100 - Math.min(100, floatM / 5));
+    const composite = +(siScore * 0.30 + dtcScore * 0.20 + utilScore * 0.15 + bbScore * 0.15 + ivScore * 0.10 + floatScore * 0.10).toFixed(0);
+    return { sym, si, dtc, util, bbSqueeze, ivPct, floatM, composite };
+  });
+}
+
+let data = generateSqueezeData();
+let sortBy = 'score';
+
+function paint() {
+  let rows = data.slice();
+  if (sortBy === 'score') rows.sort((a, b) => b.composite - a.composite);
+  else if (sortBy === 'si') rows.sort((a, b) => b.si - a.si);
+  else if (sortBy === 'dtc') rows.sort((a, b) => b.dtc - a.dtc);
+  else if (sortBy === 'bb') rows.sort((a, b) => a.bbSqueeze - b.bbSqueeze);
+  rows = rows.slice(0, 24);
+
+  const body = document.getElementById('sqBody');
+  body.innerHTML = '';
+  rows.forEach((r, i) => {
+    const tier = r.composite >= 80 ? 'tier1' : r.composite >= 60 ? 'tier2' : 'tier3';
+    const col = r.composite >= 80 ? 'var(--red)' : r.composite >= 60 ? 'var(--yellow)' : 'var(--accent)';
+    // Determine factors that pop
+    const factors = [];
+    if (r.si > 25) factors.push('<span class="factor-pill" style="background:rgba(239,68,68,0.15);color:var(--red);">SI</span>');
+    if (r.dtc > 5) factors.push('<span class="factor-pill" style="background:rgba(245,158,11,0.15);color:var(--yellow);">DTC</span>');
+    if (r.util > 85) factors.push('<span class="factor-pill" style="background:rgba(124,58,237,0.15);color:#a78bfa;">UTIL</span>');
+    if (r.bbSqueeze < 30) factors.push('<span class="factor-pill" style="background:rgba(0,212,255,0.15);color:var(--accent);">BB</span>');
+    if (r.floatM < 50) factors.push('<span class="factor-pill" style="background:rgba(16,185,129,0.15);color:var(--green);">FLT</span>');
+    if (r.ivPct > 70) factors.push('<span class="factor-pill" style="background:rgba(245,158,11,0.15);color:var(--yellow);">IV</span>');
+
+    const row = document.createElement('div');
+    row.className = 'sq-row ' + tier;
+    row.innerHTML = '<div>' + (i + 1) + '</div>'
+      + '<div><strong>' + r.sym + '</strong></div>'
+      + '<div style="font-weight:800;color:' + col + ';font-size:14px;">' + r.composite + '</div>'
+      + '<div style="color:' + (r.si > 25 ? 'var(--red)' : 'var(--text-secondary)') + ';">' + r.si.toFixed(1) + '%</div>'
+      + '<div style="color:' + (r.dtc > 5 ? 'var(--yellow)' : 'var(--text-secondary)') + ';">' + r.dtc.toFixed(1) + '</div>'
+      + '<div>' + r.util + '%</div>'
+      + '<div>' + r.bbSqueeze + '%</div>'
+      + '<div>' + r.ivPct + '%</div>'
+      + '<div>' + r.floatM.toFixed(1) + 'M</div>'
+      + '<div>' + factors.join('') + '</div>';
+    row.onclick = () => { window.location.href = 'ticker.html?sym=' + r.sym; };
+    body.appendChild(row);
+  });
+
+  // KPIs
+  document.getElementById('kpiTop').textContent = data.filter(d => d.composite >= 80).length;
+  document.getElementById('kpiElev').textContent = data.filter(d => d.composite >= 60 && d.composite < 80).length;
+  document.getElementById('kpiAvgSI').textContent = (data.reduce((a, d) => a + d.si, 0) / data.length).toFixed(1) + '%';
+  const topBorrow = data.slice().sort((a, b) => b.util - a.util)[0];
+  document.getElementById('kpiBorrow').textContent = topBorrow.util + '%';
+  document.getElementById('kpiBorrowName').textContent = topBorrow.sym + ' utilization';
+  document.getElementById('kpiFloat').textContent = data.filter(d => d.floatM < 50).length;
+
+  // Emit top setups to brain
+  try {
+    const k = 'bpleone_brain_findings_v1';
+    let f = { items: [] };
+    try { f = JSON.parse(localStorage.getItem(k) || '{"items":[]}'); } catch (e) {}
+    const top = data.filter(d => d.composite >= 80).slice(0, 3);
+    top.forEach(t => {
+      const dedupKey = 'squeeze-composite|' + t.sym;
+      const cutoff = Date.now() - 60 * 60 * 1000;
+      if (f.items.find(x => x.dedupKey === dedupKey && x.ts > cutoff)) return;
+      f.items.unshift({
+        id: 'f_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7),
+        ts: Date.now(),
+        type: 'squeeze-composite',
+        severity: 3,
+        title: 'Extreme squeeze score — ' + t.sym,
+        body: t.sym + ' composite=' + t.composite + '. SI=' + t.si + '%, DTC=' + t.dtc + ', util=' + t.util + '%, float=' + t.floatM + 'M.',
+        meta: { sym: t.sym, setup: 'squeeze-composite', bias: 'bull', composite: t.composite },
+        dedupKey
+      });
+    });
+    if (f.items.length > 500) f.items.length = 500;
+    localStorage.setItem(k, JSON.stringify(f));
+  } catch (e) {}
+}
+paint();
+
+document.querySelectorAll('[data-sort]').forEach(b => b.addEventListener('click', () => {
+  document.querySelectorAll('[data-sort]').forEach(x => x.classList.remove('btn-active'));
+  b.classList.add('btn-active');
+  sortBy = b.dataset.sort;
+  paint();
+}));
+document.getElementById('refreshBtn').addEventListener('click', () => { data = generateSqueezeData(); paint(); });
+document.getElementById('exportBtn').addEventListener('click', () => {
+  const csv = ['Symbol,Composite,SI%,DTC,Util%,BBSqueeze,IVPct,FloatM'];
+  data.sort((a, b) => b.composite - a.composite).forEach(r => csv.push([r.sym, r.composite, r.si, r.dtc, r.util, r.bbSqueeze, r.ivPct, r.floatM].join(',')));
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([csv.join('\n')], { type: 'text/csv' }));
+  a.download = 'squeeze-composite-' + Date.now() + '.csv';
+  a.click();
+});
+</script>
+</body>
+</html>

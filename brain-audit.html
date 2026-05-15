@@ -1,0 +1,322 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Brain Self-Audit — bpleone / trade</title>
+<meta name="description" content="Meta-monitoring for the autonomous brain: uptime, last fires per tick, error log, memory health, and self-test results.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.audit-row { display:grid; grid-template-columns: 140px 1fr 120px 100px 70px; gap:12px; padding:12px 14px; border-bottom:1px solid var(--border); align-items:center; font-size:12px; }
+.health-dot { width:10px; height:10px; border-radius:50%; display:inline-block; vertical-align:middle; margin-right:6px; }
+.h-ok { background:var(--green); box-shadow:0 0 8px rgba(16,185,129,0.6); }
+.h-warn { background:var(--yellow); box-shadow:0 0 8px rgba(245,158,11,0.5); }
+.h-err { background:var(--red); box-shadow:0 0 8px rgba(239,68,68,0.6); }
+.log-line { padding:6px 10px; border-bottom:1px solid var(--border); font-family:var(--font-mono); font-size:11px; display:grid; grid-template-columns:80px 80px 1fr; gap:8px; }
+.log-line.info { color:var(--text-secondary); }
+.log-line.warn { color:var(--yellow); }
+.log-line.err { color:var(--red); }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">🩺 Brain Self-Audit</div>
+      <div class="page-subtitle">Meta-monitoring · tick health · memory state · self-test · <span id="market-clock">--</span></div>
+    </div>
+    <div class="flex gap-8">
+      <button class="btn btn-secondary" id="runTestBtn">🧪 Run Self-Test</button>
+      <button class="btn btn-secondary" id="clearLogBtn">🗑 Clear Log</button>
+    </div>
+  </div>
+
+  <!-- HEALTH KPIs -->
+  <div class="grid grid-5 mb-24">
+    <div class="card">
+      <div class="card-header"><div class="card-title">Brain Status</div></div>
+      <div class="mono" style="font-size:22px;font-weight:700;" id="kpiStatus"><span class="health-dot h-warn"></span>—</div>
+      <div class="mono" style="font-size:11px;color:var(--text-muted);" id="kpiStatusBody">Computing health...</div>
+    </div>
+    <div class="card">
+      <div class="card-header"><div class="card-title">Uptime (this session)</div></div>
+      <div class="mono" style="font-size:22px;font-weight:700;" id="kpiUptime">—</div>
+      <div class="mono" style="font-size:11px;color:var(--text-muted);">Since page-load on any tab</div>
+    </div>
+    <div class="card">
+      <div class="card-header"><div class="card-title">Findings Stored</div></div>
+      <div class="mono" style="font-size:22px;font-weight:700;color:var(--accent);" id="kpiFindings">—</div>
+      <div class="mono" style="font-size:11px;color:var(--text-muted);">Cap 500 · ring buffer</div>
+    </div>
+    <div class="card">
+      <div class="card-header"><div class="card-title">Symbols Learned</div></div>
+      <div class="mono" style="font-size:22px;font-weight:700;color:var(--accent);" id="kpiSyms">—</div>
+      <div class="mono" style="font-size:11px;color:var(--text-muted);" id="kpiSymsBody">—</div>
+    </div>
+    <div class="card">
+      <div class="card-header"><div class="card-title">Storage Used</div></div>
+      <div class="mono" style="font-size:22px;font-weight:700;" id="kpiStore">—</div>
+      <div class="mono" style="font-size:11px;color:var(--text-muted);">localStorage</div>
+    </div>
+  </div>
+
+  <!-- TICK HEALTH TABLE -->
+  <div class="card mb-24" style="padding:0;">
+    <div class="card-header" style="padding:14px 16px;">
+      <div class="card-title">⏱ Tick Health — last fire times</div>
+      <div style="font-size:11px;color:var(--text-muted);">Each tick has a target cadence. Stale = no fire within 2× the expected window.</div>
+    </div>
+    <div class="audit-row" style="background:var(--bg-elevated);font-size:10px;color:var(--text-muted);font-weight:800;letter-spacing:0.5px;">
+      <div>TICK</div><div>PURPOSE</div><div>LAST FIRE</div><div>CADENCE</div><div>HEALTH</div>
+    </div>
+    <div id="ticksBody"></div>
+  </div>
+
+  <!-- WEIGHT DRIFT + FEED LOG -->
+  <div class="grid grid-12">
+    <div class="card col-6">
+      <div class="card-header"><div class="card-title">📊 Weight Drift — per-symbol learned multipliers</div></div>
+      <canvas id="weightChart" height="230"></canvas>
+      <div class="mono mt-12" style="font-size:11px;color:var(--text-muted);">Above 1.0 = brain favors this symbol's setups · below = penalized · clamped to [0.5, 1.6]</div>
+    </div>
+    <div class="card col-6" style="padding:0;">
+      <div class="card-header" style="padding:14px 16px;">
+        <div class="card-title">📜 Brain Activity Log</div>
+        <div style="font-size:11px;color:var(--text-muted);">Last 50 events</div>
+      </div>
+      <div id="logBody" style="max-height:380px;overflow-y:auto;"></div>
+    </div>
+  </div>
+
+  <!-- SELF-TEST RESULTS -->
+  <div class="card mt-24">
+    <div class="card-header"><div class="card-title">🧪 Self-Test Results</div></div>
+    <div id="testResults" style="font-size:12px;font-family:var(--font-mono);"></div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script src="js/brain-loop.js"></script>
+<script>
+buildNav('brain-audit');
+
+const FINDINGS_KEY = 'bpleone_brain_findings_v1';
+const STATE_KEY = 'bpleone_brain_loop_state_v1';
+const LEARN_KEY = 'bpleone_learn_v1';
+
+function loadFindings() {
+  try { return JSON.parse(localStorage.getItem(FINDINGS_KEY) || '{"items":[]}').items; } catch (e) { return []; }
+}
+function loadState() {
+  try { return JSON.parse(localStorage.getItem(STATE_KEY) || '{}'); } catch (e) { return {}; }
+}
+function loadLearn() {
+  try { return JSON.parse(localStorage.getItem(LEARN_KEY) || '{}'); } catch (e) { return {}; }
+}
+
+function ago(ts) {
+  if (!ts) return 'never';
+  const s = Math.floor((Date.now() - ts) / 1000);
+  if (s < 60) return s + 's ago';
+  if (s < 3600) return Math.floor(s / 60) + 'm ago';
+  return Math.floor(s / 3600) + 'h ago';
+}
+
+const TICKS = [
+  { id: 'highConv', purpose: 'Scan universe for adj-score ≥0.8 setups', cadence: 60, cadStr: '60s', findingTypes: ['high-conviction-signal'] },
+  { id: 'weightShift', purpose: 'Detect significant per-symbol weight drifts', cadence: 300, cadStr: '5m', findingTypes: ['weight-shift'] },
+  { id: 'confluence', purpose: 'Hunt 6-star confluence setups', cadence: 900, cadStr: '15m', findingTypes: ['confluence-6star'] },
+  { id: 'hourly', purpose: 'Hourly digest: regime + top setups + sentiment', cadence: 3600, cadStr: '60m', findingTypes: ['hourly-digest'] },
+  { id: 'outcomes', purpose: 'Rate 30min-old findings (hit/miss/flat)', cadence: 300, cadStr: '5m', findingTypes: ['outcome-rated'] },
+  { id: 'mlFeedback', purpose: 'Nudge per-symbol weights from outcomes', cadence: 300, cadStr: '5m', findingTypes: ['ml-feedback'] }
+];
+
+function paintTicks() {
+  const findings = loadFindings();
+  const body = document.getElementById('ticksBody');
+  body.innerHTML = '';
+  TICKS.forEach(t => {
+    // Find last finding matching the tick's types
+    const matching = findings.find(f => t.findingTypes.indexOf(f.type) !== -1);
+    const lastTs = matching ? matching.ts : null;
+    const ageSec = lastTs ? (Date.now() - lastTs) / 1000 : null;
+    let healthCls = 'h-warn', healthTxt = 'NEW';
+    if (ageSec !== null) {
+      if (ageSec < t.cadence * 2) { healthCls = 'h-ok'; healthTxt = 'OK'; }
+      else if (ageSec < t.cadence * 5) { healthCls = 'h-warn'; healthTxt = 'LATE'; }
+      else { healthCls = 'h-err'; healthTxt = 'STALE'; }
+    }
+    const row = document.createElement('div');
+    row.className = 'audit-row';
+    row.innerHTML = '<div style="font-family:var(--font-mono);font-weight:700;">' + t.id + '</div>'
+      + '<div style="color:var(--text-secondary);">' + t.purpose + '</div>'
+      + '<div class="mono" style="color:var(--text-muted);">' + ago(lastTs) + '</div>'
+      + '<div class="mono">' + t.cadStr + '</div>'
+      + '<div><span class="health-dot ' + healthCls + '"></span>' + healthTxt + '</div>';
+    body.appendChild(row);
+  });
+}
+
+function paintHealth() {
+  const findings = loadFindings();
+  const state = loadState();
+  const learn = loadLearn();
+  // Status
+  let healthOk = true;
+  const recentFindings = findings.filter(f => (Date.now() - f.ts) < 30 * 60 * 1000);
+  if (recentFindings.length === 0) healthOk = false;
+  document.getElementById('kpiStatus').innerHTML = '<span class="health-dot ' + (healthOk ? 'h-ok' : 'h-warn') + '"></span>' + (healthOk ? 'HEALTHY' : 'IDLE');
+  document.getElementById('kpiStatusBody').textContent = healthOk ? recentFindings.length + ' findings in last 30 min' : 'No new findings in last 30 min — visit any page to wake brain';
+  // Findings
+  document.getElementById('kpiFindings').textContent = findings.length;
+  // Symbols learned
+  const syms = (learn.symbols && Object.keys(learn.symbols)) || [];
+  document.getElementById('kpiSyms').textContent = syms.length;
+  if (syms.length > 0) {
+    const topUp = syms.map(s => ({ s, w: learn.symbols[s].w || 1 })).sort((a, b) => b.w - a.w)[0];
+    document.getElementById('kpiSymsBody').textContent = 'Top: ' + topUp.s + ' @ ' + topUp.w.toFixed(2) + '×';
+  } else {
+    document.getElementById('kpiSymsBody').textContent = 'No learning yet';
+  }
+  // Storage
+  let totalBytes = 0;
+  try {
+    for (const k in localStorage) {
+      if (k.indexOf('bpleone') === 0) totalBytes += (localStorage[k] || '').length;
+    }
+  } catch (e) {}
+  document.getElementById('kpiStore').textContent = totalBytes > 1024 ? (totalBytes / 1024).toFixed(1) + ' KB' : totalBytes + ' B';
+}
+
+let uptimeStart = Date.now();
+function paintUptime() {
+  const s = Math.floor((Date.now() - uptimeStart) / 1000);
+  let str;
+  if (s < 60) str = s + 's';
+  else if (s < 3600) str = Math.floor(s / 60) + 'm ' + (s % 60) + 's';
+  else str = Math.floor(s / 3600) + 'h ' + Math.floor((s % 3600) / 60) + 'm';
+  document.getElementById('kpiUptime').textContent = str;
+}
+
+let weightChart;
+function paintWeightChart() {
+  const learn = loadLearn();
+  const syms = (learn.symbols && Object.keys(learn.symbols)) || [];
+  const data = syms.map(s => ({ s, w: learn.symbols[s].w || 1 })).sort((a, b) => b.w - a.w).slice(0, 20);
+  if (data.length === 0) {
+    const ctx = document.getElementById('weightChart').getContext('2d');
+    ctx.font = '12px Inter';
+    ctx.fillStyle = '#9ca3af';
+    ctx.fillText('No symbol weights learned yet — brain needs trades or rated findings to build memory.', 10, 30);
+    return;
+  }
+  if (weightChart) weightChart.destroy();
+  const ctx = document.getElementById('weightChart').getContext('2d');
+  weightChart = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: data.map(d => d.s),
+      datasets: [{
+        label: 'Weight (×)',
+        data: data.map(d => d.w),
+        backgroundColor: data.map(d => d.w >= 1 ? 'rgba(16,185,129,0.6)' : 'rgba(239,68,68,0.6)'),
+        borderColor: data.map(d => d.w >= 1 ? 'rgba(16,185,129,1)' : 'rgba(239,68,68,1)'),
+        borderWidth: 1
+      }]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false, indexAxis: 'y',
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { min: 0.5, max: 1.6, grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#6b7280', font: { size: 10 } } },
+        y: { grid: { display: false }, ticks: { color: '#9ca3af', font: { size: 11, family: 'JetBrains Mono' } } }
+      }
+    }
+  });
+}
+
+function paintLog() {
+  const findings = loadFindings();
+  const body = document.getElementById('logBody');
+  body.innerHTML = '';
+  findings.slice(0, 50).forEach(f => {
+    const tCol = f.severity >= 3 ? 'err' : f.severity >= 2 ? 'warn' : 'info';
+    const line = document.createElement('div');
+    line.className = 'log-line ' + tCol;
+    const time = new Date(f.ts).toLocaleTimeString('en-US', { hour12: false });
+    line.innerHTML = '<div>' + time + '</div>'
+      + '<div>' + (f.type || '').slice(0, 14) + '</div>'
+      + '<div>' + (f.title || '').slice(0, 80) + '</div>';
+    body.appendChild(line);
+  });
+  if (findings.length === 0) {
+    body.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-muted);font-size:12px;">No log entries yet — brain is fresh.</div>';
+  }
+}
+
+// Self-test
+function runSelfTest() {
+  const out = document.getElementById('testResults');
+  const tests = [];
+  // 1. localStorage available
+  try { localStorage.setItem('__t__', '1'); localStorage.removeItem('__t__'); tests.push({ name: 'localStorage available', ok: true }); }
+  catch (e) { tests.push({ name: 'localStorage available', ok: false, err: e.message }); }
+  // 2. BrainLoop module loaded
+  tests.push({ name: 'BrainLoop module loaded', ok: typeof window.BrainLoop !== 'undefined', err: 'BrainLoop not on window' });
+  // 3. Findings format valid
+  try {
+    const f = JSON.parse(localStorage.getItem(FINDINGS_KEY) || '{"items":[]}');
+    tests.push({ name: 'Findings JSON parseable', ok: Array.isArray(f.items) });
+  } catch (e) { tests.push({ name: 'Findings JSON parseable', ok: false, err: e.message }); }
+  // 4. Learn engine present
+  tests.push({ name: 'Learn engine present', ok: typeof window.Learn !== 'undefined' || !!localStorage.getItem(LEARN_KEY) });
+  // 5. QUOTES global available
+  tests.push({ name: 'QUOTES global available', ok: typeof window.QUOTES !== 'undefined' });
+  // 6. Force-fire a tick if possible
+  if (window.BrainLoop && window.BrainLoop.tick) {
+    try { window.BrainLoop.tick('highConv'); tests.push({ name: 'Force-fire highConv tick', ok: true }); }
+    catch (e) { tests.push({ name: 'Force-fire highConv tick', ok: false, err: e.message }); }
+  }
+  // Output
+  out.innerHTML = tests.map(t => '<div style="padding:6px 0;border-bottom:1px solid var(--border);">'
+    + '<span class="health-dot ' + (t.ok ? 'h-ok' : 'h-err') + '"></span>'
+    + t.name + ' ' + (t.ok ? '<span style="color:var(--green);">PASS</span>' : '<span style="color:var(--red);">FAIL — ' + (t.err || '') + '</span>')
+    + '</div>').join('');
+  setTimeout(() => { paintHealth(); paintTicks(); paintLog(); paintWeightChart(); }, 500);
+}
+
+function repaintAll() {
+  paintHealth();
+  paintUptime();
+  paintTicks();
+  paintLog();
+  paintWeightChart();
+}
+repaintAll();
+setInterval(paintUptime, 1000);
+setInterval(repaintAll, 15000);
+window.addEventListener('bpleone:brain-finding', repaintAll);
+
+document.getElementById('runTestBtn').addEventListener('click', runSelfTest);
+document.getElementById('clearLogBtn').addEventListener('click', () => {
+  if (!confirm('Clear all brain findings? This cannot be undone.')) return;
+  localStorage.removeItem(FINDINGS_KEY);
+  repaintAll();
+});
+runSelfTest();
+</script>
+</body>
+</html>

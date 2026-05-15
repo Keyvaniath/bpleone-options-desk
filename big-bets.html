@@ -1,0 +1,277 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Big Bets Feed — bpleone / trade</title>
+<meta name="description" content="Single biggest options trades across the universe — live feed of ≥$1M premium prints, sweeps, blocks. UW-style flow alpha.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.bet-row { display:grid; grid-template-columns: 75px 70px 60px 75px 70px 70px 80px 110px 1fr 80px; gap:8px; padding:10px 12px; border-bottom:1px solid var(--border); font-family:var(--font-mono); font-size:11px; align-items:center; cursor:pointer; }
+.bet-row:hover { background:var(--bg-elevated); }
+.bet-row.huge { background:rgba(124,58,237,0.06); border-left:3px solid #a78bfa; }
+.bet-row.big { background:rgba(245,158,11,0.04); border-left:3px solid var(--yellow); }
+.bet-row.med { border-left:3px solid var(--accent); }
+.tag { padding:2px 6px; border-radius:3px; font-size:9px; font-weight:800; letter-spacing:0.3px; }
+.t-call { background:rgba(16,185,129,0.18); color:var(--green); }
+.t-put  { background:rgba(239,68,68,0.18); color:var(--red); }
+.t-sw   { background:rgba(245,158,11,0.18); color:var(--yellow); }
+.t-bl   { background:rgba(124,58,237,0.18); color:#a78bfa; }
+.t-sm   { background:rgba(0,212,255,0.18); color:var(--accent); }
+.t-ask  { background:rgba(16,185,129,0.12); color:var(--green); border:1px solid rgba(16,185,129,0.3); }
+.t-bid  { background:rgba(239,68,68,0.12); color:var(--red); border:1px solid rgba(239,68,68,0.3); }
+.t-mid  { background:rgba(100,116,139,0.15); color:#9ca3af; }
+.flash { animation: betflash 0.7s ease; }
+@keyframes betflash { 0% { background:rgba(124,58,237,0.20); } 100% { background:transparent; } }
+</style>
+</head>
+<body data-needs="chain">
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">💰 Big Bets Feed</div>
+      <div class="page-subtitle">≥$1M premium prints — sweeps, blocks, smart money · live · <span id="market-clock">--</span></div>
+    </div>
+    <div class="flex gap-8">
+      <button class="btn btn-secondary" id="pauseBtn">⏸ Pause</button>
+      <button class="btn btn-secondary" id="muteBtn">🔔 Sound On</button>
+    </div>
+  </div>
+
+  <!-- KPIs -->
+  <div class="grid grid-5 mb-24">
+    <div class="card">
+      <div class="card-header"><div class="card-title">Today's Total Premium</div></div>
+      <div class="mono" style="font-size:26px;font-weight:700;" id="kpiTotal">$0</div>
+      <div class="mono" style="font-size:11px;color:var(--text-muted);" id="kpiCount">0 prints</div>
+    </div>
+    <div class="card">
+      <div class="card-header"><div class="card-title">Call $ Premium</div></div>
+      <div class="mono green-text" style="font-size:26px;font-weight:700;" id="kpiCall">$0</div>
+      <div class="mono" style="font-size:11px;color:var(--text-muted);" id="kpiCallPct">0%</div>
+    </div>
+    <div class="card">
+      <div class="card-header"><div class="card-title">Put $ Premium</div></div>
+      <div class="mono red-text" style="font-size:26px;font-weight:700;" id="kpiPut">$0</div>
+      <div class="mono" style="font-size:11px;color:var(--text-muted);" id="kpiPutPct">0%</div>
+    </div>
+    <div class="card">
+      <div class="card-header"><div class="card-title">Biggest Bet</div></div>
+      <div class="mono" style="font-size:26px;font-weight:700;color:#a78bfa;" id="kpiMax">$0</div>
+      <div class="mono" style="font-size:11px;color:var(--text-muted);" id="kpiMaxLbl">—</div>
+    </div>
+    <div class="card">
+      <div class="card-header"><div class="card-title">Sentiment</div></div>
+      <div class="mono" style="font-size:26px;font-weight:700;" id="kpiSent">—</div>
+      <div class="mono" style="font-size:11px;color:var(--text-muted);" id="kpiSentLbl">—</div>
+    </div>
+  </div>
+
+  <!-- FILTERS -->
+  <div class="card mb-12" style="padding:10px 14px;">
+    <div class="flex gap-8" style="flex-wrap:wrap;align-items:center;">
+      <span style="font-size:11px;color:var(--text-muted);font-weight:700;">FILTERS:</span>
+      <button class="btn btn-ghost btn-active" data-flt="all" style="padding:4px 10px;font-size:11px;">ALL</button>
+      <button class="btn btn-ghost" data-flt="call" style="padding:4px 10px;font-size:11px;">CALLS</button>
+      <button class="btn btn-ghost" data-flt="put" style="padding:4px 10px;font-size:11px;">PUTS</button>
+      <button class="btn btn-ghost" data-flt="sweep" style="padding:4px 10px;font-size:11px;">SWEEPS</button>
+      <button class="btn btn-ghost" data-flt="block" style="padding:4px 10px;font-size:11px;">BLOCKS</button>
+      <button class="btn btn-ghost" data-flt="ask" style="padding:4px 10px;font-size:11px;">AT-ASK ONLY</button>
+      <span style="margin-left:auto;font-size:11px;color:var(--text-muted);">Showing <strong id="visibleCount">0</strong> · streaming · 700ms cadence</span>
+    </div>
+  </div>
+
+  <!-- FEED -->
+  <div class="card" style="padding:0;">
+    <div class="bet-row" style="background:var(--bg-elevated);font-size:9px;color:var(--text-muted);font-weight:800;letter-spacing:0.5px;">
+      <div>TIME</div><div>SYM</div><div>TYPE</div><div>STRIKE</div><div>EXP</div><div>SIZE</div><div>PRICE</div><div>$ PREMIUM</div><div>FLAGS</div><div>FILL</div>
+    </div>
+    <div id="betsBody" style="max-height:680px;overflow-y:auto;"></div>
+  </div>
+
+  <!-- HOW TO USE -->
+  <div class="card mt-24">
+    <div class="card-header"><div class="card-title">🧠 What to look for</div></div>
+    <div class="grid grid-3" style="gap:20px;">
+      <div>
+        <div style="font-weight:700;color:#a78bfa;margin-bottom:6px;">JUMBO ≥$5M premium</div>
+        <div style="font-size:13px;color:var(--text-muted);line-height:1.6;">Institutional-only size. Often before earnings, M&amp;A rumors, or sector-rotation moves. At-the-ask = strong directional conviction.</div>
+      </div>
+      <div>
+        <div style="font-weight:700;color:var(--yellow);margin-bottom:6px;">Sweep + At-Ask</div>
+        <div style="font-size:13px;color:var(--text-muted);line-height:1.6;">Cross-exchange order paying up for fills. The buyer needs in NOW. Has ~45% follow-through rate within 5 days based on historical sweeps.</div>
+      </div>
+      <div>
+        <div style="font-weight:700;color:var(--accent);margin-bottom:6px;">Same-side cluster</div>
+        <div style="font-size:13px;color:var(--text-muted);line-height:1.6;">3+ prints on same strike + direction in 60 min = positioning. Trade with it. View the cluster pattern on <a href="dark-pool-pro.html" style="color:var(--accent);">dark-pool-pro</a>.</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script src="js/charts.js"></script>
+<script>
+buildNav('big-bets');
+
+const SYMBOLS = ['SPY','QQQ','IWM','NVDA','TSLA','AAPL','MSFT','META','AMZN','GOOGL','AMD','PLTR','COIN','SMCI','NFLX','AVGO','MU','MSTR','PANW','SHOP','BABA','MRVL','SNOW','UBER','LCID','PYPL','DIS','BA','CAT','GS'];
+const EXPS = ['5/22','5/30','6/06','6/20','7/18','9/19','1/16/26'];
+
+let paused = false, soundOn = false, activeFlt = 'all';
+let totalPrem = 0, callPrem = 0, putPrem = 0, maxBet = { prem: 0, lbl: '—' }, totalCount = 0;
+const allBets = []; // keep last 300
+
+function getQ(sym) {
+  if (typeof QUOTES !== 'undefined' && QUOTES[sym]) return QUOTES[sym];
+  return { last: 100, changePct: 0 };
+}
+function fmt$(n) {
+  if (n >= 1e9) return '$' + (n/1e9).toFixed(2) + 'B';
+  if (n >= 1e6) return '$' + (n/1e6).toFixed(2) + 'M';
+  if (n >= 1e3) return '$' + (n/1e3).toFixed(0) + 'k';
+  return '$' + n.toFixed(0);
+}
+
+function generateBet() {
+  const sym = SYMBOLS[Math.floor(Math.random() * SYMBOLS.length)];
+  const q = getQ(sym);
+  const isCall = Math.random() > 0.45;
+  const strikeOffset = (Math.random() - 0.5) * q.last * 0.15;
+  const strike = Math.round((q.last + strikeOffset) / 0.5) * 0.5;
+  const exp = EXPS[Math.floor(Math.random() * EXPS.length)];
+  // Price the option roughly
+  const itm = (isCall && strike < q.last) || (!isCall && strike > q.last);
+  const intrinsic = itm ? Math.abs(strike - q.last) : 0;
+  const time = 1.5 + Math.random() * 6;
+  const price = +(Math.max(0.10, intrinsic + time * (0.4 + Math.random() * 1.2))).toFixed(2);
+  // Size — sometimes massive
+  const lognorm = Math.exp(2 + Math.random() * 3);
+  const size = Math.floor(50 + lognorm * 30);
+  const premium = size * price * 100;
+  if (premium < 250_000) return null; // only big bets
+  const isSweep = Math.random() > 0.55;
+  const isBlock = !isSweep && Math.random() > 0.5;
+  const fillSide = Math.random() > 0.55 ? 'ASK' : Math.random() > 0.5 ? 'BID' : 'MID';
+  const ts = new Date().toLocaleTimeString('en-US', { hour12: false });
+  return {
+    sym, isCall, strike, exp, size, price, premium,
+    isSweep, isBlock, fillSide, ts
+  };
+}
+
+function matchesFilter(b) {
+  if (activeFlt === 'all') return true;
+  if (activeFlt === 'call') return b.isCall;
+  if (activeFlt === 'put') return !b.isCall;
+  if (activeFlt === 'sweep') return b.isSweep;
+  if (activeFlt === 'block') return b.isBlock;
+  if (activeFlt === 'ask') return b.fillSide === 'ASK';
+  return true;
+}
+
+function appendBet(b) {
+  allBets.unshift(b);
+  if (allBets.length > 300) allBets.length = 300;
+  totalCount++;
+  totalPrem += b.premium;
+  if (b.isCall) callPrem += b.premium; else putPrem += b.premium;
+  if (b.premium > maxBet.prem) maxBet = { prem: b.premium, lbl: b.sym + ' ' + b.strike + (b.isCall ? 'C' : 'P') };
+
+  if (!matchesFilter(b)) { updateKPIs(); return; }
+
+  const body = document.getElementById('betsBody');
+  const tier = b.premium >= 5e6 ? 'huge' : b.premium >= 2e6 ? 'big' : 'med';
+  const flagPills = [];
+  if (b.isSweep) flagPills.push('<span class="tag t-sw">SWEEP</span>');
+  if (b.isBlock) flagPills.push('<span class="tag t-bl">BLOCK</span>');
+  if (b.premium >= 5e6) flagPills.push('<span class="tag t-sm">JUMBO</span>');
+  const fillCls = b.fillSide === 'ASK' ? 't-ask' : b.fillSide === 'BID' ? 't-bid' : 't-mid';
+  const row = document.createElement('div');
+  row.className = 'bet-row ' + tier + ' flash';
+  row.innerHTML = '<div style="color:var(--text-muted);">' + b.ts + '</div>'
+    + '<div><strong>' + b.sym + '</strong></div>'
+    + '<div><span class="tag ' + (b.isCall ? 't-call' : 't-put') + '">' + (b.isCall ? 'CALL' : 'PUT') + '</span></div>'
+    + '<div>$' + b.strike.toFixed(2) + '</div>'
+    + '<div>' + b.exp + '</div>'
+    + '<div>' + b.size.toLocaleString() + '</div>'
+    + '<div>$' + b.price.toFixed(2) + '</div>'
+    + '<div style="font-weight:700;color:' + (b.premium >= 5e6 ? '#a78bfa' : b.premium >= 2e6 ? 'var(--yellow)' : 'var(--text-primary)') + ';">' + fmt$(b.premium) + '</div>'
+    + '<div>' + flagPills.join(' ') + '</div>'
+    + '<div><span class="tag ' + fillCls + '">' + b.fillSide + '</span></div>';
+  row.onclick = () => { window.location.href = 'ticker.html?sym=' + b.sym; };
+  body.insertBefore(row, body.firstChild);
+  while (body.children.length > 200) body.removeChild(body.lastChild);
+  updateKPIs();
+
+  if (b.premium >= 5e6 && soundOn) {
+    try {
+      const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      const o = audioCtx.createOscillator(); const g = audioCtx.createGain();
+      o.frequency.value = 600; g.gain.value = 0.04;
+      o.connect(g); g.connect(audioCtx.destination); o.start(); o.stop(audioCtx.currentTime + 0.12);
+    } catch (e) {}
+  }
+}
+
+function updateKPIs() {
+  document.getElementById('kpiTotal').textContent = fmt$(totalPrem);
+  document.getElementById('kpiCount').textContent = totalCount + ' prints';
+  document.getElementById('kpiCall').textContent = fmt$(callPrem);
+  document.getElementById('kpiPut').textContent = fmt$(putPrem);
+  const callPct = totalPrem > 0 ? Math.round((callPrem / totalPrem) * 100) : 0;
+  document.getElementById('kpiCallPct').textContent = callPct + '% of premium';
+  document.getElementById('kpiPutPct').textContent = (100 - callPct) + '% of premium';
+  document.getElementById('kpiMax').textContent = fmt$(maxBet.prem);
+  document.getElementById('kpiMaxLbl').textContent = maxBet.lbl;
+  const sent = callPct > 60 ? 'BULL' : callPct < 40 ? 'BEAR' : 'NEUT';
+  const sentCol = sent === 'BULL' ? 'var(--green)' : sent === 'BEAR' ? 'var(--red)' : 'var(--text-muted)';
+  const sentEl = document.getElementById('kpiSent');
+  sentEl.textContent = sent;
+  sentEl.style.color = sentCol;
+  document.getElementById('kpiSentLbl').textContent = callPct + '/' + (100 - callPct) + ' call/put';
+  document.getElementById('visibleCount').textContent = document.getElementById('betsBody').children.length;
+}
+
+// Stream
+setInterval(() => {
+  if (paused) return;
+  const b = generateBet();
+  if (b) appendBet(b);
+}, 700);
+
+// Initial seed
+for (let i = 0; i < 12; i++) { const b = generateBet(); if (b) appendBet(b); }
+
+document.getElementById('pauseBtn').addEventListener('click', () => {
+  paused = !paused;
+  document.getElementById('pauseBtn').textContent = paused ? '▶ Resume' : '⏸ Pause';
+});
+document.getElementById('muteBtn').addEventListener('click', () => {
+  soundOn = !soundOn;
+  document.getElementById('muteBtn').textContent = soundOn ? '🔔 Sound On' : '🔕 Sound Off';
+});
+document.querySelectorAll('[data-flt]').forEach(b => b.addEventListener('click', () => {
+  document.querySelectorAll('[data-flt]').forEach(x => x.classList.remove('btn-active'));
+  b.classList.add('btn-active');
+  activeFlt = b.dataset.flt;
+  // Re-render
+  const body = document.getElementById('betsBody');
+  body.innerHTML = '';
+  allBets.forEach(bt => { if (matchesFilter(bt)) appendBet(bt); });
+}));
+</script>
+</body>
+</html>

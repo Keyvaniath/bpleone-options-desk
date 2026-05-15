@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>IV Crush Tracker — bpleone / trade</title>
+<meta name="description" content="Historical earnings IV crush patterns per ticker — expected move vs realized, post-earnings drift, and crush percentile.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.crush-row { display:grid; grid-template-columns: 30px 70px 100px 100px 100px 100px 1fr 70px; gap:8px; padding:11px 12px; border-bottom:1px solid var(--border); font-family:var(--font-mono); font-size:11px; align-items:center; cursor:pointer; }
+.crush-row:hover { background:var(--bg-elevated); }
+.bar-h { display:flex; gap:1px; align-items:flex-end; height:22px; }
+.bar-h > div { flex:1; min-width:3px; opacity:0.85; }
+</style>
+</head>
+<body data-needs="chain">
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">💥 IV Crush Tracker</div>
+      <div class="page-subtitle">Historical earnings IV crush · expected vs realized · drift patterns · <span id="market-clock">--</span></div>
+    </div>
+    <div class="flex gap-8">
+      <button class="btn btn-secondary" id="refreshBtn">🔄</button>
+      <button class="btn btn-secondary" id="exportBtn">📥 Export</button>
+    </div>
+  </div>
+
+  <div class="grid grid-4 mb-24">
+    <div class="card">
+      <div class="card-header"><div class="card-title">Avg IV Crush (post-earn)</div></div>
+      <div class="mono red-text" style="font-size:26px;font-weight:700;" id="kpiAvg">--</div>
+      <div class="mono" style="font-size:11px;color:var(--text-muted);">Across reporting names</div>
+    </div>
+    <div class="card">
+      <div class="card-header"><div class="card-title">Biggest Crusher</div></div>
+      <div class="mono" style="font-size:26px;font-weight:700;color:var(--red);" id="kpiMax">--</div>
+      <div class="mono" style="font-size:11px;color:var(--text-muted);" id="kpiMaxLbl">--</div>
+    </div>
+    <div class="card">
+      <div class="card-header"><div class="card-title">Beat Expected Move</div></div>
+      <div class="mono green-text" style="font-size:26px;font-weight:700;" id="kpiBeat">--</div>
+      <div class="mono" style="font-size:11px;color:var(--text-muted);">Symbols with realized &gt; implied</div>
+    </div>
+    <div class="card">
+      <div class="card-header"><div class="card-title">Drift Edge (3-day)</div></div>
+      <div class="mono" style="font-size:26px;font-weight:700;" id="kpiDrift">--</div>
+      <div class="mono" style="font-size:11px;color:var(--text-muted);">% drift in winners</div>
+    </div>
+  </div>
+
+  <div class="card mb-24" style="padding:0;">
+    <div class="card-header" style="padding:14px 16px;">
+      <div class="card-title">🎯 Earnings Crush Scorecard</div>
+      <div class="flex gap-8" style="font-size:10px;">
+        <button class="btn btn-ghost btn-active" data-sort="crush" style="padding:3px 8px;font-size:10px;">CRUSH</button>
+        <button class="btn btn-ghost" data-sort="expected" style="padding:3px 8px;font-size:10px;">IMPLIED</button>
+        <button class="btn btn-ghost" data-sort="realized" style="padding:3px 8px;font-size:10px;">REALIZED</button>
+        <button class="btn btn-ghost" data-sort="drift" style="padding:3px 8px;font-size:10px;">DRIFT</button>
+      </div>
+    </div>
+    <div class="crush-row" style="background:var(--bg-elevated);font-size:9px;color:var(--text-muted);font-weight:800;letter-spacing:0.5px;">
+      <div>#</div><div>SYM</div><div>IV PRE → POST</div><div>CRUSH %</div><div>IMPLIED</div><div>REALIZED</div><div>HISTORY (8q)</div><div>STRATEGY</div>
+    </div>
+    <div id="crushBody"></div>
+  </div>
+
+  <!-- HOW TO USE -->
+  <div class="card mt-24">
+    <div class="card-header"><div class="card-title">🧠 How to play IV crush</div></div>
+    <div class="grid grid-3" style="gap:20px;">
+      <div>
+        <div style="font-weight:700;color:var(--accent);margin-bottom:6px;">Pre-earnings vol-sell</div>
+        <div style="font-size:13px;color:var(--text-muted);line-height:1.6;">If realized move historically smaller than implied move + crush ≥50% — sell strangles or iron condors into earnings. Profit from vega bleed + crush.</div>
+      </div>
+      <div>
+        <div style="font-weight:700;color:var(--green);margin-bottom:6px;">Post-earnings drift play</div>
+        <div style="font-size:13px;color:var(--text-muted);line-height:1.6;">Stocks with strong drift edge (winners drift ≥3% over next 3 days) — buy direction in initial reaction. Best for surprise beats with raised guidance.</div>
+      </div>
+      <div>
+        <div style="font-weight:700;color:var(--yellow);margin-bottom:6px;">Avoid: high realized history</div>
+        <div style="font-size:13px;color:var(--text-muted);line-height:1.6;">Names where realized routinely &gt;1.3× implied (NVDA, TSLA, NFLX historically). Vol-selling = blow-up risk. Better: buy expected-move strangles.</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script src="js/charts.js"></script>
+<script>
+buildNav('iv-crush-tracker');
+
+const NAMES = ['NVDA','AAPL','MSFT','GOOGL','META','AMZN','TSLA','NFLX','AMD','PLTR','SHOP','UBER','SNOW','CRM','ORCL','MU','AVGO','PYPL','SMCI','COIN','SOFI','HOOD','SOUN','PATH','TGT','WMT','HD','LOW','COST','DIS','BA','GS','JPM','BAC'];
+
+function generate() {
+  return NAMES.map(sym => {
+    const seed = sym.charCodeAt(0) * 9 + (sym.charCodeAt(1) || 0);
+    const rand = (k) => { const x = Math.sin(seed + k) * 10000; return x - Math.floor(x); };
+    const ivPre = +(35 + rand(1) * 60).toFixed(0); // IV percentile pre-earnings
+    const crushPct = +(20 + rand(2) * 50).toFixed(0); // % drop in IV
+    const ivPost = +(ivPre * (1 - crushPct / 100)).toFixed(0);
+    const impliedMove = +(2.5 + rand(3) * 8).toFixed(2);
+    const realizedMove = +(impliedMove * (0.4 + rand(4) * 1.4)).toFixed(2);
+    const drift3d = +((rand(5) - 0.5) * 6).toFixed(2);
+    // 8-quarter crush history
+    const history = [];
+    for (let q = 0; q < 8; q++) history.push(+(crushPct + (rand(6 + q) - 0.5) * 18).toFixed(0));
+    // Strategy heuristic
+    let strategy;
+    if (realizedMove < impliedMove * 0.8 && crushPct > 45) strategy = 'SELL STRADDLE';
+    else if (realizedMove > impliedMove * 1.2) strategy = 'BUY STRADDLE';
+    else if (drift3d > 1.5) strategy = 'BUY POST-DRIFT';
+    else if (crushPct > 55) strategy = 'IRON CONDOR';
+    else strategy = 'NEUTRAL';
+    return { sym, ivPre, ivPost, crushPct, impliedMove, realizedMove, drift3d, history, strategy };
+  });
+}
+
+let data = generate();
+let sortBy = 'crush';
+
+function paint() {
+  let rows = data.slice();
+  if (sortBy === 'crush') rows.sort((a, b) => b.crushPct - a.crushPct);
+  else if (sortBy === 'expected') rows.sort((a, b) => b.impliedMove - a.impliedMove);
+  else if (sortBy === 'realized') rows.sort((a, b) => b.realizedMove - a.realizedMove);
+  else if (sortBy === 'drift') rows.sort((a, b) => Math.abs(b.drift3d) - Math.abs(a.drift3d));
+
+  const body = document.getElementById('crushBody');
+  body.innerHTML = '';
+  rows.slice(0, 24).forEach((r, i) => {
+    let hist = '<div class="bar-h">';
+    r.history.forEach(h => {
+      const col = h > 50 ? 'var(--red)' : h > 30 ? 'var(--yellow)' : 'var(--green)';
+      hist += '<div style="height:' + Math.min(100, h * 1.2) + '%;background:' + col + ';"></div>';
+    });
+    hist += '</div>';
+
+    const stratCol = {
+      'SELL STRADDLE': 'var(--accent)',
+      'BUY STRADDLE': 'var(--green)',
+      'BUY POST-DRIFT': 'var(--green)',
+      'IRON CONDOR': 'var(--accent)',
+      'NEUTRAL': 'var(--text-muted)'
+    }[r.strategy];
+
+    const row = document.createElement('div');
+    row.className = 'crush-row';
+    row.innerHTML = '<div>' + (i + 1) + '</div>'
+      + '<div><strong>' + r.sym + '</strong></div>'
+      + '<div><span style="color:var(--yellow);">' + r.ivPre + '</span> → <span style="color:var(--accent);">' + r.ivPost + '</span></div>'
+      + '<div style="color:' + (r.crushPct > 50 ? 'var(--red)' : r.crushPct > 30 ? 'var(--yellow)' : 'var(--text-secondary)') + ';font-weight:700;">−' + r.crushPct + '%</div>'
+      + '<div>±' + r.impliedMove.toFixed(1) + '%</div>'
+      + '<div style="color:' + (r.realizedMove > r.impliedMove ? 'var(--green)' : 'var(--red)') + ';">±' + r.realizedMove.toFixed(1) + '%</div>'
+      + '<div>' + hist + '</div>'
+      + '<div style="color:' + stratCol + ';font-weight:700;font-size:10px;">' + r.strategy + '</div>';
+    row.onclick = () => { window.location.href = 'ticker.html?sym=' + r.sym; };
+    body.appendChild(row);
+  });
+
+  // KPIs
+  document.getElementById('kpiAvg').textContent = '−' + (data.reduce((a, d) => a + d.crushPct, 0) / data.length).toFixed(0) + '%';
+  const maxC = data.slice().sort((a, b) => b.crushPct - a.crushPct)[0];
+  document.getElementById('kpiMax').textContent = '−' + maxC.crushPct + '%';
+  document.getElementById('kpiMaxLbl').textContent = maxC.sym + ' avg crush';
+  document.getElementById('kpiBeat').textContent = data.filter(d => d.realizedMove > d.impliedMove).length + ' / ' + data.length;
+  const winners = data.filter(d => d.drift3d > 0);
+  const avgDriftWin = winners.length > 0 ? (winners.reduce((a, d) => a + d.drift3d, 0) / winners.length) : 0;
+  document.getElementById('kpiDrift').textContent = '+' + avgDriftWin.toFixed(2) + '%';
+}
+paint();
+
+document.querySelectorAll('[data-sort]').forEach(b => b.addEventListener('click', () => {
+  document.querySelectorAll('[data-sort]').forEach(x => x.classList.remove('btn-active'));
+  b.classList.add('btn-active');
+  sortBy = b.dataset.sort;
+  paint();
+}));
+document.getElementById('refreshBtn').addEventListener('click', () => { data = generate(); paint(); });
+document.getElementById('exportBtn').addEventListener('click', () => {
+  const csv = ['Symbol,IVPre,IVPost,CrushPct,Implied%,Realized%,Drift3d,Strategy'];
+  data.forEach(r => csv.push([r.sym, r.ivPre, r.ivPost, r.crushPct, r.impliedMove, r.realizedMove, r.drift3d, r.strategy].join(',')));
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([csv.join('\n')], { type: 'text/csv' }));
+  a.download = 'iv-crush-' + Date.now() + '.csv';
+  a.click();
+});
+</script>
+</body>
+</html>

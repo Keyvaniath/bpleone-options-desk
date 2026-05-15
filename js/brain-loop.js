@@ -247,6 +247,47 @@ const BrainLoop = (function () {
     }
   }
 
+  // --- Regime detector ---
+  function tickRegimeDetect() {
+    if (typeof QUOTES === 'undefined') return;
+    function getChg(sym) { return (QUOTES[sym] && typeof QUOTES[sym].changePct === 'number') ? QUOTES[sym].changePct : 0; }
+    const spy = getChg('SPY'), vxx = getChg('VXX'), tlt = getChg('TLT'), hyg = getChg('HYG'), uup = getChg('UUP'), gld = getChg('GLD');
+    const score = Math.max(0, Math.min(100, 50 + spy*5 + hyg*6 - vxx*4 - uup*3 - gld*2 + tlt));
+    const state = loadState();
+    const prev = state.regimeScore;
+    state.regimeScore = score;
+    state.regimeTs = Date.now();
+    saveState(state);
+    // Emit regime shift if changes by 20+ points
+    if (typeof prev === 'number' && Math.abs(score - prev) >= 20) {
+      const dir = score > prev ? 'RISK-ON pivot' : 'RISK-OFF pivot';
+      const label = score >= 65 ? 'RISK-ON' : score >= 45 ? 'NEUTRAL' : score >= 30 ? 'CAUTION' : 'RISK-OFF';
+      emit('regime-shift', 'high', dir + ' — ' + label, 'Cross-asset regime composite moved from ' + prev.toFixed(0) + ' to ' + score.toFixed(0) + '. Rebalance bias toward ' + label.toLowerCase() + '.', { from: prev, to: score, label });
+    }
+  }
+
+  // --- Conviction stack snapshot ---
+  function tickConvictionSnapshot() {
+    const findings = loadFindings();
+    const now = Date.now();
+    const four = 4 * 60 * 60 * 1000;
+    const recent = findings.items.filter(f => (now - f.ts) < four);
+    // Group by symbol
+    const bySym = {};
+    recent.forEach(f => {
+      const sym = f.meta && f.meta.sym;
+      if (!sym) return;
+      const contrib = (f.severity || 1) * 8 * Math.exp(-(now - f.ts) / (2.5 * 3.6e6));
+      if (!bySym[sym]) bySym[sym] = { sym, score: 0 };
+      bySym[sym].score += contrib;
+    });
+    const stack = Object.values(bySym).map(s => ({ ...s, score: Math.min(100, Math.round(s.score)) }))
+      .sort((a, b) => b.score - a.score).slice(0, 10);
+    const state = loadState();
+    state.convictionSnapshot = { ts: now, stack };
+    saveState(state);
+  }
+
   // --- Hourly digest ---
   function tickHourlyDigest() {
     const findings = loadFindings();
@@ -269,6 +310,10 @@ const BrainLoop = (function () {
     setTimeout(() => { tickConfluence(); timers.push(setInterval(tickConfluence, 15 * 60 * 1000)); }, 12000);
     // Outcome rating + ML feedback — every 5 min
     setTimeout(() => { tickOutcomes(); tickMLFeedback(); timers.push(setInterval(() => { tickOutcomes(); tickMLFeedback(); }, 5 * 60 * 1000)); }, 15000);
+    // Regime detection every 5 min
+    setTimeout(() => { tickRegimeDetect(); timers.push(setInterval(tickRegimeDetect, 5 * 60 * 1000)); }, 18000);
+    // Conviction stack snapshot every 2 min
+    setTimeout(() => { tickConvictionSnapshot(); timers.push(setInterval(tickConvictionSnapshot, 2 * 60 * 1000)); }, 20000);
     // Hourly digest aligned to clock minute :30
     const minToHalf = (90 - (new Date().getMinutes() * 60 + new Date().getSeconds()) % 3600 / 60) % 60;
     setTimeout(() => { tickHourlyDigest(); timers.push(setInterval(tickHourlyDigest, 60 * 60 * 1000)); }, Math.max(15000, minToHalf * 60 * 1000));
@@ -289,6 +334,6 @@ const BrainLoop = (function () {
     }
   }
 
-  return { start, stop, recent, clear, emit, tickHighConviction, tickWeightShift, tickConfluence, tickOutcomes, tickMLFeedback };
+  return { start, stop, recent, clear, emit, tickHighConviction, tickWeightShift, tickConfluence, tickOutcomes, tickMLFeedback, tickRegimeDetect, tickConvictionSnapshot, tickHourlyDigest };
 })();
 if (typeof window !== 'undefined') window.BrainLoop = BrainLoop;
