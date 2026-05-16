@@ -522,6 +522,14 @@ document.addEventListener('DOMContentLoaded', () => {
         s.async = false;
         document.head.appendChild(s);
       }
+      // Brier Skill Score: the single most diagnostic number for "is the
+      // brain actually learning?" — 1 - BS_model / BS_baseline.
+      if (!document.querySelector('script[src*="brier-skill.js"]')) {
+        const s = document.createElement('script');
+        s.src = 'js/brier-skill.js';
+        s.async = false;
+        document.head.appendChild(s);
+      }
       // Unified predictor: chains every meta-module into ONE call.
       // Loads last so all dependencies are present.
       if (!document.querySelector('script[src*="unified-predictor.js"]')) {

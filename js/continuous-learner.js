@@ -335,6 +335,13 @@
               DrawdownProtector.record(label);
             }
           } catch (e) {}
+          // BRIER SKILL SCORE: feed the (predicted, actual) pair so it can
+          // compute the one-number diagnostic "is the brain learning?"
+          try {
+            if (typeof BrierSkill !== 'undefined') {
+              BrierSkill.record(entry.predProb, label);
+            }
+          } catch (e) {}
         }
       });
 

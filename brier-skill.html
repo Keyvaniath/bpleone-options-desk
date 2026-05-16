@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Brier Skill Score — bpleone / brain</title>
+<meta name="description" content="The single number that tells you if the brain is learning. Brier Skill = 1 - model_brier / baseline_brier.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.bss-card { padding:48px;border-radius:20px;text-align:center; }
+.bss-card.broken { background:linear-gradient(135deg,rgba(239,68,68,0.15),rgba(239,68,68,0.02));border:3px solid rgba(239,68,68,0.5); }
+.bss-card.weak { background:linear-gradient(135deg,rgba(245,158,11,0.10),rgba(245,158,11,0.02));border:3px solid rgba(245,158,11,0.4); }
+.bss-card.fair { background:linear-gradient(135deg,rgba(245,158,11,0.10),rgba(0,212,255,0.02));border:3px solid rgba(245,158,11,0.4); }
+.bss-card.useful { background:linear-gradient(135deg,rgba(0,212,255,0.10),rgba(0,212,255,0.02));border:3px solid rgba(0,212,255,0.4); }
+.bss-card.strong { background:linear-gradient(135deg,rgba(16,185,129,0.10),rgba(16,185,129,0.02));border:3px solid rgba(16,185,129,0.5); }
+.bss-card.excellent { background:linear-gradient(135deg,rgba(167,139,250,0.15),rgba(167,139,250,0.02));border:3px solid rgba(167,139,250,0.5); }
+.bss-card.idle { background:linear-gradient(135deg,rgba(140,140,140,0.10),rgba(140,140,140,0.02));border:3px solid rgba(140,140,140,0.4); }
+.bss-card .big { font-family:var(--font-mono);font-size:120px;font-weight:900;line-height:1; }
+.bss-card .tier { font-size:36px;font-weight:800;letter-spacing:3px;margin-top:18px;text-transform:uppercase; }
+.tile { padding:18px;background:var(--bg-elevated);border-radius:10px; }
+.tile .lbl { font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;font-weight:700; }
+.tile .val { font-family:var(--font-mono);font-size:24px;font-weight:800;margin-top:6px;color:var(--accent); }
+.tile .sub { font-size:11px;color:var(--text-muted);font-family:var(--font-mono);margin-top:4px; }
+.tier-table { width:100%;font-family:var(--font-mono);font-size:13px;border-collapse:collapse; }
+.tier-table th, .tier-table td { padding:10px 14px;text-align:left;border-bottom:1px solid var(--border); }
+.tier-table th { font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px; }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">📊 Brier Skill Score</div>
+      <div class="page-subtitle">The single number that says if the brain is actually learning · BSS = 1 − model_brier / baseline_brier</div>
+    </div>
+  </div>
+
+  <div id="bss-card" class="mb-24"></div>
+
+  <div class="grid grid-4 mb-24" id="metrics-grid"></div>
+
+  <div class="card mb-24">
+    <div class="card-header"><div class="card-title">📚 What does this number mean?</div></div>
+    <table class="tier-table">
+      <thead>
+        <tr><th>BSS Range</th><th>Tier</th><th>Interpretation</th></tr>
+      </thead>
+      <tbody>
+        <tr><td style="color:var(--red);">&lt; 0</td><td><strong>broken</strong></td><td>Brain is WORSE than always guessing the mean. Something is wrong.</td></tr>
+        <tr><td style="color:var(--yellow);">0.00 – 0.05</td><td><strong>weak</strong></td><td>Barely better than baseline. Probably noise.</td></tr>
+        <tr><td style="color:var(--yellow);">0.05 – 0.10</td><td><strong>fair</strong></td><td>Real edge but small. Hard to trust for sizing.</td></tr>
+        <tr><td style="color:var(--accent);">0.10 – 0.20</td><td><strong>useful</strong></td><td>Clear edge over baseline. Worth sizing with confidence.</td></tr>
+        <tr><td style="color:var(--green);">0.20 – 0.30</td><td><strong>strong</strong></td><td>Significantly better than naive — institutional-grade.</td></tr>
+        <tr><td style="color:var(--purple);">≥ 0.30</td><td><strong>excellent</strong></td><td>Exceptional edge. Verify it's not data leakage.</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="card">
+    <div class="card-header"><div class="card-title">📐 The math</div></div>
+    <div style="font-size:13px;color:var(--text-secondary);line-height:1.7;">
+      <strong>Brier Score:</strong> mean (predicted_prob − actual_outcome)². Bounded in [0, 1], lower is better. Zero = perfect, 0.25 = no information (constant 50% guess on 50/50 data).<br><br>
+      <strong>Baseline:</strong> always predict the population mean rate. Brier of baseline depends on base rate: for 50/50 outcomes it's 0.25; for skewed outcomes (say 70% wins) it's <code>0.7 × 0.3 = 0.21</code>.<br><br>
+      <strong>Skill Score:</strong> <code>BSS = 1 − (BS_model / BS_baseline)</code>. This normalizes against the no-information baseline. A skill score above 0 means the brain has measurable edge above randomly predicting the average rate.<br><br>
+      <strong>Why BSS over raw accuracy:</strong> a model can have 70% accuracy on a 70/30 dataset just by always predicting "yes" — its BSS would be ~0 since it's no better than the trivial baseline. BSS catches this; raw accuracy doesn't. <em>BSS is the standard meteorological / forecasting metric for exactly this reason.</em>
+    </div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script src="js/brier-skill.js"></script>
+<script>
+buildNav('brier-skill');
+
+function fmtNum(n, d) { return n != null ? n.toFixed(d != null ? d : 4) : '—'; }
+function fmtPct(n) { return n != null ? (n * 100).toFixed(1) + '%' : '—'; }
+
+const TIER_COLORS = {
+  'idle': 'var(--text-muted)',
+  'broken': 'var(--red)',
+  'weak': 'var(--yellow)',
+  'fair': 'var(--yellow)',
+  'useful': 'var(--accent)',
+  'strong': 'var(--green)',
+  'excellent': '#a78bfa'
+};
+
+function render() {
+  const s = BrierSkill.score();
+  const tier = s.skill != null ? BrierSkill.tier(s.skill) : 'idle';
+  const color = TIER_COLORS[tier];
+  const card = document.getElementById('bss-card');
+  if (!s.ready) {
+    card.innerHTML = '<div class="bss-card idle">'
+      + '<div class="big" style="color:var(--text-muted);">—</div>'
+      + '<div style="font-size:18px;font-weight:700;color:var(--text-secondary);margin-top:18px;">Need ≥10 resolved predictions</div>'
+      + '<div style="font-size:13px;color:var(--text-muted);margin-top:8px;font-family:var(--font-mono);">Currently ' + s.n + ' samples.</div>'
+      + '</div>';
+  } else {
+    card.innerHTML = '<div class="bss-card ' + tier + '">'
+      + '<div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:1.5px;font-weight:700;">Brier Skill Score</div>'
+      + '<div class="big" style="color:' + color + ';margin-top:14px;">' + (s.skill >= 0 ? '+' : '') + s.skill.toFixed(3) + '</div>'
+      + '<div class="tier" style="color:' + color + ';">' + tier + '</div>'
+      + '<div style="font-size:13px;color:var(--text-secondary);margin-top:14px;font-family:var(--font-mono);">window n=' + s.n + ' · base rate ' + fmtPct(s.baseRate) + '</div>'
+      + '</div>';
+  }
+
+  document.getElementById('metrics-grid').innerHTML = ''
+    + '<div class="tile"><div class="lbl">Model Brier</div><div class="val">' + fmtNum(s.brier) + '</div><div class="sub">lower is better</div></div>'
+    + '<div class="tile"><div class="lbl">Baseline Brier</div><div class="val">' + fmtNum(s.baseline) + '</div><div class="sub">always-mean prediction</div></div>'
+    + '<div class="tile"><div class="lbl">Base rate</div><div class="val">' + fmtPct(s.baseRate) + '</div><div class="sub">% wins in window</div></div>'
+    + '<div class="tile"><div class="lbl">Sample size</div><div class="val">' + s.n + '</div><div class="sub">capped at 200</div></div>';
+}
+
+render();
+setInterval(render, 8000);
+window.addEventListener('bpleone:continuous-cycle', render);
+</script>
+</body>
+</html>
