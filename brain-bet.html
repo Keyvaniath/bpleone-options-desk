@@ -26,7 +26,8 @@
 .bet-card .size-block { margin-top:30px;padding:24px;background:rgba(0,0,0,0.35);border-radius:12px; }
 .bet-card .size-block .lbl { font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:1px;font-weight:700;margin-bottom:6px; }
 .bet-card .size-block .big-size { font-family:var(--font-mono);font-size:42px;font-weight:800; }
-.evidence-grid { display:grid;grid-template-columns:repeat(4, 1fr);gap:12px; }
+.evidence-grid { display:grid;grid-template-columns:repeat(5, 1fr);gap:12px; }
+@media (max-width:768px){ .evidence-grid { grid-template-columns:repeat(2, 1fr); } }
 .evidence-tile { padding:14px;background:var(--bg-elevated);border-radius:10px;text-align:center; }
 .evidence-tile .lbl { font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px; }
 .evidence-tile .val { font-family:var(--font-mono);font-size:18px;font-weight:800;margin-top:4px; }
@@ -84,6 +85,11 @@
 <script src="js/outlier-detector.js"></script>
 <script src="js/trade-selectivity.js"></script>
 <script src="js/bayesian-dropout.js"></script>
+<script src="js/symbol-bias.js"></script>
+<script src="js/bootstrap-ensemble.js"></script>
+<script src="js/ensemble-agreement.js"></script>
+<script src="js/knn-recall.js"></script>
+<script src="js/unified-predictor.js"></script>
 <script>
 buildNav('brain-bet');
 
@@ -103,30 +109,25 @@ function rankOne(sym) {
   const features = FeatureExtractor.extract(finding);
   if (!features || features.length !== 22) return null;
 
-  let oodScore = 0;
-  if (typeof OutlierDetector !== 'undefined') {
-    const stats = OutlierDetector.featureStats();
-    if (stats && stats.ready) oodScore = OutlierDetector.oodScore(features);
-  }
-  if (oodScore > 0.5) return null;  // veto OOD
+  // Use UnifiedPredictor — single composed call returns model + ensemble +
+  // bootstrap + k-NN + calibration + bias + OOD-pull + uncertainty + agreement
+  // in one shot. This replaces ~30 lines of duplicated pipeline glue.
+  if (typeof UnifiedPredictor === 'undefined') return null;
+  const u = UnifiedPredictor.predict(sym, features);
+  if (!u) return null;
+  const c = u.components || {};
 
-  let rawProb;
-  if (typeof MultiHorizon !== 'undefined') rawProb = MultiHorizon.predictEnsemble(features).prob;
-  else rawProb = ModelStore.load().predict(features).prob;
+  // Veto on heavy OOD (input doesn't look like training distribution)
+  if ((c.oodScore || 0) > 0.5) return null;
 
-  let prob = rawProb;
-  if (typeof Calibrator !== 'undefined') {
-    const params = Calibrator._loadParams();
-    if (params) prob = Calibrator.calibrate(rawProb);
-  }
-  // OOD pull
-  if (oodScore > 0.3) prob = 0.5 + (prob - 0.5) * (1 - oodScore);
-
-  const conviction = Math.abs(prob - 0.5);
+  const prob = u.finalProb;
+  const rawProb = c.rawProb;
+  const oodScore = c.oodScore || 0;
+  const conviction = u.conviction;
   if (conviction < 0.10) return null;
 
   let atr = q.dayHigh && q.dayLow ? (q.dayHigh - q.dayLow) : q.last * 0.015;
-  const side = prob >= 0.5 ? 'long' : 'short';
+  const side = u.direction === 'LONG' ? 'long' : 'short';
   const entry = q.last;
   const stop = side === 'long' ? entry - 1.5 * atr : entry + 1.5 * atr;
   const target = side === 'long' ? entry + 3 * atr : entry - 3 * atr;
@@ -135,7 +136,7 @@ function rankOne(sym) {
   const rr = risk > 0 ? reward / risk : 0;
   if (rr < 1.5) return null;
 
-  return { sym, q, features, oodScore, prob, rawProb, conviction, side, entry, stop, target, risk, reward, rr, atr };
+  return { sym, q, features, oodScore, prob, rawProb, conviction, side, entry, stop, target, risk, reward, rr, atr, unified: u, components: c };
 }
 
 function render() {
@@ -171,19 +172,21 @@ function render() {
   candidates.sort((a, b) => b.conviction - a.conviction);
   const top = candidates[0];
 
-  // Bayesian uncertainty via MC Dropout — narrows position size when
-  // model isn't confident about its own prediction
-  let uncertainty = null;
-  let uncertSizeMult = 1.0;
-  let uncertCat = 'unknown';
-  if (typeof BayesianDropout !== 'undefined') {
-    const model = ModelStore.load();
-    uncertainty = BayesianDropout.predict(model, top.features);
-    uncertCat = BayesianDropout.categorize(uncertainty);
-    uncertSizeMult = BayesianDropout.sizeMultiplier(uncertainty);
-  }
+  // Uncertainty + size mult — both pre-computed by UnifiedPredictor (MC Dropout
+  // + ensemble agreement + bootstrap divergence + OOD all compound into one
+  // multiplier). No need to re-run anything here.
+  const cmp = top.components || {};
+  const uncertainty = (cmp.uncertaintyStd != null) ? {
+    std: cmp.uncertaintyStd, p5: cmp.uncertaintyP5, p95: cmp.uncertaintyP95
+  } : null;
+  const uncertCat = cmp.uncertaintyCategory || 'unknown';
+  // Combined multiplier from UnifiedPredictor includes dropout + agreement +
+  // OOD + bootstrap divergence. Falls back to dropout-only if not present.
+  const uncertSizeMult = (top.unified && top.unified.finalSizeMult != null)
+    ? top.unified.finalSizeMult
+    : 1.0;
 
-  // Position sizing: shares = riskDollars × uncertaintyMultiplier / risk-per-share
+  // Position sizing: shares = riskDollars × compound-uncertainty-multiplier / risk-per-share
   const adjustedRiskDollars = riskDollars * uncertSizeMult;
   const shares = Math.max(1, Math.floor(adjustedRiskDollars / top.risk));
   const positionValue = shares * top.entry;
@@ -219,8 +222,11 @@ function render() {
       + '<div class="evidence-tile"><div class="lbl">Expected value</div><div class="val" style="color:' + (expectedValue > 0 ? 'var(--green)' : 'var(--red)') + ';">' + (expectedValue >= 0 ? '+' : '-') + '$' + Math.abs(expectedValue).toFixed(0) + '</div></div>'
       + '<div class="evidence-tile"><div class="lbl">EV per share (R)</div><div class="val" style="color:' + (expectedR > 0 ? 'var(--green)' : 'var(--red)') + ';">' + (expectedR >= 0 ? '+' : '') + expectedR.toFixed(3) + 'R</div></div>'
       + '<div class="evidence-tile"><div class="lbl">OOD score</div><div class="val" style="color:' + (top.oodScore < 0.3 ? 'var(--green)' : top.oodScore < 0.5 ? 'var(--yellow)' : 'var(--red)') + ';">' + (top.oodScore * 100).toFixed(0) + '%</div></div>'
+      + '<div class="evidence-tile"><div class="lbl">Cross-method</div><div class="val" style="color:' + (cmp.agreementTier === 'STRONG' ? 'var(--green)' : cmp.agreementTier === 'MODERATE' ? 'var(--accent)' : cmp.agreementTier === 'MIXED' ? 'var(--yellow)' : 'var(--red)') + ';font-size:14px;">' + (cmp.agreementTier || '—') + '</div></div>'
       + '<div class="evidence-tile"><div class="lbl">Selectivity</div><div class="val">' + (selectivity ? selectivity.score : '—') + '/100</div></div>'
     + '</div>'
+
+    + (top.unified && top.unified.narrative ? '<div style="background:var(--bg-elevated);border:1px solid var(--border);border-radius:10px;padding:14px 18px;margin-bottom:24px;font-size:12px;color:var(--text-secondary);font-family:var(--font-mono);line-height:1.7;">📚 <strong style="color:var(--accent);">Pipeline:</strong> ' + top.unified.narrative + '</div>' : '')
 
     + '<div style="text-align:center;font-size:13px;color:var(--text-secondary);line-height:1.7;margin-bottom:24px;">'
       + (expectedValue > 0
