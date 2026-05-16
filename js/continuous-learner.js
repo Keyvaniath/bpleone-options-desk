@@ -282,6 +282,13 @@
               RegimeCalibrator.recordPair(entry.predProb, label, entry.regime);
             }
           } catch (e) {}
+          // ISOTONIC CALIBRATION: non-parametric alternative to Platt.
+          // Records pairs; auto-fit loop refits periodically.
+          try {
+            if (typeof IsotonicCalibrator !== 'undefined') {
+              IsotonicCalibrator.recordPair(entry.predProb, label);
+            }
+          } catch (e) {}
           // SYMBOL BIAS: feed per-symbol bias term so the shared model can
           // learn symbol-specific quirks on top of general features.
           try {

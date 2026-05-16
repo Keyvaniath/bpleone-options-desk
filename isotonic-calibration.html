@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Isotonic Calibration — bpleone / brain</title>
+<meta name="description" content="Non-parametric probability calibration via Pool Adjacent Violators. More flexible than Platt scaling.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.status-card { padding:32px;border-radius:16px;text-align:center; }
+.status-card.fitted { background:linear-gradient(135deg,rgba(16,185,129,0.10),rgba(16,185,129,0.02));border:2px solid rgba(16,185,129,0.4); }
+.status-card.warm { background:linear-gradient(135deg,rgba(245,158,11,0.10),rgba(245,158,11,0.02));border:2px solid rgba(245,158,11,0.4); }
+.status-card .big { font-family:var(--font-mono);font-size:64px;font-weight:900;line-height:1; }
+.tile { padding:18px;background:var(--bg-elevated);border-radius:10px; }
+.tile .lbl { font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;font-weight:700; }
+.tile .val { font-family:var(--font-mono);font-size:22px;font-weight:800;margin-top:6px;color:var(--accent); }
+.bin-table { width:100%;font-family:var(--font-mono);font-size:12px;border-collapse:collapse; }
+.bin-table th, .bin-table td { padding:8px 12px;text-align:left;border-bottom:1px solid var(--border); }
+.bin-table th { font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px; }
+.bin-table td.num { text-align:right;font-weight:700; }
+.demo-input { padding:10px 14px;background:var(--bg-elevated);border:1px solid var(--border);color:var(--text-primary);border-radius:8px;font-family:var(--font-mono);font-size:14px;font-weight:700;width:130px;text-align:right; }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">📐 Isotonic Calibration</div>
+      <div class="page-subtitle">Non-parametric probability calibration · Pool Adjacent Violators · more flexible than Platt</div>
+    </div>
+  </div>
+
+  <div id="status-card" class="mb-24"></div>
+
+  <div class="grid grid-3 mb-24" id="metrics-grid"></div>
+
+  <div class="card mb-24">
+    <div class="card-header"><div class="card-title">🧪 Try it</div></div>
+    <div style="font-size:13px;color:var(--text-secondary);text-align:center;margin-bottom:14px;">Enter a raw probability and see what the isotonic calibration maps it to:</div>
+    <div style="display:flex;gap:14px;justify-content:center;align-items:end;">
+      <label style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;font-weight:700;display:flex;flex-direction:column;gap:4px;">Raw probability<input id="raw-input" type="number" class="demo-input" step="0.05" min="0" max="1" value="0.65"></label>
+      <button onclick="renderDemo()" style="padding:10px 22px;background:var(--accent);color:#000;border:none;border-radius:8px;font-weight:700;cursor:pointer;font-size:14px;">Calibrate</button>
+    </div>
+    <div id="demo-result" style="text-align:center;font-size:28px;font-weight:800;font-family:var(--font-mono);color:var(--accent);margin-top:18px;"></div>
+  </div>
+
+  <div class="card mb-24">
+    <div class="card-header"><div class="card-title">📊 Fitted bins</div></div>
+    <div style="font-size:13px;color:var(--text-secondary);margin-bottom:12px;">The PAV algorithm produced these monotone bins from the (predicted, actual) pairs:</div>
+    <div id="bin-list"></div>
+  </div>
+
+  <div class="card">
+    <div class="card-header"><div class="card-title">📚 PAV explained</div></div>
+    <div style="font-size:13px;color:var(--text-secondary);line-height:1.7;">
+      Platt scaling fits a sigmoid. But the true calibration curve may be bumpy or have flat regions — sigmoid can't capture that. <strong>Isotonic regression</strong> is non-parametric: it fits an arbitrary monotone step function via the Pool Adjacent Violators algorithm:<br><br>
+      <ol style="margin:8px 0 8px 24px;">
+        <li>Sort (raw, actual) pairs by raw probability ascending</li>
+        <li>Start each pair as its own block with weight=1</li>
+        <li>Walk left-to-right. If a block's average y violates the monotone constraint (greater y than next block), merge it with its neighbor and recurse left</li>
+        <li>The result is a piecewise-constant, monotone non-decreasing function</li>
+      </ol>
+      <strong>Trade-offs vs Platt:</strong> isotonic is more flexible (better fit when the data isn't sigmoidal) but needs more samples to avoid overfitting individual outliers. Use Platt for &lt;100 calibration pairs, isotonic for &gt;500.<br><br>
+      <strong>Where it fits:</strong> the unified predictor currently uses Platt (global) → regime-Platt (per-regime). Isotonic is a third option you can wire in if Platt's coverage diverges from target.
+    </div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script src="js/isotonic-calibrator.js"></script>
+<script>
+buildNav('isotonic-calibration');
+
+function fmt(n, d) { return n != null ? n.toFixed(d != null ? d : 4) : '—'; }
+function fmtPct(p) { return p != null ? (p * 100).toFixed(1) + '%' : '—'; }
+
+function render() {
+  const s = IsotonicCalibrator.stats();
+  const card = document.getElementById('status-card');
+  if (!s.fitted) {
+    card.innerHTML = '<div class="status-card warm">'
+      + '<div class="big" style="color:var(--yellow);">' + s.n + '/' + s.minToFit + '</div>'
+      + '<div style="font-size:18px;font-weight:700;color:var(--text-primary);margin-top:14px;">Calibration pool filling</div>'
+      + '<div style="font-size:13px;color:var(--text-secondary);margin-top:8px;">Need ' + Math.max(0, s.minToFit - s.n) + ' more pairs before first fit.</div>'
+      + '<button onclick="manualFit()" style="margin-top:14px;padding:8px 18px;background:var(--accent);color:#000;border:none;border-radius:6px;font-weight:700;cursor:pointer;font-size:13px;">Try fit now</button>'
+      + '</div>';
+  } else {
+    card.innerHTML = '<div class="status-card fitted">'
+      + '<div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:1px;font-weight:700;">Fitted bins</div>'
+      + '<div class="big" style="color:var(--green);margin-top:8px;">' + s.nBins + '</div>'
+      + '<div style="font-size:14px;color:var(--text-secondary);margin-top:14px;">From ' + s.n + ' calibration pairs · fitted ' + (s.fittedAt ? new Date(s.fittedAt).toLocaleTimeString() : '?') + '</div>'
+      + '<button onclick="manualFit()" style="margin-top:14px;padding:8px 18px;background:var(--bg-elevated);color:var(--text-primary);border:1px solid var(--border);border-radius:6px;font-weight:700;cursor:pointer;font-size:13px;">Refit</button>'
+      + '</div>';
+  }
+
+  document.getElementById('metrics-grid').innerHTML = ''
+    + '<div class="tile"><div class="lbl">Pool size</div><div class="val">' + s.n + '</div></div>'
+    + '<div class="tile"><div class="lbl">Bins</div><div class="val">' + s.nBins + '</div></div>'
+    + '<div class="tile"><div class="lbl">Min to fit</div><div class="val">' + s.minToFit + '</div></div>';
+
+  const bins = IsotonicCalibrator.getBins();
+  const wrap = document.getElementById('bin-list');
+  if (bins.length === 0) {
+    wrap.innerHTML = '<div style="text-align:center;color:var(--text-muted);font-size:13px;padding:12px;">No bins yet.</div>';
+  } else {
+    let html = '<table class="bin-table"><thead><tr><th>Bin #</th><th>Raw range</th><th>Calibrated</th><th>Sample weight</th></tr></thead><tbody>';
+    bins.forEach((b, i) => {
+      html += '<tr><td>' + (i + 1) + '</td>'
+        + '<td>[' + fmtPct(b.xMin) + ', ' + fmtPct(b.xMax) + ']</td>'
+        + '<td class="num" style="color:var(--accent);">' + fmtPct(b.y) + '</td>'
+        + '<td class="num">' + b.w + '</td></tr>';
+    });
+    html += '</tbody></table>';
+    wrap.innerHTML = html;
+  }
+
+  renderDemo();
+}
+
+function renderDemo() {
+  const raw = parseFloat(document.getElementById('raw-input').value);
+  if (isNaN(raw) || raw < 0 || raw > 1) return;
+  const cal = IsotonicCalibrator.calibrate(raw);
+  document.getElementById('demo-result').innerHTML = fmtPct(raw) + ' → <span style="color:var(--green);">' + fmtPct(cal) + '</span>';
+}
+
+function manualFit() {
+  const r = IsotonicCalibrator.fit();
+  alert(r.fitted ? 'Fit OK — ' + r.nBins + ' bins from ' + r.n + ' pairs.' : 'Need ' + (IsotonicCalibrator.MIN_PAIRS_TO_FIT - r.n) + ' more pairs.');
+  render();
+}
+
+document.getElementById('raw-input').addEventListener('input', renderDemo);
+render();
+setInterval(render, 12000);
+window.addEventListener('bpleone:continuous-cycle', render);
+</script>
+</body>
+</html>

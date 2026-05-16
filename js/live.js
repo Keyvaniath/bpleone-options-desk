@@ -601,6 +601,15 @@ document.addEventListener('DOMContentLoaded', () => {
         s.async = false;
         document.head.appendChild(s);
       }
+      // Isotonic calibrator: non-parametric calibration via Pool Adjacent
+      // Violators. Complements Platt and regime-Platt with a more flexible
+      // monotonic mapping.
+      if (!document.querySelector('script[src*="isotonic-calibrator.js"]')) {
+        const s = document.createElement('script');
+        s.src = 'js/isotonic-calibrator.js';
+        s.async = false;
+        document.head.appendChild(s);
+      }
       // Unified predictor: chains every meta-module into ONE call.
       // Loads last so all dependencies are present.
       if (!document.querySelector('script[src*="unified-predictor.js"]')) {
