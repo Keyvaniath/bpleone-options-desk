@@ -23,52 +23,55 @@ const Feed = (() => {
 
 // ----- Quote model -----
 // { symbol, last, bid, ask, change, changePct, volume, ts }
+// Seed values updated 2026-05-15. These are placeholders only — the data-provider
+// Stooq fallback overrides them with real prices on page load. Treat anything
+// you see here without a live provider attached as fictional.
 const QUOTES = {
-  SPY:  { symbol: 'SPY',  last: 562.18, prevClose: 557.05, volume: 38_400_000 },
-  QQQ:  { symbol: 'QQQ',  last: 487.32, prevClose: 481.92, volume: 27_800_000 },
-  IWM:  { symbol: 'IWM',  last: 218.45, prevClose: 219.15, volume: 18_200_000 },
-  DIA:  { symbol: 'DIA',  last: 419.07, prevClose: 417.36, volume: 4_100_000 },
-  AAPL: { symbol: 'AAPL', last: 218.94, prevClose: 215.00, volume: 42_500_000 },
-  NVDA: { symbol: 'NVDA', last: 138.27, prevClose: 133.96, volume: 248_400_000 },
-  TSLA: { symbol: 'TSLA', last: 248.61, prevClose: 254.15, volume: 88_200_000 },
-  MSFT: { symbol: 'MSFT', last: 425.18, prevClose: 421.27, volume: 18_700_000 },
-  META: { symbol: 'META', last: 587.42, prevClose: 577.78, volume: 14_800_000 },
-  AMZN: { symbol: 'AMZN', last: 213.55, prevClose: 211.69, volume: 32_400_000 },
-  GOOGL:{ symbol: 'GOOGL',last: 178.32, prevClose: 179.07, volume: 28_900_000 },
-  AMD:  { symbol: 'AMD',  last: 162.18, prevClose: 158.46, volume: 58_400_000 },
-  BTC:  { symbol: 'BTC',  last: 71284.50, prevClose: 69314.50, volume: 12_400_000 },
-  ETH:  { symbol: 'ETH',  last: 3842.18, prevClose: 3770.18, volume: 8_200_000 },
-  VIX:  { symbol: 'VIX',  last: 14.82, prevClose: 15.29, volume: 0 },
-  GLD:  { symbol: 'GLD',  last: 248.91, prevClose: 247.55, volume: 6_100_000 },
-  TLT:  { symbol: 'TLT',  last: 92.18,  prevClose: 92.44, volume: 18_400_000 },
-  USO:  { symbol: 'USO',  last: 78.42,  prevClose: 77.51, volume: 4_200_000 },
-  SMCI: { symbol: 'SMCI', last: 48.21,  prevClose: 44.46, volume: 28_400_000 },
-  PLTR: { symbol: 'PLTR', last: 31.84,  prevClose: 29.98, volume: 38_500_000 },
-  COIN: { symbol: 'COIN', last: 248.92, prevClose: 236.59, volume: 14_200_000 },
-  MARA: { symbol: 'MARA', last: 18.42,  prevClose: 19.35, volume: 18_400_000 },
-  RIVN: { symbol: 'RIVN', last: 12.18,  prevClose: 12.68, volume: 22_400_000 },
-  XLE:  { symbol: 'XLE',  last: 94.20,  prevClose: 95.38, volume: 12_400_000 },
-  BABA: { symbol: 'BABA', last: 88.42,  prevClose: 85.50, volume: 14_200_000 },
-  SHOP: { symbol: 'SHOP', last: 68.50,  prevClose: 67.04, volume: 8_400_000 },
-  CRM:  { symbol: 'CRM',  last: 278.40, prevClose: 275.84, volume: 5_200_000 },
-  UBER: { symbol: 'UBER', last: 68.20,  prevClose: 67.42, volume: 12_400_000 },
-  SLV:  { symbol: 'SLV',  last: 30.42,  prevClose: 30.01, volume: 14_800_000 },
-  UNG:  { symbol: 'UNG',  last: 14.85,  prevClose: 15.12, volume: 6_400_000 },
-  DBA:  { symbol: 'DBA',  last: 25.18,  prevClose: 25.06, volume: 800_000 },
+  SPY:  { symbol: 'SPY',  last: 619.40, prevClose: 615.12, volume: 38_400_000 },
+  QQQ:  { symbol: 'QQQ',  last: 558.20, prevClose: 552.10, volume: 27_800_000 },
+  IWM:  { symbol: 'IWM',  last: 232.85, prevClose: 231.40, volume: 18_200_000 },
+  DIA:  { symbol: 'DIA',  last: 452.10, prevClose: 449.85, volume: 4_100_000 },
+  AAPL: { symbol: 'AAPL', last: 248.30, prevClose: 245.80, volume: 42_500_000 },
+  NVDA: { symbol: 'NVDA', last: 178.45, prevClose: 174.20, volume: 248_400_000 },
+  TSLA: { symbol: 'TSLA', last: 312.60, prevClose: 308.45, volume: 88_200_000 },
+  MSFT: { symbol: 'MSFT', last: 482.30, prevClose: 478.90, volume: 18_700_000 },
+  META: { symbol: 'META', last: 645.20, prevClose: 638.40, volume: 14_800_000 },
+  AMZN: { symbol: 'AMZN', last: 238.75, prevClose: 235.60, volume: 32_400_000 },
+  GOOGL:{ symbol: 'GOOGL',last: 205.40, prevClose: 203.15, volume: 28_900_000 },
+  AMD:  { symbol: 'AMD',  last: 188.20, prevClose: 184.60, volume: 58_400_000 },
+  BTC:  { symbol: 'BTC',  last: 96420.00, prevClose: 95180.00, volume: 12_400_000 },
+  ETH:  { symbol: 'ETH',  last: 4280.50, prevClose: 4215.30, volume: 8_200_000 },
+  VIX:  { symbol: 'VIX',  last: 15.20, prevClose: 15.65, volume: 0 },
+  GLD:  { symbol: 'GLD',  last: 292.40, prevClose: 290.80, volume: 6_100_000 },
+  TLT:  { symbol: 'TLT',  last: 89.20,  prevClose: 89.45, volume: 18_400_000 },
+  USO:  { symbol: 'USO',  last: 74.60,  prevClose: 73.80, volume: 4_200_000 },
+  SMCI: { symbol: 'SMCI', last: 51.40,  prevClose: 50.20, volume: 28_400_000 },
+  PLTR: { symbol: 'PLTR', last: 36.80,  prevClose: 35.95, volume: 38_500_000 },
+  COIN: { symbol: 'COIN', last: 285.40, prevClose: 281.20, volume: 14_200_000 },
+  MARA: { symbol: 'MARA', last: 21.40,  prevClose: 21.10, volume: 18_400_000 },
+  RIVN: { symbol: 'RIVN', last: 13.80,  prevClose: 13.60, volume: 22_400_000 },
+  XLE:  { symbol: 'XLE',  last: 91.40,  prevClose: 92.10, volume: 12_400_000 },
+  BABA: { symbol: 'BABA', last: 124.60, prevClose: 122.40, volume: 14_200_000 },
+  SHOP: { symbol: 'SHOP', last: 112.40, prevClose: 110.80, volume: 8_400_000 },
+  CRM:  { symbol: 'CRM',  last: 295.40, prevClose: 293.20, volume: 5_200_000 },
+  UBER: { symbol: 'UBER', last: 82.40,  prevClose: 81.60, volume: 12_400_000 },
+  SLV:  { symbol: 'SLV',  last: 34.20,  prevClose: 33.85, volume: 14_800_000 },
+  UNG:  { symbol: 'UNG',  last: 16.40,  prevClose: 16.65, volume: 6_400_000 },
+  DBA:  { symbol: 'DBA',  last: 27.40,  prevClose: 27.20, volume: 800_000 },
   // --- International indices ---
-  FXI:  { symbol: 'FXI',  last: 32.18,  prevClose: 31.95, volume: 24_500_000 },     // China large-cap
-  MCHI: { symbol: 'MCHI', last: 58.42,  prevClose: 58.10, volume: 4_200_000 },      // MSCI China
-  EWJ:  { symbol: 'EWJ',  last: 78.21,  prevClose: 77.94, volume: 8_100_000 },      // Japan
-  EWG:  { symbol: 'EWG',  last: 38.45,  prevClose: 38.27, volume: 2_400_000 },      // Germany
-  EWU:  { symbol: 'EWU',  last: 38.92,  prevClose: 38.74, volume: 1_800_000 },      // UK
-  INDA: { symbol: 'INDA', last: 56.41,  prevClose: 56.18, volume: 4_500_000 },      // India
-  EWZ:  { symbol: 'EWZ',  last: 24.85,  prevClose: 24.62, volume: 18_400_000 },     // Brazil
-  EWY:  { symbol: 'EWY',  last: 64.18,  prevClose: 63.92, volume: 3_200_000 },      // South Korea
-  EWT:  { symbol: 'EWT',  last: 52.61,  prevClose: 52.14, volume: 6_400_000 },      // Taiwan
-  EEM:  { symbol: 'EEM',  last: 45.82,  prevClose: 45.51, volume: 38_400_000 },     // Emerging
-  EFA:  { symbol: 'EFA',  last: 84.21,  prevClose: 83.87, volume: 12_400_000 },     // Developed ex-US
-  VEA:  { symbol: 'VEA',  last: 56.18,  prevClose: 55.94, volume: 11_200_000 },     // Vanguard developed
-  VWO:  { symbol: 'VWO',  last: 48.92,  prevClose: 48.67, volume: 8_400_000 },      // Vanguard emerging
+  FXI:  { symbol: 'FXI',  last: 38.20,  prevClose: 37.85, volume: 24_500_000 },     // China large-cap
+  MCHI: { symbol: 'MCHI', last: 35.40,  prevClose: 35.10, volume: 4_200_000 },      // MSCI China (Brandon flagged the old $58 seed)
+  EWJ:  { symbol: 'EWJ',  last: 82.40,  prevClose: 81.95, volume: 8_100_000 },      // Japan
+  EWG:  { symbol: 'EWG',  last: 41.20,  prevClose: 41.00, volume: 2_400_000 },      // Germany
+  EWU:  { symbol: 'EWU',  last: 41.60,  prevClose: 41.40, volume: 1_800_000 },      // UK
+  INDA: { symbol: 'INDA', last: 62.40,  prevClose: 62.10, volume: 4_500_000 },      // India
+  EWZ:  { symbol: 'EWZ',  last: 27.20,  prevClose: 26.95, volume: 18_400_000 },     // Brazil
+  EWY:  { symbol: 'EWY',  last: 70.40,  prevClose: 70.10, volume: 3_200_000 },      // South Korea
+  EWT:  { symbol: 'EWT',  last: 57.40,  prevClose: 57.00, volume: 6_400_000 },      // Taiwan
+  EEM:  { symbol: 'EEM',  last: 49.40,  prevClose: 49.10, volume: 38_400_000 },     // Emerging
+  EFA:  { symbol: 'EFA',  last: 92.40,  prevClose: 92.10, volume: 12_400_000 },     // Developed ex-US
+  VEA:  { symbol: 'VEA',  last: 61.40,  prevClose: 61.20, volume: 11_200_000 },     // Vanguard developed
+  VWO:  { symbol: 'VWO',  last: 53.40,  prevClose: 53.15, volume: 8_400_000 },      // Vanguard emerging
   // --- Forex proxies ---
   UUP:  { symbol: 'UUP',  last: 28.92,  prevClose: 29.04, volume: 4_200_000 },      // Dollar bullish
   FXE:  { symbol: 'FXE',  last: 100.42, prevClose: 100.18, volume: 320_000 },       // Euro
@@ -318,6 +321,19 @@ function strategyPayoff(legs, sRange) {
   });
 }
 
+// ----- Data-mode tracking -----
+// Critical: tells the brain whether prices are real or synthetic.
+// Mock = OU random-walk drift from a (possibly stale) seed.
+// Live = real ticks from a configured data provider.
+// The ML trainer SKIPS findings tagged as mock to avoid poisoning the model.
+window.BPLEONE_DATA_MODE = 'mock';
+window.BPLEONE_DATA_SEEDED_AT = '2026-05-15';  // seed date for the QUOTES table — anything older is stale
+
+function setDataMode(mode) {
+  window.BPLEONE_DATA_MODE = mode;
+  try { window.dispatchEvent(new CustomEvent('bpleone:data-mode', { detail: { mode } })); } catch (e) {}
+}
+
 // ----- Auto-start when ready -----
 // If DataProvider is configured with a real provider, it will pause the mock
 // engine and stream real quotes. Otherwise the OU random walk drives the site.
@@ -330,5 +346,6 @@ document.addEventListener('DOMContentLoaded', () => {
       useMock = r && r.useMock !== false;
     } catch (e) { useMock = true; }
   }
+  setDataMode(useMock ? 'mock' : 'live');
   if (useMock) startLive(1500);
 });

@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Data Truth — bpleone / trade</title>
+<meta name="description" content="Audit data sources, quarantine mock-trained data, and wire real prices so the brain doesn't learn fake patterns.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.alert-big { padding:28px;border-radius:14px;margin-bottom:24px; }
+.alert-big.bad { background:linear-gradient(135deg,rgba(239,68,68,0.12),rgba(220,38,38,0.06));border:2px solid rgba(239,68,68,0.4); }
+.alert-big.good { background:linear-gradient(135deg,rgba(16,185,129,0.1),transparent);border:2px solid rgba(16,185,129,0.4); }
+.alert-big h2 { font-size:22px;font-weight:800;margin-bottom:10px;display:flex;align-items:center;gap:10px; }
+.alert-big p { font-size:14px;line-height:1.7;color:var(--text-secondary); }
+.fix-step { padding:18px;background:var(--bg-elevated);border-radius:10px;margin-bottom:10px;display:grid;grid-template-columns:48px 1fr;gap:18px;align-items:flex-start; }
+.fix-step .num { width:36px;height:36px;border-radius:50%;background:rgba(0,212,255,0.15);color:var(--accent);display:flex;align-items:center;justify-content:center;font-weight:800;font-family:var(--font-mono); }
+.fix-step h4 { font-size:14px;font-weight:700;margin-bottom:6px; }
+.fix-step p { font-size:12px;color:var(--text-secondary);line-height:1.6; }
+.stat-tile { padding:18px;background:var(--bg-elevated);border-radius:10px;text-align:center; }
+.stat-tile .lbl { font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px; }
+.stat-tile .val { font-family:var(--font-mono);font-size:28px;font-weight:800;margin-top:6px; }
+.quote-row { display:grid;grid-template-columns:80px 100px 100px 100px 80px 1fr;gap:14px;padding:9px 0;border-bottom:1px solid var(--border);font-size:12px;align-items:center; }
+.quote-row.hdr { font-size:9px;color:var(--text-muted);font-weight:800;letter-spacing:0.5px; }
+.quote-row input { width:100%;padding:6px 10px;background:var(--bg);border:1px solid var(--border);color:var(--text-primary);border-radius:5px;font-family:var(--font-mono);font-size:11px;text-align:right; }
+.danger-btn { background:#dc2626;color:#fff;border:none;padding:10px 18px;border-radius:8px;font-weight:700;cursor:pointer;font-size:13px; }
+.danger-btn:hover { background:#b91c1c; }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">🔍 Data Truth</div>
+      <div class="page-subtitle">Audit data sources · quarantine bad training data · wire real prices · <span id="market-clock">--</span></div>
+    </div>
+    <div class="flex gap-8">
+      <button class="btn btn-ghost" id="refreshBtn">↻ Refresh</button>
+    </div>
+  </div>
+
+  <div id="alert"></div>
+
+  <div class="grid grid-4 mb-24">
+    <div class="stat-tile"><div class="lbl">Current data mode</div><div class="val" id="mode">--</div></div>
+    <div class="stat-tile"><div class="lbl">Findings (mock)</div><div class="val" style="color:var(--red);" id="findMock">--</div></div>
+    <div class="stat-tile"><div class="lbl">Findings (live)</div><div class="val" style="color:var(--green);" id="findLive">--</div></div>
+    <div class="stat-tile"><div class="lbl">Training rows (mock)</div><div class="val" style="color:var(--red);" id="trainMock">--</div></div>
+  </div>
+
+  <div class="card mb-24">
+    <div class="card-header"><div class="card-title">🛠 The fix: 4 steps</div></div>
+    <div class="fix-step">
+      <div class="num">1</div>
+      <div>
+        <h4>Quarantine contaminated training data</h4>
+        <p>Every existing training row was generated from synthetic mock prices. The brain has been training on fake patterns. Quarantine them (move to a separate keyspace) so the brain forgets. Your model will reset to default weights.</p>
+        <div style="margin-top:10px;display:flex;gap:8px;">
+          <button class="danger-btn" id="quarantineBtn">🛑 Quarantine all mock training data</button>
+          <button class="btn btn-ghost" id="restoreBtn">↶ Restore from quarantine</button>
+        </div>
+      </div>
+    </div>
+    <div class="fix-step">
+      <div class="num">2</div>
+      <div>
+        <h4>Wire a real price feed</h4>
+        <p>The site supports Finnhub (free tier, real-time US stocks), Polygon, Tradier, and Alpaca. Open Settings, pick a provider, paste your API key. <strong>Finnhub free</strong> is the easiest start — 60 calls/min and real US trades.</p>
+        <div style="margin-top:10px;display:flex;gap:8px;">
+          <a href="settings.html" class="btn btn-primary">⚙ Open Settings</a>
+          <a href="live-data-setup.html" class="btn btn-ghost">📖 Step-by-step guide</a>
+        </div>
+      </div>
+    </div>
+    <div class="fix-step">
+      <div class="num">3</div>
+      <div>
+        <h4>Verify the demo banner disappears</h4>
+        <p>Once a real feed is connected, the red DEMO MODE banner at the top of every page will turn off automatically. <code>window.BPLEONE_DATA_MODE</code> flips from <code>'mock'</code> to <code>'live'</code>. From that point forward, every brain finding is tagged <code>dataSource: 'live'</code> and is eligible for training.</p>
+      </div>
+    </div>
+    <div class="fix-step">
+      <div class="num">4</div>
+      <div>
+        <h4>Re-seed the brain with real outcomes</h4>
+        <p>Resolve some trades with real prices in <a href="trade-journal-pro.html" style="color:var(--accent);">Journal PRO</a> or let <a href="auto-paper.html" style="color:var(--accent);">Autopilot</a> run for a few days against the live feed. After ~20 real labeled trades, the brain has a fresh, honest training set.</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="card mb-24">
+    <div class="card-header">
+      <div class="card-title">🎯 Reality check — override mock prices manually</div>
+      <button class="btn btn-primary" id="applyOverridesBtn">💾 Apply overrides</button>
+    </div>
+    <div style="font-size:12px;color:var(--text-secondary);line-height:1.6;margin-bottom:14px;">
+      Paste current prices for the symbols you care about. The mock engine will use these as seeds and stop drifting. Useful for testing without a real feed.
+    </div>
+    <div class="quote-row hdr">
+      <div>SYMBOL</div><div>MOCK PRICE</div><div>YOUR PRICE</div><div>DELTA</div><div></div><div>NOTE</div>
+    </div>
+    <div id="quotesList"></div>
+  </div>
+
+  <div class="card mb-24">
+    <div class="card-header"><div class="card-title">💀 Danger zone</div></div>
+    <div style="font-size:12px;color:var(--text-secondary);line-height:1.6;margin-bottom:14px;">
+      Nuclear options. Use when the brain is so corrupted you want a clean slate.
+    </div>
+    <div style="display:flex;gap:10px;flex-wrap:wrap;">
+      <button class="danger-btn" id="wipeFindings">🗑 Wipe all findings</button>
+      <button class="danger-btn" id="wipeTraining">🗑 Wipe all training data</button>
+      <button class="danger-btn" id="wipeModel">🗑 Reset model weights to default</button>
+      <button class="danger-btn" id="wipeEverything">☠ Wipe everything (full reset)</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-header"><div class="card-title">📋 Why this matters</div></div>
+    <div style="font-size:13px;color:var(--text-secondary);line-height:1.7;">
+      The whole point of a self-learning brain is to find real patterns. If it trains on simulated random-walk prices, it learns the structure of the simulator — not the structure of the actual market. Predictions will look confident but be meaningless.
+      <br><br>
+      Symptoms you've been training on bad data:<br>
+      • Brain confidence is high (70%+) but real outcomes are random.<br>
+      • Per-symbol weights drift to extremes — every ticker becomes "1.5x" or "0.5x".<br>
+      • Feature weights have flipped sign multiple times.<br>
+      • Hit rate on real trades doesn't match what the brain claimed.<br>
+      <br>
+      The fix is to start fresh with real data. The Data Truth audit is your way to do that without losing all the platform infrastructure.
+    </div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script src="js/model.js"></script>
+<script>
+buildNav('data-truth');
+
+function audit() {
+  const mode = window.BPLEONE_DATA_MODE || 'mock';
+  let findings = [];
+  try { findings = JSON.parse(localStorage.getItem('bpleone_brain_findings_v1') || '{"items":[]}').items; } catch(e) {}
+  let train = [];
+  try { train = JSON.parse(localStorage.getItem('bpleone_train_v1') || '[]'); } catch(e) {}
+
+  const findMock = findings.filter(f => (f.dataSource || 'mock') !== 'live').length;
+  const findLive = findings.filter(f => f.dataSource === 'live').length;
+  const trainMock = train.filter(t => (t.meta?.dataSource || t.dataSource || 'mock') !== 'live').length;
+  const trainLive = train.filter(t => (t.meta?.dataSource || t.dataSource) === 'live').length;
+
+  document.getElementById('mode').textContent = mode.toUpperCase();
+  document.getElementById('mode').style.color = mode === 'live' ? 'var(--green)' : 'var(--red)';
+  document.getElementById('findMock').textContent = findMock;
+  document.getElementById('findLive').textContent = findLive;
+  document.getElementById('trainMock').textContent = trainMock;
+
+  const alert = document.getElementById('alert');
+  if (mode === 'live' && trainMock === 0) {
+    alert.innerHTML = '<div class="alert-big good"><h2>✅ Brain is clean</h2><p>You\'re on a live data feed and no contaminated training rows are in the dataset. The brain is learning from real prices.</p></div>';
+  } else if (mode === 'live') {
+    alert.innerHTML = '<div class="alert-big bad"><h2>⚠ Live data — but old training rows still in dataset</h2><p>You\'re now on a live feed, but ' + trainMock + ' training rows came from synthetic prices and may be biasing the model. Recommend quarantining them.</p></div>';
+  } else {
+    alert.innerHTML = '<div class="alert-big bad"><h2>🚨 Currently using simulated data</h2><p>Prices shown across the site are <strong>not real</strong>. They\'re drifting from a stale (' + (window.BPLEONE_DATA_SEEDED_AT || '?') + ') seed via random walk. The ML trainer is correctly <strong>refusing to train on these</strong>, but every chart, watchlist value, signal, and TOTD pick is fictional. <strong>Do not trade off this data.</strong></p></div>';
+  }
+
+  // Quote list
+  const wrap = document.getElementById('quotesList');
+  if (typeof QUOTES !== 'undefined') {
+    wrap.innerHTML = Object.values(QUOTES).slice(0, 25).map(q => {
+      return '<div class="quote-row">'
+        + '<div style="font-weight:700;font-family:var(--font-mono);">' + q.symbol + '</div>'
+        + '<div style="font-family:var(--font-mono);color:var(--text-muted);">$' + (q.last || 0).toFixed(2) + '</div>'
+        + '<div><input type="number" step="0.01" data-sym="' + q.symbol + '" placeholder="real $" /></div>'
+        + '<div class="delta" data-sym="' + q.symbol + '" style="font-family:var(--font-mono);color:var(--text-muted);">—</div>'
+        + '<div></div>'
+        + '<div style="font-size:10px;color:var(--text-muted);">seed: ' + (window.BPLEONE_DATA_SEEDED_AT || '?') + '</div>'
+        + '</div>';
+    }).join('');
+    wrap.querySelectorAll('input[data-sym]').forEach(inp => inp.addEventListener('input', () => {
+      const v = parseFloat(inp.value);
+      const sym = inp.dataset.sym;
+      const cur = QUOTES[sym].last;
+      const deltaEl = wrap.querySelector('.delta[data-sym="' + sym + '"]');
+      if (isNaN(v) || !cur) { deltaEl.textContent = '—'; deltaEl.style.color = 'var(--text-muted)'; return; }
+      const delta = ((v - cur) / cur) * 100;
+      deltaEl.textContent = (delta >= 0 ? '+' : '') + delta.toFixed(1) + '%';
+      deltaEl.style.color = Math.abs(delta) > 10 ? 'var(--red)' : Math.abs(delta) > 3 ? 'var(--yellow)' : 'var(--green)';
+    }));
+  }
+}
+
+document.getElementById('refreshBtn').addEventListener('click', audit);
+
+document.getElementById('quarantineBtn').addEventListener('click', () => {
+  if (!confirm('Move all current training data into quarantine? The brain will lose every pattern it learned from mock prices.\n\nYou can restore the quarantine if needed.')) return;
+  try {
+    const train = JSON.parse(localStorage.getItem('bpleone_train_v1') || '[]');
+    const existing = JSON.parse(localStorage.getItem('bpleone_train_quarantine_v1') || '[]');
+    localStorage.setItem('bpleone_train_quarantine_v1', JSON.stringify([...train, ...existing]));
+    localStorage.setItem('bpleone_train_v1', '[]');
+    alert('✓ Quarantined ' + train.length + ' rows. The brain is now blank. Run a real trade and resolve it to start fresh learning.');
+    audit();
+  } catch(e) { alert('Quarantine failed: ' + e.message); }
+});
+
+document.getElementById('restoreBtn').addEventListener('click', () => {
+  try {
+    const q = JSON.parse(localStorage.getItem('bpleone_train_quarantine_v1') || '[]');
+    if (!q.length) { alert('Nothing in quarantine.'); return; }
+    if (!confirm('Restore ' + q.length + ' rows from quarantine back into the brain?')) return;
+    const cur = JSON.parse(localStorage.getItem('bpleone_train_v1') || '[]');
+    localStorage.setItem('bpleone_train_v1', JSON.stringify([...q, ...cur]));
+    localStorage.removeItem('bpleone_train_quarantine_v1');
+    alert('✓ Restored ' + q.length + ' rows.');
+    audit();
+  } catch(e) { alert('Restore failed: ' + e.message); }
+});
+
+document.getElementById('applyOverridesBtn').addEventListener('click', () => {
+  let n = 0;
+  document.querySelectorAll('input[data-sym]').forEach(inp => {
+    const v = parseFloat(inp.value);
+    if (!isNaN(v) && QUOTES[inp.dataset.sym]) {
+      const q = QUOTES[inp.dataset.sym];
+      q.prevClose = q.last;
+      q.last = v;
+      n++;
+      try { if (typeof Feed !== 'undefined') Feed.publish(inp.dataset.sym, q); } catch(e) {}
+    }
+  });
+  alert(n > 0 ? '✓ Overrode ' + n + ' prices. Mock engine will use these as new seeds.' : 'No prices entered.');
+  audit();
+});
+
+function wipeKey(key, label) {
+  if (!confirm('Wipe ' + label + '? This cannot be undone unless you have an export.')) return;
+  try { localStorage.removeItem(key); alert('✓ ' + label + ' wiped.'); audit(); } catch(e) { alert('Failed: ' + e.message); }
+}
+
+document.getElementById('wipeFindings').addEventListener('click', () => wipeKey('bpleone_brain_findings_v1', 'all findings'));
+document.getElementById('wipeTraining').addEventListener('click', () => wipeKey('bpleone_train_v1', 'all training rows'));
+document.getElementById('wipeModel').addEventListener('click', () => wipeKey('bpleone_model_v1', 'model weights'));
+document.getElementById('wipeEverything').addEventListener('click', () => {
+  if (!confirm('☠ NUCLEAR WIPE: removes findings, training, model, learn data, journal, positions, alerts. All bpleone_* localStorage keys. Are you ABSOLUTELY sure?')) return;
+  if (!confirm('Last chance. This wipes EVERYTHING related to the brain. Type-check: are you sure?')) return;
+  const keys = Object.keys(localStorage).filter(k => k.startsWith('bpleone_'));
+  keys.forEach(k => localStorage.removeItem(k));
+  alert('✓ Wiped ' + keys.length + ' keys. Reload the page.');
+});
+
+audit();
+setInterval(audit, 10000);
+</script>
+</body>
+</html>

@@ -51,7 +51,10 @@ const BrainLoop = (function () {
       id: 'f_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7),
       ts: Date.now(),
       type, severity, title, body, meta: meta || {},
-      dedupKey
+      dedupKey,
+      // ---- DATA INTEGRITY: tag every finding with the source of its underlying prices.
+      // The ML trainer skips 'mock' findings so the brain never learns from synthetic data.
+      dataSource: (typeof window !== 'undefined' && window.BPLEONE_DATA_MODE) || 'mock'
     };
     // ---- ML: snapshot feature vector + model prediction at emit time ----
     try {

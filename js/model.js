@@ -336,21 +336,36 @@ const ModelTrainer = {
       const fed = state.fedFindings || {};
       const trainedIds = new Set((state.trainedFindings || []));
 
+      // DATA INTEGRITY: opt-in flag to allow training on mock-data findings.
+      // Default behavior is to SKIP synthetic data so the brain never learns from fake prices.
+      const allowMock = !!(window.BPLEONE_ALLOW_MOCK_TRAINING);
+      let skippedMock = 0;
+
       findings.forEach(f => {
         if (!f.outcome || trainedIds.has(f.id)) return;
         if (f.outcome === 'flat') {
           trainedIds.add(f.id); // skip neutral
           return;
         }
+        // Skip findings whose underlying prices came from mock data.
+        // Untagged findings are treated as mock (legacy, pre-tag).
+        const src = f.dataSource || 'mock';
+        if (src !== 'live' && !allowMock) {
+          skippedMock++;
+          return;
+        }
         // Build feature vector — prefer stored snapshot, else regenerate
         const features = f.features || FeatureExtractor.extract(f);
         const label = f.outcome === 'hit' ? 1 : 0;
         const { loss } = model.train(features, label);
-        ModelStore.addTrainingRow(features, label, { id: f.id, sym: f.meta && f.meta.sym, setup: f.meta && f.meta.setup });
+        ModelStore.addTrainingRow(features, label, { id: f.id, sym: f.meta && f.meta.sym, setup: f.meta && f.meta.setup, dataSource: src });
         trainedIds.add(f.id);
         trained++;
         lossSum += loss;
       });
+      if (skippedMock > 0) {
+        try { window.BPLEONE_LAST_SKIPPED_MOCK = skippedMock; } catch (e) {}
+      }
 
       if (trained > 0) {
         state.trainedFindings = Array.from(trainedIds).slice(-2000);

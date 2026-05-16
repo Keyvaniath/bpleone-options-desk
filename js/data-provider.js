@@ -563,6 +563,126 @@ const DataProvider = (function() {
     return _fhGet('/quote', { symbol: toFinnhub(symbol) });
   }
 
+  // ---------- Stooq zero-key fallback ----------
+  // Stooq.com offers a free public CSV endpoint with CORS open. No API key, no signup.
+  // Coverage: US equities, ETFs, indices, FX, crypto. Delayed ~15min, but real.
+  // We use this as the default real-data source when no other provider is configured,
+  // so prices on the site reflect reality even before Brandon wires anything.
+  const STOOQ_MAP = {
+    SPY:'spy.us', QQQ:'qqq.us', IWM:'iwm.us', DIA:'dia.us',
+    AAPL:'aapl.us', NVDA:'nvda.us', TSLA:'tsla.us', MSFT:'msft.us', META:'meta.us', AMZN:'amzn.us', GOOGL:'googl.us', AMD:'amd.us',
+    BTC:'btcusd', ETH:'ethusd',
+    VIX:'^vix', GLD:'gld.us', TLT:'tlt.us', USO:'uso.us',
+    SMCI:'smci.us', PLTR:'pltr.us', COIN:'coin.us', MARA:'mara.us', RIVN:'rivn.us',
+    XLE:'xle.us', BABA:'baba.us', SHOP:'shop.us', CRM:'crm.us', UBER:'uber.us',
+    SLV:'slv.us', UNG:'ung.us', DBA:'dba.us',
+    FXI:'fxi.us', MCHI:'mchi.us', EWJ:'ewj.us', EWG:'ewg.us', EWU:'ewu.us',
+    INDA:'inda.us', EWZ:'ewz.us', EWY:'ewy.us', EWT:'ewt.us',
+    EEM:'eem.us', EFA:'efa.us', VEA:'vea.us', VWO:'vwo.us',
+    SHY:'shy.us', IEF:'ief.us', TBT:'tbt.us', HYG:'hyg.us', LQD:'lqd.us', TIP:'tip.us',
+    VXX:'vxx.us', UVXY:'uvxy.us', VNQ:'vnq.us'
+  };
+  let stooqPollTimer = null;
+  let stooqLastFetchOk = 0;
+
+  async function _stooqFetchChunk(stooqSymsCsv) {
+    const url = 'https://stooq.com/q/l/?s=' + encodeURIComponent(stooqSymsCsv) + '&f=sd2t2ohlcv&h&e=csv';
+    try {
+      const res = await fetch(url, { method:'GET', cache:'no-cache' });
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      const text = await res.text();
+      return parseStooqCsv(text);
+    } catch (e) {
+      return null;  // CORS or network failure
+    }
+  }
+
+  function parseStooqCsv(text) {
+    const lines = text.trim().split(/\r?\n/);
+    if (lines.length < 2) return [];
+    const header = lines[0].split(',').map(s => s.trim().toLowerCase());
+    const idxSym = header.indexOf('symbol');
+    const idxOpen = header.indexOf('open');
+    const idxClose = header.indexOf('close');
+    const idxHigh = header.indexOf('high');
+    const idxLow = header.indexOf('low');
+    const idxVol = header.indexOf('volume');
+    const rows = [];
+    for (let i = 1; i < lines.length; i++) {
+      const cols = lines[i].split(',');
+      if (cols.length < 4) continue;
+      const close = parseFloat(cols[idxClose]);
+      if (isNaN(close) || close <= 0) continue;
+      rows.push({
+        sym: cols[idxSym],
+        open: parseFloat(cols[idxOpen]) || close,
+        close: close,
+        high: parseFloat(cols[idxHigh]) || close,
+        low: parseFloat(cols[idxLow]) || close,
+        volume: parseInt(cols[idxVol]) || 0
+      });
+    }
+    return rows;
+  }
+
+  async function stooqPollOnce() {
+    if (typeof QUOTES === 'undefined') return;
+    const ourSyms = Object.keys(QUOTES);
+    const stooqSyms = ourSyms.map(s => STOOQ_MAP[s]).filter(Boolean);
+    if (!stooqSyms.length) return;
+    // Chunk to avoid URL length issues — 25 symbols at a time
+    let totalUpdated = 0;
+    for (let i = 0; i < stooqSyms.length; i += 25) {
+      const chunk = stooqSyms.slice(i, i + 25).join(' ');
+      const rows = await _stooqFetchChunk(chunk);
+      if (!rows) continue;
+      rows.forEach(r => {
+        // Map back to our internal symbol
+        const ourSym = ourSyms.find(s => (STOOQ_MAP[s] || '').toLowerCase() === r.sym.toLowerCase());
+        if (!ourSym || !QUOTES[ourSym]) return;
+        const q = QUOTES[ourSym];
+        if (q.last !== r.close) q.prevClose = q.last;  // preserve previous as prevClose
+        q.last = r.close;
+        q.change = q.last - q.prevClose;
+        q.changePct = q.prevClose > 0 ? (q.change / q.prevClose) * 100 : 0;
+        q.bid = +(q.last - 0.01).toFixed(2);
+        q.ask = +(q.last + 0.01).toFixed(2);
+        q.volume = r.volume || q.volume;
+        q.dayHigh = r.high;
+        q.dayLow = r.low;
+        q.source = 'stooq';
+        q.ts = Date.now();
+        try { if (typeof Feed !== 'undefined') Feed.publish(ourSym, q); } catch (e) {}
+        totalUpdated++;
+      });
+    }
+    if (totalUpdated > 0) {
+      stooqLastFetchOk = Date.now();
+      // Mark site-wide as 'live' so the demo banner clears and the ML trainer accepts findings
+      try {
+        if (window.BPLEONE_DATA_MODE !== 'live') {
+          window.BPLEONE_DATA_MODE = 'live';
+          window.BPLEONE_LIVE_SOURCE = 'stooq';
+          window.dispatchEvent(new CustomEvent('bpleone:data-mode', { detail: { mode: 'live', source: 'stooq' } }));
+        }
+      } catch (e) {}
+      // Pause the mock random-walk so it doesn't drift Stooq's real values between polls.
+      // Prices will only change when Stooq's next poll fetches new data (every 30s).
+      try { if (typeof pauseLive === 'function') pauseLive(); } catch (e) {}
+      setStatus('connected', { provider: 'stooq', messagesReceived: totalUpdated });
+    }
+  }
+
+  function startStooqFallback() {
+    if (stooqPollTimer) return;
+    // First poll immediately, then every 30s.
+    stooqPollOnce();
+    stooqPollTimer = setInterval(stooqPollOnce, 30000);
+  }
+  function stopStooqFallback() {
+    if (stooqPollTimer) { clearInterval(stooqPollTimer); stooqPollTimer = null; }
+  }
+
   // ---------- Init ----------
   function init() {
     config = loadConfig();
@@ -571,8 +691,12 @@ const DataProvider = (function() {
       setTimeout(connect, 0);
       return { useMock: false };
     }
+    // No real provider configured — kick off the Stooq zero-key fallback.
+    // This pulls real (delayed) prices into QUOTES every 30s. The mock engine still
+    // runs for inter-poll smoothing, but the anchor values are real.
     setStatus('mock');
-    return { useMock: true };
+    setTimeout(startStooqFallback, 200);
+    return { useMock: true };  // mock engine still runs for smooth ticks between polls
   }
 
   return {
@@ -596,6 +720,11 @@ const DataProvider = (function() {
     getRecommendations,
     getStockProfile,
     getBasicFinancials,
-    getQuote
+    getQuote,
+    // Stooq zero-key fallback controls
+    startStooqFallback,
+    stopStooqFallback,
+    stooqPollOnce,
+    getStooqStatus: () => ({ lastFetchOk: stooqLastFetchOk, polling: !!stooqPollTimer })
   };
 })();

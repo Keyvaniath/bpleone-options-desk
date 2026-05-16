@@ -102,7 +102,7 @@ function buildNav(activePage) {
   // Daily workflow group — top of funnel
   const dailyGrp = ['morning-brief','daily-debrief','tomorrow-playbook','friday-summary','catalyst-clock','ai-narrative','daily-stats','conviction-stack','game-plan'];
   // Brain & ML group
-  const brainGrp = ['brain-heartbeat','brain-audit','brain-decisions','discoveries','ml-feedback','edge-analytics','edge','learn-dashboard','learn','learn-engine-explained','live-train','train-history','weight-heatmap','assistant','ai-scout','ai-cotrader','setup-library','position-stacking','model-trainer','model-explorer','model-versions','feature-store','online-learning','model-confidence','feature-engineering','model-seed','brain-graph','ensemble','neural-net','cross-validation','learning-rate-tuner','prediction-replay','model-explain','model-compare','training-scheduler','ml-glossary','ml-status','active-learning','training-history','first-run-tour','model-results','model-pnl','brain-grade','auto-paper','calibration','brain-memory','daily-report','streak-tracker','risk-sizer-pro','missed-opportunities','ml-leaderboard','trade-of-the-day-pro','broker-prep','sentiment-vs-model','model-economy','brain-coach','scatter-finder','model-postmortem','model-export','brain-weekly-report','alert-rules-pro','model-what-if','model-symbols-leaderboard','trade-export','brain-live-feed','notification-log','setup-compare','brain-monthly-calendar','mobile-dashboard','brain-hub','brain-diary','cohort-analysis','jump-to','brain-vs-spy','brain-explained','smart-watchlist','portfolio-stress-test','brain-changelog','daily-routine','brain-snapshot','symbol-brain','time-of-day-brain','positions-live','pattern-library','brain-hotkeys','risk-limits','gut-check','trade-vs-plan','brain-evolution','performance-attribution-pro','brain-pulse','brain-questions','brain-tldr','trade-sizing-advisor','similar-trades','post-trade-debrief','emergency-stop','brain-vs-coin-flip','brain-rate-of-learning','multi-position-kelly','hall-of-fame'];
+  const brainGrp = ['brain-heartbeat','brain-audit','brain-decisions','discoveries','ml-feedback','edge-analytics','edge','learn-dashboard','learn','learn-engine-explained','live-train','train-history','weight-heatmap','assistant','ai-scout','ai-cotrader','setup-library','position-stacking','model-trainer','model-explorer','model-versions','feature-store','online-learning','model-confidence','feature-engineering','model-seed','brain-graph','ensemble','neural-net','cross-validation','learning-rate-tuner','prediction-replay','model-explain','model-compare','training-scheduler','ml-glossary','ml-status','active-learning','training-history','first-run-tour','model-results','model-pnl','brain-grade','auto-paper','calibration','brain-memory','daily-report','streak-tracker','risk-sizer-pro','missed-opportunities','ml-leaderboard','trade-of-the-day-pro','broker-prep','sentiment-vs-model','model-economy','brain-coach','scatter-finder','model-postmortem','model-export','brain-weekly-report','alert-rules-pro','model-what-if','model-symbols-leaderboard','trade-export','brain-live-feed','notification-log','setup-compare','brain-monthly-calendar','mobile-dashboard','brain-hub','brain-diary','cohort-analysis','jump-to','brain-vs-spy','brain-explained','smart-watchlist','portfolio-stress-test','brain-changelog','daily-routine','brain-snapshot','symbol-brain','time-of-day-brain','positions-live','pattern-library','brain-hotkeys','risk-limits','gut-check','trade-vs-plan','brain-evolution','performance-attribution-pro','brain-pulse','brain-questions','brain-tldr','trade-sizing-advisor','similar-trades','post-trade-debrief','emergency-stop','brain-vs-coin-flip','brain-rate-of-learning','multi-position-kelly','hall-of-fame','data-truth','live-data-setup'];
   // Scanners group
   const scanGrp = ['algo-signals','mean-reversion-scanner','trend-strength','confluence-scanner','radar','edge-scanner','hot-movers','squeeze-radar-pro','squeeze-composite','short-squeeze-alerts','pre-market-scanner','pre-market-gappers','after-hours-scanner','earnings-tonight','earnings-reactor','earnings-calendar','earnings','earnings-playbook','earnings-preview','screener','anomalies','ipo-calendar','pair-scanner','candlestick-scanner','news-reactions','comparison','symbol-diff','insider-live','congress-trades','insider-congress-flow','buybacks-tracker','dollar-leaders','sweep-counter','retracement-finder','pivot-finder','levels-engine'];
   // Markets group
@@ -115,7 +115,31 @@ function buildNav(activePage) {
   const isScan = scanGrp.indexOf(activePage) !== -1;
   const isMarkets = marketsGrp.indexOf(activePage) !== -1;
   const isTools = toolsGrp.indexOf(activePage) !== -1;
+  // ---- DEMO MODE banner — shown when data source is mock (default). Brandon sees this until he wires a real feed.
+  // The banner is constructed at render time and re-checks the global flag on each buildNav() call.
+  // Linked to data-truth.html which walks through the fix.
+  const demoBanner = ''
+    + '<div id="bp-demo-banner" style="display:none;background:linear-gradient(90deg,#dc2626,#b91c1c);color:#fff;font-size:12px;font-weight:700;padding:8px 14px;text-align:center;letter-spacing:0.5px;border-bottom:2px solid #fff;">'
+    +   '⚠ DEMO DATA — prices are simulated, not real. Brain is NOT training on these. '
+    +   '<a href="data-truth.html" style="color:#fff;text-decoration:underline;font-weight:800;">Fix this →</a> '
+    +   '<span style="opacity:0.75;margin-left:6px;font-weight:400;">(MSCI, NVDA, etc. shown here are random-walk drifts from a stale seed)</span>'
+    + '</div>';
+  // Reveal logic — runs after DOMContentLoaded so window.BPLEONE_DATA_MODE is set.
+  setTimeout(() => {
+    try {
+      const banner = document.getElementById('bp-demo-banner');
+      if (!banner) return;
+      const update = () => {
+        const mode = window.BPLEONE_DATA_MODE || 'mock';
+        banner.style.display = mode === 'live' ? 'none' : 'block';
+      };
+      update();
+      window.addEventListener('bpleone:data-mode', update);
+    } catch (e) {}
+  }, 100);
+
   const navHtml = ''
+    + demoBanner
     + '<div class="ticker-tape"><div class="ticker-content" id="ticker-content"></div></div>'
     + '<nav class="navbar"><div class="nav-container">'
     + '<a href="index.html" class="logo"><div class="logo-mark">BP</div>'
@@ -217,6 +241,8 @@ function buildNav(activePage) {
     + '<li class="nav-dd"><a href="#" class="' + (isBrain?'active':'') + '">🧠 Brain ▾</a>'
     + '<div class="nav-dropdown">'
     + '<a href="brain-hub.html">🧠 Brain Hub <span class="feat-badge feat-new" style="font-size:8px;padding:0 5px;background:#a78bfa;color:#000;">HUB</span></a>'
+    + '<a href="data-truth.html">🔍 Data Truth <span class="feat-badge feat-new" style="font-size:8px;padding:0 5px;background:#ef4444;color:#fff;">FIX</span></a>'
+    + '<a href="live-data-setup.html">📡 Live Data Setup <span class="feat-badge feat-new" style="font-size:8px;padding:0 5px;background:#ef4444;color:#fff;">REAL</span></a>'
     + '<a href="daily-routine.html">📋 Daily Routine <span class="feat-badge feat-new" style="font-size:8px;padding:0 5px;">5-STEP</span></a>'
     + '<a href="positions-live.html">📊 Live Positions <span class="feat-badge feat-live" style="font-size:8px;padding:0 5px;">LIVE</span></a>'
     + '<a href="symbol-brain.html">🧬 Symbol Brain <span class="feat-badge feat-pro" style="font-size:8px;padding:0 5px;">ML</span></a>'
