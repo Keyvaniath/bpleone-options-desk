@@ -309,6 +309,14 @@
               ActiveLearning.record(alMult, label, entry.predProb);
             }
           } catch (e) {}
+          // MODULE-ATTRIBUTION: record each base learner's prediction vs
+          // the actual outcome so the leaderboard knows which modules
+          // are contributing real signal.
+          try {
+            if (typeof ModuleAttribution !== 'undefined' && entry.basePreds) {
+              ModuleAttribution.recordResolution(entry.basePreds, entry.predProb, label);
+            }
+          } catch (e) {}
         }
       });
 

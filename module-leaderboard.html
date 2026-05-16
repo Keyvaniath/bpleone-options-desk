@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Module Leaderboard — bpleone / brain</title>
+<meta name="description" content="Performance attribution: which of the brain's ensemble modules is actually pulling weight vs adding noise.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.lb-row { display:grid;grid-template-columns:50px 1.5fr repeat(4, 1fr) 1.4fr;gap:10px;padding:14px;background:var(--bg-elevated);border-radius:10px;margin-bottom:8px;align-items:center; }
+.lb-row.head { background:transparent;font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;font-weight:700;padding:8px 14px;margin-bottom:0; }
+.lb-row .pos { font-family:var(--font-mono);font-size:20px;font-weight:800;color:var(--accent); }
+.lb-row .name { font-weight:700;font-size:15px; }
+.lb-row .metric { font-family:var(--font-mono);font-size:15px;font-weight:700;text-align:right; }
+.lb-row .delta-pill { font-family:var(--font-mono);font-size:13px;font-weight:700;padding:6px 12px;border-radius:14px;text-align:center; }
+.delta-good { background:rgba(16,185,129,0.18);color:var(--green); }
+.delta-bad { background:rgba(239,68,68,0.18);color:var(--red); }
+.delta-flat { background:rgba(245,158,11,0.10);color:var(--yellow); }
+.summary-card { padding:20px;background:var(--bg-elevated);border-radius:10px;text-align:center; }
+.summary-card .lbl { font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;font-weight:700; }
+.summary-card .val { font-family:var(--font-mono);font-size:22px;font-weight:800;margin-top:6px;color:var(--accent); }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">🏆 Module Leaderboard</div>
+      <div class="page-subtitle">Performance attribution per ensemble member · which modules pull weight, which add noise</div>
+    </div>
+  </div>
+
+  <div class="grid grid-3 mb-24" id="summary-grid"></div>
+
+  <div class="card">
+    <div class="card-header"><div class="card-title">📊 Per-module rolling performance (last 100 resolutions)</div></div>
+    <div id="leaderboard"></div>
+    <div style="margin-top:14px;padding:12px;background:var(--bg-elevated);border-radius:8px;font-size:12px;color:var(--text-muted);line-height:1.7;">
+      <strong style="color:var(--text-secondary);">Δ acc</strong> = module accuracy minus the average across all modules. <strong>Positive</strong> means the module is contributing genuine signal above the consensus; <strong>negative</strong> means it's pulling the blend down.<br>
+      <strong style="color:var(--text-secondary);">Brier score</strong> = mean (predicted - actual)². Lower is better, 0.25 is the no-information baseline.<br>
+      <strong style="color:var(--text-secondary);">Log loss</strong> = -log(p_actual). 0.693 is the no-info baseline; below that means the module is informative.
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-header"><div class="card-title">📚 Why this matters</div></div>
+    <div style="font-size:13px;color:var(--text-secondary);line-height:1.7;">
+      The brain has 5 base learners. The Meta-Stacker learns how to blend them, and as resolutions accumulate it shifts weight toward the best ones. But before the meta-stacker has data, the blend is hand-picked. This page shows the truth.<br><br>
+      <strong>What to look for:</strong>
+      <ul style="margin:8px 0 8px 24px;">
+        <li>If a module's accuracy is consistently 5+ points <em>below</em> the average, the Meta-Stacker should be (and eventually will be) downweighting it.</li>
+        <li>If a module's log loss is above 0.693 (random baseline), it's actively hurting predictions when included.</li>
+        <li>The "Final blend" row shows what the combined prediction is achieving — it should beat every individual module.</li>
+        <li>If k-NN has only 30 samples while model has 100, the k-NN row is statistically less reliable. The "n" column shows sample size.</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script src="js/module-attribution.js"></script>
+<script>
+buildNav('module-leaderboard');
+
+const NAMES = {
+  'model':     { icon: '🧠', label: 'Model (logistic)' },
+  'ensemble':  { icon: '🎼', label: 'Multi-horizon' },
+  'bootstrap': { icon: '🪣', label: 'Bootstrap K=5' },
+  'knn':       { icon: '🔍', label: 'k-NN Recall' },
+  'swa':       { icon: '📊', label: 'SWA Average' }
+};
+
+function deltaPill(d) {
+  if (d == null) return '<span class="delta-pill delta-flat">—</span>';
+  const cls = Math.abs(d) < 0.02 ? 'delta-flat' : (d > 0 ? 'delta-good' : 'delta-bad');
+  return '<span class="delta-pill ' + cls + '">' + (d >= 0 ? '+' : '') + (d * 100).toFixed(1) + 'pp</span>';
+}
+
+function fmtPct(p) { return p != null ? (p * 100).toFixed(1) + '%' : '—'; }
+function fmtNum(n) { return n != null ? n.toFixed(3) : '—'; }
+
+function render() {
+  const s = ModuleAttribution.stats(100);
+  const sum = document.getElementById('summary-grid');
+  sum.innerHTML = ''
+    + '<div class="summary-card"><div class="lbl">Total resolutions</div><div class="val">' + s.totalRows + '</div></div>'
+    + '<div class="summary-card"><div class="lbl">Final-blend accuracy</div><div class="val">' + fmtPct(s.finalBlend.accuracy) + '</div></div>'
+    + '<div class="summary-card"><div class="lbl">Avg module accuracy</div><div class="val">' + fmtPct(s.avgAccuracy) + '</div></div>';
+
+  const lb = document.getElementById('leaderboard');
+  if (s.totalRows === 0) {
+    lb.innerHTML = '<div style="text-align:center;padding:30px;color:var(--text-muted);font-size:14px;">No resolutions yet. Each resolved short-horizon prediction adds one row.</div>';
+    return;
+  }
+  let html = '<div class="lb-row head"><div></div><div>Module</div><div style="text-align:right;">Accuracy</div><div style="text-align:right;">Log loss</div><div style="text-align:right;">Brier</div><div style="text-align:right;">n</div><div style="text-align:center;">Δ vs avg</div></div>';
+  s.leaderboard.forEach((row, i) => {
+    const info = NAMES[row.module] || { icon: '?', label: row.module };
+    html += '<div class="lb-row">'
+      + '<div class="pos">#' + (i + 1) + '</div>'
+      + '<div class="name">' + info.icon + ' ' + info.label + '</div>'
+      + '<div class="metric">' + fmtPct(row.accuracy) + '</div>'
+      + '<div class="metric">' + fmtNum(row.logLoss) + '</div>'
+      + '<div class="metric">' + fmtNum(row.brier) + '</div>'
+      + '<div class="metric">' + (row.n || 0) + '</div>'
+      + '<div>' + deltaPill(row.contributionDelta) + '</div>'
+      + '</div>';
+  });
+  // Final blend row at the bottom for comparison
+  if (s.finalBlend && s.finalBlend.accuracy != null) {
+    html += '<div class="lb-row" style="background:linear-gradient(90deg,rgba(0,212,255,0.10),transparent);border:1px solid rgba(0,212,255,0.3);margin-top:14px;">'
+      + '<div class="pos">⭐</div>'
+      + '<div class="name">Final blended prediction</div>'
+      + '<div class="metric">' + fmtPct(s.finalBlend.accuracy) + '</div>'
+      + '<div class="metric">' + fmtNum(s.finalBlend.logLoss) + '</div>'
+      + '<div class="metric">' + fmtNum(s.finalBlend.brier) + '</div>'
+      + '<div class="metric">' + s.finalBlend.n + '</div>'
+      + '<div>—</div>'
+      + '</div>';
+  }
+  lb.innerHTML = html;
+}
+
+render();
+setInterval(render, 6000);
+window.addEventListener('bpleone:continuous-cycle', render);
+</script>
+</body>
+</html>

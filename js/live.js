@@ -479,6 +479,14 @@ document.addEventListener('DOMContentLoaded', () => {
         s.async = false;
         document.head.appendChild(s);
       }
+      // Module Attribution: tracks per-module accuracy / Brier / log-loss
+      // for the 5 base learners on every resolution.
+      if (!document.querySelector('script[src*="module-attribution.js"]')) {
+        const s = document.createElement('script');
+        s.src = 'js/module-attribution.js';
+        s.async = false;
+        document.head.appendChild(s);
+      }
       // Unified predictor: chains every meta-module into ONE call.
       // Loads last so all dependencies are present.
       if (!document.querySelector('script[src*="unified-predictor.js"]')) {
