@@ -357,6 +357,14 @@ document.addEventListener('DOMContentLoaded', () => {
         s.async = false;  // synchronous so it loads before continuous-learner
         document.head.appendChild(s);
       }
+      // Calibrator: Platt-scaling probability mapper. Loads before
+      // continuous-learner so it can record every resolved pair.
+      if (!document.querySelector('script[src*="calibrator.js"]')) {
+        const s = document.createElement('script');
+        s.src = 'js/calibrator.js';
+        s.async = false;
+        document.head.appendChild(s);
+      }
       if (!document.querySelector('script[src*="auto-trainer.js"]')) {
         const s = document.createElement('script');
         s.src = 'js/auto-trainer.js';

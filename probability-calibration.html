@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Probability Calibration — bpleone / trade</title>
+<meta name="description" content="Make the model honest. Platt scaling maps raw probabilities to calibrated ones so 70% means 70%.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<style>
+.intro { background:linear-gradient(135deg,rgba(124,58,237,0.06),transparent);border:1px solid rgba(124,58,237,0.25);padding:24px;border-radius:14px;margin-bottom:24px; }
+.kpi-tile { padding:18px;background:var(--bg-elevated);border-radius:10px;text-align:center; }
+.kpi-tile .lbl { font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px; }
+.kpi-tile .val { font-family:var(--font-mono);font-size:24px;font-weight:800;margin-top:6px; }
+.bin-row { display:grid;grid-template-columns:90px 70px 90px 90px 90px 1fr;gap:14px;padding:9px 14px;border-bottom:1px solid var(--border);font-family:var(--font-mono);font-size:11px;align-items:center; }
+.bin-row.hdr { background:var(--bg-elevated);font-size:9px;color:var(--text-muted);font-weight:800;letter-spacing:0.4px; }
+.bin-row.well { border-left:3px solid var(--green); }
+.bin-row.over { border-left:3px solid var(--red); }
+.bin-row.under { border-left:3px solid var(--accent); }
+.bin-row.empty { opacity:0.5; }
+.improve-card { padding:24px;background:var(--bg-elevated);border-radius:12px;text-align:center; }
+.improve-card.better { border:2px solid var(--green); }
+.improve-card.worse { border:2px solid var(--red); }
+.improve-card.same { border:2px solid var(--text-muted); }
+.improve-card .big { font-family:var(--font-mono);font-size:32px;font-weight:800; }
+.params-box { padding:14px;background:#000;color:#0f0;border-radius:8px;font-family:var(--font-mono);font-size:11px;line-height:1.6; }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">📏 Probability Calibration</div>
+      <div class="page-subtitle">Make the model honest · Platt scaling so 70% confidence actually wins 70% of the time · <span id="market-clock">--</span></div>
+    </div>
+    <div class="flex gap-8">
+      <button class="btn btn-ghost" id="fitBtn">🔧 Force re-fit</button>
+      <a href="multi-horizon.html" class="btn btn-ghost">🧪 Multi-Horizon</a>
+    </div>
+  </div>
+
+  <div class="intro">
+    <div style="font-size:14px;color:var(--text-primary);line-height:1.7;">
+      <strong>Why this matters:</strong> The raw logistic-regression probability is usually OFF. A model trained on imbalanced data or with regularization tends to be either overconfident (says 70% but actually wins 50%) or underconfident (says 55% but actually wins 70%). Every downstream decision (Trade of the Day score, position sizing, alert threshold) reads probability as if it were accurate — so if the raw prob is wrong, every decision is wrong.
+      <br><br>
+      <strong>How Platt scaling fixes it:</strong> We fit a sigmoid mapping <code>P_cal = sigmoid(a × logit(P_raw) + b)</code> to the observed (predicted, won?) pairs from every resolved prediction. The two parameters a (slope) and b (intercept) get fit by gradient descent on log-loss. After enough pairs (~30+), <code>Calibrator.calibrate(rawProb)</code> returns a honest probability that matches the realized win rate within sample noise.
+      <br><br>
+      <strong>Auto-update:</strong> Calibrator re-fits every 50 new resolved predictions or every hour, whichever comes first. No manual intervention needed.
+    </div>
+  </div>
+
+  <div class="grid grid-4 mb-24">
+    <div class="kpi-tile"><div class="lbl">Pairs recorded</div><div class="val" id="kN" style="color:var(--accent);">0</div></div>
+    <div class="kpi-tile"><div class="lbl">Brier (raw)</div><div class="val" id="kBR">—</div></div>
+    <div class="kpi-tile"><div class="lbl">Brier (calibrated)</div><div class="val" id="kBC" style="color:var(--green);">—</div></div>
+    <div class="kpi-tile"><div class="lbl">ECE (calibrated)</div><div class="val" id="kEC">—</div></div>
+  </div>
+
+  <div class="grid grid-2 mb-24">
+    <div class="card">
+      <div class="card-header"><div class="card-title">📊 Reliability diagram</div></div>
+      <div style="font-size:12px;color:var(--text-secondary);margin-bottom:14px;line-height:1.6;">
+        Each dot = one probability bucket. <span style="color:var(--green);">Perfect calibration</span> = dots on the diagonal. Above the line = under-confident (model said 50%, actually won 70%). Below the line = overconfident.
+      </div>
+      <canvas id="reliabilityChart" height="240"></canvas>
+    </div>
+    <div class="card">
+      <div class="card-header"><div class="card-title">🎯 Calibration mapping curve</div></div>
+      <div style="font-size:12px;color:var(--text-secondary);margin-bottom:14px;line-height:1.6;">
+        What raw probabilities map to after calibration. The dashed line is identity (no change). The solid line is the fitted sigmoid.
+      </div>
+      <canvas id="mappingChart" height="240"></canvas>
+    </div>
+  </div>
+
+  <div class="grid grid-2 mb-24">
+    <div class="card">
+      <div class="card-header"><div class="card-title">📈 Calibration improvement</div></div>
+      <div id="improvement"></div>
+      <div style="font-size:11px;color:var(--text-muted);margin-top:14px;line-height:1.6;">
+        Improvement = (raw_metric - calibrated_metric) / raw_metric. Positive means calibration is helping.
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-header"><div class="card-title">⚙ Fitted parameters</div></div>
+      <div id="params" class="params-box"></div>
+      <div style="font-size:11px;color:var(--text-muted);margin-top:10px;line-height:1.6;">
+        a > 1 means model needs spreading out (was too soft). a &lt; 1 means model needs softening (was too confident). b shifts the whole curve up/down.
+      </div>
+    </div>
+  </div>
+
+  <div class="card mb-24" style="padding:0;">
+    <div class="bin-row hdr">
+      <div>BUCKET</div><div>N</div><div>AVG RAW</div><div>ACTUAL WIN%</div><div>AFTER CAL</div><div>GAP</div>
+    </div>
+    <div id="binsBody"></div>
+  </div>
+
+  <div class="card">
+    <div class="card-header"><div class="card-title">🧪 Verification</div></div>
+    <div style="font-size:13px;color:var(--text-secondary);line-height:1.7;">
+      You can prove calibration is working by:<br>
+      1. After 30+ resolved predictions, click "Force re-fit" to compute initial parameters.<br>
+      2. Watch Brier (calibrated) drop below Brier (raw) — that's the model becoming more accurate.<br>
+      3. The reliability diagram dots should pull closer to the diagonal after re-fits.<br>
+      4. Brain Monitor and TOTD pages can opt into calibrated probabilities by calling <code>Calibrator.calibrate(rawProb)</code>.
+    </div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script src="js/model.js"></script>
+<script src="js/calibrator.js"></script>
+<script>
+buildNav('probability-calibration');
+
+function fmtPct(p) { return p == null ? '—' : (p * 100).toFixed(1) + '%'; }
+
+function render() {
+  if (typeof window.Calibrator === 'undefined') { setTimeout(render, 500); return; }
+  const m = window.Calibrator.metrics();
+  const bins = window.Calibrator.reliability(10);
+
+  // KPIs
+  document.getElementById('kN').textContent = m.n.toLocaleString();
+  document.getElementById('kBR').textContent = m.brier != null ? m.brier.toFixed(4) : '—';
+  document.getElementById('kBC').textContent = m.calibratedBrier != null ? m.calibratedBrier.toFixed(4) : '—';
+  document.getElementById('kEC').textContent = m.calibratedEce != null ? (m.calibratedEce * 100).toFixed(1) + '%' : '—';
+  document.getElementById('kEC').style.color = m.calibratedEce != null && m.calibratedEce < 0.05 ? 'var(--green)' : m.calibratedEce != null && m.calibratedEce < 0.10 ? 'var(--accent)' : 'var(--red)';
+
+  // Reliability scatter
+  const points = bins.filter(b => b.n > 0).map(b => ({ x: b.avgRawProb * 100, y: b.actualWinRate * 100, n: b.n }));
+  if (window._reliab) window._reliab.destroy();
+  window._reliab = new Chart(document.getElementById('reliabilityChart'), {
+    type: 'scatter',
+    data: {
+      datasets: [
+        { label: 'Bucket (raw prob → actual win %)', data: points, backgroundColor: '#00d4ff', pointRadius: points.map(p => Math.min(15, Math.max(4, Math.sqrt(p.n) * 1.5))) },
+        { label: 'Perfect calibration', type: 'line', data: [{x:0,y:0},{x:100,y:100}], borderColor: '#10b981', borderDash:[6,4], pointRadius:0, fill:false, borderWidth:1 }
+      ]
+    },
+    options: { responsive:true, maintainAspectRatio:false, plugins:{legend:{labels:{color:'#ccc',font:{size:10}}}}, scales:{x:{ticks:{color:'#888',callback:v=>v+'%'},grid:{color:'#222'},min:0,max:100,title:{display:true,text:'Predicted probability',color:'#888'}},y:{ticks:{color:'#888',callback:v=>v+'%'},grid:{color:'#222'},min:0,max:100,title:{display:true,text:'Actual win rate',color:'#888'}}} }
+  });
+
+  // Mapping curve
+  const params = m.params;
+  const curve = [];
+  for (let p = 0.01; p < 1; p += 0.02) curve.push({ x: p * 100, y: window.Calibrator.calibrate(p) * 100 });
+  if (window._mapping) window._mapping.destroy();
+  window._mapping = new Chart(document.getElementById('mappingChart'), {
+    type: 'line',
+    data: {
+      datasets: [
+        { label: 'Calibrated', data: curve, borderColor: '#00d4ff', backgroundColor: 'rgba(0,212,255,0.1)', tension: 0, fill: false, pointRadius: 0, borderWidth: 2 },
+        { label: 'Identity (raw = calibrated)', data: [{x:0,y:0},{x:100,y:100}], borderColor: '#666', borderDash:[4,4], pointRadius:0, fill:false, borderWidth:1 }
+      ]
+    },
+    options: { responsive:true, maintainAspectRatio:false, plugins:{legend:{labels:{color:'#ccc',font:{size:10}}}}, scales:{x:{ticks:{color:'#888',callback:v=>v+'%'},grid:{color:'#222'},min:0,max:100,title:{display:true,text:'Raw probability',color:'#888'}},y:{ticks:{color:'#888',callback:v=>v+'%'},grid:{color:'#222'},min:0,max:100,title:{display:true,text:'Calibrated probability',color:'#888'}}} }
+  });
+
+  // Improvement
+  const improveWrap = document.getElementById('improvement');
+  if (m.brier != null && m.calibratedBrier != null) {
+    const improvement = (m.brier - m.calibratedBrier) / m.brier;
+    const cls = improvement > 0.01 ? 'better' : improvement < -0.01 ? 'worse' : 'same';
+    const bigCol = improvement > 0.01 ? 'var(--green)' : improvement < -0.01 ? 'var(--red)' : 'var(--text-muted)';
+    const sign = improvement >= 0 ? '+' : '';
+    improveWrap.innerHTML = '<div class="improve-card ' + cls + '">'
+      + '<div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:1px;">Brier improvement</div>'
+      + '<div class="big" style="color:' + bigCol + ';">' + sign + (improvement * 100).toFixed(1) + '%</div>'
+      + '<div style="font-size:12px;color:var(--text-secondary);margin-top:8px;">' + (improvement > 0.01 ? '✓ Calibration is helping' : improvement < -0.01 ? '⚠ Calibration is hurting — need more pairs' : '≈ Calibration is neutral (or model already well-calibrated)') + '</div>'
+      + '</div>';
+  } else {
+    improveWrap.innerHTML = '<div class="improve-card same"><div class="big" style="color:var(--text-muted);">—</div><div style="font-size:12px;color:var(--text-secondary);margin-top:8px;">Need at least 30 resolved predictions before fitting.</div></div>';
+  }
+
+  // Params
+  if (params) {
+    document.getElementById('params').textContent = 'a = ' + params.a.toFixed(4) + '  (slope)\nb = ' + params.b.toFixed(4) + '  (intercept)\nn = ' + params.n + '  (training pairs)\nfitted: ' + new Date(params.fittedAt).toLocaleString();
+  } else {
+    document.getElementById('params').textContent = 'No parameters fitted yet.\nWaiting for 30+ resolved predictions...';
+  }
+
+  // Bins table
+  document.getElementById('binsBody').innerHTML = bins.map(b => {
+    if (b.n === 0) {
+      return '<div class="bin-row empty"><div>' + (b.lo*100).toFixed(0) + '-' + (b.hi*100).toFixed(0) + '%</div><div>0</div><div>—</div><div>—</div><div>—</div><div>—</div></div>';
+    }
+    const gap = b.actualWinRate - b.avgRawProb;
+    const cls = Math.abs(gap) < 0.05 ? 'well' : gap < 0 ? 'over' : 'under';
+    const gapStr = (gap >= 0 ? '+' : '') + (gap * 100).toFixed(1) + 'pp';
+    const gapCol = Math.abs(gap) < 0.05 ? 'var(--green)' : Math.abs(gap) < 0.10 ? 'var(--yellow)' : 'var(--red)';
+    return '<div class="bin-row ' + cls + '">'
+      + '<div>' + (b.lo*100).toFixed(0) + '-' + (b.hi*100).toFixed(0) + '%</div>'
+      + '<div>' + b.n + '</div>'
+      + '<div>' + fmtPct(b.avgRawProb) + '</div>'
+      + '<div>' + fmtPct(b.actualWinRate) + '</div>'
+      + '<div style="color:var(--accent);">' + fmtPct(b.calibratedAvg) + '</div>'
+      + '<div style="color:' + gapCol + ';">' + gapStr + '</div>'
+      + '</div>';
+  }).join('');
+}
+
+document.getElementById('fitBtn').addEventListener('click', () => {
+  if (typeof window.Calibrator === 'undefined') { alert('Calibrator not loaded yet — wait a few seconds'); return; }
+  const result = window.Calibrator.fit();
+  if (result) {
+    alert('Calibration re-fit complete!\na = ' + result.a.toFixed(4) + '\nb = ' + result.b.toFixed(4) + '\nn = ' + result.n);
+    render();
+  } else {
+    alert('Need at least 30 resolved predictions before fitting. Current pairs: ' + window.Calibrator._loadPairs().length);
+  }
+});
+
+render();
+setInterval(render, 8000);
+window.addEventListener('bpleone:calibration-fit', render);
+window.addEventListener('bpleone:continuous-resolved', render);
+</script>
+</body>
+</html>

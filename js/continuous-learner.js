@@ -198,6 +198,13 @@
           newRows.push({ features: entry.features, label, sym: entry.sym, predProb: entry.predProb, weight: sampleWeight });
           accLog.push({ ts: Date.now(), correct: label === 1, sym: entry.sym, predProb: entry.predProb });
           resolvedShort++;
+          // CALIBRATION: feed the (rawProb, actualWin) pair to the calibrator
+          // so it can fit a Platt-scaling mapping and report honest probabilities.
+          try {
+            if (typeof Calibrator !== 'undefined') {
+              Calibrator.recordPair(entry.predProb, label);
+            }
+          } catch (e) {}
         }
       });
 
@@ -315,6 +322,13 @@
       state.lastResolveTs = Date.now();
       saveState(state);
     }
+
+    // CALIBRATION: trigger re-fit after this batch of pairs has landed.
+    // The calibrator decides internally whether enough new pairs accumulated
+    // (≥50 since last fit) or enough time elapsed (>1h) to warrant a re-fit.
+    try {
+      if (typeof Calibrator !== 'undefined') Calibrator.maybeFit();
+    } catch (e) {}
 
     try {
       window.dispatchEvent(new CustomEvent('bpleone:continuous-resolved', {
