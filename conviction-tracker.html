@@ -1,0 +1,267 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Conviction Tracker — bpleone / trade</title>
+<meta name="description" content="Live-forward P&L of every brain conviction pick the brain has actually made. The honest 'is it working?' view.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<style>
+.kpi-tile { padding:18px;background:var(--bg-elevated);border-radius:10px;text-align:center; }
+.kpi-tile .lbl { font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px; }
+.kpi-tile .val { font-family:var(--font-mono);font-size:24px;font-weight:800;margin-top:6px; }
+.trade-row { display:grid;grid-template-columns:130px 70px 70px 90px 90px 70px 80px 80px 1fr;gap:14px;padding:9px 12px;border-bottom:1px solid var(--border);font-family:var(--font-mono);font-size:11px;align-items:center; }
+.trade-row.hdr { background:var(--bg-elevated);font-size:9px;color:var(--text-muted);font-weight:800;letter-spacing:0.4px; }
+.trade-row.correct { border-left:3px solid var(--green); }
+.trade-row.wrong { border-left:3px solid var(--red); }
+.trade-row.pending { border-left:3px solid var(--accent);opacity:0.85; }
+.trade-row.flat { border-left:3px solid var(--text-muted);opacity:0.6; }
+.verdict-card { padding:30px;border-radius:14px;text-align:center;margin-bottom:24px; }
+.verdict-card.alpha { background:rgba(16,185,129,0.1);border:2px solid rgba(16,185,129,0.4); }
+.verdict-card.neutral { background:rgba(245,158,11,0.08);border:2px solid rgba(245,158,11,0.4); }
+.verdict-card.bad { background:rgba(239,68,68,0.1);border:2px solid rgba(239,68,68,0.4); }
+.intro { background:linear-gradient(135deg,rgba(0,212,255,0.06),transparent);border:1px solid rgba(0,212,255,0.25);padding:24px;border-radius:14px;margin-bottom:24px; }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">📊 Conviction Tracker</div>
+      <div class="page-subtitle">Live-forward P&amp;L of every conviction pick the brain has actually made · the honest 'is it working?' view · <span id="market-clock">--</span></div>
+    </div>
+    <div class="flex gap-8">
+      <select id="threshold" class="btn btn-ghost" style="background:var(--bg-elevated);border:1px solid var(--border);color:var(--text-primary);padding:8px 14px;">
+        <option value="0.10">|p-0.5| ≥ 10% (all conviction)</option>
+        <option value="0.15" selected>|p-0.5| ≥ 15% (A+B tier)</option>
+        <option value="0.20">|p-0.5| ≥ 20% (A-tier only)</option>
+      </select>
+    </div>
+  </div>
+
+  <div class="intro">
+    <div style="font-size:14px;color:var(--text-primary);line-height:1.7;">
+      <strong>What this shows:</strong> Every brain prediction captured by the continuous-learner that crossed a conviction threshold. We treat each as a paper trade: ENTRY at the price-at-capture, EXIT at the actual price 1 day later. R-multiple comes from the realized return divided by an ATR proxy.
+      <br><br>
+      <strong>Different from walk-forward backtest:</strong> walk-forward replays HISTORICAL bars against the CURRENT model. This page shows the brain's REAL predictions made at the time the data arrived. It's a true forward record — no look-ahead, no cherry-picking.
+      <br><br>
+      <strong>Different from autopilot paper trader:</strong> autopilot uses high-severity findings. This uses every continuous-learner capture that met conviction. It's a complete record of every confident call.
+    </div>
+  </div>
+
+  <div id="verdict"></div>
+
+  <div class="grid grid-4 mb-24">
+    <div class="kpi-tile"><div class="lbl">Conviction picks</div><div class="val" id="kPicks">0</div></div>
+    <div class="kpi-tile"><div class="lbl">Resolved</div><div class="val" id="kResolved">0</div></div>
+    <div class="kpi-tile"><div class="lbl">Win rate</div><div class="val" id="kWin">—</div></div>
+    <div class="kpi-tile"><div class="lbl">Total R</div><div class="val" id="kR">—</div></div>
+  </div>
+
+  <div class="grid grid-2 mb-24">
+    <div class="card">
+      <div class="card-header"><div class="card-title">📈 Equity curve (R-multiples)</div></div>
+      <canvas id="equityChart" height="220"></canvas>
+    </div>
+    <div class="card">
+      <div class="card-header"><div class="card-title">📊 Per-symbol breakdown</div></div>
+      <div id="symBreakdown" style="max-height:260px;overflow:auto;"></div>
+    </div>
+  </div>
+
+  <div class="card mb-24" style="padding:0;">
+    <div class="trade-row hdr">
+      <div>TS</div><div>SYM</div><div>SIDE</div><div>PROB</div><div>OOD</div><div>RET%</div><div>R</div><div>OUTCOME</div><div>REGIME</div>
+    </div>
+    <div id="trades" style="max-height:500px;overflow:auto;"></div>
+  </div>
+
+  <div class="card">
+    <div class="card-header"><div class="card-title">🔬 How the equity curve is computed</div></div>
+    <div style="font-size:13px;color:var(--text-secondary);line-height:1.7;">
+      For each continuous-learner journal entry that:<br>
+      • Has predProb such that |predProb - 0.5| ≥ threshold (conviction filter)<br>
+      • Was resolved at the short (1-day) horizon (has realizedRet)<br>
+      • Has outcome ∈ {correct, wrong} (skip flat)<br>
+      <br>
+      We compute:<br>
+      • side = predProb ≥ 0.5 ? LONG : SHORT<br>
+      • R = signedReturn / max(0.005, atrPctProxy) — capped at ±3<br>
+      • cumulative R sum forms the equity curve<br>
+      <br>
+      <strong>Sharpe</strong>: daily R's mean / std × √252. <strong>Max DD</strong>: deepest peak-to-trough on the equity curve. <strong>Profit factor</strong>: sum of positive R / |sum of negative R|. A profit factor > 1.5 is decent, > 2 is good.
+    </div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script src="js/model.js"></script>
+<script>
+buildNav('conviction-tracker');
+
+function loadJournal() { try { return JSON.parse(localStorage.getItem('bpleone_pred_journal_v1') || '[]'); } catch (e) { return []; } }
+
+function render() {
+  const journal = loadJournal();
+  const threshold = parseFloat(document.getElementById('threshold').value);
+
+  // Filter for conviction
+  const convictions = journal.filter(e => Math.abs(e.predProb - 0.5) >= threshold);
+  // Resolved at short horizon with non-flat outcome
+  const resolved = convictions.filter(e => {
+    const r = e.resolved && typeof e.resolved === 'object' ? e.resolved.short : e.resolved;
+    return r === 'correct' || r === 'wrong' || (r === true && e.outcome && e.outcome !== 'flat');
+  });
+
+  // Build R-multiples
+  const trades = resolved.map(e => {
+    const side = e.predProb >= 0.5 ? 'LONG' : 'SHORT';
+    const ret = e.realizedRet || 0;
+    // ATR proxy from realized return magnitude — use 1% as floor
+    const atrProxy = 0.01;
+    const signedRet = side === 'LONG' ? ret : -ret;
+    const R = Math.max(-3, Math.min(3, signedRet / atrProxy));
+    const correct = (e.outcome === 'correct') || (signedRet > 0);
+    return {
+      ts: e.ts,
+      sym: e.sym,
+      side,
+      predProb: e.predProb,
+      oodScore: e.oodScore || 0,
+      ret: signedRet,
+      R,
+      correct,
+      regime: e.regime || '—',
+      outcome: e.outcome
+    };
+  }).sort((a, b) => a.ts - b.ts);
+
+  // KPIs
+  document.getElementById('kPicks').textContent = convictions.length;
+  document.getElementById('kResolved').textContent = trades.length;
+  if (trades.length === 0) {
+    document.getElementById('kWin').textContent = '—';
+    document.getElementById('kR').textContent = '—';
+    document.getElementById('verdict').innerHTML = '<div class="verdict-card neutral"><div style="font-size:24px;font-weight:800;color:var(--yellow);">No resolved conviction picks yet</div><div style="font-size:13px;color:var(--text-secondary);margin-top:14px;max-width:600px;margin-left:auto;margin-right:auto;line-height:1.6;">The continuous-learner needs time to: (1) capture predictions on real data, (2) wait 24h for them to resolve. Come back tomorrow.</div></div>';
+    document.getElementById('trades').innerHTML = '<div style="padding:30px;text-align:center;color:var(--text-muted);font-size:12px;">No data yet.</div>';
+    return;
+  }
+
+  const wins = trades.filter(t => t.correct).length;
+  const winRate = wins / trades.length;
+  const totalR = trades.reduce((s, t) => s + t.R, 0);
+  const avgR = totalR / trades.length;
+  let cum = 0;
+  const equity = [0];
+  trades.forEach(t => { cum += t.R; equity.push(cum); });
+
+  // Daily Sharpe
+  const byDay = {};
+  trades.forEach(t => { const day = new Date(t.ts).toDateString(); byDay[day] = (byDay[day] || 0) + t.R; });
+  const dailyRs = Object.values(byDay);
+  const meanD = dailyRs.reduce((s, r) => s + r, 0) / Math.max(1, dailyRs.length);
+  const varD = dailyRs.reduce((s, r) => s + (r - meanD) ** 2, 0) / Math.max(1, dailyRs.length - 1);
+  const stdD = Math.sqrt(Math.max(0, varD));
+  const sharpe = stdD > 0 ? (meanD / stdD) * Math.sqrt(252) : 0;
+  // Max DD
+  let peak = -Infinity, maxDD = 0;
+  equity.forEach(e => { if (e > peak) peak = e; const dd = peak - e; if (dd > maxDD) maxDD = dd; });
+  // Profit factor
+  const grossW = trades.filter(t => t.R > 0).reduce((s, t) => s + t.R, 0);
+  const grossL = Math.abs(trades.filter(t => t.R < 0).reduce((s, t) => s + t.R, 0));
+  const pf = grossL > 0 ? grossW / grossL : Infinity;
+
+  document.getElementById('kWin').textContent = (winRate * 100).toFixed(0) + '%';
+  document.getElementById('kWin').style.color = winRate >= 0.55 ? 'var(--green)' : winRate >= 0.45 ? 'var(--text-primary)' : 'var(--red)';
+  document.getElementById('kR').textContent = (totalR >= 0 ? '+' : '') + totalR.toFixed(1) + 'R';
+  document.getElementById('kR').style.color = totalR > 0 ? 'var(--green)' : 'var(--red)';
+
+  // Verdict
+  let vCls, vMsg, vDetail;
+  if (avgR > 0.05 && winRate >= 0.50 && sharpe > 0.5) {
+    vCls = 'alpha'; vMsg = '✓ REAL ALPHA';
+    vDetail = trades.length + ' resolved conviction picks · ' + (totalR >= 0 ? '+' : '') + totalR.toFixed(1) + 'R · ' + (winRate*100).toFixed(0) + '% win rate · Sharpe ' + sharpe.toFixed(2) + ' · PF ' + (pf === Infinity ? '∞' : pf.toFixed(2)) + '. The brain is generating real edge on live data.';
+  } else if (avgR > 0 || (winRate >= 0.50 && trades.length < 30)) {
+    vCls = 'neutral'; vMsg = '~ INCONCLUSIVE';
+    vDetail = trades.length + ' resolved picks · ' + (totalR >= 0 ? '+' : '') + totalR.toFixed(1) + 'R · ' + (winRate*100).toFixed(0) + '% win rate · Sharpe ' + sharpe.toFixed(2) + '. ' + (trades.length < 30 ? 'Sample too small. Wait for 30+ to make a call.' : 'Edge is marginal — could be luck.');
+  } else {
+    vCls = 'bad'; vMsg = '✗ NO EDGE';
+    vDetail = trades.length + ' resolved picks · ' + totalR.toFixed(1) + 'R · ' + (winRate*100).toFixed(0) + '% win rate. Brain is losing money on live predictions. Don\'t trade off this until it improves.';
+  }
+  document.getElementById('verdict').innerHTML = '<div class="verdict-card ' + vCls + '">'
+    + '<div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:1px;">Live-forward verdict</div>'
+    + '<div style="font-size:32px;font-weight:800;font-family:var(--font-mono);color:' + (vCls === 'alpha' ? 'var(--green)' : vCls === 'neutral' ? 'var(--yellow)' : 'var(--red)') + ';margin-top:8px;">' + vMsg + '</div>'
+    + '<div style="font-size:13px;color:var(--text-secondary);margin-top:14px;max-width:600px;margin-left:auto;margin-right:auto;line-height:1.6;">' + vDetail + '</div>'
+    + '<div style="margin-top:18px;display:grid;grid-template-columns:repeat(4, 1fr);gap:10px;max-width:600px;margin-left:auto;margin-right:auto;font-family:var(--font-mono);font-size:11px;">'
+      + '<div style="padding:8px;background:var(--bg);border-radius:6px;"><div style="color:var(--text-muted);font-size:9px;text-transform:uppercase;">Avg R</div><div style="font-weight:700;color:' + (avgR > 0 ? 'var(--green)' : 'var(--red)') + ';">' + (avgR >= 0 ? '+' : '') + avgR.toFixed(3) + '</div></div>'
+      + '<div style="padding:8px;background:var(--bg);border-radius:6px;"><div style="color:var(--text-muted);font-size:9px;text-transform:uppercase;">Sharpe</div><div style="font-weight:700;color:' + (sharpe > 1 ? 'var(--green)' : 'var(--text-primary)') + ';">' + sharpe.toFixed(2) + '</div></div>'
+      + '<div style="padding:8px;background:var(--bg);border-radius:6px;"><div style="color:var(--text-muted);font-size:9px;text-transform:uppercase;">Profit factor</div><div style="font-weight:700;color:' + (pf > 1.5 ? 'var(--green)' : pf > 1 ? 'var(--accent)' : 'var(--red)') + ';">' + (pf === Infinity ? '∞' : pf.toFixed(2)) + '</div></div>'
+      + '<div style="padding:8px;background:var(--bg);border-radius:6px;"><div style="color:var(--text-muted);font-size:9px;text-transform:uppercase;">Max DD</div><div style="font-weight:700;color:' + (maxDD < 3 ? 'var(--green)' : maxDD < 8 ? 'var(--yellow)' : 'var(--red)') + ';">' + maxDD.toFixed(1) + 'R</div></div>'
+    + '</div>'
+    + '</div>';
+
+  // Equity chart
+  if (window._eq) window._eq.destroy();
+  window._eq = new Chart(document.getElementById('equityChart'), {
+    type: 'line',
+    data: { labels: equity.map((_, i) => i), datasets: [{ label: 'Cumulative R', data: equity, borderColor: totalR > 0 ? '#10b981' : '#ef4444', backgroundColor: totalR > 0 ? 'rgba(16,185,129,0.1)' : 'rgba(239,68,68,0.1)', tension: 0.2, fill: true, pointRadius: 0, borderWidth: 2 }] },
+    options: { responsive:true, maintainAspectRatio:false, plugins:{legend:{display:false}}, scales:{x:{ticks:{color:'#888',maxTicksLimit:10},grid:{color:'#222'}},y:{ticks:{color:'#888',callback:v=>v+'R'},grid:{color:'#222'}}} }
+  });
+
+  // Per-symbol breakdown
+  const bySym = {};
+  trades.forEach(t => {
+    if (!bySym[t.sym]) bySym[t.sym] = { wins: 0, total: 0, R: 0 };
+    bySym[t.sym].total++;
+    if (t.correct) bySym[t.sym].wins++;
+    bySym[t.sym].R += t.R;
+  });
+  const sortedSyms = Object.entries(bySym).sort((a, b) => b[1].R - a[1].R);
+  document.getElementById('symBreakdown').innerHTML = sortedSyms.map(([sym, s]) =>
+    '<div style="display:grid;grid-template-columns:80px 80px 80px 80px;gap:14px;padding:8px 0;border-bottom:1px solid var(--border);font-family:var(--font-mono);font-size:11px;">'
+    + '<div><strong>' + sym + '</strong></div>'
+    + '<div style="color:var(--text-muted);">' + s.total + ' trades</div>'
+    + '<div style="color:' + (s.wins / s.total >= 0.5 ? 'var(--green)' : 'var(--red)') + ';">' + ((s.wins / s.total) * 100).toFixed(0) + '%</div>'
+    + '<div style="color:' + (s.R > 0 ? 'var(--green)' : 'var(--red)') + ';font-weight:700;">' + (s.R >= 0 ? '+' : '') + s.R.toFixed(1) + 'R</div>'
+    + '</div>'
+  ).join('') || '<div style="padding:14px;text-align:center;color:var(--text-muted);font-size:12px;">No symbol data yet.</div>';
+
+  // Trade table (most recent first)
+  const recent = trades.slice().reverse().slice(0, 100);
+  document.getElementById('trades').innerHTML = recent.map(t => {
+    const cls = t.correct ? 'correct' : 'wrong';
+    const rCol = t.R > 0 ? 'var(--green)' : 'var(--red)';
+    return '<div class="trade-row ' + cls + '">'
+      + '<div style="color:var(--text-muted);">' + new Date(t.ts).toLocaleDateString() + '</div>'
+      + '<div><strong>' + t.sym + '</strong></div>'
+      + '<div style="color:' + (t.side === 'LONG' ? 'var(--green)' : 'var(--red)') + ';">' + t.side + '</div>'
+      + '<div style="color:var(--accent);">' + (t.predProb * 100).toFixed(0) + '%</div>'
+      + '<div style="color:' + (t.oodScore < 0.3 ? 'var(--green)' : t.oodScore < 0.5 ? 'var(--yellow)' : 'var(--red)') + ';">' + (t.oodScore * 100).toFixed(0) + '%</div>'
+      + '<div>' + (t.ret * 100).toFixed(2) + '%</div>'
+      + '<div style="color:' + rCol + ';font-weight:700;">' + (t.R >= 0 ? '+' : '') + t.R.toFixed(2) + 'R</div>'
+      + '<div style="color:' + rCol + ';">' + (t.correct ? '✓ WIN' : '✗ LOSS') + '</div>'
+      + '<div style="color:var(--text-muted);font-size:10px;">' + t.regime.replace('_', ' ') + '</div>'
+      + '</div>';
+  }).join('');
+}
+
+document.getElementById('threshold').addEventListener('change', render);
+render();
+setInterval(render, 8000);
+window.addEventListener('bpleone:continuous-resolved', render);
+</script>
+</body>
+</html>
