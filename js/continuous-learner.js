@@ -357,6 +357,12 @@
               SetupTracker.record(setup, entry.predProb, label);
             }
           } catch (e) {}
+          // DOW PERF: stratify accuracy by day-of-week.
+          try {
+            if (typeof DowPerf !== 'undefined') {
+              DowPerf.recordResolution(entry.predProb, label, entry.ts);
+            }
+          } catch (e) {}
         }
       });
 

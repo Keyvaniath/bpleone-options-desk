@@ -554,6 +554,13 @@ document.addEventListener('DOMContentLoaded', () => {
         s.async = false;
         document.head.appendChild(s);
       }
+      // Day-of-week performance: stratifies accuracy by weekday (ET).
+      if (!document.querySelector('script[src*="dow-perf.js"]')) {
+        const s = document.createElement('script');
+        s.src = 'js/dow-perf.js';
+        s.async = false;
+        document.head.appendChild(s);
+      }
       // Unified predictor: chains every meta-module into ONE call.
       // Loads last so all dependencies are present.
       if (!document.querySelector('script[src*="unified-predictor.js"]')) {

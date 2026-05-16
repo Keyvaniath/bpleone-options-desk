@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Day-of-Week Performance — bpleone / brain</title>
+<meta name="description" content="Brain accuracy stratified by weekday. Monday gaps, Friday OPEX, midweek smoothness — see which days the brain excels at.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.current-day-card { padding:32px;border-radius:16px;text-align:center;background:linear-gradient(135deg,rgba(0,212,255,0.10),rgba(0,212,255,0.02));border:2px solid rgba(0,212,255,0.4); }
+.current-day-card .name { font-size:48px;font-weight:800;letter-spacing:2px; }
+.current-day-card .mult { font-family:var(--font-mono);font-size:42px;font-weight:900;margin-top:14px; }
+.day-grid { display:grid;grid-template-columns:repeat(7, 1fr);gap:10px; }
+@media (max-width:768px){ .day-grid { grid-template-columns:repeat(2, 1fr); } }
+.day-card { padding:14px;background:var(--bg-elevated);border-radius:10px;text-align:center;border:1px solid var(--border); }
+.day-card.current { border-color:var(--accent);box-shadow:0 0 16px rgba(0,212,255,0.20); }
+.day-card .name { font-weight:700;font-size:13px;margin-bottom:6px; }
+.day-card .v { font-family:var(--font-mono);font-size:14px;font-weight:700;margin-top:4px; }
+.day-card .l { font-size:9px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px; }
+.acc-good { color:var(--green); }
+.acc-bad { color:var(--red); }
+.acc-flat { color:var(--yellow); }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">📅 Day-of-Week Performance</div>
+      <div class="page-subtitle">Brain accuracy stratified by weekday · the brain grows positions during strong days, shrinks during weak ones</div>
+    </div>
+  </div>
+
+  <div id="current-card" class="mb-24"></div>
+
+  <div class="card mb-24">
+    <div class="card-header"><div class="card-title">📊 Per-day accuracy</div></div>
+    <div class="day-grid" id="day-grid"></div>
+  </div>
+
+  <div class="card">
+    <div class="card-header"><div class="card-title">📚 Why day-of-week matters</div></div>
+    <div style="font-size:13px;color:var(--text-secondary);line-height:1.7;">
+      <ul style="margin:8px 0 8px 24px;">
+        <li><strong>Monday</strong> — Weekend news gap, often gappy open, late-day positioning</li>
+        <li><strong>Tuesday</strong> — Earnings season heavyweights, FOMC meetings often start</li>
+        <li><strong>Wednesday</strong> — FOMC decisions, mid-week pivot, lower volatility usually</li>
+        <li><strong>Thursday</strong> — Earnings continue, jobless claims, NFP eve setup</li>
+        <li><strong>Friday</strong> — Monthly OPEX (3rd Friday), positioning for weekend, often risk-off</li>
+      </ul>
+      <strong>Mechanism:</strong> same as HourlyPerf but on a weekly cycle. The UnifiedPredictor compounds this multiplier with hourly perf, dropout, agreement, OOD, bootstrap divergence, and drawdown protection.<br><br>
+      <strong>What to look for:</strong> if your model has a strong edge midweek but loses on Fridays, this gives Brandon a concrete signal to skip Friday trades (or downsize them).
+    </div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script src="js/dow-perf.js"></script>
+<script>
+buildNav('dow-performance');
+
+function fmtPct(p) { return p != null ? (p * 100).toFixed(1) + '%' : '—'; }
+function fmtMult(m) { return m != null ? m.toFixed(2) + 'x' : '—'; }
+function accClass(edge) {
+  if (edge == null) return 'acc-flat';
+  if (edge > 0.03) return 'acc-good';
+  if (edge < -0.03) return 'acc-bad';
+  return 'acc-flat';
+}
+
+function render() {
+  const s = DowPerf.stats();
+  const curDay = s.currentDay;
+  const curB = s.perDay[curDay];
+
+  const card = document.getElementById('current-card');
+  card.innerHTML = '<div class="current-day-card">'
+    + '<div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:1px;font-weight:700;">Today</div>'
+    + '<div class="name" style="margin-top:8px;">' + curDay + '</div>'
+    + '<div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:1px;font-weight:700;margin-top:18px;">Size multiplier</div>'
+    + '<div class="mult" style="color:' + (s.currentMult > 1.05 ? 'var(--green)' : s.currentMult < 0.95 ? 'var(--red)' : 'var(--accent)') + ';">' + fmtMult(s.currentMult) + '</div>'
+    + '<div style="font-size:12px;color:var(--text-secondary);margin-top:10px;font-family:var(--font-mono);">' + (curB.n ? curB.n + ' samples · ' + fmtPct(curB.accuracy) + ' accuracy' : 'No data for this day yet') + '</div>'
+    + '</div>';
+
+  const grid = document.getElementById('day-grid');
+  let html = '';
+  for (const day of DowPerf.DAYS) {
+    const stats = s.perDay[day];
+    const mult = DowPerf.sizeMultiplier(day);
+    const isCurrent = day === curDay;
+    html += '<div class="day-card ' + (isCurrent ? 'current' : '') + '">'
+      + '<div class="name">' + day + '</div>'
+      + '<div class="l">samples</div><div class="v">' + stats.n + '</div>'
+      + '<div class="l" style="margin-top:6px;">accuracy</div><div class="v ' + accClass(stats.edge) + '">' + fmtPct(stats.accuracy) + '</div>'
+      + '<div class="l" style="margin-top:6px;">size mult</div><div class="v">' + fmtMult(mult) + '</div>'
+      + '</div>';
+  }
+  grid.innerHTML = html;
+}
+
+render();
+setInterval(render, 10000);
+window.addEventListener('bpleone:continuous-cycle', render);
+</script>
+</body>
+</html>

@@ -243,6 +243,15 @@
         components.currentHourBucket = safe(() => HourlyPerf.currentBucket(), null);
       }
     }
+    // Day-of-week multiplier: similar pattern but stratified by weekday.
+    if (typeof DowPerf !== 'undefined') {
+      const dowMult = safe(() => DowPerf.sizeMultiplier(), 1.0);
+      if (dowMult != null && dowMult !== 1.0) {
+        sizeMult *= dowMult;
+        components.dowMult = dowMult;
+        components.currentDow = safe(() => DowPerf.currentDay(), null);
+      }
+    }
     // Drawdown tilt protection: shrink size after recent losing streak
     // (or after long winning streak for anti-overconfidence).
     if (typeof DrawdownProtector !== 'undefined') {
