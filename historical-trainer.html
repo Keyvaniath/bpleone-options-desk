@@ -36,19 +36,19 @@
 
   <div class="intro">
     <div style="font-size:15px;color:var(--text-primary);line-height:1.7;">
-      <strong>What this does:</strong> Fetches the last ~90 trading days of daily OHLC bars for every symbol in the universe from Stooq.com (free, no key, CORS-friendly). For each historical day, computes the same 22 features the live brain uses — but from real bars, not random numbers. Labels each by whether the next-5-day return was positive or negative. Trains the brain on this real dataset.
+      <strong>What this does:</strong> Fetches multi-year daily OHLC bars for every symbol from Stooq (free, no key). For each historical day computes 22 features from REAL bars (RSI from real closes, ATR from real ranges, MA distances, etc.). Labels: did next-day return exceed 0.3×ATR%? Splits data 80/20 train/test (last 14 days = test). Trains 3 epochs of SGD. Reports HELD-OUT accuracy and compares to a majority-class baseline.
       <br><br>
-      <strong>Why this matters:</strong> The original auto-seed generated 200 random rows. The brain learned nothing useful and reported high confidence anyway. Historical training fixes this — every example is from real price action that actually happened.
+      <strong>Why honest reporting matters:</strong> The original auto-seed generated 200 random rows and the model 'looked smart' from minute one — but its 'training loss' was meaningless because the labels were also random. This version reports test accuracy on a held-out period the model never saw. If accuracy doesn't beat baseline, there's no edge and the dashboard will say so.
       <br><br>
-      <strong>Cost:</strong> 22 symbols × 1 CSV each = 22 HTTP requests to Stooq. Total ~5 seconds. Stooq has no rate limit but be polite — don't run this more than once per hour.
+      <strong>Cost:</strong> 22 HTTP requests to Stooq. ~6 seconds. Run weekly to refresh on new bars.
     </div>
   </div>
 
   <div class="grid grid-4 mb-24">
     <div class="stat-tile"><div class="lbl">Symbols available</div><div class="val" id="kSyms">22</div></div>
     <div class="stat-tile"><div class="lbl">Bars fetched</div><div class="val" id="kBars" style="color:var(--accent);">0</div></div>
-    <div class="stat-tile"><div class="lbl">Training rows</div><div class="val" id="kRows" style="color:var(--green);">0</div></div>
-    <div class="stat-tile"><div class="lbl">Avg loss</div><div class="val" id="kLoss">—</div></div>
+    <div class="stat-tile"><div class="lbl">Training examples</div><div class="val" id="kRows" style="color:var(--green);">0</div></div>
+    <div class="stat-tile"><div class="lbl">Test accuracy</div><div class="val" id="kLoss">—</div></div>
   </div>
 
   <div class="card mb-24" style="text-align:center;padding:32px;">
@@ -251,52 +251,118 @@ async function runTraining() {
   goBtn.disabled = true;
   goBtn.textContent = '⏳ Fetching bars...';
   let totalBars = 0;
-  let totalRows = 0;
   let lossHistory = [];
   // Fresh model — start from default weights so the historical data drives everything
   const model = new Model();
 
+  // Collect ALL training examples first, split train/test, then train.
+  // This way we can report test accuracy honestly.
+  const allExamples = [];  // {features, label, sym, date, isTest}
+
+  // Collect from every symbol
   for (let s = 0; s < UNIVERSE.length; s++) {
     const sym = UNIVERSE[s];
     try {
       log('→ Fetching ' + sym + '.us from Stooq...');
       const bars = await fetchStooqHistory(sym);
-      if (bars.length < 50) { log('   skip — only ' + bars.length + ' bars', 'warn'); continue; }
-      log('   ✓ ' + bars.length + ' bars', 'ok');
+      if (bars.length < 60) { log('   skip — only ' + bars.length + ' bars', 'warn'); continue; }
+      log('   ✓ ' + bars.length + ' bars (' + bars[bars.length - 1].date + ')', 'ok');
       totalBars += bars.length;
 
-      // Walk forward generating features at each bar; label = (close 5 days later > today's close)
-      const startIdx = 50;  // need 50 bars of context for MA50
-      const endIdx = bars.length - 6;  // need 5 forward days for label
+      // Walk forward. Need 50 bars context (for MA50), 3 forward bars (for label).
+      // Label: did close 1 day later exceed today by more than 0.3 × ATR%?
+      // This is a meaningful 1-day directional signal — not just random noise.
+      const startIdx = 50;
+      const endIdx = bars.length - 4;
+      // Reserve last 14 days as TEST set; rest is TRAIN.
+      const testCutoff = bars.length - 14;
       let symRows = 0;
       for (let i = startIdx; i < endIdx; i++) {
         const features = buildFeaturesForBar(sym, bars, i);
-        const futureClose = bars[i + 5].close;
-        const label = futureClose > bars[i].close ? 1 : 0;
-        const { loss } = model.train(features, label);
-        lossHistory.push(loss);
-        ModelStore.addTrainingRow(features, label, {
-          sym: sym,
-          setup: 'historical-' + bars[i].date,
-          dataSource: 'live',   // real Stooq bars
-          priceSource: 'stooq',
-          historical: true
+        const atr = (function() {
+          let s = 0;
+          for (let k = Math.max(0, i - 13); k <= i; k++) s += bars[k].high - bars[k].low;
+          return s / Math.min(14, i + 1);
+        })();
+        const atrPct = atr / bars[i].close;
+        const ret1d = (bars[i + 1].close - bars[i].close) / bars[i].close;
+        const label = ret1d > 0.3 * atrPct ? 1 : 0;
+        allExamples.push({
+          features,
+          label,
+          sym,
+          date: bars[i].date,
+          isTest: i >= testCutoff
         });
         symRows++;
-        totalRows++;
       }
-      log('   trained ' + symRows + ' rows for ' + sym, 'ok');
+      log('   collected ' + symRows + ' examples for ' + sym, 'ok');
       document.getElementById('kBars').textContent = totalBars.toLocaleString();
-      document.getElementById('kRows').textContent = totalRows.toLocaleString();
-      // Small delay between symbols to be polite to Stooq
+      document.getElementById('kRows').textContent = allExamples.length.toLocaleString();
       await new Promise(r => setTimeout(r, 250));
     } catch (e) {
       log('   ✗ ' + sym + ' failed: ' + e.message, 'fail');
     }
   }
 
+  if (allExamples.length < 100) {
+    log('Not enough examples to train. Aborting.', 'fail');
+    goBtn.disabled = false;
+    goBtn.textContent = '🚀 Train brain on real history';
+    return;
+  }
+
+  // Split
+  const trainSet = allExamples.filter(e => !e.isTest);
+  const testSet = allExamples.filter(e => e.isTest);
+  log('Train set: ' + trainSet.length + ' · Test set (last 14 days held out): ' + testSet.length, 'ok');
+
+  // Shuffle train set for SGD
+  for (let i = trainSet.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    const tmp = trainSet[i]; trainSet[i] = trainSet[j]; trainSet[j] = tmp;
+  }
+
+  // Train (3 epochs)
+  log('Training 3 epochs of SGD on ' + trainSet.length + ' examples...');
+  for (let epoch = 0; epoch < 3; epoch++) {
+    for (let i = 0; i < trainSet.length; i++) {
+      const { loss } = model.train(trainSet[i].features, trainSet[i].label);
+      lossHistory.push(loss);
+    }
+    log('   epoch ' + (epoch + 1) + ' complete · loss ' + lossHistory.slice(-100).reduce((a,b)=>a+b,0) / 100, 'ok');
+  }
+
+  // Save training rows (tagged for the live-only trainer)
+  trainSet.forEach(e => {
+    ModelStore.addTrainingRow(e.features, e.label, {
+      sym: e.sym,
+      setup: 'historical-' + e.date,
+      dataSource: 'live',
+      priceSource: 'stooq',
+      historical: true
+    });
+  });
+
+  // Evaluate on held-out test set
+  let testCorrect = 0;
+  let testPosCorrect = 0, testPosTotal = 0;
+  let testNegCorrect = 0, testNegTotal = 0;
+  testSet.forEach(e => {
+    const pred = model.predict(e.features);
+    const guess = pred.prob >= 0.5 ? 1 : 0;
+    if (guess === e.label) testCorrect++;
+    if (e.label === 1) { testPosTotal++; if (guess === 1) testPosCorrect++; }
+    else { testNegTotal++; if (guess === 0) testNegCorrect++; }
+  });
+  const testAcc = testCorrect / testSet.length;
+
+  // Baseline: always predict majority class
+  const trainPosRate = trainSet.filter(e => e.label === 1).length / trainSet.length;
+  const baseline = Math.max(trainPosRate, 1 - trainPosRate);
+
   // Save the trained model
-  model.n_trained = totalRows;
+  model.n_trained = trainSet.length * 3;
   ModelStore.save(model);
   ModelStore.saveVersion(model, 'historical-stooq-' + new Date().toISOString().slice(0,10));
 
@@ -318,8 +384,19 @@ async function runTraining() {
   });
 
   log('═══ TRAINING COMPLETE ═══', 'ok');
-  log('Total bars: ' + totalBars + ' · Rows: ' + totalRows + ' · Final loss: ' + avgLoss.toFixed(3), 'ok');
-  log('Model saved. Brain is now grounded in 90 days of real market history.', 'ok');
+  log('Total bars: ' + totalBars + ' · Train rows: ' + trainSet.length + ' · Test rows: ' + testSet.length, 'ok');
+  log('Final training loss: ' + avgLoss.toFixed(3), 'ok');
+  log('Held-out test accuracy: ' + (testAcc * 100).toFixed(1) + '% (vs majority-class baseline ' + (baseline * 100).toFixed(1) + '%)', testAcc > baseline ? 'ok' : 'warn');
+  log('Test breakdown: ' + testPosCorrect + '/' + testPosTotal + ' wins called right · ' + testNegCorrect + '/' + testNegTotal + ' losses called right', 'ok');
+  if (testAcc > baseline + 0.02) log('✓ Model beats baseline by ' + ((testAcc - baseline) * 100).toFixed(1) + 'pp — real signal detected.', 'ok');
+  else if (testAcc < baseline - 0.02) log('⚠ Model worse than baseline. Features may not be predictive for this label.', 'warn');
+  else log('≈ Model roughly matches baseline. No clear edge yet.', 'warn');
+  log('Model saved. Brain is now grounded in real historical price action.', 'ok');
+
+  // Update test-accuracy KPI
+  const kLoss = document.getElementById('kLoss');
+  kLoss.textContent = (testAcc * 100).toFixed(1) + '%';
+  kLoss.style.color = testAcc > baseline + 0.02 ? 'var(--green)' : testAcc < baseline - 0.02 ? 'var(--red)' : 'var(--yellow)';
 
   goBtn.disabled = false;
   goBtn.textContent = '✓ Done — train again';
