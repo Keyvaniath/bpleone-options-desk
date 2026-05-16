@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Multi-Horizon Brain — bpleone / trade</title>
+<meta name="description" content="Three parallel models routed by current market regime. Visible meta-learning.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<style>
+.regime-badge { display:inline-block;padding:8px 20px;border-radius:20px;font-family:var(--font-mono);font-size:16px;font-weight:800;letter-spacing:0.5px; }
+.regime-bull { background:rgba(16,185,129,0.18);color:var(--green); }
+.regime-choppy { background:rgba(245,158,11,0.18);color:var(--yellow); }
+.regime-bear { background:rgba(239,68,68,0.18);color:var(--red); }
+.grid-cell { padding:12px;background:var(--bg-elevated);border-radius:8px;text-align:center; }
+.grid-cell.best { box-shadow:0 0 0 2px var(--green);position:relative; }
+.grid-cell.best::after { content:'BEST';position:absolute;top:-8px;right:8px;font-size:8px;font-weight:800;background:var(--green);color:#000;padding:1px 6px;border-radius:3px; }
+.grid-cell .acc { font-family:var(--font-mono);font-size:20px;font-weight:800; }
+.grid-cell .n { font-size:10px;color:var(--text-muted);margin-top:4px; }
+.weight-bar { height:8px;background:var(--bg);border-radius:4px;overflow:hidden;margin-top:4px; }
+.weight-bar > div { height:100%; }
+.kpi-tile { padding:18px;background:var(--bg-elevated);border-radius:10px;text-align:center; }
+.kpi-tile .lbl { font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px; }
+.kpi-tile .val { font-family:var(--font-mono);font-size:26px;font-weight:800;margin-top:6px; }
+.feature-row { display:grid;grid-template-columns:60px 1fr 70px 70px 70px;gap:14px;padding:9px 0;border-bottom:1px solid var(--border);font-family:var(--font-mono);font-size:11px;align-items:center; }
+.feature-row.hdr { font-size:9px;color:var(--text-muted);font-weight:800;letter-spacing:0.4px; }
+.uncertain-pill { display:inline-block;padding:3px 10px;border-radius:12px;background:rgba(245,158,11,0.18);color:var(--yellow);font-size:11px;font-family:var(--font-mono);font-weight:700;margin:3px; }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">🧪 Multi-Horizon Brain</div>
+      <div class="page-subtitle">3 models (1d / 5d / 20d) · regime-aware routing · reward-shaped · active-learning · feature alpha · <span id="market-clock">--</span></div>
+    </div>
+    <div class="flex gap-8">
+      <a href="continuous-learning.html" class="btn btn-ghost">🔄 Continuous loop</a>
+      <a href="brain-monitor.html" class="btn btn-ghost">🧠 Monitor</a>
+    </div>
+  </div>
+
+  <div class="card mb-24" style="text-align:center;padding:24px;">
+    <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:1px;margin-bottom:10px;">Current market regime</div>
+    <div id="regimeBig"></div>
+    <div id="regimeNote" style="font-size:13px;color:var(--text-secondary);margin-top:14px;line-height:1.6;"></div>
+  </div>
+
+  <div class="grid grid-4 mb-24">
+    <div class="kpi-tile"><div class="lbl">Ensemble prediction</div><div class="val" id="kEns" style="color:var(--accent);">—</div></div>
+    <div class="kpi-tile"><div class="lbl">Short (1d) n_trained</div><div class="val" id="kShort">0</div></div>
+    <div class="kpi-tile"><div class="lbl">Mid (5d) n_trained</div><div class="val" id="kMid">0</div></div>
+    <div class="kpi-tile"><div class="lbl">Long (20d) n_trained</div><div class="val" id="kLong">0</div></div>
+  </div>
+
+  <div class="card mb-24">
+    <div class="card-header"><div class="card-title">🎯 Per-(regime × horizon) accuracy matrix</div></div>
+    <div style="font-size:12px;color:var(--text-secondary);margin-bottom:14px;line-height:1.6;">
+      Each cell shows the rolling accuracy of the matching horizon model in the matching regime. The BEST cell in the current row gets ensemble priority.
+    </div>
+    <div style="display:grid;grid-template-columns:100px repeat(3, 1fr);gap:10px;font-size:12px;">
+      <div></div>
+      <div style="text-align:center;font-weight:700;color:var(--text-muted);">SHORT (1d)</div>
+      <div style="text-align:center;font-weight:700;color:var(--text-muted);">MID (5d)</div>
+      <div style="text-align:center;font-weight:700;color:var(--text-muted);">LONG (20d)</div>
+      <div id="matrixBody" style="display:contents;"></div>
+    </div>
+  </div>
+
+  <div class="grid grid-2 mb-24">
+    <div class="card">
+      <div class="card-header"><div class="card-title">⚖ Ensemble weights (current regime)</div></div>
+      <div id="weights"></div>
+      <div style="font-size:11px;color:var(--text-muted);margin-top:14px;line-height:1.6;">
+        Weights = each horizon's edge above coin-flip in the current regime, normalized. A horizon with no signal (≤50% accuracy) gets weight 0.
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-header"><div class="card-title">🔍 Active learning queue (uncertain predictions)</div></div>
+      <div id="uncertain" style="min-height:120px;"></div>
+      <div style="font-size:11px;color:var(--text-muted);margin-top:14px;line-height:1.6;">
+        Symbols where the model is least confident (prediction in [40%, 60%]). These get re-captured every 5 minutes instead of 30, so the brain explores its weak spots faster.
+      </div>
+    </div>
+  </div>
+
+  <div class="card mb-24">
+    <div class="card-header"><div class="card-title">📊 Feature alpha map (which features predict wins vs losses)</div></div>
+    <div style="font-size:12px;color:var(--text-secondary);margin-bottom:14px;line-height:1.6;">
+      For every resolved prediction we record per-feature contribution. A feature with consistently positive average contribution on wins (and negative on losses) is REAL ALPHA. A feature with mixed contribution is noise.
+    </div>
+    <div class="feature-row hdr">
+      <div>FEAT</div><div>NAME</div><div>WINS / LOSSES</div><div>AVG CONTRIB ON WINS</div><div>ALPHA</div>
+    </div>
+    <div id="features"></div>
+  </div>
+
+  <div class="card">
+    <div class="card-header"><div class="card-title">🧬 What 'self-learning' means here</div></div>
+    <div style="font-size:13px;color:var(--text-secondary);line-height:1.7;">
+      <strong>Multi-horizon (idea #1):</strong> three models in parallel. When you ask for a prediction, you get a weighted blend where the weights reflect each horizon's recent performance in THIS regime. If the 5-day model is crushing in choppy markets and the 1-day model fails, the ensemble auto-routes to the 5-day.
+      <br><br>
+      <strong>Reward shaping (idea #2):</strong> training samples are weighted by |R-multiple|. A correct prediction on a +3R move trains the model 3× harder than a correct prediction on a 0.5R move. The brain learns to care about BIG, ACTIONABLE moves more than tiny drifts.
+      <br><br>
+      <strong>Active learning (idea #3):</strong> when the model says "I'm 50/50 confident" on a symbol, that prediction has the highest information value when resolved. So those symbols get re-captured 6× more often (5min vs 30min cooldown), accelerating learning where it matters most.
+      <br><br>
+      <strong>Feature alpha (idea #4):</strong> every resolved prediction is back-attributed to which features contributed most to the logit. Over thousands of predictions, this surfaces which features are REAL predictors vs noise. The brain can then prune low-alpha features or up-weight high-alpha ones.
+    </div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script src="js/model.js"></script>
+<script src="js/multi-horizon.js"></script>
+<script>
+buildNav('multi-horizon');
+
+const FEATURE_NAMES = [
+  'RSI/100','ATR%/10','RVOL/4','dist20MA','dist50MA','SPY chg','Sector chg','Beta/2',
+  'Spread (inv)','IV pct','Severity','Bullish setup','Bearish setup','Trend follow',
+  'Mean revert','Breakout','Brain weight','Regime','VIX','Coincident','Hour','Bias'
+];
+
+function fmtPct(p) { if (p == null) return '—'; return (p * 100).toFixed(0) + '%'; }
+
+function render() {
+  if (typeof MultiHorizon === 'undefined') { setTimeout(render, 500); return; }
+  const sum = MultiHorizon.summary();
+  const regime = sum.currentRegime;
+
+  // Regime badge
+  const cls = regime.name === 'trending_bull' ? 'regime-bull' : regime.name === 'volatile_bear' ? 'regime-bear' : 'regime-choppy';
+  const lbl = regime.name === 'trending_bull' ? '↑ Trending Bull' : regime.name === 'volatile_bear' ? '↓ Volatile Bear' : '~ Choppy';
+  document.getElementById('regimeBig').innerHTML = '<span class="regime-badge ' + cls + '">' + lbl + '</span>';
+  document.getElementById('regimeNote').innerHTML = regime.vix != null && regime.spyChg != null
+    ? 'VIX ≈ <strong>' + regime.vix.toFixed(1) + '</strong> · SPY today <strong>' + (regime.spyChg >= 0 ? '+' : '') + regime.spyChg.toFixed(2) + '%</strong> · ' + (regime.reason === 'computed' ? 'computed from live data' : regime.reason)
+    : '<span style="color:var(--yellow);">Insufficient live data — defaulting to choppy regime.</span>';
+
+  // Models KPIs
+  if (sum.models.short) document.getElementById('kShort').textContent = sum.models.short.n_trained.toLocaleString();
+  if (sum.models.mid) document.getElementById('kMid').textContent = sum.models.mid.n_trained.toLocaleString();
+  if (sum.models.long) document.getElementById('kLong').textContent = sum.models.long.n_trained.toLocaleString();
+
+  // Try an ensemble prediction on SPY as a demo
+  try {
+    if (typeof FeatureExtractor !== 'undefined' && typeof QUOTES !== 'undefined' && QUOTES.SPY && QUOTES.SPY.priceSource && QUOTES.SPY.priceSource !== 'stale-seed') {
+      const finding = { ts: Date.now(), type: 'demo', severity: 1, meta: { sym: 'SPY', setup: 'demo' } };
+      const features = FeatureExtractor.extract(finding);
+      const ens = MultiHorizon.predictEnsemble(features);
+      if (ens) {
+        document.getElementById('kEns').textContent = (ens.prob * 100).toFixed(0) + '%';
+        document.getElementById('kEns').style.color = ens.prob >= 0.6 ? 'var(--green)' : ens.prob >= 0.4 ? 'var(--accent)' : 'var(--red)';
+        // Weights chart
+        const weights = ens.weights;
+        const wHtml = MultiHorizon.HORIZONS.map(h => {
+          const w = weights[h] || 0;
+          const a = ens.accuracies[h];
+          return '<div style="margin-bottom:14px;">'
+            + '<div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:4px;">'
+              + '<span><strong>' + h.toUpperCase() + '</strong> (' + MultiHorizon.HORIZON_DAYS[h] + 'd) — pred ' + fmtPct(ens.byHorizon[h]) + '</span>'
+              + '<span style="color:var(--accent);font-family:var(--font-mono);font-weight:700;">w = ' + (w * 100).toFixed(0) + '%</span>'
+            + '</div>'
+            + '<div class="weight-bar"><div style="width:' + (w * 100) + '%;background:#00d4ff;"></div></div>'
+            + '<div style="font-size:10px;color:var(--text-muted);margin-top:2px;">acc in current regime: ' + (a != null ? fmtPct(a) : 'no data yet') + '</div>'
+            + '</div>';
+        }).join('');
+        document.getElementById('weights').innerHTML = wHtml;
+      }
+    } else {
+      document.getElementById('kEns').textContent = 'no live';
+      document.getElementById('kEns').style.color = 'var(--yellow)';
+      document.getElementById('weights').innerHTML = '<div style="font-size:12px;color:var(--text-muted);padding:14px 0;">Need live SPY price to compute ensemble. Wait for Stooq to populate.</div>';
+    }
+  } catch (e) { document.getElementById('kEns').textContent = 'err'; }
+
+  // Matrix
+  const matrixHtml = MultiHorizon.REGIMES.map(r => {
+    const cells = MultiHorizon.HORIZONS.map(h => {
+      const cell = sum.cells[r][h];
+      return { h, n: cell.n, acc: cell.recentAcc != null ? cell.recentAcc : cell.acc };
+    });
+    // Find best in this row
+    const validAccs = cells.filter(c => c.n >= 5 && c.acc != null);
+    const bestAcc = validAccs.length > 0 ? Math.max(...validAccs.map(c => c.acc)) : null;
+    const rLbl = r.replace('_', ' ');
+    return '<div style="display:contents;"><div style="font-weight:700;text-transform:uppercase;font-size:11px;color:' + (r === regime.name ? 'var(--accent)' : 'var(--text-muted)') + ';align-self:center;">' + rLbl + (r === regime.name ? ' ●' : '') + '</div>'
+      + cells.map(c => {
+        const isBest = bestAcc != null && c.acc === bestAcc && c.n >= 5;
+        const col = c.acc == null ? 'var(--text-muted)' : c.acc > 0.55 ? 'var(--green)' : c.acc > 0.45 ? 'var(--accent)' : 'var(--red)';
+        return '<div class="grid-cell' + (isBest ? ' best' : '') + '">'
+          + '<div class="acc" style="color:' + col + ';">' + (c.acc != null ? fmtPct(c.acc) : '—') + '</div>'
+          + '<div class="n">' + c.n + ' samples</div>'
+          + '</div>';
+      }).join('')
+      + '</div>';
+  }).join('');
+  document.getElementById('matrixBody').innerHTML = matrixHtml;
+
+  // Uncertain / active-learning queue
+  let uncertain = {};
+  try { uncertain = JSON.parse(localStorage.getItem('bpleone_cont_state_v1') || '{}').uncertainSyms || {}; } catch(e) {}
+  const uList = Object.entries(uncertain).map(([sym, info]) => '<span class="uncertain-pill">' + sym + ' · ' + (info.prob * 100).toFixed(0) + '%</span>').join('');
+  document.getElementById('uncertain').innerHTML = uList || '<div style="font-size:12px;color:var(--text-muted);padding:14px 0;">No uncertain predictions right now. The brain is confident across the universe.</div>';
+
+  // Feature alpha
+  let alpha = {};
+  try { alpha = JSON.parse(localStorage.getItem('bpleone_feature_alpha_v1') || '{}').features || {}; } catch(e) {}
+  const featRows = Object.entries(alpha).map(([fkey, data]) => {
+    const idx = parseInt(fkey.slice(1));
+    const name = FEATURE_NAMES[idx] || fkey;
+    const avgWin = data.wins > 0 ? data.sumContribWin / data.wins : 0;
+    const avgLoss = data.losses > 0 ? data.sumContribLoss / data.losses : 0;
+    const alphaScore = avgWin - avgLoss;  // higher = more discriminating
+    return { idx, name, n: data.n, wins: data.wins, losses: data.losses, avgWin, avgLoss, alphaScore };
+  }).filter(f => f.n >= 5).sort((a, b) => Math.abs(b.alphaScore) - Math.abs(a.alphaScore)).slice(0, 12);
+  if (featRows.length === 0) {
+    document.getElementById('features').innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-muted);font-size:12px;">Need 5+ resolved predictions per feature before alpha can be computed. Wait for the loop to accumulate data.</div>';
+  } else {
+    document.getElementById('features').innerHTML = featRows.map(f => '<div class="feature-row">'
+      + '<div style="color:var(--text-muted);">f' + f.idx + '</div>'
+      + '<div>' + f.name + '</div>'
+      + '<div><span style="color:var(--green);">' + f.wins + '</span> / <span style="color:var(--red);">' + f.losses + '</span></div>'
+      + '<div style="color:' + (f.avgWin >= 0 ? 'var(--green)' : 'var(--red)') + ';">' + (f.avgWin >= 0 ? '+' : '') + f.avgWin.toFixed(3) + '</div>'
+      + '<div style="font-weight:700;color:' + (Math.abs(f.alphaScore) > 0.05 ? 'var(--green)' : 'var(--text-muted)') + ';">' + (f.alphaScore >= 0 ? '+' : '') + f.alphaScore.toFixed(3) + '</div>'
+      + '</div>').join('');
+  }
+}
+
+render();
+setInterval(render, 5000);
+window.addEventListener('bpleone:continuous-cycle', render);
+window.addEventListener('bpleone:continuous-resolved', render);
+</script>
+</body>
+</html>

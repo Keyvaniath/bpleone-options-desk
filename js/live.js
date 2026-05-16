@@ -349,6 +349,14 @@ function setDataMode(mode) {
 document.addEventListener('DOMContentLoaded', () => {
   setTimeout(() => {
     try {
+      // Multi-horizon ensemble MUST load before continuous-learner so the
+      // learner can call MultiHorizon.* immediately on first capture.
+      if (!document.querySelector('script[src*="multi-horizon.js"]')) {
+        const s = document.createElement('script');
+        s.src = 'js/multi-horizon.js';
+        s.async = false;  // synchronous so it loads before continuous-learner
+        document.head.appendChild(s);
+      }
       if (!document.querySelector('script[src*="auto-trainer.js"]')) {
         const s = document.createElement('script');
         s.src = 'js/auto-trainer.js';
