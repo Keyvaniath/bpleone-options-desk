@@ -372,6 +372,13 @@ document.addEventListener('DOMContentLoaded', () => {
         s.async = false;
         document.head.appendChild(s);
       }
+      // Trade selectivity: meta-classifier ('should I trade today?').
+      if (!document.querySelector('script[src*="trade-selectivity.js"]')) {
+        const s = document.createElement('script');
+        s.src = 'js/trade-selectivity.js';
+        s.async = false;
+        document.head.appendChild(s);
+      }
       if (!document.querySelector('script[src*="auto-trainer.js"]')) {
         const s = document.createElement('script');
         s.src = 'js/auto-trainer.js';

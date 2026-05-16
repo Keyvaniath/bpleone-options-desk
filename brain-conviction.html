@@ -206,12 +206,36 @@ function rankPick(sym) {
 function render() {
   if (typeof QUOTES === 'undefined') { setTimeout(render, 500); return; }
 
+  // Trade selectivity gate — refuse to publish picks when brain says SIT OUT
+  let selectivity = null;
+  if (typeof TradeSelectivity !== 'undefined') {
+    selectivity = TradeSelectivity.compute();
+    if (selectivity.tier === 'SIT_OUT') {
+      document.getElementById('picks').innerHTML = '<div class="no-data"><div style="font-size:36px;margin-bottom:14px;">🛑</div>'
+        + '<div style="font-size:22px;font-weight:700;color:var(--red);margin-bottom:10px;">SIT OUT — score ' + selectivity.score + '/100</div>'
+        + '<div style="font-size:13px;color:var(--text-secondary);max-width:600px;margin:0 auto 14px;line-height:1.6;">' + selectivity.reasoning + '</div>'
+        + '<div style="font-size:11px;color:var(--text-muted);max-width:600px;margin:0 auto;line-height:1.6;">The brain refuses to publish picks under unfavorable conditions even if individual probabilities look high. See <a href="trade-selectivity.html" style="color:var(--accent);">Trade Selectivity</a> for the full meta-signal breakdown.</div>'
+        + '</div>';
+      // Still update KPIs so user can see the evaluation count
+      document.getElementById('kEval').textContent = UNIVERSE.length;
+      document.getElementById('kA').textContent = 0;
+      document.getElementById('kSkip').textContent = UNIVERSE.length;
+      return;
+    }
+  }
+
   const results = UNIVERSE.map(rankPick).filter(Boolean);
   const valid = results.filter(r => !r.skipped);
   const skipped = results.filter(r => r.skipped);
 
+  // SELECTIVE mode: only show A-tier picks
+  let displayedPicks = valid;
+  if (selectivity && selectivity.tier === 'SELECTIVE') {
+    displayedPicks = valid.filter(p => p.tier === 'a');
+  }
+
   // Sort by conviction (descending)
-  valid.sort((a, b) => b.conviction - a.conviction);
+  displayedPicks.sort((a, b) => b.conviction - a.conviction);
 
   document.getElementById('kEval').textContent = results.length;
   document.getElementById('kA').textContent = valid.filter(p => p.tier === 'a').length;
@@ -226,17 +250,25 @@ function render() {
   document.getElementById('kRegime').textContent = regime;
 
   const wrap = document.getElementById('picks');
-  if (valid.length === 0) {
+  // If we're in SELECTIVE mode, prepend a banner explaining
+  let selectivityBanner = '';
+  if (selectivity && selectivity.tier === 'SELECTIVE') {
+    selectivityBanner = '<div style="padding:14px 18px;background:rgba(245,158,11,0.08);border:1px solid rgba(245,158,11,0.3);border-radius:10px;margin-bottom:14px;font-size:13px;color:var(--text-secondary);">'
+      + '<strong style="color:var(--yellow);">⚠ SELECTIVE mode (score ' + selectivity.score + '/100)</strong> · '
+      + selectivity.reasoning + ' Showing only A-tier picks. Consider half-size if you trade these.'
+      + '</div>';
+  }
+  if (displayedPicks.length === 0) {
     const allStale = skipped.every(s => s.skipped === 'stale-data' || s.skipped === 'modules-not-loaded');
     if (allStale) {
-      wrap.innerHTML = '<div class="no-data"><div style="font-size:36px;margin-bottom:14px;">🛑</div><div style="font-size:20px;font-weight:700;color:var(--red);margin-bottom:10px;">No live data — refusing to fabricate picks</div><div style="font-size:13px;color:var(--text-secondary);max-width:500px;margin:0 auto;line-height:1.6;">Waiting for Stooq fallback or another live provider to populate prices. If your network is blocking stooq.com, wire <a href="live-data-setup.html" style="color:var(--accent);">Finnhub free</a> at Settings.</div></div>';
+      wrap.innerHTML = selectivityBanner + '<div class="no-data"><div style="font-size:36px;margin-bottom:14px;">🛑</div><div style="font-size:20px;font-weight:700;color:var(--red);margin-bottom:10px;">No live data — refusing to fabricate picks</div><div style="font-size:13px;color:var(--text-secondary);max-width:500px;margin:0 auto;line-height:1.6;">Waiting for Stooq fallback or another live provider to populate prices. If your network is blocking stooq.com, wire <a href="live-data-setup.html" style="color:var(--accent);">Finnhub free</a> at Settings.</div></div>';
     } else {
-      wrap.innerHTML = '<div class="no-data"><div style="font-size:36px;margin-bottom:14px;">🌊</div><div style="font-size:20px;font-weight:700;color:var(--yellow);margin-bottom:10px;">No qualifying setups right now</div><div style="font-size:13px;color:var(--text-secondary);max-width:500px;margin:0 auto;line-height:1.6;">' + results.length + ' symbols evaluated. ' + skipped.filter(s => s.skipped === 'low-conviction').length + ' too uncertain (prob in [40,60]). ' + skipped.filter(s => s.skipped === 'rr-too-low').length + ' had R:R too low. The brain is sitting out.</div></div>';
+      wrap.innerHTML = selectivityBanner + '<div class="no-data"><div style="font-size:36px;margin-bottom:14px;">🌊</div><div style="font-size:20px;font-weight:700;color:var(--yellow);margin-bottom:10px;">No qualifying setups right now</div><div style="font-size:13px;color:var(--text-secondary);max-width:500px;margin:0 auto;line-height:1.6;">' + results.length + ' symbols evaluated. ' + skipped.filter(s => s.skipped === 'low-conviction').length + ' too uncertain (prob in [40,60]). ' + skipped.filter(s => s.skipped === 'rr-too-low').length + ' had R:R too low. The brain is sitting out.</div></div>';
     }
     return;
   }
 
-  wrap.innerHTML = valid.slice(0, 10).map((p, idx) => {
+  wrap.innerHTML = selectivityBanner + displayedPicks.slice(0, 10).map((p, idx) => {
     const sideCls = p.side;
     const sideLbl = p.side.toUpperCase();
     const finalProbPct = (p.finalProb * 100).toFixed(0) + '%';
