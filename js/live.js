@@ -505,6 +505,15 @@ document.addEventListener('DOMContentLoaded', () => {
         s.async = false;
         document.head.appendChild(s);
       }
+      // Adversarial validator: detects covariate shift (input distribution
+      // drift). Trains a tiny classifier to distinguish old-vs-recent
+      // feature vectors. When shifted, predictions are scaled toward 0.5.
+      if (!document.querySelector('script[src*="adversarial-validator.js"]')) {
+        const s = document.createElement('script');
+        s.src = 'js/adversarial-validator.js';
+        s.async = false;
+        document.head.appendChild(s);
+      }
       // Unified predictor: chains every meta-module into ONE call.
       // Loads last so all dependencies are present.
       if (!document.querySelector('script[src*="unified-predictor.js"]')) {

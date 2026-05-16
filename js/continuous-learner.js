@@ -119,6 +119,9 @@
         };
         // Persist the OOD assessment for trending dashboards
         try { if (typeof OutlierDetector !== 'undefined') OutlierDetector.logPrediction(features, pred.prob); } catch (e) {}
+        // Adversarial validator: capture the feature vector into its sliding
+        // pool. Used to detect covariate shift via a train-vs-recent classifier.
+        try { if (typeof AdversarialValidator !== 'undefined') AdversarialValidator.captureFeature(features); } catch (e) {}
         if (ensemble) {
           journalEntry.ensembleProb = ensemble.prob;
           journalEntry.horizonProbs = ensemble.byHorizon;

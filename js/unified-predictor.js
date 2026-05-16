@@ -253,6 +253,18 @@
         components.currentStreak = safe(() => DrawdownProtector.currentStreak(), 0);
       }
     }
+    // Adversarial validator: if covariate shift detected, shrink size 40%
+    // (the input no longer looks like the training distribution).
+    if (typeof AdversarialValidator !== 'undefined') {
+      const av = safe(() => AdversarialValidator.score(), null);
+      if (av && av.lastAuc != null) {
+        components.advValAuc = av.lastAuc;
+        if (av.shifted) {
+          sizeMult *= 0.6;
+          components.covariateShift = true;
+        }
+      }
+    }
     sizeMult = Math.max(0.1, Math.min(1.25, sizeMult));
     components.finalSizeMult = sizeMult;
 

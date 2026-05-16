@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Covariate Shift — bpleone / brain</title>
+<meta name="description" content="Adversarial validation. Detects when current feature distribution differs from training distribution.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.auc-card { padding:32px;border-radius:16px;text-align:center; }
+.auc-card.good { background:linear-gradient(135deg,rgba(16,185,129,0.10),rgba(16,185,129,0.02));border:2px solid rgba(16,185,129,0.4); }
+.auc-card.warn { background:linear-gradient(135deg,rgba(245,158,11,0.10),rgba(245,158,11,0.02));border:2px solid rgba(245,158,11,0.4); }
+.auc-card.bad { background:linear-gradient(135deg,rgba(239,68,68,0.10),rgba(239,68,68,0.02));border:2px solid rgba(239,68,68,0.4); }
+.auc-card.idle { background:linear-gradient(135deg,rgba(245,158,11,0.10),rgba(245,158,11,0.02));border:2px solid rgba(245,158,11,0.4); }
+.auc-card .big { font-family:var(--font-mono);font-size:72px;font-weight:900;line-height:1; }
+.tile { padding:18px;background:var(--bg-elevated);border-radius:10px; }
+.tile .lbl { font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;font-weight:700; }
+.tile .val { font-family:var(--font-mono);font-size:22px;font-weight:800;margin-top:6px;color:var(--accent); }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">🔍 Covariate Shift Detection</div>
+      <div class="page-subtitle">Adversarial validation · is the world today still the world the brain trained on?</div>
+    </div>
+  </div>
+
+  <div id="auc-box" class="mb-24"></div>
+
+  <div class="grid grid-3 mb-24" id="metrics-grid"></div>
+
+  <div class="card mb-24">
+    <div class="card-header"><div class="card-title">⚡ Manual refit</div></div>
+    <div style="font-size:13px;color:var(--text-secondary);margin-bottom:14px;">The adversarial validator auto-refits every 30 minutes. Click below to refit now.</div>
+    <button onclick="manualFit()" style="padding:10px 22px;background:var(--accent);color:#000;border:none;border-radius:8px;font-weight:700;cursor:pointer;font-size:14px;">Refit now</button>
+    <div id="fit-result" style="margin-top:12px;font-family:var(--font-mono);font-size:13px;color:var(--text-muted);"></div>
+  </div>
+
+  <div class="card">
+    <div class="card-header"><div class="card-title">📚 What is adversarial validation?</div></div>
+    <div style="font-size:13px;color:var(--text-secondary);line-height:1.7;">
+      <strong>The problem:</strong> the model was trained on features collected over the past weeks. If today's features look qualitatively different (different volatility, different sector flows, different time-of-day patterns), the model's predictions are unreliable — it's extrapolating into territory it doesn't understand.<br><br>
+      <strong>The technique:</strong> a classic Kaggle trick called <em>adversarial validation</em>. We collect two pools of feature vectors:
+      <ul style="margin:8px 0 8px 24px;">
+        <li><strong>Old pool</strong> — features captured >24h ago</li>
+        <li><strong>Recent pool</strong> — features captured in the last 2h</li>
+      </ul>
+      Then we label them (old=0, recent=1) and train a logistic regression to distinguish them. Test set AUC tells us how separable they are:
+      <ul style="margin:8px 0 8px 24px;">
+        <li><strong>AUC ≈ 0.5</strong> — features are indistinguishable; no shift</li>
+        <li><strong>AUC ≈ 0.6–0.7</strong> — slight shift; still safe</li>
+        <li><strong>AUC > 0.70</strong> — clear shift; model is extrapolating</li>
+      </ul>
+      When shift is detected, the Unified Predictor multiplies position size by 0.60 (more conservative under regime change) and fires a <code>bpleone:covariate-shift</code> window event for any listeners.<br><br>
+      <strong>Complements DriftPSI:</strong> DriftPSI tracks output drift (are the brain's predictions changing); this tracks input drift (is the world changing). Together they cover both sides.
+    </div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script src="js/adversarial-validator.js"></script>
+<script>
+buildNav('covariate-shift');
+
+function classifyAuc(auc) {
+  if (auc == null) return 'idle';
+  if (auc > 0.70) return 'bad';
+  if (auc > 0.60) return 'warn';
+  return 'good';
+}
+
+function render() {
+  const s = AdversarialValidator.score();
+  const auc = s.lastAuc;
+  const cls = classifyAuc(auc);
+  const aucBox = document.getElementById('auc-box');
+  if (auc == null) {
+    aucBox.innerHTML = '<div class="auc-card idle">'
+      + '<div class="big" style="color:var(--yellow);">—</div>'
+      + '<div style="font-size:18px;font-weight:700;color:var(--text-primary);margin-top:14px;">Building the calibration pool</div>'
+      + '<div style="font-size:13px;color:var(--text-secondary);margin-top:10px;">Need ≥30 old features (&gt;24h ago) AND ≥30 recent features (&lt;2h ago). Currently ' + s.poolSize + ' total.</div>'
+      + '</div>';
+  } else {
+    const label = cls === 'bad' ? '⚠ Shifted' : cls === 'warn' ? '⚠ Minor shift' : '✓ Stable';
+    const color = cls === 'bad' ? 'var(--red)' : cls === 'warn' ? 'var(--yellow)' : 'var(--green)';
+    aucBox.innerHTML = '<div class="auc-card ' + cls + '">'
+      + '<div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:1px;font-weight:700;">Adversarial classifier AUC</div>'
+      + '<div class="big" style="color:' + color + ';margin-top:8px;">' + auc.toFixed(3) + '</div>'
+      + '<div style="font-size:24px;font-weight:700;margin-top:14px;color:' + color + ';">' + label + '</div>'
+      + '<div style="font-size:13px;color:var(--text-secondary);margin-top:8px;">Shift threshold: ' + s.shiftThreshold + ' · ' + (s.lastFitAt ? 'last fit ' + new Date(s.lastFitAt).toLocaleTimeString() : 'never fit') + '</div>'
+      + '</div>';
+  }
+
+  document.getElementById('metrics-grid').innerHTML = ''
+    + '<div class="tile"><div class="lbl">Pool size</div><div class="val">' + s.poolSize + '</div></div>'
+    + '<div class="tile"><div class="lbl">Last fit AUC</div><div class="val">' + (auc != null ? auc.toFixed(3) : '—') + '</div></div>'
+    + '<div class="tile"><div class="lbl">Has weights</div><div class="val" style="color:' + (s.hasWeights ? 'var(--green)' : 'var(--text-muted)') + ';">' + (s.hasWeights ? 'Yes' : 'No') + '</div></div>';
+}
+
+function manualFit() {
+  const res = AdversarialValidator.fit();
+  const out = document.getElementById('fit-result');
+  if (!res.fitted) {
+    out.innerHTML = 'Fit failed: not enough samples in both pools (old=' + res.n_old + ', recent=' + res.n_recent + ').';
+  } else {
+    out.innerHTML = '✓ Refit complete. AUC=' + res.auc.toFixed(3) + ', n_old=' + res.n_old + ', n_recent=' + res.n_recent + ', n_test=' + res.n_test;
+  }
+  render();
+}
+
+render();
+setInterval(render, 30000);
+window.addEventListener('bpleone:continuous-cycle', render);
+</script>
+</body>
+</html>
