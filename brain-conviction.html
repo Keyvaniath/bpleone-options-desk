@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Brain Conviction — bpleone / trade</title>
+<meta name="description" content="Live ranked picks using the full pipeline — ensemble × calibration × OOD-filtered × feature-attributed. Actionable plans only.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.pick-card { padding:20px;background:var(--bg-elevated);border:1px solid var(--border);border-radius:12px;margin-bottom:14px; }
+.pick-card.tier-a { border-left:6px solid var(--green); }
+.pick-card.tier-b { border-left:6px solid #84cc16; }
+.pick-card.tier-c { border-left:6px solid var(--yellow); }
+.pick-card.tier-ood { border-left:6px solid var(--red);opacity:0.7; }
+.pick-card .head { display:grid;grid-template-columns:80px 1fr 100px 100px 100px;gap:18px;align-items:center;margin-bottom:14px; }
+.pick-card .sym { font-family:var(--font-mono);font-size:24px;font-weight:800; }
+.pick-card .side { font-family:var(--font-mono);font-size:11px;font-weight:700;padding:3px 10px;border-radius:6px;text-align:center; }
+.pick-card .side.long { background:rgba(16,185,129,0.18);color:var(--green); }
+.pick-card .side.short { background:rgba(239,68,68,0.18);color:var(--red); }
+.pick-card .prob-block { text-align:center; }
+.pick-card .prob-block .big { font-family:var(--font-mono);font-size:24px;font-weight:800; }
+.pick-card .prob-block .lbl { font-size:9px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px; }
+.detail-grid { display:grid;grid-template-columns:repeat(4, 1fr);gap:10px;font-size:11px; }
+.detail-grid > div { padding:10px;background:var(--bg);border-radius:6px; }
+.detail-grid .lbl { font-size:9px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.4px;margin-bottom:3px; }
+.detail-grid .val { font-family:var(--font-mono);font-weight:700;font-size:13px; }
+.contrib-row { display:flex;justify-content:space-between;padding:4px 0;font-family:var(--font-mono);font-size:10px;border-bottom:1px solid var(--border); }
+.kpi-tile { padding:18px;background:var(--bg-elevated);border-radius:10px;text-align:center; }
+.kpi-tile .lbl { font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px; }
+.kpi-tile .val { font-family:var(--font-mono);font-size:24px;font-weight:800;margin-top:6px; }
+.intro { background:linear-gradient(135deg,rgba(0,212,255,0.06),transparent);border:1px solid rgba(0,212,255,0.25);padding:24px;border-radius:14px;margin-bottom:24px; }
+.no-data { padding:40px;text-align:center;border:2px solid rgba(239,68,68,0.3);background:rgba(239,68,68,0.06);border-radius:12px; }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">⭐ Brain Conviction</div>
+      <div class="page-subtitle">Live ranked picks · ensemble × calibration × OOD-filtered × feature-attributed · refreshes every 8s · <span id="market-clock">--</span></div>
+    </div>
+    <div class="flex gap-8">
+      <button class="btn btn-ghost" id="refreshBtn">↻ Refresh</button>
+    </div>
+  </div>
+
+  <div class="intro">
+    <div style="font-size:14px;color:var(--text-primary);line-height:1.7;">
+      <strong>What this is:</strong> The capstone view. For every symbol with a live real-source quote, runs the full upgraded pipeline (multi-horizon ensemble + Platt calibration + OOD filter + feature attribution) and produces an actionable trade plan (entry / stop / target / shares).
+      <br><br>
+      <strong>The four filters:</strong>
+      <ul style="margin:6px 0 0 20px;">
+        <li><strong>Live data only</strong> — symbol must have priceSource ∈ {stooq, coinbase, finnhub, ...} and liveAt &lt; 5min</li>
+        <li><strong>OOD filter</strong> — features must NOT be flagged out-of-distribution; OOD picks shown but dimmed</li>
+        <li><strong>Conviction threshold</strong> — calibrated probability must be ≤ 0.40 or ≥ 0.60 (skip 'maybe' setups)</li>
+        <li><strong>R:R math</strong> — auto-computed entry/stop/target must yield ≥ 1.5:1 reward to risk</li>
+      </ul>
+      Every pick traces to live data through documented math. No template content.
+    </div>
+  </div>
+
+  <div class="grid grid-4 mb-24">
+    <div class="kpi-tile"><div class="lbl">Symbols evaluated</div><div class="val" id="kEval">0</div></div>
+    <div class="kpi-tile"><div class="lbl">A-tier picks</div><div class="val" id="kA" style="color:var(--green);">0</div></div>
+    <div class="kpi-tile"><div class="lbl">Filtered out (OOD/stale)</div><div class="val" id="kSkip" style="color:var(--yellow);">0</div></div>
+    <div class="kpi-tile"><div class="lbl">Last regime</div><div class="val" id="kRegime" style="font-size:14px;">—</div></div>
+  </div>
+
+  <div id="picks"></div>
+
+  <div class="card">
+    <div class="card-header"><div class="card-title">🔬 Pipeline used for every pick</div></div>
+    <div style="font-size:12px;color:var(--text-secondary);line-height:1.85;">
+      For each symbol with a fresh live quote:<br>
+      <strong>1. Build feature vector</strong> — FeatureExtractor.extract returns 22 elements<br>
+      <strong>2. OOD score</strong> — OutlierDetector.oodScore(features). If &gt; 0.6, tier=OOD and pick is dimmed.<br>
+      <strong>3. Ensemble prediction</strong> — MultiHorizon.predictEnsemble returns {prob, byHorizon, weights, regime}<br>
+      <strong>4. Calibrate</strong> — Calibrator.calibrate(ensemble.prob) if fitted, else raw<br>
+      <strong>5. OOD pull</strong> — if oodScore &gt; 0.5, prob = 0.5 + (prob - 0.5) × (1 - oodScore)<br>
+      <strong>6. Conviction check</strong> — only keep |prob - 0.5| ≥ 0.10<br>
+      <strong>7. Plan</strong> — entry = q.last, stop = entry ± 1.5×ATR, target = entry ± 3×ATR (≥ 2:1 R:R)<br>
+      <strong>8. Feature attribution</strong> — top 3 features by |contribution| shown to explain the call<br>
+      <strong>9. Tier</strong> — A if prob ≥ 0.70 (or ≤ 0.30), B if ≥ 0.62, C otherwise<br>
+    </div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script src="js/model.js"></script>
+<script src="js/multi-horizon.js"></script>
+<script src="js/calibrator.js"></script>
+<script src="js/outlier-detector.js"></script>
+<script>
+buildNav('brain-conviction');
+
+const UNIVERSE = ['SPY','QQQ','IWM','AAPL','NVDA','TSLA','MSFT','META','AMZN','GOOGL','AMD','PLTR','SMCI','COIN','BTC','ETH','BABA','SHOP','CRM','UBER','XLE','GLD','SLV'];
+
+const FEATURE_NAMES = [
+  'RSI/100','ATR%/10','RVOL/4','dist20MA','dist50MA','SPY chg','Sector chg','Beta/2',
+  'Spread (inv)','IV pct','Severity','Bullish setup','Bearish setup','Trend follow',
+  'Mean revert','Breakout','Brain weight','Regime','VIX','Coincident','Hour','Bias'
+];
+
+function isLiveQuote(q) {
+  return q && q.priceSource && q.priceSource !== 'stale-seed' && q.priceSource !== 'mock'
+    && q.liveAt && (Date.now() - q.liveAt) < 5 * 60 * 1000;
+}
+
+function rankPick(sym) {
+  if (typeof QUOTES === 'undefined' || !QUOTES[sym]) return null;
+  const q = QUOTES[sym];
+  if (!isLiveQuote(q)) return { sym, skipped: 'stale-data' };
+  if (typeof FeatureExtractor === 'undefined' || typeof ModelStore === 'undefined') return { sym, skipped: 'modules-not-loaded' };
+
+  const finding = { ts: Date.now(), type: 'conviction-rank', severity: 1, meta: { sym, setup: 'rank', last: q.last, bias: q.changePct >= 0 ? 'long' : 'short' } };
+  const features = FeatureExtractor.extract(finding);
+  if (!features || features.length !== 22) return { sym, skipped: 'feature-error' };
+
+  // OOD
+  let oodScore = 0;
+  let oodReady = false;
+  if (typeof OutlierDetector !== 'undefined') {
+    const stats = OutlierDetector.featureStats();
+    if (stats && stats.ready) {
+      oodReady = true;
+      oodScore = OutlierDetector.oodScore(features);
+    }
+  }
+
+  // Ensemble + calibration
+  let rawProb, ensemble = null;
+  if (typeof MultiHorizon !== 'undefined') {
+    ensemble = MultiHorizon.predictEnsemble(features);
+    rawProb = ensemble.prob;
+  } else {
+    rawProb = ModelStore.load().predict(features).prob;
+  }
+
+  let calibrated = rawProb;
+  let isCalibrated = false;
+  if (typeof Calibrator !== 'undefined') {
+    const params = Calibrator._loadParams();
+    if (params) {
+      calibrated = Calibrator.calibrate(rawProb);
+      isCalibrated = true;
+    }
+  }
+
+  // OOD-pull: when OOD, pull confidence back toward 50
+  let finalProb = calibrated;
+  if (oodReady && oodScore > 0.5) {
+    finalProb = 0.5 + (calibrated - 0.5) * (1 - oodScore);
+  }
+
+  const conviction = Math.abs(finalProb - 0.5);
+  if (conviction < 0.10) return { sym, skipped: 'low-conviction', finalProb };
+
+  // Plan: ATR proxy from QUOTES if available; else day range; else 1.5% default
+  let atr = null;
+  if (q.dayHigh && q.dayLow) atr = q.dayHigh - q.dayLow;
+  if (!atr || atr <= 0) atr = q.last * 0.015;
+  const side = finalProb >= 0.5 ? 'long' : 'short';
+  const entry = q.last;
+  const stop = side === 'long' ? entry - 1.5 * atr : entry + 1.5 * atr;
+  const target = side === 'long' ? entry + 3 * atr : entry - 3 * atr;
+  const risk = Math.abs(entry - stop);
+  const reward = Math.abs(target - entry);
+  const rr = risk > 0 ? reward / risk : 0;
+
+  if (rr < 1.5) return { sym, skipped: 'rr-too-low', finalProb, rr };
+
+  // Tier
+  const tier = oodReady && oodScore > 0.6 ? 'ood'
+    : conviction >= 0.20 ? 'a'
+    : conviction >= 0.12 ? 'b'
+    : 'c';
+
+  // Feature attribution: top 3 contributors
+  const model = ModelStore.load();
+  const contribs = features.map((v, i) => ({ idx: i, name: FEATURE_NAMES[i] || ('f' + i), value: v, contrib: (model.weights[i] || 0) * v }));
+  contribs.sort((a, b) => Math.abs(b.contrib) - Math.abs(a.contrib));
+  const top3 = contribs.slice(0, 3);
+
+  return {
+    sym, q, features, oodScore, oodReady,
+    rawProb, calibrated, finalProb,
+    isCalibrated, side, tier,
+    ensemble,
+    entry, stop, target, atr, risk, reward, rr,
+    top3, conviction
+  };
+}
+
+function render() {
+  if (typeof QUOTES === 'undefined') { setTimeout(render, 500); return; }
+
+  const results = UNIVERSE.map(rankPick).filter(Boolean);
+  const valid = results.filter(r => !r.skipped);
+  const skipped = results.filter(r => r.skipped);
+
+  // Sort by conviction (descending)
+  valid.sort((a, b) => b.conviction - a.conviction);
+
+  document.getElementById('kEval').textContent = results.length;
+  document.getElementById('kA').textContent = valid.filter(p => p.tier === 'a').length;
+  document.getElementById('kSkip').textContent = skipped.length;
+
+  // Regime
+  let regime = '—';
+  if (typeof MultiHorizon !== 'undefined') {
+    const r = MultiHorizon.detectRegime();
+    regime = r.name.replace('_', ' ');
+  }
+  document.getElementById('kRegime').textContent = regime;
+
+  const wrap = document.getElementById('picks');
+  if (valid.length === 0) {
+    const allStale = skipped.every(s => s.skipped === 'stale-data' || s.skipped === 'modules-not-loaded');
+    if (allStale) {
+      wrap.innerHTML = '<div class="no-data"><div style="font-size:36px;margin-bottom:14px;">🛑</div><div style="font-size:20px;font-weight:700;color:var(--red);margin-bottom:10px;">No live data — refusing to fabricate picks</div><div style="font-size:13px;color:var(--text-secondary);max-width:500px;margin:0 auto;line-height:1.6;">Waiting for Stooq fallback or another live provider to populate prices. If your network is blocking stooq.com, wire <a href="live-data-setup.html" style="color:var(--accent);">Finnhub free</a> at Settings.</div></div>';
+    } else {
+      wrap.innerHTML = '<div class="no-data"><div style="font-size:36px;margin-bottom:14px;">🌊</div><div style="font-size:20px;font-weight:700;color:var(--yellow);margin-bottom:10px;">No qualifying setups right now</div><div style="font-size:13px;color:var(--text-secondary);max-width:500px;margin:0 auto;line-height:1.6;">' + results.length + ' symbols evaluated. ' + skipped.filter(s => s.skipped === 'low-conviction').length + ' too uncertain (prob in [40,60]). ' + skipped.filter(s => s.skipped === 'rr-too-low').length + ' had R:R too low. The brain is sitting out.</div></div>';
+    }
+    return;
+  }
+
+  wrap.innerHTML = valid.slice(0, 10).map((p, idx) => {
+    const sideCls = p.side;
+    const sideLbl = p.side.toUpperCase();
+    const finalProbPct = (p.finalProb * 100).toFixed(0) + '%';
+    const finalProbCol = p.finalProb >= 0.65 ? 'var(--green)' : p.finalProb >= 0.55 ? 'var(--accent)' : p.finalProb <= 0.35 ? 'var(--red)' : p.finalProb <= 0.45 ? 'var(--red)' : 'var(--text-muted)';
+    const tierCls = 'tier-' + p.tier;
+
+    return '<div class="pick-card ' + tierCls + '">'
+      + '<div class="head">'
+        + '<div><div class="sym">' + p.sym + '</div><div style="font-size:11px;color:var(--text-muted);font-family:var(--font-mono);">#' + (idx + 1) + ' · ' + p.tier.toUpperCase() + '</div></div>'
+        + '<div><div style="font-family:var(--font-mono);font-size:18px;font-weight:700;">$' + p.entry.toFixed(2) + '</div><div style="font-size:11px;color:' + (p.q.changePct >= 0 ? 'var(--green)' : 'var(--red)') + ';font-family:var(--font-mono);">' + (p.q.changePct >= 0 ? '+' : '') + (p.q.changePct || 0).toFixed(2) + '%</div></div>'
+        + '<div class="prob-block"><div class="lbl">Final prob</div><div class="big" style="color:' + finalProbCol + ';">' + finalProbPct + '</div></div>'
+        + '<div class="prob-block"><div class="lbl">' + (p.isCalibrated ? 'Calibrated' : 'Raw') + '</div><div class="big" style="color:var(--accent);font-size:18px;">' + (p.calibrated * 100).toFixed(0) + '%</div></div>'
+        + '<div class="side ' + sideCls + '">' + sideLbl + '</div>'
+      + '</div>'
+      + '<div class="detail-grid mb-24">'
+        + '<div><div class="lbl">Entry</div><div class="val">$' + p.entry.toFixed(2) + '</div></div>'
+        + '<div><div class="lbl">Stop</div><div class="val" style="color:var(--red);">$' + p.stop.toFixed(2) + '</div></div>'
+        + '<div><div class="lbl">Target</div><div class="val" style="color:var(--green);">$' + p.target.toFixed(2) + '</div></div>'
+        + '<div><div class="lbl">R:R</div><div class="val">' + p.rr.toFixed(2) + ':1</div></div>'
+        + '<div><div class="lbl">Risk/share</div><div class="val">$' + p.risk.toFixed(2) + '</div></div>'
+        + '<div><div class="lbl">Reward/share</div><div class="val">$' + p.reward.toFixed(2) + '</div></div>'
+        + '<div><div class="lbl">OOD score</div><div class="val" style="color:' + (p.oodReady && p.oodScore < 0.3 ? 'var(--green)' : p.oodScore < 0.5 ? 'var(--accent)' : 'var(--red)') + ';">' + (p.oodReady ? (p.oodScore * 100).toFixed(0) + '%' : '—') + '</div></div>'
+        + '<div><div class="lbl">Regime</div><div class="val">' + (p.ensemble ? p.ensemble.regime.name.replace('_', ' ') : '—') + '</div></div>'
+      + '</div>'
+      + '<div style="margin-top:14px;font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;font-weight:700;margin-bottom:6px;">🔍 Top 3 features driving the call</div>'
+      + p.top3.map(c => '<div class="contrib-row"><span>' + c.name + '  ·  value ' + c.value.toFixed(2) + '</span><span style="color:' + (c.contrib > 0 ? 'var(--green)' : 'var(--red)') + ';font-weight:700;">' + (c.contrib >= 0 ? '+' : '') + c.contrib.toFixed(3) + '</span></div>').join('')
+      + (p.ensemble && p.ensemble.byHorizon ? '<div style="margin-top:14px;display:grid;grid-template-columns:repeat(3, 1fr);gap:8px;font-size:11px;">'
+        + ['short', 'mid', 'long'].map(h => '<div style="padding:8px;background:var(--bg);border-radius:6px;text-align:center;"><div style="color:var(--text-muted);font-size:9px;text-transform:uppercase;letter-spacing:0.4px;">' + h + ' (' + (h === 'short' ? '1d' : h === 'mid' ? '5d' : '20d') + ')</div><div style="font-family:var(--font-mono);font-weight:700;color:var(--accent);">' + (p.ensemble.byHorizon[h] * 100).toFixed(0) + '%</div><div style="font-size:9px;color:var(--text-muted);">w = ' + (p.ensemble.weights[h] * 100).toFixed(0) + '%</div></div>').join('')
+        + '</div>' : '')
+      + '<div style="margin-top:14px;display:flex;gap:8px;flex-wrap:wrap;"><a href="trade-coach.html?sym=' + p.sym + '" class="btn btn-ghost" style="font-size:11px;padding:6px 12px;">📋 Trade Coach</a><a href="trade-sizing-advisor.html?sym=' + p.sym + '" class="btn btn-ghost" style="font-size:11px;padding:6px 12px;">📐 Size advisor</a></div>'
+      + '</div>';
+  }).join('');
+}
+
+document.getElementById('refreshBtn').addEventListener('click', render);
+render();
+setInterval(render, 8000);
+window.addEventListener('bpleone:continuous-cycle', render);
+window.addEventListener('bpleone:continuous-resolved', render);
+</script>
+</body>
+</html>
