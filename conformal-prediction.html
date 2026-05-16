@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Conformal Prediction — bpleone / brain</title>
+<meta name="description" content="Distribution-free prediction intervals with rigorous coverage guarantees. Verify the brain's uncertainty estimates are actually honest.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.cover-card { padding:32px;border-radius:16px;text-align:center; }
+.cover-card.good { background:linear-gradient(135deg,rgba(16,185,129,0.12),rgba(16,185,129,0.02));border:2px solid rgba(16,185,129,0.4); }
+.cover-card.warn { background:linear-gradient(135deg,rgba(245,158,11,0.12),rgba(245,158,11,0.02));border:2px solid rgba(245,158,11,0.4); }
+.cover-card.bad { background:linear-gradient(135deg,rgba(239,68,68,0.12),rgba(239,68,68,0.02));border:2px solid rgba(239,68,68,0.4); }
+.cover-card .big { font-family:var(--font-mono);font-size:64px;font-weight:900;line-height:1; }
+.cover-card .small { font-size:12px;color:var(--text-muted);margin-top:8px;text-transform:uppercase;letter-spacing:1px;font-weight:700; }
+.q-block { padding:18px;background:var(--bg-elevated);border-radius:10px;text-align:center; }
+.q-block .lbl { font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:1px;font-weight:700; }
+.q-block .val { font-family:var(--font-mono);font-size:28px;font-weight:800;margin-top:6px;color:var(--accent); }
+.q-block .sub { font-size:11px;color:var(--text-muted);font-family:var(--font-mono);margin-top:4px; }
+.demo-input { display:flex;gap:12px;justify-content:center;margin:18px 0; }
+.demo-input input { padding:10px 14px;background:var(--bg-elevated);border:1px solid var(--border);color:var(--text-primary);border-radius:8px;font-family:var(--font-mono);font-size:16px;font-weight:700;width:120px;text-align:right; }
+.demo-row { display:grid;grid-template-columns:repeat(3, 1fr);gap:14px;margin-top:18px; }
+.demo-cell { padding:16px;background:var(--bg-elevated);border-radius:10px;text-align:center; }
+.demo-cell .l { font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px; }
+.demo-cell .v { font-family:var(--font-mono);font-size:22px;font-weight:800;margin-top:4px; }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">📐 Conformal Prediction</div>
+      <div class="page-subtitle">Distribution-free prediction intervals · rigorous coverage guarantees · honest uncertainty</div>
+    </div>
+  </div>
+
+  <div id="coverage-box"></div>
+
+  <div class="grid grid-3 mb-24" id="quantile-grid"></div>
+
+  <div class="card">
+    <div class="card-header"><div class="card-title">🎯 Try it</div></div>
+    <div style="font-size:13px;color:var(--text-secondary);text-align:center;margin-bottom:14px;">Enter a predicted probability and see the conformal interval with rigorous coverage.</div>
+    <div class="demo-input">
+      <label style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;font-weight:700;display:flex;flex-direction:column;align-items:flex-start;gap:4px;">Predicted probability<input type="number" id="demo-prob" value="0.65" step="0.05" min="0" max="1"></label>
+      <label style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;font-weight:700;display:flex;flex-direction:column;align-items:flex-start;gap:4px;">Confidence level<select id="demo-alpha" style="padding:10px 14px;background:var(--bg-elevated);border:1px solid var(--border);color:var(--text-primary);border-radius:8px;font-family:var(--font-mono);font-size:14px;font-weight:700;width:120px;"><option value="0.20">80%</option><option value="0.10" selected>90%</option><option value="0.05">95%</option></select></label>
+    </div>
+    <div id="demo-result"></div>
+  </div>
+
+  <div class="card">
+    <div class="card-header"><div class="card-title">📚 What is this?</div></div>
+    <div style="font-size:13px;color:var(--text-secondary);line-height:1.7;">
+      <strong>MC Dropout uncertainty is heuristic.</strong> The "90% interval" produced by sampling model dropout masks has no guarantee that it actually covers the true probability 90% of the time. It might be 60%. It might be 99%. You don't know.<br><br>
+      <strong>Split Conformal Prediction fixes this.</strong> The algorithm:<br>
+      1. Maintain a pool of (predicted, actual_win) pairs from resolved trades.<br>
+      2. Score each by residual: <code>s = |y - p|</code>.<br>
+      3. Find the (1-α)-quantile <code>q</code> of those residuals.<br>
+      4. For any new prediction <code>p</code>, the interval <code>[p - q, p + q]</code> is guaranteed to contain the true probability with probability ≥ 1-α — <em>under no distributional assumptions, just exchangeability of the data</em>.<br><br>
+      <strong>Empirical coverage</strong> = fraction of past pairs where the true outcome was within ±q of the prediction. If we say "90%" and it's only delivering 70%, the model is overconfident and we know it.<br><br>
+      <strong>Why this matters for sizing:</strong> if conformal halfwidth is 0.30 (i.e. ±30%) on a "65% LONG" prediction, the true probability could be anywhere from 35% to 95% — that's basically a coinflip. Size down accordingly. The unified predictor uses this signal.
+    </div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script src="js/conformal.js"></script>
+<script>
+buildNav('conformal-prediction');
+
+function render() {
+  const cov = Conformal.empiricalCoverage(0.10);
+  const stats = Conformal.stats();
+
+  const coverBox = document.getElementById('coverage-box');
+  if (!cov.ready) {
+    coverBox.innerHTML = '<div class="cover-card warn mb-24">'
+      + '<div class="big" style="color:var(--yellow);">' + stats.n + '/' + Conformal.MIN_FOR_INTERVAL + '</div>'
+      + '<div style="font-size:18px;font-weight:700;color:var(--text-primary);margin-top:14px;">Calibration pool is filling</div>'
+      + '<div class="small" style="margin-top:8px;">Need ' + (Conformal.MIN_FOR_INTERVAL - stats.n) + ' more resolved short-horizon trades to start producing intervals.</div>'
+      + '</div>';
+  } else {
+    const covPct = cov.coverage * 100;
+    const tier = Math.abs(cov.gap) < 0.05 ? 'good' : Math.abs(cov.gap) < 0.12 ? 'warn' : 'bad';
+    const tierText = tier === 'good' ? '✓ Well-calibrated' : tier === 'warn' ? '⚠ Slightly off' : '✗ Miscalibrated';
+    coverBox.innerHTML = '<div class="cover-card ' + tier + ' mb-24">'
+      + '<div class="small">Empirical 90% coverage (target 90%)</div>'
+      + '<div class="big" style="margin-top:8px;color:' + (tier === 'good' ? 'var(--green)' : tier === 'warn' ? 'var(--yellow)' : 'var(--red)') + ';">' + covPct.toFixed(1) + '%</div>'
+      + '<div style="font-size:13px;color:var(--text-secondary);margin-top:14px;">' + tierText + ' · gap ' + (cov.gap >= 0 ? '+' : '') + (cov.gap * 100).toFixed(1) + 'pp · n=' + cov.n + ' pairs</div>'
+      + '</div>';
+  }
+
+  const qGrid = document.getElementById('quantile-grid');
+  qGrid.innerHTML = ''
+    + '<div class="q-block"><div class="lbl">80% halfwidth</div><div class="val">' + (stats.q80 != null ? '±' + (stats.q80 * 100).toFixed(1) + '%' : '—') + '</div><div class="sub">80% chance truth is within ±q of prediction</div></div>'
+    + '<div class="q-block"><div class="lbl">90% halfwidth</div><div class="val">' + (stats.q90 != null ? '±' + (stats.q90 * 100).toFixed(1) + '%' : '—') + '</div><div class="sub">90% chance truth is within ±q</div></div>'
+    + '<div class="q-block"><div class="lbl">95% halfwidth</div><div class="val">' + (stats.q95 != null ? '±' + (stats.q95 * 100).toFixed(1) + '%' : '—') + '</div><div class="sub">95% chance truth is within ±q</div></div>';
+
+  renderDemo();
+}
+
+function renderDemo() {
+  const p = parseFloat(document.getElementById('demo-prob').value);
+  const alpha = parseFloat(document.getElementById('demo-alpha').value);
+  if (isNaN(p) || p < 0 || p > 1 || isNaN(alpha)) {
+    document.getElementById('demo-result').innerHTML = '';
+    return;
+  }
+  const ivl = Conformal.interval(p, alpha);
+  if (!ivl.ready) {
+    document.getElementById('demo-result').innerHTML = '<div style="text-align:center;color:var(--text-muted);font-size:13px;font-family:var(--font-mono);">Waiting for ≥' + Conformal.MIN_FOR_INTERVAL + ' calibration pairs.</div>';
+    return;
+  }
+  document.getElementById('demo-result').innerHTML = '<div class="demo-row">'
+    + '<div class="demo-cell"><div class="l">Lower bound</div><div class="v" style="color:var(--red);">' + (ivl.lo * 100).toFixed(1) + '%</div></div>'
+    + '<div class="demo-cell"><div class="l">Predicted</div><div class="v" style="color:var(--accent);">' + (p * 100).toFixed(1) + '%</div></div>'
+    + '<div class="demo-cell"><div class="l">Upper bound</div><div class="v" style="color:var(--green);">' + (ivl.hi * 100).toFixed(1) + '%</div></div>'
+    + '</div>'
+    + '<div style="text-align:center;font-size:12px;color:var(--text-muted);margin-top:14px;font-family:var(--font-mono);">±' + (ivl.halfwidth * 100).toFixed(1) + '% at ' + ((1 - alpha) * 100).toFixed(0) + '% confidence · based on n=' + ivl.n + ' calibration pairs</div>';
+}
+
+['demo-prob', 'demo-alpha'].forEach(id => document.getElementById(id).addEventListener('input', renderDemo));
+render();
+setInterval(render, 8000);
+window.addEventListener('bpleone:continuous-cycle', render);
+</script>
+</body>
+</html>

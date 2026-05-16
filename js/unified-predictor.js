@@ -161,6 +161,20 @@
       }
     }
 
+    // 10b. Conformal prediction interval — distribution-free, rigorous
+    // coverage. Complements MC dropout. If dropout interval is much tighter
+    // than conformal, dropout is over-confident.
+    let conformal = null;
+    if (typeof Conformal !== 'undefined') {
+      conformal = safe(() => Conformal.interval(finalProb, 0.10), null);
+      if (conformal && conformal.ready) {
+        components.conformalLo = conformal.lo;
+        components.conformalHi = conformal.hi;
+        components.conformalHalfwidth = conformal.halfwidth;
+        components.conformalN = conformal.n;
+      }
+    }
+
     // 11. Final size multiplier (compound effect of all uncertainty sources)
     let sizeMult = 1.0;
     if (uncertainty) sizeMult *= BayesianDropout.sizeMultiplier(uncertainty);
@@ -181,6 +195,7 @@
     if (oodScore > 0.3) narrative.push('OOD ' + (oodScore * 100).toFixed(0) + '% → pulled toward 50%.');
     narrative.push('Final: ' + (finalProb * 100).toFixed(0) + '%' + (uncertainty ? ' ± ' + (uncertainty.std * 100).toFixed(0) + '%' : '') + '.');
     if (agreement) narrative.push('Cross-method ' + components.agreementTier + ' agreement.');
+    if (conformal && conformal.ready) narrative.push('Conformal 90%: [' + (conformal.lo * 100).toFixed(0) + '%, ' + (conformal.hi * 100).toFixed(0) + '%].');
     narrative.push('Suggested size: ' + (sizeMult * 100).toFixed(0) + '% of base.');
 
     return {

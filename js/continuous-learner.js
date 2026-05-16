@@ -236,6 +236,14 @@
               BootstrapEnsemble.train(entry.features, label, sampleWeight);
             }
           } catch (e) {}
+          // CONFORMAL PREDICTION: feed (predicted, actual) pair to the
+          // conformal pool so it can produce distribution-free intervals
+          // with rigorous coverage guarantees.
+          try {
+            if (typeof Conformal !== 'undefined') {
+              Conformal.recordPair(entry.predProb, label);
+            }
+          } catch (e) {}
         }
       });
 

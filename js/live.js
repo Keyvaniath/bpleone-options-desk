@@ -436,6 +436,15 @@ document.addEventListener('DOMContentLoaded', () => {
         s.async = false;
         document.head.appendChild(s);
       }
+      // Conformal prediction: distribution-free prediction intervals with
+      // rigorous coverage guarantees. Records (predicted, actual) pairs from
+      // continuous-learner and produces guaranteed-coverage intervals.
+      if (!document.querySelector('script[src*="conformal.js"]')) {
+        const s = document.createElement('script');
+        s.src = 'js/conformal.js';
+        s.async = false;
+        document.head.appendChild(s);
+      }
       // Unified predictor: chains every meta-module into ONE call.
       // Loads last so all dependencies are present.
       if (!document.querySelector('script[src*="unified-predictor.js"]')) {
