@@ -487,6 +487,15 @@ document.addEventListener('DOMContentLoaded', () => {
         s.async = false;
         document.head.appendChild(s);
       }
+      // Hourly performance: stratifies accuracy by time-of-day bucket
+      // (open / mid-am / lunch / mid-pm / close). The UnifiedPredictor
+      // size multiplier consults this to grow/shrink positions by hour.
+      if (!document.querySelector('script[src*="hourly-perf.js"]')) {
+        const s = document.createElement('script');
+        s.src = 'js/hourly-perf.js';
+        s.async = false;
+        document.head.appendChild(s);
+      }
       // Unified predictor: chains every meta-module into ONE call.
       // Loads last so all dependencies are present.
       if (!document.querySelector('script[src*="unified-predictor.js"]')) {

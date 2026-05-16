@@ -233,6 +233,16 @@
     if (agreement) sizeMult *= EnsembleAgreement.sizeMultiplier(agreement.score);
     if (oodScore > 0.5) sizeMult *= 0.5;       // halve on OOD inputs
     if (bootstrapStd > 0.1) sizeMult *= 0.75;   // bootstrap divergence shrinks too
+    // Hour-of-session multiplier: shrink size during historically bad hours,
+    // grow slightly during historically strong hours.
+    if (typeof HourlyPerf !== 'undefined') {
+      const hpMult = safe(() => HourlyPerf.sizeMultiplier(), 1.0);
+      if (hpMult != null && hpMult !== 1.0) {
+        sizeMult *= hpMult;
+        components.hourlyMult = hpMult;
+        components.currentHourBucket = safe(() => HourlyPerf.currentBucket(), null);
+      }
+    }
     sizeMult = Math.max(0.1, Math.min(1.25, sizeMult));
     components.finalSizeMult = sizeMult;
 

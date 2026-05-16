@@ -317,6 +317,13 @@
               ModuleAttribution.recordResolution(entry.basePreds, entry.predProb, label);
             }
           } catch (e) {}
+          // HOURLY-PERF: stratify accuracy by time-of-day bucket so the
+          // brain can size up/down by the historical edge in this hour.
+          try {
+            if (typeof HourlyPerf !== 'undefined') {
+              HourlyPerf.recordResolution(entry.predProb, label, entry.ts);
+            }
+          } catch (e) {}
         }
       });
 
