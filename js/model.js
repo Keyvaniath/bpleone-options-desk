@@ -433,7 +433,11 @@ const ModelTrainer = {
         // Build feature vector — prefer stored snapshot, else regenerate
         const features = f.features || FeatureExtractor.extract(f);
         const label = f.outcome === 'hit' ? 1 : 0;
-        const { loss } = model.train(features, label);
+        // Apply label smoothing if enabled — prevents overconfidence by
+        // training on y=0.025 / y=0.975 instead of 0/1
+        const trainLabel = (typeof window !== 'undefined' && window.LabelSmoothing && window.LabelSmoothing.enabled())
+          ? window.LabelSmoothing.smooth(label) : label;
+        const { loss } = model.train(features, trainLabel);
         ModelStore.addTrainingRow(features, label, { id: f.id, sym: f.meta && f.meta.sym, setup: f.meta && f.meta.setup, dataSource: src });
         trainedIds.add(f.id);
         trained++;

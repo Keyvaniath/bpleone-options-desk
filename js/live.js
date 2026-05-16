@@ -546,6 +546,14 @@ document.addEventListener('DOMContentLoaded', () => {
         s.async = false;
         document.head.appendChild(s);
       }
+      // Label Smoothing: trains on y=0.025/0.975 instead of 0/1 to prevent
+      // overconfidence. Load early so model.js training calls pick it up.
+      if (!document.querySelector('script[src*="label-smoothing.js"]')) {
+        const s = document.createElement('script');
+        s.src = 'js/label-smoothing.js';
+        s.async = false;
+        document.head.appendChild(s);
+      }
       // Unified predictor: chains every meta-module into ONE call.
       // Loads last so all dependencies are present.
       if (!document.querySelector('script[src*="unified-predictor.js"]')) {

@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Label Smoothing — bpleone / brain</title>
+<meta name="description" content="Training-time regularization: trains on y=0.025/0.975 instead of hard 0/1 to prevent model overconfidence.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.config-card { padding:32px;border-radius:16px;text-align:center;background:linear-gradient(135deg,rgba(0,212,255,0.08),rgba(0,212,255,0.02));border:2px solid rgba(0,212,255,0.4); }
+.config-card .big { font-family:var(--font-mono);font-size:64px;font-weight:900;line-height:1;color:var(--accent); }
+.tile { padding:18px;background:var(--bg-elevated);border-radius:10px; }
+.tile .lbl { font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;font-weight:700; }
+.tile .val { font-family:var(--font-mono);font-size:22px;font-weight:800;margin-top:6px;color:var(--accent); }
+.eps-input { width:100px;padding:8px 12px;background:var(--bg-elevated);border:1px solid var(--border);color:var(--text-primary);border-radius:6px;font-family:var(--font-mono);font-size:14px;font-weight:700;text-align:right; }
+.btn-primary { padding:10px 22px;background:var(--accent);color:#000;border:none;border-radius:8px;font-weight:700;cursor:pointer;font-size:14px; }
+.btn-secondary { padding:10px 22px;background:var(--bg-elevated);color:var(--text-primary);border:1px solid var(--border);border-radius:8px;font-weight:700;cursor:pointer;font-size:14px; }
+.preview { padding:18px;background:var(--bg-elevated);border-radius:10px;text-align:center;font-family:var(--font-mono); }
+.preview .from { font-size:36px;color:var(--text-muted);font-weight:700; }
+.preview .arrow { font-size:24px;color:var(--accent);margin:8px 0; }
+.preview .to { font-size:36px;color:var(--green);font-weight:700; }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">🪄 Label Smoothing</div>
+      <div class="page-subtitle">Training-time regularization · prevents model overconfidence · improves calibration</div>
+    </div>
+  </div>
+
+  <div id="config-card" class="mb-24"></div>
+
+  <div class="grid grid-3 mb-24" id="metrics-grid"></div>
+
+  <div class="card mb-24">
+    <div class="card-header"><div class="card-title">⚙ Configuration</div></div>
+    <div style="display:flex;gap:14px;flex-wrap:wrap;align-items:end;">
+      <label style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;font-weight:700;display:flex;flex-direction:column;gap:4px;">Epsilon (ε)<input id="eps-input" type="number" class="eps-input" step="0.01" min="0" max="0.25" value="0.05"></label>
+      <button onclick="updateEps()" class="btn-primary">Apply ε</button>
+      <button onclick="toggleEnabled()" id="toggle-btn" class="btn-secondary">Enable</button>
+      <button onclick="resetDefault()" class="btn-secondary">Reset to default</button>
+    </div>
+    <div style="margin-top:14px;font-size:12px;color:var(--text-muted);font-family:var(--font-mono);">Range: ε ∈ [0, 0.25]. Default: 0.05.</div>
+  </div>
+
+  <div class="card mb-24">
+    <div class="card-header"><div class="card-title">🎬 Preview</div></div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:18px;">
+      <div class="preview">
+        <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:1px;font-weight:700;margin-bottom:12px;">Win label (y=1)</div>
+        <div class="from">1.000</div>
+        <div class="arrow">↓</div>
+        <div class="to" id="preview-1">0.975</div>
+      </div>
+      <div class="preview">
+        <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:1px;font-weight:700;margin-bottom:12px;">Loss label (y=0)</div>
+        <div class="from">0.000</div>
+        <div class="arrow">↓</div>
+        <div class="to" id="preview-0">0.025</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-header"><div class="card-title">📚 Why label smoothing?</div></div>
+    <div style="font-size:13px;color:var(--text-secondary);line-height:1.7;">
+      Training on hard binary labels pushes the model toward saturation. The cross-entropy loss for a correct prediction p=0.99 vs y=1 is <code>-log(0.99) ≈ 0.01</code> — but the gradient is still pulling the model toward p=1.00, which is unreachable. The result: overconfident predictions that don't generalize.<br><br>
+      <strong>Label smoothing</strong> (Szegedy et al. 2016, Müller et al. 2019) replaces hard labels with soft ones:
+      <code style="display:block;background:var(--bg-elevated);padding:10px;margin:8px 0;border-radius:6px;">y_smoothed = y × (1 − ε) + ε / K</code>
+      For binary classification (K=2) and ε=0.05:
+      <ul style="margin:8px 0 8px 24px;">
+        <li>y = 1 → 1 × 0.95 + 0.025 = <strong>0.975</strong></li>
+        <li>y = 0 → 0 × 0.95 + 0.025 = <strong>0.025</strong></li>
+      </ul>
+      The model learns that even "wins" aren't perfectly certain — and stops trying to output 0.99+. Empirically this improves calibration and generalization.<br><br>
+      <strong>Where it's applied:</strong> at every <code>model.train(features, label)</code> call site — the main model trainer (model.js fullRetrain) and the per-horizon models (multi-horizon.js trainHorizon). Disable to bypass.<br><br>
+      <strong>How to tune:</strong> ε=0.05 is the standard starting point. Increase up to 0.10 if Brier Skill Score is stagnating with overconfident predictions; decrease to 0 to disable.
+    </div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script src="js/label-smoothing.js"></script>
+<script>
+buildNav('label-smoothing');
+
+function fmt(n, d) { return n != null ? n.toFixed(d != null ? d : 3) : '—'; }
+
+function render() {
+  const s = LabelSmoothing.stats();
+  const card = document.getElementById('config-card');
+  card.innerHTML = '<div class="config-card">'
+    + '<div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:1px;font-weight:700;">Current ε (epsilon)</div>'
+    + '<div class="big" style="margin-top:8px;">' + s.eps.toFixed(3) + '</div>'
+    + '<div style="font-size:14px;color:' + (s.enabled ? 'var(--green)' : 'var(--red)') + ';font-weight:700;margin-top:14px;">' + (s.enabled ? '✓ ACTIVE' : '✗ DISABLED') + '</div>'
+    + '</div>';
+
+  document.getElementById('metrics-grid').innerHTML = ''
+    + '<div class="tile"><div class="lbl">Labels smoothed</div><div class="val">' + s.smoothedCount + '</div></div>'
+    + '<div class="tile"><div class="lbl">Bounds</div><div class="val">[' + s.minEps + ', ' + s.maxEps + ']</div></div>'
+    + '<div class="tile"><div class="lbl">Last use</div><div class="val" style="font-size:16px;">' + (s.lastTs ? new Date(s.lastTs).toLocaleTimeString() : '—') + '</div></div>';
+
+  document.getElementById('eps-input').value = s.eps;
+  document.getElementById('toggle-btn').textContent = s.enabled ? 'Disable' : 'Enable';
+
+  // Preview values
+  document.getElementById('preview-1').textContent = LabelSmoothing.smooth(1).toFixed(3);
+  document.getElementById('preview-0').textContent = LabelSmoothing.smooth(0).toFixed(3);
+}
+
+function updateEps() {
+  const eps = parseFloat(document.getElementById('eps-input').value);
+  if (!isNaN(eps)) {
+    LabelSmoothing.setEpsilon(eps);
+    render();
+  }
+}
+
+function toggleEnabled() {
+  LabelSmoothing.setEnabled(!LabelSmoothing.enabled());
+  render();
+}
+
+function resetDefault() {
+  LabelSmoothing.setEpsilon(LabelSmoothing.DEFAULT_EPSILON);
+  LabelSmoothing.setEnabled(true);
+  render();
+}
+
+render();
+setInterval(render, 6000);
+</script>
+</body>
+</html>

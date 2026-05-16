@@ -138,17 +138,21 @@
     // Model.train returns { loss }. We optionally scale loss-adjusted update by
     // sampleWeight which is used for reward shaping (bigger wins/losses train harder).
     const w = typeof sampleWeight === 'number' && sampleWeight > 0 ? Math.min(5, sampleWeight) : 1.0;
+    // Label smoothing — prevents overconfidence by training on y=0.025/0.975
+    // instead of hard 0/1. Per-horizon models benefit equally.
+    const trainLabel = (typeof window !== 'undefined' && window.LabelSmoothing && window.LabelSmoothing.enabled())
+      ? window.LabelSmoothing.smooth(label) : label;
     let totalLoss = 0;
     for (let r = 0; r < w; r++) {
       // Repeat the SGD step `w` times rounded down + a fractional final step
       if (r < Math.floor(w)) {
-        const { loss } = model.train(features, label);
+        const { loss } = model.train(features, trainLabel);
         totalLoss += loss;
       } else {
         // Fractional partial-step: scale via a temporary LR change
         const origLR = model.lr;
         model.lr = origLR * (w - Math.floor(w));
-        const { loss } = model.train(features, label);
+        const { loss } = model.train(features, trainLabel);
         totalLoss += loss * (w - Math.floor(w));
         model.lr = origLR;
       }
