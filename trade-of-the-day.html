@@ -88,9 +88,15 @@ const NAMES = {
 };
 
 // ---------- Vetoes (any one = skip) ----------
+// CRITICAL: also vetoes any symbol whose price didn't come from a real source
+// within the last 5 minutes. Stale seed values are never scored.
 function vetoCheck(sym, q) {
   if (!q) return 'no-quote';
   if (window.BPLEONE_DATA_MODE !== 'live') return 'mock-data';
+  // The real-data integrity check: priceSource must be a live provider AND
+  // we must have received an update within the last 5 minutes.
+  if (!q.priceSource || q.priceSource === 'stale-seed' || q.priceSource === 'mock') return 'stale-price';
+  if (!q.liveAt || (Date.now() - q.liveAt) > 5 * 60 * 1000) return 'price-too-old';
   if (q.last < 5) return 'penny';
   if (Math.abs(q.changePct) > 5) return 'wild-gap';
   if ((q.volume || 0) < 1e6 && !sym.match(/^(SPY|QQQ|IWM|DIA|GLD|SLV|XLE)$/)) return 'low-liquidity';
@@ -257,17 +263,24 @@ function render() {
   document.getElementById('lastUpdate').textContent = new Date().toLocaleTimeString();
   const wrap = document.getElementById('content');
 
-  // Refuse to render when in mock mode
-  if (window.BPLEONE_DATA_MODE !== 'live') {
+  // How many symbols have we received real prices for?
+  const liveSymCount = typeof QUOTES === 'undefined' ? 0 : Object.values(QUOTES).filter(q => q.priceSource && q.priceSource !== 'stale-seed' && q.priceSource !== 'mock' && q.liveAt && (Date.now() - q.liveAt) < 5*60*1000).length;
+
+  // Refuse to render when in mock mode OR no symbol has fresh real data
+  if (window.BPLEONE_DATA_MODE !== 'live' || liveSymCount === 0) {
+    const stooqStatus = (typeof DataProvider !== 'undefined' && DataProvider.getStooqStatus) ? DataProvider.getStooqStatus() : null;
+    const polling = stooqStatus && stooqStatus.polling;
     wrap.innerHTML = '<div class="no-pick">'
-      + '<h2>🛑 No TOTD pick — live data required</h2>'
-      + '<p>The Trade of the Day uses the <a href="methodology.html" style="color:var(--accent);">8-factor methodology</a> to score every symbol against live market data. Right now the site is in DEMO MODE with simulated prices, which would produce a fictional pick.</p>'
-      + '<p>This is by design. The TOTD <em>refuses</em> to publish a pick when the foundation is fake.</p>'
+      + '<h2>🛑 No TOTD pick — waiting for real data</h2>'
+      + '<p>The Trade of the Day refuses to publish a pick on stale or simulated prices. Right now <strong>' + liveSymCount + ' / ' + UNIVERSE.length + '</strong> symbols have fresh prices from a real source.</p>'
+      + (polling
+          ? '<p style="color:var(--accent);">Stooq fallback is polling every 12s. If your network can reach stooq.com (no CORS issues), prices should arrive within ~15 seconds. If the count stays at 0, Stooq is being blocked — wire Finnhub free instead.</p>'
+          : '<p style="color:var(--red);">Stooq fallback is not running. Open Data Truth audit to check status.</p>')
       + '<div style="margin-top:24px;display:flex;gap:10px;justify-content:center;flex-wrap:wrap;">'
-        + '<a href="data-truth.html" class="btn btn-primary">🔍 Open Data Truth audit</a>'
-        + '<a href="live-data-setup.html" class="btn btn-ghost">📡 Setup guide (Finnhub free, 30s)</a>'
+        + '<a href="data-truth.html" class="btn btn-primary">🔍 Data Truth audit</a>'
+        + '<a href="live-data-setup.html" class="btn btn-ghost">📡 Setup Finnhub free (30s)</a>'
       + '</div>'
-      + '<p style="margin-top:24px;font-size:11px;color:var(--text-muted);">Auto-refresh continues — banner clears the moment Stooq fallback or your configured provider returns real prices.</p>'
+      + '<p style="margin-top:24px;font-size:11px;color:var(--text-muted);">Page auto-refreshes every 5 seconds. Once any real provider returns prices, this clears automatically.</p>'
       + '</div>';
     return;
   }
@@ -275,7 +288,7 @@ function render() {
   // Rank everything
   const ranked = rankAll();
   if (!ranked.length) {
-    wrap.innerHTML = '<div class="no-pick"><h2>No qualifying setup today</h2><p>Every symbol in the universe failed a hard veto or scored below 48/80. Better to sit out than chase.</p></div>';
+    wrap.innerHTML = '<div class="no-pick"><h2>No qualifying setup today</h2><p>Every symbol in the universe failed a hard veto or scored below 48/80. ' + liveSymCount + ' symbols had fresh real data but none crossed the 48-point threshold. Better to sit out than chase.</p></div>';
     return;
   }
   const top = ranked[0];
@@ -301,6 +314,9 @@ function render() {
       + '</div>';
   };
 
+  const freshSec = Math.floor((Date.now() - (q.liveAt || 0)) / 1000);
+  const sourceLbl = q.priceSource || 'unknown';
+  const sourceCol = freshSec < 30 ? 'var(--green)' : freshSec < 120 ? 'var(--accent)' : 'var(--yellow)';
   let html = '<div class="pick-hero">'
     + '<div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:24px;">'
       + '<div>'
@@ -308,6 +324,7 @@ function render() {
         + '<div class="name">' + (NAMES[top.sym] || top.sym) + '</div>'
         + '<div class="price">$' + q.last.toFixed(2) + '</div>'
         + '<div class="change" style="color:' + changeCol + ';">' + (q.change >= 0 ? '+' : '') + q.change.toFixed(2) + ' (' + (q.changePct >= 0 ? '+' : '') + q.changePct.toFixed(2) + '%)</div>'
+        + '<div style="margin-top:8px;font-size:11px;color:' + sourceCol + ';font-family:var(--font-mono);">● source: ' + sourceLbl + ' · last update ' + freshSec + 's ago</div>'
       + '</div>'
       + '<div style="text-align:right;">'
         + '<div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:1px;">Tier ' + tier + ' setup</div>'

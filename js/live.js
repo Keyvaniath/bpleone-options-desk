@@ -102,7 +102,16 @@ function computeDerived(q) {
   q.ts = Date.now();
   return q;
 }
-Object.values(QUOTES).forEach(computeDerived);
+// CRITICAL: every quote starts as stale-seed (not real). priceSource flips to
+// 'stooq' or 'finnhub' / etc. once the live provider returns a real value for
+// that symbol. UI code that displays prices MUST check this — never render a
+// stale-seed value as if it were real, never let TOTD score a symbol whose
+// last update is from the seed.
+Object.values(QUOTES).forEach(q => {
+  computeDerived(q);
+  q.priceSource = 'stale-seed';
+  q.liveAt = 0;  // ms epoch of last real update
+});
 
 // ----- Mock tick engine -----
 // Vol is roughly realistic: index-like ~0.2bp/sec, equities ~1bp/sec

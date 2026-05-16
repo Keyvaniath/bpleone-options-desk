@@ -113,6 +113,9 @@ const DataProvider = (function() {
     q.last = +price;
     q.fresh = true;
     q.source = q.source || config.provider;
+    // Mark as REAL data — TOTD and price displays trust this flag.
+    q.priceSource = config.provider;
+    q.liveAt = Date.now();
     q.lastTickAt = Date.now();
     if (size && size > 0) q.volume = (q.volume || 0) + size;
     if (typeof computeDerived === 'function') computeDerived(q);
@@ -650,7 +653,10 @@ const DataProvider = (function() {
         q.volume = r.volume || q.volume;
         q.dayHigh = r.high;
         q.dayLow = r.low;
+        // Mark this quote as REAL — UI and TOTD scoring trust this flag.
         q.source = 'stooq';
+        q.priceSource = 'stooq';
+        q.liveAt = Date.now();
         q.ts = Date.now();
         try { if (typeof Feed !== 'undefined') Feed.publish(ourSym, q); } catch (e) {}
         totalUpdated++;
