@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Setup Performance — bpleone / brain</title>
+<meta name="description" content="Per-setup-type brain performance — which setup categories the brain is strongest at.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.lb-row { display:grid;grid-template-columns:60px 1.4fr repeat(4, 1fr) 1.3fr;gap:10px;padding:14px;background:var(--bg-elevated);border-radius:10px;margin-bottom:8px;align-items:center; }
+.lb-row.head { background:transparent;font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;font-weight:700;padding:8px 14px;margin-bottom:0; }
+.lb-row .pos { font-family:var(--font-mono);font-size:22px;font-weight:800;color:var(--accent); }
+.lb-row .name { font-weight:700;font-size:15px; }
+.lb-row .metric { font-family:var(--font-mono);font-size:15px;font-weight:700;text-align:right; }
+.lb-row .pill { font-family:var(--font-mono);font-size:13px;font-weight:700;padding:6px 12px;border-radius:14px;text-align:center; }
+.pill.good { background:rgba(16,185,129,0.18);color:var(--green); }
+.pill.bad { background:rgba(239,68,68,0.18);color:var(--red); }
+.pill.flat { background:rgba(245,158,11,0.10);color:var(--yellow); }
+.summary-card { padding:20px;background:var(--bg-elevated);border-radius:10px;text-align:center; }
+.summary-card .lbl { font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;font-weight:700; }
+.summary-card .val { font-family:var(--font-mono);font-size:22px;font-weight:800;margin-top:6px;color:var(--accent); }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">🎬 Setup Performance</div>
+      <div class="page-subtitle">Per-setup-type brain accuracy · which setup categories carry the edge</div>
+    </div>
+  </div>
+
+  <div class="grid grid-3 mb-24" id="summary-grid"></div>
+
+  <div class="card">
+    <div class="card-header"><div class="card-title">🏆 Per-setup leaderboard (last 200 resolutions)</div></div>
+    <div id="leaderboard"></div>
+    <div style="margin-top:14px;padding:12px;background:var(--bg-elevated);border-radius:8px;font-size:12px;color:var(--text-muted);line-height:1.7;">
+      <strong style="color:var(--text-secondary);">Setup tags</strong> come from the one-hot flags in the feature vector: <code>is_bull_setup, is_bear_setup, is_momentum, is_reversion, is_breakout</code>. If exactly one is set, that's the tag; otherwise it's tagged <code>mixed</code>.<br>
+      <strong style="color:var(--text-secondary);">Edge</strong> = accuracy − 0.5. Positive means the brain has real signal in that setup type.<br>
+      <strong style="color:var(--text-secondary);">Brier</strong> = mean (predicted − actual)². Lower is better. 0.25 is the no-info baseline.
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-header"><div class="card-title">📚 What can you do with this?</div></div>
+    <div style="font-size:13px;color:var(--text-secondary);line-height:1.7;">
+      <ul style="margin:8px 0 8px 24px;">
+        <li><strong>Low-edge setup types</strong> (accuracy &lt; 55%): downweight those setups in trade-selectivity rules or raise the conviction threshold for them.</li>
+        <li><strong>High-edge setup types</strong> (accuracy &gt; 60%): boost size or alert more aggressively when those setups fire.</li>
+        <li><strong>"mixed" dominating</strong>: features aren't being tagged cleanly. Audit FeatureExtractor — maybe one-hot flags need stricter classification.</li>
+        <li>This is independent of the brain's overall calibration / Sharpe — it's purely about whether some <em>types</em> of trade setups are easier to predict than others.</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script src="js/setup-tracker.js"></script>
+<script>
+buildNav('setup-performance');
+
+const ICONS = {
+  'bull':      '🐂',
+  'bear':      '🐻',
+  'momentum':  '🚀',
+  'reversion': '↩',
+  'breakout':  '🎯',
+  'mixed':     '🌫'
+};
+
+function fmt(n, d) { return n != null ? n.toFixed(d != null ? d : 3) : '—'; }
+function fmtPct(p) { return p != null ? (p * 100).toFixed(1) + '%' : '—'; }
+function edgePill(e) {
+  if (e == null) return '<span class="pill flat">—</span>';
+  const cls = e > 0.05 ? 'good' : e < -0.05 ? 'bad' : 'flat';
+  return '<span class="pill ' + cls + '">' + (e >= 0 ? '+' : '') + (e * 100).toFixed(1) + 'pp</span>';
+}
+
+function render() {
+  const s = SetupTracker.stats(200);
+
+  document.getElementById('summary-grid').innerHTML = ''
+    + '<div class="summary-card"><div class="lbl">Total resolutions</div><div class="val">' + s.totalRows + '</div></div>'
+    + '<div class="summary-card"><div class="lbl">Setups tracked</div><div class="val">' + SetupTracker.SETUP_NAMES.length + '</div></div>'
+    + '<div class="summary-card"><div class="lbl">Setup types with data</div><div class="val">' + s.leaderboard.filter(r => r.n > 0).length + '</div></div>';
+
+  const lb = document.getElementById('leaderboard');
+  if (s.totalRows === 0) {
+    lb.innerHTML = '<div style="text-align:center;padding:30px;color:var(--text-muted);font-size:14px;">No resolutions yet. Each resolved short-horizon prediction tagged with its setup adds one row.</div>';
+    return;
+  }
+  let html = '<div class="lb-row head"><div></div><div>Setup</div><div style="text-align:right;">Accuracy</div><div style="text-align:right;">Brier</div><div style="text-align:right;">Win rate</div><div style="text-align:right;">n</div><div style="text-align:center;">Edge</div></div>';
+  s.leaderboard.forEach((row, i) => {
+    const icon = ICONS[row.setup] || '?';
+    html += '<div class="lb-row">'
+      + '<div class="pos">#' + (i + 1) + '</div>'
+      + '<div class="name">' + icon + ' ' + row.setup + '</div>'
+      + '<div class="metric">' + fmtPct(row.accuracy) + '</div>'
+      + '<div class="metric">' + fmt(row.brier) + '</div>'
+      + '<div class="metric">' + fmtPct(row.winRate) + '</div>'
+      + '<div class="metric">' + row.n + '</div>'
+      + '<div>' + edgePill(row.edge) + '</div>'
+      + '</div>';
+  });
+  lb.innerHTML = html;
+}
+
+render();
+setInterval(render, 8000);
+window.addEventListener('bpleone:continuous-cycle', render);
+</script>
+</body>
+</html>

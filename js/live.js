@@ -538,6 +538,14 @@ document.addEventListener('DOMContentLoaded', () => {
         s.async = false;
         document.head.appendChild(s);
       }
+      // Setup Tracker: stratifies accuracy by setup-type (bull/bear/momentum/
+      // reversion/breakout) extracted from the feature vector's one-hot flags.
+      if (!document.querySelector('script[src*="setup-tracker.js"]')) {
+        const s = document.createElement('script');
+        s.src = 'js/setup-tracker.js';
+        s.async = false;
+        document.head.appendChild(s);
+      }
       // Unified predictor: chains every meta-module into ONE call.
       // Loads last so all dependencies are present.
       if (!document.querySelector('script[src*="unified-predictor.js"]')) {

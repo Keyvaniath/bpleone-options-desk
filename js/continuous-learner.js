@@ -350,6 +350,13 @@
               SharpeTracker.record(signedRet);
             }
           } catch (e) {}
+          // SETUP TRACKER: stratify accuracy by setup-type encoded in features.
+          try {
+            if (typeof SetupTracker !== 'undefined' && entry.features) {
+              const setup = SetupTracker.fromFeatures(entry.features);
+              SetupTracker.record(setup, entry.predProb, label);
+            }
+          } catch (e) {}
         }
       });
 
