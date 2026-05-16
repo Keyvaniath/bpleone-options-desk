@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Adaptive LR — bpleone / brain</title>
+<meta name="description" content="Drift-adaptive learning rate. The brain's LR rises when loss is rising (drift detected) and falls when loss is converging.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.lr-card { padding:32px;border-radius:16px;text-align:center;background:linear-gradient(135deg,rgba(0,212,255,0.08),rgba(0,212,255,0.02));border:2px solid rgba(0,212,255,0.4); }
+.lr-card .big { font-family:var(--font-mono);font-size:64px;font-weight:900;line-height:1;color:var(--accent); }
+.lr-card .sub { font-size:13px;color:var(--text-secondary);margin-top:14px; }
+.tile { padding:18px;background:var(--bg-elevated);border-radius:10px; }
+.tile .lbl { font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;font-weight:700; }
+.tile .val { font-family:var(--font-mono);font-size:22px;font-weight:800;margin-top:6px;color:var(--accent); }
+.history-table { font-family:var(--font-mono);font-size:12px;width:100%;border-collapse:collapse; }
+.history-table th, .history-table td { padding:8px 12px;border-bottom:1px solid var(--border);text-align:left; }
+.history-table th { color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;font-size:10px;font-weight:700; }
+.history-table td.num { text-align:right;font-weight:700; }
+.dir-up { color:var(--green); }
+.dir-down { color:var(--yellow); }
+.dir-flat { color:var(--text-muted); }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">⚙ Adaptive Learning Rate</div>
+      <div class="page-subtitle">Drift-aware optimizer · LR rises with drift, falls with convergence</div>
+    </div>
+  </div>
+
+  <div id="lr-card" class="mb-24"></div>
+
+  <div class="grid grid-3 mb-24" id="metrics-grid"></div>
+
+  <div class="card mb-24">
+    <div class="card-header"><div class="card-title">⚡ Manual update</div></div>
+    <div style="font-size:13px;color:var(--text-secondary);margin-bottom:14px;">The adaptive-LR loop runs every 5 minutes. Force one update now:</div>
+    <button onclick="manualUpdate()" style="padding:10px 22px;background:var(--accent);color:#000;border:none;border-radius:8px;font-weight:700;cursor:pointer;font-size:14px;">Update LR now</button>
+    <div id="update-result" style="margin-top:12px;font-family:var(--font-mono);font-size:13px;color:var(--text-muted);"></div>
+  </div>
+
+  <div class="card mb-24">
+    <div class="card-header"><div class="card-title">📊 Recent updates</div></div>
+    <div id="history-table-wrap"></div>
+  </div>
+
+  <div class="card">
+    <div class="card-header"><div class="card-title">📚 How it works</div></div>
+    <div style="font-size:13px;color:var(--text-secondary);line-height:1.7;">
+      Adam already adapts per-parameter step sizes. But the global learning rate is fixed at <code>this.lr = 0.05</code>. When the market regime shifts (concept drift), a higher LR helps the model adapt faster. When loss has settled, a lower LR enables fine-tuning.<br><br>
+      <strong>The algorithm:</strong> every 5 minutes:
+      <ol style="margin:8px 0 8px 24px;">
+        <li>Read <code>model.lossHistory</code> (last 30 entries)</li>
+        <li>Fit linear regression: <code>loss_t = a + b × t</code></li>
+        <li>If <code>b &gt; +0.001</code>: loss is rising → drift detected → <strong>LR ×= 1.10</strong></li>
+        <li>If <code>b &lt; -0.0008</code>: loss is falling → converging → <strong>LR ×= 0.97</strong></li>
+        <li>Otherwise: no change</li>
+        <li>Bound LR ∈ [0.01, 0.10]</li>
+      </ol>
+      The Adam optimizer's internal state (m, v moments) is preserved across LR changes, so the change is smooth — only the global step-size scaling changes.<br><br>
+      <strong>Complements DriftPSI + AdversarialValidator:</strong> those modules <em>detect</em> drift; this module <em>responds</em> to it by making the model train faster.
+    </div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script src="js/model.js"></script>
+<script src="js/adaptive-lr.js"></script>
+<script>
+buildNav('adaptive-lr');
+
+function fmt(n, d) { return n != null ? n.toFixed(d != null ? d : 4) : '—'; }
+
+function render() {
+  const s = AdaptiveLR.stats();
+  const card = document.getElementById('lr-card');
+  card.innerHTML = '<div class="lr-card">'
+    + '<div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:1px;font-weight:700;">Current learning rate</div>'
+    + '<div class="big" style="margin-top:8px;">' + fmt(s.currentLr) + '</div>'
+    + '<div class="sub">Bounds: [' + s.minLr + ', ' + s.maxLr + '] · Auto-update every 5 min</div>'
+    + '</div>';
+
+  document.getElementById('metrics-grid').innerHTML = ''
+    + '<div class="tile"><div class="lbl">Update count</div><div class="val">' + s.historyCount + '</div></div>'
+    + '<div class="tile"><div class="lbl">Slope up threshold</div><div class="val">+' + s.slopeUpThreshold + '</div></div>'
+    + '<div class="tile"><div class="lbl">Last update</div><div class="val" style="font-size:18px;">' + (s.lastUpdateTs ? new Date(s.lastUpdateTs).toLocaleTimeString() : '—') + '</div></div>';
+
+  const wrap = document.getElementById('history-table-wrap');
+  if (!s.recentHistory || s.recentHistory.length === 0) {
+    wrap.innerHTML = '<div style="color:var(--text-muted);font-size:13px;text-align:center;padding:14px;">No updates yet. First update happens after model has 15+ loss samples.</div>';
+    return;
+  }
+  let html = '<table class="history-table"><thead><tr><th>Time</th><th style="text-align:right;">Loss slope</th><th style="text-align:right;">LR before</th><th style="text-align:right;">LR after</th><th>Direction</th></tr></thead><tbody>';
+  const rows = s.recentHistory.slice().reverse();
+  for (const r of rows) {
+    const cls = r.direction === 'up' ? 'dir-up' : r.direction === 'down' ? 'dir-down' : 'dir-flat';
+    const sign = r.direction === 'up' ? '↑' : r.direction === 'down' ? '↓' : '—';
+    html += '<tr>'
+      + '<td>' + new Date(r.t).toLocaleTimeString() + '</td>'
+      + '<td class="num">' + (r.slope >= 0 ? '+' : '') + r.slope.toFixed(5) + '</td>'
+      + '<td class="num">' + r.lrOld.toFixed(4) + '</td>'
+      + '<td class="num">' + r.lrNew.toFixed(4) + '</td>'
+      + '<td class="' + cls + '">' + sign + ' ' + r.direction + '</td>'
+      + '</tr>';
+  }
+  html += '</tbody></table>';
+  wrap.innerHTML = html;
+}
+
+function manualUpdate() {
+  const r = AdaptiveLR.update();
+  const out = document.getElementById('update-result');
+  if (r.skipped) out.innerHTML = 'Skipped: ' + r.reason;
+  else out.innerHTML = '✓ Updated. Slope: ' + r.slope.toFixed(5) + ', LR: ' + r.lrOld.toFixed(4) + ' → ' + r.lrNew.toFixed(4) + ' (' + r.direction + ')';
+  render();
+}
+
+render();
+setInterval(render, 30000);
+window.addEventListener('bpleone:continuous-cycle', render);
+</script>
+</body>
+</html>

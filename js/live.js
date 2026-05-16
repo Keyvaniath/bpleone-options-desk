@@ -514,6 +514,14 @@ document.addEventListener('DOMContentLoaded', () => {
         s.async = false;
         document.head.appendChild(s);
       }
+      // Adaptive LR: dynamically adjusts model.lr based on loss-slope.
+      // Rising loss → LR up (adapt faster), falling loss → LR down (fine-tune).
+      if (!document.querySelector('script[src*="adaptive-lr.js"]')) {
+        const s = document.createElement('script');
+        s.src = 'js/adaptive-lr.js';
+        s.async = false;
+        document.head.appendChild(s);
+      }
       // Unified predictor: chains every meta-module into ONE call.
       // Loads last so all dependencies are present.
       if (!document.querySelector('script[src*="unified-predictor.js"]')) {
