@@ -342,6 +342,14 @@
               BrierSkill.record(entry.predProb, label);
             }
           } catch (e) {}
+          // SHARPE TRACKER: signed-return such that if you bet in the
+          // predicted direction, this is what you'd have earned.
+          try {
+            if (typeof SharpeTracker !== 'undefined') {
+              const signedRet = predUp ? ret : -ret;
+              SharpeTracker.record(signedRet);
+            }
+          } catch (e) {}
         }
       });
 
