@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Brain Health Audit — bpleone / trade</title>
+<meta name="description" content="End-to-end audit of the self-learning pipeline. Catches every spot where fake data could poison the model.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.check-row { padding:18px;background:var(--bg-elevated);border-radius:10px;margin-bottom:10px;display:grid;grid-template-columns:48px 1fr 120px;gap:18px;align-items:center; }
+.check-row.pass { border-left:4px solid var(--green); }
+.check-row.warn { border-left:4px solid var(--yellow); }
+.check-row.fail { border-left:4px solid var(--red); }
+.check-row .icon { font-size:28px;text-align:center; }
+.check-row h4 { font-size:14px;font-weight:700;margin-bottom:4px; }
+.check-row p { font-size:12px;color:var(--text-secondary);line-height:1.55; }
+.check-row .verdict { font-family:var(--font-mono);font-size:12px;font-weight:700;text-align:right; }
+.score-card { padding:32px;border-radius:16px;text-align:center;margin-bottom:24px; }
+.score-card.healthy { background:rgba(16,185,129,0.08);border:2px solid rgba(16,185,129,0.4); }
+.score-card.degraded { background:rgba(245,158,11,0.08);border:2px solid rgba(245,158,11,0.4); }
+.score-card.broken { background:rgba(239,68,68,0.1);border:2px solid rgba(239,68,68,0.4); }
+.score-card .big { font-family:var(--font-mono);font-size:48px;font-weight:800; }
+.section-h { font-size:18px;font-weight:700;margin:24px 0 12px;text-transform:uppercase;letter-spacing:0.6px;color:var(--accent); }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">🩺 Brain Health Audit</div>
+      <div class="page-subtitle">End-to-end pipeline check · catches every spot where fake data could poison the model · <span id="market-clock">--</span></div>
+    </div>
+    <div class="flex gap-8">
+      <button class="btn btn-ghost" id="rerunBtn">↻ Re-run audit</button>
+    </div>
+  </div>
+
+  <div id="overall"></div>
+
+  <div class="section-h">🔌 Stage 1: Data source</div>
+  <div id="dataChecks"></div>
+
+  <div class="section-h">🧠 Stage 2: Feature extraction</div>
+  <div id="featureChecks"></div>
+
+  <div class="section-h">📊 Stage 3: Outcome labeling</div>
+  <div id="outcomeChecks"></div>
+
+  <div class="section-h">🎓 Stage 4: Training pipeline</div>
+  <div id="trainingChecks"></div>
+
+  <div class="section-h">🎯 Stage 5: Predictions & UI</div>
+  <div id="predictionChecks"></div>
+
+  <div class="card mt-24">
+    <div class="card-header"><div class="card-title">💡 How to read this</div></div>
+    <div style="font-size:13px;color:var(--text-secondary);line-height:1.7;">
+      Each stage of the brain pipeline depends on the previous one. If stage 1 (data source) is broken, every downstream stage produces garbage no matter how good the code is.
+      <br><br>
+      A <strong>healthy</strong> brain has every check green AND has at least 20 real trades labeled as wins/misses. A <strong>degraded</strong> brain has the pipeline working but lacks data. A <strong>broken</strong> brain has a fundamental data integrity issue — fix that before doing anything else.
+    </div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script src="js/model.js"></script>
+<script>
+buildNav('brain-health');
+
+function checkRow(status, title, desc, verdict) {
+  const icons = { pass: '✅', warn: '⚠', fail: '❌' };
+  return '<div class="check-row ' + status + '">'
+    + '<div class="icon">' + icons[status] + '</div>'
+    + '<div><h4>' + title + '</h4><p>' + desc + '</p></div>'
+    + '<div class="verdict" style="color:' + (status === 'pass' ? 'var(--green)' : status === 'warn' ? 'var(--yellow)' : 'var(--red)') + ';">' + verdict + '</div>'
+    + '</div>';
+}
+
+function audit() {
+  const checks = { pass: 0, warn: 0, fail: 0 };
+  let html;
+
+  // ============ STAGE 1: DATA SOURCE ============
+  html = '';
+  const mode = window.BPLEONE_DATA_MODE || 'mock';
+  const isLive = mode === 'live';
+  if (isLive) { html += checkRow('pass', 'Site data mode', 'Global data mode is "live". Site is configured to accept real prices.', 'LIVE'); checks.pass++; }
+  else { html += checkRow('fail', 'Site data mode', 'Global data mode is "mock". Stooq fallback may not have responded yet (or is blocked by CORS in your network).', 'MOCK'); checks.fail++; }
+
+  // Count symbols with real prices
+  let liveSymCount = 0, totalSyms = 0, freshSymCount = 0;
+  try {
+    Object.values(QUOTES).forEach(q => {
+      totalSyms++;
+      if (q.priceSource && q.priceSource !== 'stale-seed' && q.priceSource !== 'mock') liveSymCount++;
+      if (q.liveAt && (Date.now() - q.liveAt) < 5 * 60 * 1000) freshSymCount++;
+    });
+  } catch(e) {}
+  const symPct = totalSyms > 0 ? (liveSymCount / totalSyms * 100) : 0;
+  if (symPct >= 80) { html += checkRow('pass', 'Live symbol coverage', liveSymCount + ' of ' + totalSyms + ' symbols have real prices from a provider.', symPct.toFixed(0) + '%'); checks.pass++; }
+  else if (symPct >= 30) { html += checkRow('warn', 'Live symbol coverage', liveSymCount + ' of ' + totalSyms + ' have real prices. Some symbols are still showing seed values.', symPct.toFixed(0) + '%'); checks.warn++; }
+  else { html += checkRow('fail', 'Live symbol coverage', liveSymCount + ' of ' + totalSyms + ' symbols have real prices. Most prices on the site are fake.', symPct.toFixed(0) + '%'); checks.fail++; }
+
+  if (freshSymCount >= 10) { html += checkRow('pass', 'Freshness', freshSymCount + ' symbols updated within the last 5 minutes.', freshSymCount + ' fresh'); checks.pass++; }
+  else if (freshSymCount >= 1) { html += checkRow('warn', 'Freshness', 'Only ' + freshSymCount + ' symbols have fresh updates. Provider may be slow or rate-limited.', freshSymCount + ' fresh'); checks.warn++; }
+  else { html += checkRow('fail', 'Freshness', 'No symbols updated recently. Provider is not pushing data.', '0 fresh'); checks.fail++; }
+
+  // Stooq status
+  const stooqStatus = (typeof DataProvider !== 'undefined' && DataProvider.getStooqStatus) ? DataProvider.getStooqStatus() : null;
+  if (stooqStatus && stooqStatus.polling) {
+    if (stooqStatus.lastFetchOk && (Date.now() - stooqStatus.lastFetchOk) < 60000) { html += checkRow('pass', 'Stooq fallback', 'Polling every 12s. Last successful fetch ' + Math.floor((Date.now() - stooqStatus.lastFetchOk) / 1000) + 's ago.', 'POLLING'); checks.pass++; }
+    else { html += checkRow('warn', 'Stooq fallback', 'Polling but no successful fetch in the last 60s. CORS may be blocking the response.', 'NO FETCHES'); checks.warn++; }
+  } else { html += checkRow('warn', 'Stooq fallback', 'Not polling. Either disabled or another provider is configured.', 'OFF'); checks.warn++; }
+
+  document.getElementById('dataChecks').innerHTML = html;
+
+  // ============ STAGE 2: FEATURE EXTRACTION ============
+  html = '';
+  // Verify FeatureExtractor doesn't use Math.random()
+  const extractorStr = (typeof FeatureExtractor !== 'undefined' && FeatureExtractor.snapshotMarket) ? FeatureExtractor.snapshotMarket.toString() : '';
+  if (extractorStr && !/Math\.random/.test(extractorStr)) { html += checkRow('pass', 'No random noise in features', 'FeatureExtractor.snapshotMarket() does not call Math.random(). Features come from real data or neutral defaults.', 'CLEAN'); checks.pass++; }
+  else if (extractorStr) { html += checkRow('fail', 'Random noise in features', 'Math.random() detected in snapshotMarket(). The brain cannot learn from noisy features.', 'POLLUTED'); checks.fail++; }
+  else { html += checkRow('warn', 'FeatureExtractor not loaded', 'Cannot verify feature integrity — module not exposed.', 'UNKNOWN'); checks.warn++; }
+
+  // Try a real snapshot
+  try {
+    const snap = FeatureExtractor.snapshotMarket('SPY');
+    if (snap.isReal) { html += checkRow('pass', 'SPY snapshot integrity', 'A test snapshot for SPY uses real prices. Features derived from this are trustworthy.', 'REAL'); checks.pass++; }
+    else if (snap.degraded) { html += checkRow('warn', 'SPY snapshot degraded', 'Test snapshot for SPY returned with degraded=true. Most features are neutral defaults, not real signal.', 'DEGRADED'); checks.warn++; }
+    else { html += checkRow('fail', 'SPY snapshot failed', 'Test snapshot for SPY did not return real data and was not flagged degraded.', 'BROKEN'); checks.fail++; }
+  } catch (e) { html += checkRow('fail', 'FeatureExtractor.snapshotMarket() threw', e.message, 'ERROR'); checks.fail++; }
+
+  document.getElementById('featureChecks').innerHTML = html;
+
+  // ============ STAGE 3: OUTCOME LABELING ============
+  html = '';
+  let findings = [];
+  try { findings = JSON.parse(localStorage.getItem('bpleone_brain_findings_v1') || '{"items":[]}').items; } catch(e) {}
+  const total = findings.length;
+  const liveTagged = findings.filter(f => f.dataSource === 'live').length;
+  const rated = findings.filter(f => f.outcome && f.outcome !== 'unknown').length;
+  const unrateable = findings.filter(f => f.outcome === 'unrateable-stale-data').length;
+  const hits = findings.filter(f => f.outcome === 'hit').length;
+  const misses = findings.filter(f => f.outcome === 'miss').length;
+
+  html += checkRow(total > 0 ? 'pass' : 'warn', 'Findings tracked', 'Total findings emitted: ' + total + '. Of those, ' + liveTagged + ' are tagged from live data.', total + ' total');
+  if (total > 0) checks.pass++; else checks.warn++;
+
+  if (liveTagged === 0 && total > 0) { html += checkRow('fail', 'No live-tagged findings', 'Every finding so far was emitted with stale/mock prices. None are eligible for training.', '0 live'); checks.fail++; }
+  else if (liveTagged > 0 && liveTagged / Math.max(1, total) > 0.5) { html += checkRow('pass', 'Live-tagged ratio healthy', (liveTagged / total * 100).toFixed(0) + '% of findings are live-tagged.', liveTagged + ' live'); checks.pass++; }
+  else { html += checkRow('warn', 'Mostly historical mock findings', 'Older findings predate the data-source tagging. New ones should be live-tagged.', liveTagged + ' live'); checks.warn++; }
+
+  if (unrateable > 0) { html += checkRow('warn', 'Unrateable outcomes detected', unrateable + ' findings were marked "unrateable-stale-data" because entry or exit price was not from a real source. The trainer correctly ignores these.', unrateable + ' skipped'); checks.warn++; }
+
+  if (hits + misses >= 20) { html += checkRow('pass', 'Trainable outcomes', hits + ' wins · ' + misses + ' losses across all data. Enough to begin learning patterns.', (hits + misses) + ' labeled'); checks.pass++; }
+  else if (hits + misses >= 5) { html += checkRow('warn', 'Few trainable outcomes', hits + ' wins · ' + misses + ' losses. Need 20+ for the brain to find real patterns.', (hits + misses) + ' labeled'); checks.warn++; }
+  else { html += checkRow('fail', 'No trainable outcomes yet', hits + ' wins · ' + misses + ' losses. Resolve trades in Journal PRO or let Autopilot run.', (hits + misses) + ' labeled'); checks.fail++; }
+
+  document.getElementById('outcomeChecks').innerHTML = html;
+
+  // ============ STAGE 4: TRAINING PIPELINE ============
+  html = '';
+  let model = null;
+  try { model = JSON.parse(localStorage.getItem('bpleone_model_v1') || 'null'); } catch(e) {}
+  let trainData = [];
+  try { trainData = JSON.parse(localStorage.getItem('bpleone_train_v1') || '[]'); } catch(e) {}
+  const liveTrain = trainData.filter(t => (t.meta && t.meta.dataSource) === 'live' || t.dataSource === 'live').length;
+  const mockTrain = trainData.length - liveTrain;
+
+  if (model && model.n_trained > 0) {
+    html += checkRow('pass', 'Model exists', 'Model trained on ' + model.n_trained + ' total examples. Version ' + (model.version || 1) + '.', 'TRAINED');
+    checks.pass++;
+  } else { html += checkRow('warn', 'Model untrained', 'No training has happened yet. Brain is at default weights.', 'BLANK'); checks.warn++; }
+
+  if (mockTrain > 0) { html += checkRow('warn', 'Contaminated training data', mockTrain + ' training rows came from mock prices. Trainer skips them now, but they pollute analytics. Quarantine via Data Truth.', mockTrain + ' mock'); checks.warn++; }
+  else if (liveTrain > 0) { html += checkRow('pass', 'Clean training data', liveTrain + ' training rows, all from live data.', liveTrain + ' clean'); checks.pass++; }
+  else { html += checkRow('warn', 'No training data yet', 'No labeled trades in the training set.', '0 rows'); checks.warn++; }
+
+  if (liveTrain >= 20) { html += checkRow('pass', 'ML overlay active', liveTrain + ' live-tagged training rows. The 8th TOTD factor (ML overlay) now contributes to scoring.', 'ACTIVE'); checks.pass++; }
+  else { html += checkRow('warn', 'ML overlay neutral', 'ML overlay defaults to neutral 5/10 until ' + (20 - liveTrain) + ' more live-tagged trades.', 'NEUTRAL'); checks.warn++; }
+
+  document.getElementById('trainingChecks').innerHTML = html;
+
+  // ============ STAGE 5: PREDICTIONS & UI ============
+  html = '';
+  if (typeof window.predictForFinding === 'function') { html += checkRow('pass', 'Prediction function loaded', 'window.predictForFinding() is callable. UI pages can request live probabilities.', 'LOADED'); checks.pass++; }
+  else { html += checkRow('fail', 'Prediction function missing', 'window.predictForFinding() is not loaded. UI pages cannot get live ML scores.', 'MISSING'); checks.fail++; }
+
+  // Banner state
+  const banner = document.getElementById('bp-demo-banner');
+  if (banner) {
+    if (mode === 'live' && banner.style.display === 'none') { html += checkRow('pass', 'DEMO banner correctly hidden', 'Data is live and the warning banner is hidden.', 'HIDDEN'); checks.pass++; }
+    else if (mode !== 'live' && banner.style.display !== 'none') { html += checkRow('pass', 'DEMO banner correctly visible', 'Data is mock and the warning banner is visible.', 'VISIBLE'); checks.pass++; }
+    else { html += checkRow('warn', 'DEMO banner state mismatch', 'Banner visibility does not match data mode. UI may be stale.', 'MISMATCH'); checks.warn++; }
+  } else { html += checkRow('warn', 'Banner not found', 'No banner element rendered. Reload the page if it persists.', 'MISSING'); checks.warn++; }
+
+  document.getElementById('predictionChecks').innerHTML = html;
+
+  // ============ OVERALL VERDICT ============
+  const total_checks = checks.pass + checks.warn + checks.fail;
+  let verdictClass, verdictBig, verdictMsg;
+  if (checks.fail > 0) {
+    verdictClass = 'broken';
+    verdictBig = '❌ BROKEN';
+    verdictMsg = '<strong>' + checks.fail + '</strong> critical failure(s) detected. The brain cannot learn meaningfully in this state. Fix the failing checks below before relying on predictions.';
+  } else if (checks.warn > checks.pass / 2) {
+    verdictClass = 'degraded';
+    verdictBig = '⚠ DEGRADED';
+    verdictMsg = '<strong>' + checks.warn + '</strong> warning(s). Pipeline is wired correctly but missing data or in a degraded mode. The brain will learn slowly or partially.';
+  } else {
+    verdictClass = 'healthy';
+    verdictBig = '✅ HEALTHY';
+    verdictMsg = checks.pass + ' / ' + total_checks + ' checks passed. The self-learning pipeline is intact and operational.';
+  }
+  document.getElementById('overall').innerHTML = '<div class="score-card ' + verdictClass + '">'
+    + '<div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:1px;">Overall pipeline health</div>'
+    + '<div class="big" style="color:' + (verdictClass === 'healthy' ? 'var(--green)' : verdictClass === 'degraded' ? 'var(--yellow)' : 'var(--red)') + ';">' + verdictBig + '</div>'
+    + '<div style="font-size:13px;color:var(--text-secondary);margin-top:14px;max-width:600px;margin-left:auto;margin-right:auto;line-height:1.6;">' + verdictMsg + '</div>'
+    + '<div style="margin-top:18px;font-size:12px;font-family:var(--font-mono);">'
+      + '<span style="color:var(--green);">✓ ' + checks.pass + '</span> · '
+      + '<span style="color:var(--yellow);">⚠ ' + checks.warn + '</span> · '
+      + '<span style="color:var(--red);">✗ ' + checks.fail + '</span>'
+    + '</div>'
+    + '</div>';
+}
+
+document.getElementById('rerunBtn').addEventListener('click', audit);
+audit();
+setInterval(audit, 15000);
+</script>
+</body>
+</html>

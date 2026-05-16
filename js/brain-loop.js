@@ -231,6 +231,18 @@ const BrainLoop = (function () {
       if (!sym || !entryPx || !bias) { f.outcome = 'unknown'; changed = true; return; }
       const q = QUOTES[sym];
       if (!q || !q.last) return;
+      // DATA INTEGRITY: refuse to rate the outcome unless BOTH the entry price
+      // came from a real source (the finding itself must have dataSource='live')
+      // AND the current exit price is from a real source with a recent update.
+      const entryIsReal = f.dataSource === 'live';
+      const exitIsReal = q.priceSource && q.priceSource !== 'stale-seed' && q.priceSource !== 'mock' && q.liveAt && (Date.now() - q.liveAt) < 60 * 60 * 1000;
+      if (!entryIsReal || !exitIsReal) {
+        // Mark unrateable so it never trains. Don't try again unless data improves.
+        f.outcome = 'unrateable-stale-data';
+        f.outcomeRatedAt = Date.now();
+        changed = true;
+        return;
+      }
       const move = ((q.last - entryPx) / entryPx) * 100;
       // Bias-adjusted: for short, positive R = price went DOWN
       const signedMove = bias === 'short' ? -move : move;

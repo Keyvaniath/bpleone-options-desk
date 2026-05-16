@@ -130,7 +130,12 @@ const FeatureExtractor = {
     return features;
   },
 
-  /** Capture current market state for a symbol (used both at emit-time + train-time) */
+  /** Capture current market state for a symbol (used both at emit-time + train-time)
+   *  CRITICAL: never inject Math.random() into features. If a feature cannot be
+   *  computed from real data, return a NEUTRAL default (0.5 after normalization)
+   *  and flag the snapshot as 'degraded'. Random noise in features prevents the
+   *  brain from learning anything no matter how good the labels are.
+   */
   snapshotMarket(sym) {
     try {
       const q = (typeof window !== 'undefined' && window.QUOTES && window.QUOTES[sym]) ? window.QUOTES[sym] : null;
@@ -140,23 +145,40 @@ const FeatureExtractor = {
       const state = (function () { try { return JSON.parse(localStorage.getItem('bpleone_brain_loop_state_v1') || '{}'); } catch (e) { return {}; } })();
       const findings = (function () { try { return JSON.parse(localStorage.getItem('bpleone_brain_findings_v1') || '{"items":[]}').items; } catch (e) { return []; } })();
       const coincident = findings.filter(f => f.meta && f.meta.sym === sym && (Date.now() - f.ts) < 4 * 3600 * 1000).length;
+      const isReal = q && q.priceSource && q.priceSource !== 'stale-seed' && q.priceSource !== 'mock';
+      // Day range %, computed from real dayHigh/dayLow if Stooq provided them.
+      // Without bar history we cannot compute real ATR — leave as neutral.
+      const dayRangePct = (isReal && q.dayHigh && q.dayLow) ? ((q.dayHigh - q.dayLow) / q.last * 100) : null;
+      // RVOL needs avgVolume from history — we don't have it without a richer feed.
+      // Default to 1.0 (neutral) until a real avg-volume source is wired.
       return {
-        rsi: 50 + (q && q.changePct ? q.changePct * 5 : 0) + (Math.random() - 0.5) * 8,
-        atrPct: q ? Math.abs(q.changePct || 0) + 1.2 : 2,
-        rvol: 0.8 + Math.random() * 2,
-        dist50: q ? (q.changePct || 0) * 1.5 : 0,
-        dist200: q ? (q.changePct || 0) * 2.5 : 0,
-        spyChg: spy ? spy.changePct || 0 : 0,
-        sectorChg: (Math.random() - 0.5) * 2,
+        // RSI: needs 14-period history. Without it, return neutral 50.
+        rsi: 50,
+        // ATR%: use day range if real; otherwise neutral 2%.
+        atrPct: dayRangePct != null ? dayRangePct : 2,
+        // RVOL: needs avg history. Neutral 1.0 until provider sends.
+        rvol: 1.0,
+        // Distance from 50/200 MAs: needs MA series. Neutral 0 (= at MA) until provided.
+        dist50: 0,
+        dist200: 0,
+        // Real % changes from QUOTES (these ARE valid even from a single-snapshot feed).
+        spyChg: isReal && spy && spy.priceSource && spy.priceSource !== 'stale-seed' ? (spy.changePct || 0) : 0,
+        sectorChg: 0,
         beta: 1.0,
-        spreadBps: 3 + Math.random() * 10,
-        ivPct: 40 + Math.random() * 40,
+        // Spread: bid-ask from real source if available; else neutral 5bps.
+        spreadBps: (isReal && q.bid && q.ask) ? Math.max(1, ((q.ask - q.bid) / q.last) * 10000) : 5,
+        ivPct: 50,
         brainWeight: (learn.symbols && learn.symbols[sym] && learn.symbols[sym].w) || 1.0,
         regimeScore: state.regimeScore || 50,
-        vix: vxx ? Math.max(10, Math.min(60, (vxx.last || 18) * 1.1 + 4)) : 18,
-        coincident
+        vix: vxx && vxx.priceSource && vxx.priceSource !== 'stale-seed' ? vxx.last : 18,
+        coincident,
+        // Integrity flags so downstream can decide whether to trust this snapshot
+        priceSource: q ? q.priceSource : 'none',
+        isReal,
+        liveAt: q ? q.liveAt : 0,
+        degraded: !isReal || dayRangePct == null  // many features default to neutral
       };
-    } catch (e) { return {}; }
+    } catch (e) { return { degraded: true, isReal: false }; }
   }
 };
 
@@ -343,8 +365,13 @@ const ModelTrainer = {
 
       findings.forEach(f => {
         if (!f.outcome || trainedIds.has(f.id)) return;
-        if (f.outcome === 'flat') {
-          trainedIds.add(f.id); // skip neutral
+        // Outcomes that aren't trainable
+        if (f.outcome === 'flat' || f.outcome === 'unknown' || f.outcome === 'unrateable-stale-data') {
+          trainedIds.add(f.id); // skip neutral / unrateable forever
+          return;
+        }
+        if (f.outcome !== 'hit' && f.outcome !== 'miss') {
+          trainedIds.add(f.id);
           return;
         }
         // Skip findings whose underlying prices came from mock data.
