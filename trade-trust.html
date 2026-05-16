@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Trade Trust Score — bpleone / brain</title>
+<meta name="description" content="Single 0-100 confidence rating compounded from every brain diagnostic signal. Should you trust this trade right now.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.score-card { padding:48px;border-radius:20px;text-align:center; }
+.score-card .big { font-family:var(--font-mono);font-size:160px;font-weight:900;line-height:0.9; }
+.score-card .label { font-size:32px;font-weight:800;letter-spacing:3px;text-transform:uppercase;margin-top:18px; }
+.penalty-row { display:grid;grid-template-columns:1.5fr 100px 1fr;gap:12px;padding:12px 16px;background:var(--bg-elevated);border-radius:8px;margin-bottom:6px;align-items:center;font-size:13px; }
+.penalty-row .name { font-weight:700; }
+.penalty-row .pen { font-family:var(--font-mono);font-size:14px;font-weight:800;color:var(--red);text-align:right; }
+.penalty-row .val { font-family:var(--font-mono);font-size:12px;color:var(--text-muted); }
+.tier-table { width:100%;font-family:var(--font-mono);font-size:13px;border-collapse:collapse; }
+.tier-table th, .tier-table td { padding:10px 14px;text-align:left;border-bottom:1px solid var(--border); }
+.tier-table th { font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px; }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">⭐ Trade Trust Score</div>
+      <div class="page-subtitle">Single 0-100 confidence rating · compounds every diagnostic signal · should you trust this trade right now</div>
+    </div>
+  </div>
+
+  <div id="score-card" class="mb-24"></div>
+
+  <div class="card mb-24">
+    <div class="card-header"><div class="card-title">📉 Active penalties</div></div>
+    <div id="penalty-list"></div>
+  </div>
+
+  <div class="card mb-24">
+    <div class="card-header"><div class="card-title">📊 Trust tiers</div></div>
+    <table class="tier-table">
+      <thead><tr><th>Score</th><th>Tier</th><th>Recommendation</th></tr></thead>
+      <tbody>
+        <tr><td style="color:#10b981;">90-100</td><td><strong>GREEN LIGHT</strong></td><td>Full conviction sizing.</td></tr>
+        <tr><td style="color:#00d4ff;">75-89</td><td><strong>TRUST BUT VERIFY</strong></td><td>Standard sizing; double-check setup.</td></tr>
+        <tr><td style="color:#f59e0b;">60-74</td><td><strong>REDUCED SIZE</strong></td><td>Halve normal size or skip if multiple penalties.</td></tr>
+        <tr><td style="color:#f59e0b;">40-59</td><td><strong>PAPER ONLY</strong></td><td>Track on paper, don't risk capital.</td></tr>
+        <tr><td style="color:#ef4444;">&lt;40</td><td><strong>DO NOT TRADE</strong></td><td>Brain is degraded. Wait for conditions to improve.</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="card">
+    <div class="card-header"><div class="card-title">📚 What this aggregates</div></div>
+    <div style="font-size:13px;color:var(--text-secondary);line-height:1.7;">
+      Trust score starts at 100 and subtracts penalties for each warning signal:
+      <ul style="margin:8px 0 8px 24px;">
+        <li><strong>BSS &lt; 0:</strong> -25 (brain is worse than baseline)</li>
+        <li><strong>BSS &lt; 0.10:</strong> -15 (brain not clearly learning)</li>
+        <li><strong>Annualized Sharpe &lt; 0:</strong> -25</li>
+        <li><strong>Annualized Sharpe &lt; 1.0:</strong> -10</li>
+        <li><strong>Drift PSI &gt; 0.25:</strong> -20 (concept drift detected)</li>
+        <li><strong>Covariate shift fired:</strong> -25 (input distribution shifted)</li>
+        <li><strong>Losing streak ≥ 5:</strong> -25 (deep tilt)</li>
+        <li><strong>Losing streak ≥ 3:</strong> -15</li>
+        <li><strong>Cross-method agreement = FRAGMENTED:</strong> -10</li>
+        <li><strong>Conformal halfwidth &gt; 0.20:</strong> -15 (wide uncertainty)</li>
+        <li><strong>Hourly bucket &lt; 20 samples:</strong> -5</li>
+        <li><strong>DoW bucket &lt; 20 samples:</strong> -5</li>
+      </ul>
+      The remaining number tells Brandon how much to trust the brain's current setup. A clean state with adequate sample sizes lands at 95+. A brain hit by drift + losing streak + shift drops to 0 — that's the system telling you to step away.
+    </div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script src="js/trade-trust-score.js"></script>
+<script>
+buildNav('trade-trust');
+
+function render() {
+  const s = TradeTrust.score();
+
+  document.getElementById('score-card').innerHTML = '<div class="score-card" style="background:linear-gradient(135deg,' + s.tierColor + '22,' + s.tierColor + '04);border:3px solid ' + s.tierColor + '99;">'
+    + '<div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:1.5px;font-weight:700;">Brain trust score</div>'
+    + '<div class="big" style="color:' + s.tierColor + ';margin-top:14px;">' + s.score + '</div>'
+    + '<div class="label" style="color:' + s.tierColor + ';">' + s.tierLabel + '</div>'
+    + '</div>';
+
+  const list = document.getElementById('penalty-list');
+  if (s.penalties.length === 0) {
+    list.innerHTML = '<div style="text-align:center;padding:24px;color:var(--green);font-weight:700;">✓ No active penalties — brain is healthy.</div>';
+    return;
+  }
+  let html = '';
+  for (const p of s.penalties) {
+    html += '<div class="penalty-row">'
+      + '<div class="name">' + p.name + '</div>'
+      + '<div class="pen">' + p.penalty + '</div>'
+      + '<div class="val">' + (p.value != null ? 'value: ' + (typeof p.value === 'number' ? p.value.toFixed(3) : p.value) : '') + '</div>'
+      + '</div>';
+  }
+  list.innerHTML = html;
+}
+
+render();
+setInterval(render, 8000);
+window.addEventListener('bpleone:continuous-cycle', render);
+</script>
+</body>
+</html>
