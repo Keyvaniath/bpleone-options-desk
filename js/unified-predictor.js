@@ -243,6 +243,16 @@
         components.currentHourBucket = safe(() => HourlyPerf.currentBucket(), null);
       }
     }
+    // Drawdown tilt protection: shrink size after recent losing streak
+    // (or after long winning streak for anti-overconfidence).
+    if (typeof DrawdownProtector !== 'undefined') {
+      const ddMult = safe(() => DrawdownProtector.sizeMultiplier(), 1.0);
+      if (ddMult != null && ddMult !== 1.0) {
+        sizeMult *= ddMult;
+        components.drawdownMult = ddMult;
+        components.currentStreak = safe(() => DrawdownProtector.currentStreak(), 0);
+      }
+    }
     sizeMult = Math.max(0.1, Math.min(1.25, sizeMult));
     components.finalSizeMult = sizeMult;
 

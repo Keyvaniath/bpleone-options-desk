@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Drawdown Protector — bpleone / brain</title>
+<meta name="description" content="Tilt-protection sizing — the brain shrinks position size after losing streaks and after long winning streaks.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.streak-card { padding:32px;border-radius:16px;text-align:center; }
+.streak-card.normal { background:linear-gradient(135deg,rgba(0,212,255,0.08),rgba(0,212,255,0.02));border:2px solid rgba(0,212,255,0.4); }
+.streak-card.warn { background:linear-gradient(135deg,rgba(245,158,11,0.10),rgba(245,158,11,0.02));border:2px solid rgba(245,158,11,0.4); }
+.streak-card.bad { background:linear-gradient(135deg,rgba(239,68,68,0.10),rgba(239,68,68,0.02));border:2px solid rgba(239,68,68,0.4); }
+.streak-card.hot { background:linear-gradient(135deg,rgba(16,185,129,0.10),rgba(16,185,129,0.02));border:2px solid rgba(16,185,129,0.4); }
+.streak-card .big { font-family:var(--font-mono);font-size:72px;font-weight:900;line-height:1; }
+.streak-card .mult { font-family:var(--font-mono);font-size:36px;font-weight:800;margin-top:10px; }
+.history-row { display:flex;flex-wrap:wrap;gap:4px;justify-content:center;margin-top:8px; }
+.history-dot { width:14px;height:14px;border-radius:50%; }
+.history-dot.win { background:var(--green); }
+.history-dot.loss { background:var(--red); }
+.tile { padding:14px;background:var(--bg-elevated);border-radius:10px; }
+.tile .lbl { font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;font-weight:700; }
+.tile .val { font-family:var(--font-mono);font-size:22px;font-weight:800;margin-top:4px;color:var(--accent); }
+.tile .sub { font-size:11px;color:var(--text-muted);font-family:var(--font-mono);margin-top:2px; }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">🧠 Drawdown Protector</div>
+      <div class="page-subtitle">Tilt protection · anti-overconfidence · brain shrinks size after losing streaks</div>
+    </div>
+  </div>
+
+  <div id="streak-card" class="mb-24"></div>
+
+  <div class="grid grid-4 mb-24" id="metrics-grid"></div>
+
+  <div class="card mb-24">
+    <div class="card-header"><div class="card-title">📜 Recent outcomes</div></div>
+    <div style="font-size:13px;color:var(--text-secondary);margin-bottom:14px;">Last 50 resolved trades, oldest left. Green = win, red = loss.</div>
+    <div class="history-row" id="history"></div>
+  </div>
+
+  <div class="card">
+    <div class="card-header"><div class="card-title">📚 Tilt rules</div></div>
+    <table style="width:100%;font-size:13px;color:var(--text-secondary);">
+      <thead>
+        <tr><th align="left" style="padding:8px 0;font-size:11px;text-transform:uppercase;color:var(--text-muted);">Streak</th><th align="left" style="padding:8px 0;font-size:11px;text-transform:uppercase;color:var(--text-muted);">Multiplier</th><th align="left" style="padding:8px 0;font-size:11px;text-transform:uppercase;color:var(--text-muted);">Why</th></tr>
+      </thead>
+      <tbody style="font-family:var(--font-mono);font-size:12px;">
+        <tr><td style="padding:6px 0;">≥ 5 losses</td><td style="padding:6px 0;color:var(--red);">0.40x</td><td style="padding:6px 0;font-family:var(--font-base);font-size:13px;color:var(--text-secondary);">Heavy tilt protection — pause-equivalent</td></tr>
+        <tr><td style="padding:6px 0;">≥ 3 losses</td><td style="padding:6px 0;color:var(--red);">0.65x</td><td style="padding:6px 0;font-family:var(--font-base);font-size:13px;color:var(--text-secondary);">Protective sizing</td></tr>
+        <tr><td style="padding:6px 0;">≥ 2 losses</td><td style="padding:6px 0;color:var(--yellow);">0.85x</td><td style="padding:6px 0;font-family:var(--font-base);font-size:13px;color:var(--text-secondary);">Mild caution</td></tr>
+        <tr><td style="padding:6px 0;">Mixed or 0–1</td><td style="padding:6px 0;color:var(--accent);">1.00x</td><td style="padding:6px 0;font-family:var(--font-base);font-size:13px;color:var(--text-secondary);">Normal sizing</td></tr>
+        <tr><td style="padding:6px 0;">≥ 4 wins</td><td style="padding:6px 0;color:var(--yellow);">0.92x</td><td style="padding:6px 0;font-family:var(--font-base);font-size:13px;color:var(--text-secondary);">Mild anti-overconfidence</td></tr>
+        <tr><td style="padding:6px 0;">≥ 7 wins</td><td style="padding:6px 0;color:var(--yellow);">0.80x</td><td style="padding:6px 0;font-family:var(--font-base);font-size:13px;color:var(--text-secondary);">Long hot streak reverts to mean</td></tr>
+      </tbody>
+    </table>
+    <div style="margin-top:18px;font-size:13px;color:var(--text-secondary);line-height:1.7;">
+      <strong>Why anti-overconfidence?</strong> Even a brain with positive edge will hit hot streaks just by chance. Continuing to size up after 7 wins ignores the fact that the next outcome is conditionally independent of the streak — but the trader's <em>position size</em> often isn't. Sizing down slightly during streaks protects against the mean reversion that always comes eventually.<br><br>
+      The multiplier here compounds with all other size adjustments (uncertainty, OOD, cross-method agreement, hourly performance) in the Unified Predictor.
+    </div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script src="js/drawdown-protector.js"></script>
+<script>
+buildNav('drawdown-protector');
+
+function render() {
+  const s = DrawdownProtector.stats();
+  const card = document.getElementById('streak-card');
+  const cls = s.currentStreak <= -5 ? 'bad' : s.currentStreak <= -2 ? 'warn' : s.currentStreak >= 7 ? 'hot' : s.currentStreak >= 4 ? 'hot' : 'normal';
+  const streakLabel = s.currentStreak === 0 ? '—' : (s.currentStreak > 0 ? '+' + s.currentStreak : s.currentStreak);
+  const streakColor = s.currentStreak <= -5 ? 'var(--red)' : s.currentStreak <= -2 ? 'var(--yellow)' : s.currentStreak >= 4 ? 'var(--green)' : 'var(--accent)';
+  card.innerHTML = '<div class="streak-card ' + cls + '">'
+    + '<div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:1px;font-weight:700;">Current streak</div>'
+    + '<div class="big" style="color:' + streakColor + ';margin-top:8px;">' + streakLabel + '</div>'
+    + '<div class="mult" style="color:' + (s.sizeMultiplier < 0.7 ? 'var(--red)' : s.sizeMultiplier < 0.95 ? 'var(--yellow)' : 'var(--green)') + ';">' + (s.sizeMultiplier * 100).toFixed(0) + '% size mult</div>'
+    + '<div style="font-size:13px;color:var(--text-secondary);margin-top:14px;">' + s.reasoning + '</div>'
+    + '</div>';
+
+  document.getElementById('metrics-grid').innerHTML = ''
+    + '<div class="tile"><div class="lbl">Total trades</div><div class="val">' + s.n + '</div></div>'
+    + '<div class="tile"><div class="lbl">Win rate</div><div class="val">' + (s.winRate != null ? (s.winRate * 100).toFixed(1) + '%' : '—') + '</div><div class="sub">' + s.wins + 'W / ' + s.losses + 'L</div></div>'
+    + '<div class="tile"><div class="lbl">Max win streak</div><div class="val" style="color:var(--green);">' + s.maxWinStreak + '</div></div>'
+    + '<div class="tile"><div class="lbl">Max loss streak</div><div class="val" style="color:var(--red);">' + s.maxLoseStreak + '</div></div>';
+
+  // History dots
+  const log = JSON.parse(localStorage.getItem('bpleone_drawdown_v1') || '{"log":[]}').log;
+  const recent = log.slice(-50);
+  const history = document.getElementById('history');
+  if (recent.length === 0) {
+    history.innerHTML = '<div style="color:var(--text-muted);font-size:13px;">No resolutions yet.</div>';
+  } else {
+    history.innerHTML = recent.map(r => '<div class="history-dot ' + (r.y === 1 ? 'win' : 'loss') + '"></div>').join('');
+  }
+}
+
+render();
+setInterval(render, 6000);
+window.addEventListener('bpleone:continuous-cycle', render);
+</script>
+</body>
+</html>

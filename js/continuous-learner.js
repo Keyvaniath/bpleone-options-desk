@@ -324,6 +324,14 @@
               HourlyPerf.recordResolution(entry.predProb, label, entry.ts);
             }
           } catch (e) {}
+          // DRAWDOWN PROTECTOR: feed the resolution into the streak tracker
+          // so it can apply tilt protection (cold streaks shrink size,
+          // long hot streaks slightly shrink size for anti-overconfidence).
+          try {
+            if (typeof DrawdownProtector !== 'undefined') {
+              DrawdownProtector.record(label);
+            }
+          } catch (e) {}
         }
       });
 
