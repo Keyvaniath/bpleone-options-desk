@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Confidence Penalty — bpleone / brain</title>
+<meta name="description" content="Entropy regularization. Adds gradient term to penalize peaked outputs. Complements label smoothing.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.beta-card { padding:32px;border-radius:16px;text-align:center;background:linear-gradient(135deg,rgba(0,212,255,0.08),rgba(0,212,255,0.02));border:2px solid rgba(0,212,255,0.4); }
+.beta-card .big { font-family:var(--font-mono);font-size:64px;font-weight:900;line-height:1;color:var(--accent); }
+.tile { padding:18px;background:var(--bg-elevated);border-radius:10px; }
+.tile .lbl { font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;font-weight:700; }
+.tile .val { font-family:var(--font-mono);font-size:22px;font-weight:800;margin-top:6px;color:var(--accent); }
+.demo { display:grid;grid-template-columns:repeat(5, 1fr);gap:10px; }
+@media (max-width:768px){ .demo { grid-template-columns:repeat(2, 1fr); } }
+.demo-cell { padding:14px;background:var(--bg-elevated);border-radius:10px;text-align:center; }
+.demo-cell .p { font-family:var(--font-mono);font-size:14px;color:var(--text-muted); }
+.demo-cell .adj { font-family:var(--font-mono);font-size:18px;font-weight:800;margin-top:4px; }
+.adj-up { color:var(--green); }
+.adj-down { color:var(--red); }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">🎯 Confidence Penalty</div>
+      <div class="page-subtitle">Entropy regularization · pushes model away from peaked outputs · alternative to label smoothing</div>
+    </div>
+  </div>
+
+  <div id="beta-card" class="mb-24"></div>
+
+  <div class="grid grid-3 mb-24" id="metrics-grid"></div>
+
+  <div class="card mb-24">
+    <div class="card-header"><div class="card-title">⚙ Configuration</div></div>
+    <div style="font-size:13px;color:var(--text-secondary);margin-bottom:14px;">
+      <strong>Disabled by default</strong> because it changes the loss surface. Label smoothing handles the same problem more conservatively; this is for advanced tuning when you want stronger anti-overconfidence pressure.
+    </div>
+    <div style="display:flex;gap:14px;flex-wrap:wrap;align-items:end;">
+      <label style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;font-weight:700;display:flex;flex-direction:column;gap:4px;">Beta (β)<input id="beta-input" type="number" style="width:100px;padding:8px 12px;background:var(--bg-elevated);border:1px solid var(--border);color:var(--text-primary);border-radius:6px;font-family:var(--font-mono);font-size:14px;font-weight:700;text-align:right;" step="0.01" min="0" max="0.5" value="0.05"></label>
+      <button onclick="updateBeta()" style="padding:10px 22px;background:var(--accent);color:#000;border:none;border-radius:8px;font-weight:700;cursor:pointer;font-size:14px;">Apply</button>
+      <button onclick="toggleEnabled()" id="toggle-btn" style="padding:10px 22px;background:var(--bg-elevated);color:var(--text-primary);border:1px solid var(--border);border-radius:8px;font-weight:700;cursor:pointer;font-size:14px;">Enable</button>
+    </div>
+    <div style="margin-top:14px;font-size:12px;color:var(--text-muted);font-family:var(--font-mono);">Range: [0, 0.5]. Larger β = stronger push away from peaked outputs.</div>
+  </div>
+
+  <div class="card mb-24">
+    <div class="card-header"><div class="card-title">📊 Gradient adjustment preview</div></div>
+    <div style="font-size:13px;color:var(--text-secondary);margin-bottom:12px;">For each predicted probability, the additive term to the standard (p − y) gradient at current β:</div>
+    <div class="demo" id="demo-grid"></div>
+  </div>
+
+  <div class="card">
+    <div class="card-header"><div class="card-title">📚 How it works</div></div>
+    <div style="font-size:13px;color:var(--text-secondary);line-height:1.7;">
+      Cross-entropy loss alone keeps pushing the model toward saturation. Each correct prediction with p=0.95 still has a gradient pulling toward p=1.00, which is unreachable. This results in overconfident outputs that don't generalize.<br><br>
+      <strong>Confidence penalty</strong> (Pereyra et al. 2017) adds a Shannon-entropy term to the loss:
+      <code style="display:block;background:var(--bg-elevated);padding:10px;margin:8px 0;border-radius:6px;">Loss = CE(p, y) − β × H(p)</code>
+      Maximizing entropy means pushing p toward 0.5 (uniform). The combined gradient becomes:
+      <code style="display:block;background:var(--bg-elevated);padding:10px;margin:8px 0;border-radius:6px;">∂L/∂z ≈ (p − y) + β × (p − 0.5)</code>
+      The β term pushes p toward 0.5 regardless of true label.<br><br>
+      <strong>Relation to label smoothing:</strong> mathematically related but operationally different. Label smoothing changes the <em>target</em>; confidence penalty changes the <em>loss surface</em>. They can be combined; both reduce overconfidence.<br><br>
+      <strong>When to enable:</strong> if Brier Skill Score is poor and conformal coverage is below 90% (indicating overconfidence), turning this on at β=0.05 typically improves calibration.
+    </div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script src="js/confidence-penalty.js"></script>
+<script>
+buildNav('confidence-penalty');
+
+function render() {
+  const s = ConfidencePenalty.stats();
+
+  document.getElementById('beta-card').innerHTML = '<div class="beta-card">'
+    + '<div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:1px;font-weight:700;">Current β</div>'
+    + '<div class="big" style="margin-top:8px;">' + s.beta.toFixed(3) + '</div>'
+    + '<div style="font-size:14px;color:' + (s.enabled ? 'var(--green)' : 'var(--yellow)') + ';font-weight:700;margin-top:14px;">' + (s.enabled ? '✓ ACTIVE — affecting Model.train' : '⚠ DISABLED — no effect on training') + '</div>'
+    + '</div>';
+
+  document.getElementById('metrics-grid').innerHTML = ''
+    + '<div class="tile"><div class="lbl">Adjustments applied</div><div class="val">' + s.appliedCount + '</div></div>'
+    + '<div class="tile"><div class="lbl">Beta range</div><div class="val">[' + s.min + ', ' + s.max + ']</div></div>'
+    + '<div class="tile"><div class="lbl">Default</div><div class="val">' + s.default + '</div></div>';
+
+  document.getElementById('beta-input').value = s.beta;
+  document.getElementById('toggle-btn').textContent = s.enabled ? 'Disable' : 'Enable';
+
+  // Show how β changes adjustments at various p (need module enabled to see effect)
+  const wasEnabled = ConfidencePenalty.enabled();
+  if (!wasEnabled) ConfidencePenalty.setEnabled(true);
+  const probs = [0.10, 0.30, 0.50, 0.70, 0.90];
+  let html = '';
+  for (const p of probs) {
+    const adj = ConfidencePenalty.gradAdjustment(p);
+    const cls = adj > 0 ? 'adj-up' : adj < 0 ? 'adj-down' : '';
+    html += '<div class="demo-cell">'
+      + '<div class="p">p=' + p.toFixed(2) + '</div>'
+      + '<div class="adj ' + cls + '">' + (adj >= 0 ? '+' : '') + adj.toFixed(4) + '</div>'
+      + '</div>';
+  }
+  if (!wasEnabled) ConfidencePenalty.setEnabled(false);
+  document.getElementById('demo-grid').innerHTML = html;
+}
+
+function updateBeta() {
+  const b = parseFloat(document.getElementById('beta-input').value);
+  if (!isNaN(b)) {
+    ConfidencePenalty.setBeta(b);
+    render();
+  }
+}
+
+function toggleEnabled() {
+  ConfidencePenalty.setEnabled(!ConfidencePenalty.enabled());
+  render();
+}
+
+render();
+setInterval(render, 6000);
+</script>
+</body>
+</html>

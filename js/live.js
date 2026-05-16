@@ -577,6 +577,14 @@ document.addEventListener('DOMContentLoaded', () => {
         s.async = false;
         document.head.appendChild(s);
       }
+      // Confidence penalty: entropy regularization. Disabled by default
+      // but available as a knob to push model away from peaked outputs.
+      if (!document.querySelector('script[src*="confidence-penalty.js"]')) {
+        const s = document.createElement('script');
+        s.src = 'js/confidence-penalty.js';
+        s.async = false;
+        document.head.appendChild(s);
+      }
       // Unified predictor: chains every meta-module into ONE call.
       // Loads last so all dependencies are present.
       if (!document.querySelector('script[src*="unified-predictor.js"]')) {

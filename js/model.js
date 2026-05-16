@@ -240,7 +240,14 @@ class Model {
    */
   train(x, y) {
     const { prob } = this.predict(x);
-    const err = prob - y;
+    let err = prob - y;
+    // CONFIDENCE PENALTY: entropy regularization. Adds β × (prob - 0.5) to
+    // the gradient, biasing the model away from peaked outputs. Disabled by
+    // default (β=0.05 if enabled). Reduces overconfidence; complements label
+    // smoothing.
+    if (typeof window !== 'undefined' && window.ConfidencePenalty && window.ConfidencePenalty.enabled()) {
+      err += window.ConfidencePenalty.gradAdjustment(prob);
+    }
     const hasImportance = typeof window !== 'undefined' && window.FeatureImportance && typeof window.FeatureImportance.lrMultiplier === 'function';
 
     // Ensure Adam state arrays exist (for models deserialized before Adam upgrade)
