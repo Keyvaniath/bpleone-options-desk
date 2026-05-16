@@ -471,6 +471,14 @@ document.addEventListener('DOMContentLoaded', () => {
         s.async = false;
         document.head.appendChild(s);
       }
+      // Active Learning: uncertainty-weighted training. Examples the model
+      // was uncertain about get larger sample weights when they resolve.
+      if (!document.querySelector('script[src*="active-learning.js"]')) {
+        const s = document.createElement('script');
+        s.src = 'js/active-learning.js';
+        s.async = false;
+        document.head.appendChild(s);
+      }
       // Unified predictor: chains every meta-module into ONE call.
       // Loads last so all dependencies are present.
       if (!document.querySelector('script[src*="unified-predictor.js"]')) {

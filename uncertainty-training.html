@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Uncertainty Training — bpleone / brain</title>
+<meta name="description" content="The brain learns more from uncertain examples. Sample weights scale with MC dropout, bootstrap divergence, and decision-boundary closeness.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.mult-card { padding:32px;border-radius:16px;text-align:center;background:linear-gradient(135deg,rgba(16,185,129,0.12),rgba(16,185,129,0.02));border:2px solid rgba(16,185,129,0.4); }
+.mult-card.idle { background:linear-gradient(135deg,rgba(245,158,11,0.12),rgba(245,158,11,0.02));border:2px solid rgba(245,158,11,0.4); }
+.mult-card .big { font-family:var(--font-mono);font-size:64px;font-weight:900;line-height:1; }
+.dist-grid { display:grid;grid-template-columns:repeat(4, 1fr);gap:14px; }
+.dist-cell { padding:18px;background:var(--bg-elevated);border-radius:10px;text-align:center; }
+.dist-cell .lbl { font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;font-weight:700; }
+.dist-cell .val { font-family:var(--font-mono);font-size:28px;font-weight:800;margin-top:6px;color:var(--accent); }
+.dist-cell .pct { font-size:11px;color:var(--text-muted);font-family:var(--font-mono);margin-top:4px; }
+.gain-row { display:grid;grid-template-columns:1fr 1fr;gap:14px; }
+.gain-cell { padding:18px;background:var(--bg-elevated);border-radius:10px; }
+.gain-cell .lbl { font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;font-weight:700; }
+.gain-cell .val { font-family:var(--font-mono);font-size:24px;font-weight:800;margin-top:6px; }
+.demo-input { display:flex;gap:12px;flex-wrap:wrap;justify-content:center;margin-bottom:16px; }
+.demo-input label { font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;font-weight:700;display:flex;flex-direction:column;gap:4px; }
+.demo-input input { padding:8px 12px;background:var(--bg-elevated);border:1px solid var(--border);color:var(--text-primary);border-radius:6px;font-family:var(--font-mono);font-size:14px;font-weight:700;width:130px;text-align:right; }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">🎯 Uncertainty-Weighted Training</div>
+      <div class="page-subtitle">Active learning · the brain learns more from hard examples than easy ones</div>
+    </div>
+  </div>
+
+  <div id="mult-box" class="mb-24"></div>
+
+  <div class="card mb-24">
+    <div class="card-header"><div class="card-title">📊 Multiplier distribution</div></div>
+    <div style="font-size:13px;color:var(--text-secondary);margin-bottom:14px;">Distribution of active-learning multipliers applied to resolved examples. A healthy mix has examples across all buckets — too many in "low" means uncertainty signals are weak.</div>
+    <div class="dist-grid" id="dist-grid"></div>
+  </div>
+
+  <div class="card mb-24">
+    <div class="card-header"><div class="card-title">📈 Gain signal</div></div>
+    <div style="font-size:13px;color:var(--text-secondary);margin-bottom:14px;">Average prediction error for high-multiplier examples vs low-multiplier examples. If the system is working as intended, <strong>high-mult should show larger errors</strong> — those really were the harder examples.</div>
+    <div class="gain-row" id="gain-row"></div>
+  </div>
+
+  <div class="card mb-24">
+    <div class="card-header"><div class="card-title">🧪 Try it</div></div>
+    <div style="font-size:13px;color:var(--text-secondary);text-align:center;margin-bottom:14px;">See what multiplier a hypothetical resolved trade would receive.</div>
+    <div class="demo-input">
+      <label>Predicted prob<input id="d-prob" type="number" value="0.65" step="0.05" min="0" max="1"></label>
+      <label>MC dropout std<input id="d-unc" type="number" value="0.08" step="0.01" min="0" max="0.30"></label>
+      <label>Bootstrap std<input id="d-boot" type="number" value="0.05" step="0.01" min="0" max="0.30"></label>
+    </div>
+    <div id="demo-result" style="text-align:center;font-size:32px;font-weight:800;font-family:var(--font-mono);color:var(--accent);"></div>
+  </div>
+
+  <div class="card">
+    <div class="card-header"><div class="card-title">📚 How it works</div></div>
+    <div style="font-size:13px;color:var(--text-secondary);line-height:1.7;">
+      Classical training treats every example the same. But "easy" examples (model says 90%, wins 90%) carry little new information. The real learning signal comes from examples the model was uncertain about.<br><br>
+      <strong>This module computes a sample-weight multiplier in [1.0, 3.0]</strong> from three uncertainty signals captured at prediction time:
+      <ol style="margin:8px 0 8px 24px;">
+        <li><strong>Boundary distance:</strong> how close to 0.5 was the prediction?</li>
+        <li><strong>MC dropout std:</strong> how much did random feature masks shift the prediction?</li>
+        <li><strong>Bootstrap divergence:</strong> how much did the K=5 bagged models disagree?</li>
+      </ol>
+      When a trade resolves, the standard sample weight (derived from R-multiple) is multiplied by this active-learning multiplier before being passed to <code>Model.train()</code>. The model gradient gets a larger push on uncertain examples — biasing learning toward the boundary where it matters most.<br><br>
+      Reference: Settles (2009) <em>"Active Learning Literature Survey"</em>.
+    </div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script src="js/active-learning.js"></script>
+<script>
+buildNav('uncertainty-training');
+
+function render() {
+  const stats = ActiveLearning.stats();
+  const multBox = document.getElementById('mult-box');
+  if (stats.n === 0) {
+    multBox.innerHTML = '<div class="mult-card idle">'
+      + '<div class="big" style="color:var(--yellow);">—</div>'
+      + '<div style="font-size:18px;font-weight:700;color:var(--text-primary);margin-top:14px;">No resolutions yet</div>'
+      + '<div style="font-size:13px;color:var(--text-secondary);margin-top:10px;">Uncertainty-weighted training kicks in as soon as the continuous learner resolves predictions.</div>'
+      + '</div>';
+  } else {
+    multBox.innerHTML = '<div class="mult-card">'
+      + '<div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:1px;font-weight:700;">Average multiplier applied</div>'
+      + '<div class="big" style="color:var(--green);margin-top:8px;">' + stats.avgMult.toFixed(2) + 'x</div>'
+      + '<div style="font-size:14px;color:var(--text-secondary);margin-top:14px;">Across ' + stats.n + ' resolved examples</div>'
+      + '</div>';
+  }
+
+  // Distribution
+  const grid = document.getElementById('dist-grid');
+  if (!stats.distribution) {
+    grid.innerHTML = '<div style="grid-column:1/-1;color:var(--text-muted);text-align:center;padding:14px;">Waiting for resolutions.</div>';
+  } else {
+    const d = stats.distribution;
+    const total = (d.low + d.midLow + d.midHigh + d.high) || 1;
+    grid.innerHTML = ''
+      + '<div class="dist-cell"><div class="lbl">Low (1.0–1.5x)</div><div class="val">' + d.low + '</div><div class="pct">' + ((d.low / total) * 100).toFixed(0) + '%</div></div>'
+      + '<div class="dist-cell"><div class="lbl">Mid-Low (1.5–2.0x)</div><div class="val">' + d.midLow + '</div><div class="pct">' + ((d.midLow / total) * 100).toFixed(0) + '%</div></div>'
+      + '<div class="dist-cell"><div class="lbl">Mid-High (2.0–2.5x)</div><div class="val">' + d.midHigh + '</div><div class="pct">' + ((d.midHigh / total) * 100).toFixed(0) + '%</div></div>'
+      + '<div class="dist-cell"><div class="lbl">High (2.5–3.0x)</div><div class="val">' + d.high + '</div><div class="pct">' + ((d.high / total) * 100).toFixed(0) + '%</div></div>';
+  }
+
+  // Gain signal
+  const gainRow = document.getElementById('gain-row');
+  if (!stats.gainSignal) {
+    gainRow.innerHTML = '<div style="grid-column:1/-1;color:var(--text-muted);text-align:center;padding:14px;">Need both high-mult and low-mult resolutions to compute.</div>';
+  } else {
+    const g = stats.gainSignal;
+    const working = g.high > g.low;
+    gainRow.innerHTML = ''
+      + '<div class="gain-cell"><div class="lbl">High-mult (≥2.0x) avg error</div><div class="val" style="color:' + (working ? 'var(--red)' : 'var(--green)') + ';">' + (g.high * 100).toFixed(1) + '%</div></div>'
+      + '<div class="gain-cell"><div class="lbl">Low-mult (&lt;1.5x) avg error</div><div class="val" style="color:' + (working ? 'var(--green)' : 'var(--red)') + ';">' + (g.low * 100).toFixed(1) + '%</div></div>'
+      + '<div style="grid-column:1/-1;text-align:center;font-size:13px;color:' + (working ? 'var(--green)' : 'var(--yellow)') + ';font-weight:700;margin-top:8px;">' + (working ? '✓ Active learning is working — high-mult examples were genuinely harder.' : '⚠ Gain signal not yet clear — need more data.') + '</div>';
+  }
+
+  renderDemo();
+}
+
+function renderDemo() {
+  const p = parseFloat(document.getElementById('d-prob').value);
+  const u = parseFloat(document.getElementById('d-unc').value);
+  const b = parseFloat(document.getElementById('d-boot').value);
+  if (isNaN(p) || isNaN(u) || isNaN(b)) return;
+  const m = ActiveLearning.computeMultiplier({ predProb: p, uncertaintyStd: u, bootstrapStd: b });
+  const color = m >= 2.5 ? 'var(--green)' : m >= 2.0 ? 'var(--accent)' : m >= 1.5 ? 'var(--yellow)' : 'var(--text-muted)';
+  document.getElementById('demo-result').innerHTML = '<span style="color:' + color + ';">' + m.toFixed(2) + 'x</span>'
+    + '<div style="font-size:13px;font-weight:400;color:var(--text-muted);margin-top:8px;font-family:var(--font-mono);">' + (m >= 2.5 ? 'Very uncertain — heavy weighting' : m >= 2.0 ? 'Uncertain — moderate boost' : m >= 1.5 ? 'Some uncertainty' : 'Confident — standard weight') + '</div>';
+}
+
+['d-prob', 'd-unc', 'd-boot'].forEach(id => document.getElementById(id).addEventListener('input', renderDemo));
+render();
+setInterval(render, 8000);
+window.addEventListener('bpleone:continuous-cycle', render);
+</script>
+</body>
+</html>

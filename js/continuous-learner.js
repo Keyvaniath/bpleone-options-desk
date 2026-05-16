@@ -131,7 +131,11 @@
           if (ensemble) bp.ensemble = ensemble.prob;
           if (typeof BootstrapEnsemble !== 'undefined') {
             const b = BootstrapEnsemble.predict(features);
-            if (b && b.predictions.length > 0) bp.bootstrap = b.mean;
+            if (b && b.predictions.length > 0) {
+              bp.bootstrap = b.mean;
+              // Capture bootstrap std for active learning
+              journalEntry.bootstrapStd = b.std;
+            }
           }
           if (typeof KNNRecall !== 'undefined') {
             const k = KNNRecall.predict(features);
@@ -142,6 +146,13 @@
             if (s && s.prob != null) bp.swa = s.prob;
           }
           journalEntry.basePreds = bp;
+          // Capture MC dropout uncertainty for active learning
+          if (typeof BayesianDropout !== 'undefined') {
+            try {
+              const u = BayesianDropout.predict(model, features);
+              if (u && typeof u.std === 'number') journalEntry.uncertaintyStd = u.std;
+            } catch (e) {}
+          }
         } catch (e) {}
         journal.push(journalEntry);
         state.lastCaptureBySym[sym] = Date.now();
@@ -216,7 +227,19 @@
         // R = ret / (ATR-equivalent). Use 0.5×ATR or 1% as denominator floor.
         const denom = Math.max(0.01, minMove * 3);  // ~1×ATR for the horizon
         const rMultiple = Math.abs(ret) / denom;
-        const sampleWeight = Math.max(0.25, Math.min(4, rMultiple));
+        let sampleWeight = Math.max(0.25, Math.min(4, rMultiple));
+
+        // ACTIVE LEARNING: multiply sample weight by uncertainty multiplier.
+        // Examples the model was uncertain about contribute more to training
+        // — high MC-dropout std, high bootstrap divergence, or predictions
+        // near the decision boundary all increase the multiplier.
+        let alMult = 1.0;
+        try {
+          if (typeof ActiveLearning !== 'undefined') {
+            alMult = ActiveLearning.computeMultiplier(entry);
+            sampleWeight *= alMult;
+          }
+        } catch (e) {}
 
         newHorizonRows.push({
           horizon, features: entry.features, label, weight: sampleWeight,
@@ -277,6 +300,13 @@
           try {
             if (typeof MetaStacker !== 'undefined' && entry.basePreds) {
               MetaStacker.train(entry.basePreds, label);
+            }
+          } catch (e) {}
+          // ACTIVE-LEARNING: log the multiplier used so the dashboard can
+          // verify high-mult examples were genuinely the harder ones.
+          try {
+            if (typeof ActiveLearning !== 'undefined') {
+              ActiveLearning.record(alMult, label, entry.predProb);
             }
           } catch (e) {}
         }
