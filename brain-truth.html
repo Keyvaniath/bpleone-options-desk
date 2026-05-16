@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Brain Truth — bpleone / brain</title>
+<meta name="description" content="One page with the live status of every self-learning module in the brain. Health check at a glance.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.module-grid { display:grid;grid-template-columns:repeat(auto-fill, minmax(280px, 1fr));gap:14px; }
+.module-card { padding:18px;background:var(--bg-elevated);border-radius:12px;border:1px solid var(--border);transition:all 0.2s; }
+.module-card:hover { border-color:var(--accent);transform:translateY(-2px); }
+.module-card .head { display:flex;justify-content:space-between;align-items:center;margin-bottom:10px; }
+.module-card .head .title { font-size:14px;font-weight:700; }
+.module-card .head .pill { font-size:9px;padding:2px 7px;border-radius:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px; }
+.pill.ready { background:rgba(16,185,129,0.18);color:var(--green); }
+.pill.warm { background:rgba(245,158,11,0.18);color:var(--yellow); }
+.pill.cold { background:rgba(140,140,140,0.18);color:var(--text-muted); }
+.pill.alert { background:rgba(239,68,68,0.22);color:var(--red); }
+.module-card .metric { font-family:var(--font-mono);font-size:20px;font-weight:800;color:var(--accent);margin:2px 0; }
+.module-card .sub { font-size:11px;color:var(--text-muted);font-family:var(--font-mono);line-height:1.5;margin-top:4px; }
+.module-card .link { display:block;margin-top:10px;font-size:11px;color:var(--accent);text-decoration:none;font-weight:700; }
+.module-card .link:hover { text-decoration:underline; }
+.snapshot-bar { display:grid;grid-template-columns:repeat(4, 1fr);gap:14px;margin-bottom:24px; }
+.snapshot-card { padding:18px;background:linear-gradient(135deg,rgba(0,212,255,0.06),rgba(0,212,255,0.02));border-radius:12px;border:1px solid rgba(0,212,255,0.25);text-align:center; }
+.snapshot-card .lbl { font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;font-weight:700; }
+.snapshot-card .val { font-family:var(--font-mono);font-size:24px;font-weight:800;color:var(--accent);margin-top:6px; }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">🧠 Brain Truth</div>
+      <div class="page-subtitle">Live status of every self-learning module · health check at a glance · click any tile for details</div>
+    </div>
+  </div>
+
+  <div class="snapshot-bar" id="snapshot-bar"></div>
+
+  <div class="module-grid" id="module-grid"></div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script src="js/model.js"></script>
+<script>
+buildNav('brain-truth');
+
+function safe(fn, fallback) { try { return fn(); } catch (e) { return fallback; } }
+function fmtPct(p) { return p != null ? (p * 100).toFixed(1) + '%' : '—'; }
+function fmtNum(n, d) { return n != null ? n.toFixed(d != null ? d : 3) : '—'; }
+function pill(state, text) { return '<span class="pill ' + state + '">' + text + '</span>'; }
+
+function buildCard(title, link, statusPill, metric, sub) {
+  return '<div class="module-card">'
+    + '<div class="head"><div class="title">' + title + '</div>' + statusPill + '</div>'
+    + '<div class="metric">' + metric + '</div>'
+    + '<div class="sub">' + sub + '</div>'
+    + '<a class="link" href="' + link + '">View details →</a>'
+    + '</div>';
+}
+
+function render() {
+  // === SNAPSHOT BAR ===
+  let totalReady = 0, totalAlert = 0, totalCold = 0;
+
+  // === MODULES ===
+  const cards = [];
+
+  // 1. Model (Adam optimizer)
+  const model = safe(() => ModelStore.load(), null);
+  if (model) {
+    const acc = (model.accHistory && model.accHistory.length > 0)
+      ? model.accHistory.reduce((s, v) => s + v, 0) / model.accHistory.length : null;
+    cards.push(buildCard(
+      '🧠 Model (Adam)',
+      'edge-analytics.html',
+      pill(acc != null && acc > 0.55 ? 'ready' : 'warm', 'ACTIVE'),
+      fmtPct(acc),
+      'lr=' + fmtNum(model.lr, 4) + ' · ' + model.n_trained + ' trained · adam step ' + (model.adamStep || 0)
+    ));
+    totalReady++;
+  }
+
+  // 2. Multi-Horizon
+  const mh = safe(() => typeof MultiHorizon !== 'undefined' && MultiHorizon.snapshot(), null);
+  cards.push(buildCard(
+    '🎼 Multi-Horizon',
+    'multi-horizon.html',
+    pill(mh ? 'ready' : 'cold', mh ? 'READY' : 'IDLE'),
+    mh ? fmtPct(mh.shortAcc) : '—',
+    mh ? 'short horizon · adaptive weights' : 'awaiting first resolutions'
+  ));
+  if (mh) totalReady++;
+
+  // 3. Bootstrap Ensemble
+  const boot = safe(() => typeof BootstrapEnsemble !== 'undefined' && BootstrapEnsemble.stats(), null);
+  cards.push(buildCard(
+    '🪣 Bootstrap (K=5)',
+    'edge-analytics.html',
+    pill(boot && boot.modelsTrained > 0 ? 'ready' : 'cold', boot && boot.modelsTrained > 0 ? 'READY' : 'IDLE'),
+    boot ? boot.modelsTrained + '/5' : '—',
+    boot ? 'sample weights × 0.6 incl. prob' : 'awaiting first resolutions'
+  ));
+  if (boot && boot.modelsTrained > 0) totalReady++;
+
+  // 4. k-NN Recall
+  const knn = safe(() => typeof KNNRecall !== 'undefined' && KNNRecall.stats(), null);
+  cards.push(buildCard(
+    '🔍 k-NN Recall',
+    'knn-recall.html',
+    pill(knn && knn.memorySize > 50 ? 'ready' : 'warm', knn && knn.memorySize > 50 ? 'READY' : 'WARMING'),
+    knn ? knn.memorySize + ' mem' : '—',
+    knn ? 'K=10 neighbors · weighted Euclidean' : 'building memory'
+  ));
+  if (knn && knn.memorySize > 50) totalReady++;
+
+  // 5. SWA
+  const swa = safe(() => typeof SWA !== 'undefined' && SWA.stats(), null);
+  cards.push(buildCard(
+    '📊 SWA',
+    'swa-tracker.html',
+    pill(swa && swa.ready ? 'ready' : 'warm', swa && swa.ready ? 'READY' : 'WARMING'),
+    swa ? swa.nSnapshots + '/5 snapshots' : '—',
+    swa && swa.ready ? 'averaged weights · flatter minima' : 'collecting snapshots'
+  ));
+  if (swa && swa.ready) totalReady++;
+
+  // 6. Meta-Stacker
+  const ms = safe(() => typeof MetaStacker !== 'undefined' && MetaStacker.stats(), null);
+  cards.push(buildCard(
+    '🧱 Meta-Stacker',
+    'meta-stacker.html',
+    pill(ms && ms.ready ? 'ready' : 'warm', ms && ms.ready ? 'LEARNED' : 'COLD-START'),
+    ms ? ms.nTrained + '/' + ms.minTrained : '—',
+    ms && ms.ready ? 'learned blend active · acc ' + fmtPct(ms.recentAccuracy) : 'using hardcoded weights'
+  ));
+  if (ms && ms.ready) totalReady++;
+
+  // 7. Conformal Prediction
+  const conf = safe(() => typeof Conformal !== 'undefined' && Conformal.empiricalCoverage(0.10), null);
+  cards.push(buildCard(
+    '📐 Conformal',
+    'conformal-prediction.html',
+    pill(conf && conf.ready ? 'ready' : 'warm', conf && conf.ready ? 'READY' : 'WARMING'),
+    conf && conf.ready ? fmtPct(conf.coverage) : '—',
+    conf && conf.ready ? 'target 90% · n=' + conf.n : 'need 30 pairs to start'
+  ));
+  if (conf && conf.ready) totalReady++;
+
+  // 8. Calibration (global)
+  const calParams = safe(() => typeof Calibrator !== 'undefined' && Calibrator._loadParams(), null);
+  cards.push(buildCard(
+    '🎚 Calibration',
+    'probability-calibration.html',
+    pill(calParams ? 'ready' : 'cold', calParams ? 'FITTED' : 'IDLE'),
+    calParams ? 'a=' + fmtNum(calParams.a, 2) : '—',
+    calParams ? 'Platt scaling · n=' + (calParams.n || '?') : 'awaiting resolutions'
+  ));
+  if (calParams) totalReady++;
+
+  // 9. Regime Calibrator
+  const rc = safe(() => typeof RegimeCalibrator !== 'undefined' && RegimeCalibrator.stats(), null);
+  if (rc) {
+    const fittedCount = Object.values(rc).filter(r => r && r.fitted).length;
+    cards.push(buildCard(
+      '🎚 Regime Calibration',
+      'regime-calibration.html',
+      pill(fittedCount > 0 ? 'ready' : 'warm', fittedCount > 0 ? 'FITTED' : 'WARMING'),
+      fittedCount + '/5',
+      'per-regime Platt scalers active'
+    ));
+    if (fittedCount > 0) totalReady++;
+  }
+
+  // 10. Symbol Bias
+  const sb = safe(() => typeof SymbolBias !== 'undefined' && SymbolBias.stats(), null);
+  cards.push(buildCard(
+    '🎯 Symbol Bias',
+    'symbol-bias.html',
+    pill(sb && sb.symbolsWithBias > 0 ? 'ready' : 'cold', sb && sb.symbolsWithBias > 0 ? 'ACTIVE' : 'IDLE'),
+    sb ? sb.symbolsWithBias + ' syms' : '—',
+    'mixed-effects · sector transfer'
+  ));
+  if (sb && sb.symbolsWithBias > 0) totalReady++;
+
+  // 11. Drift PSI
+  const dp = safe(() => typeof DriftPSI !== 'undefined' && DriftPSI.status(), null);
+  cards.push(buildCard(
+    '🌊 Drift PSI',
+    'feature-drift.html',
+    pill(dp && dp.psi > 0.25 ? 'alert' : dp && dp.psi > 0.1 ? 'warm' : dp ? 'ready' : 'cold', dp ? (dp.psi > 0.25 ? 'DRIFT' : 'STABLE') : 'IDLE'),
+    dp ? fmtNum(dp.psi, 3) : '—',
+    'concept drift detection · target <0.10'
+  ));
+  if (dp && dp.psi > 0.25) totalAlert++;
+  else if (dp) totalReady++;
+
+  // 12. Adversarial Validator
+  const av = safe(() => typeof AdversarialValidator !== 'undefined' && AdversarialValidator.score(), null);
+  cards.push(buildCard(
+    '🔍 Covariate Shift',
+    'covariate-shift.html',
+    pill(av && av.shifted ? 'alert' : av && av.lastAuc != null ? 'ready' : 'cold', av && av.shifted ? 'SHIFTED' : av && av.lastAuc != null ? 'STABLE' : 'IDLE'),
+    av && av.lastAuc != null ? 'AUC ' + fmtNum(av.lastAuc) : '—',
+    av && av.lastAuc != null ? 'pool ' + av.poolSize + ' · adv. validation' : 'building pool'
+  ));
+  if (av && av.shifted) totalAlert++;
+  else if (av && av.lastAuc != null) totalReady++;
+
+  // 13. Active Learning
+  const al = safe(() => typeof ActiveLearning !== 'undefined' && ActiveLearning.stats(), null);
+  cards.push(buildCard(
+    '🎯 Active Learning',
+    'uncertainty-training.html',
+    pill(al && al.n > 0 ? 'ready' : 'cold', al && al.n > 0 ? 'ACTIVE' : 'IDLE'),
+    al && al.avgMult != null ? fmtNum(al.avgMult, 2) + 'x' : '—',
+    al && al.n > 0 ? al.n + ' examples weighted' : 'awaiting resolutions'
+  ));
+  if (al && al.n > 0) totalReady++;
+
+  // 14. Hourly Performance
+  const hp = safe(() => typeof HourlyPerf !== 'undefined' && HourlyPerf.stats(), null);
+  cards.push(buildCard(
+    '⏰ Hourly Performance',
+    'hourly-performance.html',
+    pill(hp && hp.total > 20 ? 'ready' : hp ? 'warm' : 'cold', hp && hp.total > 20 ? 'ACTIVE' : 'WARMING'),
+    hp ? hp.currentBucket : '—',
+    hp ? 'mult ' + fmtNum(hp.currentMult, 2) + 'x · n=' + hp.total : 'awaiting resolutions'
+  ));
+  if (hp && hp.total > 20) totalReady++;
+
+  // 15. Drawdown Protector
+  const dd = safe(() => typeof DrawdownProtector !== 'undefined' && DrawdownProtector.stats(), null);
+  cards.push(buildCard(
+    '🛡 Drawdown Protector',
+    'drawdown-protector.html',
+    pill(dd && dd.currentStreak <= -3 ? 'alert' : dd && dd.n > 0 ? 'ready' : 'cold', dd && dd.currentStreak <= -3 ? 'TILT' : dd && dd.n > 0 ? 'ACTIVE' : 'IDLE'),
+    dd ? (dd.currentStreak >= 0 ? '+' : '') + dd.currentStreak : '—',
+    dd ? 'mult ' + fmtNum(dd.sizeMultiplier, 2) + 'x · ' + dd.n + ' trades' : 'awaiting trades'
+  ));
+  if (dd && dd.currentStreak <= -3) totalAlert++;
+  else if (dd && dd.n > 0) totalReady++;
+
+  // 16. Module Attribution
+  const ma = safe(() => typeof ModuleAttribution !== 'undefined' && ModuleAttribution.stats(100), null);
+  cards.push(buildCard(
+    '🏆 Module Leaderboard',
+    'module-leaderboard.html',
+    pill(ma && ma.totalRows > 0 ? 'ready' : 'cold', ma && ma.totalRows > 0 ? 'ACTIVE' : 'IDLE'),
+    ma && ma.finalBlend ? fmtPct(ma.finalBlend.accuracy) : '—',
+    ma ? 'n=' + ma.totalRows + ' · ' + (ma.leaderboard[0] ? ma.leaderboard[0].module + ' leads' : '') : 'awaiting resolutions'
+  ));
+  if (ma && ma.totalRows > 0) totalReady++;
+
+  // 17. Adaptive LR
+  const alr = safe(() => typeof AdaptiveLR !== 'undefined' && AdaptiveLR.stats(), null);
+  cards.push(buildCard(
+    '⚙ Adaptive LR',
+    'adaptive-lr.html',
+    pill(alr && alr.historyCount > 0 ? 'ready' : 'cold', alr && alr.historyCount > 0 ? 'ACTIVE' : 'IDLE'),
+    alr && alr.currentLr != null ? fmtNum(alr.currentLr, 4) : '—',
+    alr ? alr.historyCount + ' updates' : 'awaiting model loss history'
+  ));
+  if (alr && alr.historyCount > 0) totalReady++;
+
+  // === Snapshot bar ===
+  document.getElementById('snapshot-bar').innerHTML = ''
+    + '<div class="snapshot-card"><div class="lbl">Modules Ready</div><div class="val" style="color:var(--green);">' + totalReady + '</div></div>'
+    + '<div class="snapshot-card"><div class="lbl">Modules Warming</div><div class="val" style="color:var(--yellow);">' + Math.max(0, cards.length - totalReady - totalAlert - totalCold) + '</div></div>'
+    + '<div class="snapshot-card"><div class="lbl">Alerts</div><div class="val" style="color:' + (totalAlert > 0 ? 'var(--red)' : 'var(--text-muted)') + ';">' + totalAlert + '</div></div>'
+    + '<div class="snapshot-card"><div class="lbl">Total Modules</div><div class="val">' + cards.length + '</div></div>';
+
+  document.getElementById('module-grid').innerHTML = cards.join('');
+}
+
+render();
+setInterval(render, 8000);
+window.addEventListener('bpleone:continuous-cycle', render);
+</script>
+</body>
+</html>
