@@ -343,6 +343,21 @@ function setDataMode(mode) {
   try { window.dispatchEvent(new CustomEvent('bpleone:data-mode', { detail: { mode } })); } catch (e) {}
 }
 
+// Lazy-load the auto-trainer. Runs once per ~20h to keep the model up to date
+// with the latest real Stooq bars. Loaded after first paint so it doesn't block.
+document.addEventListener('DOMContentLoaded', () => {
+  setTimeout(() => {
+    try {
+      if (!document.querySelector('script[src*="auto-trainer.js"]')) {
+        const s = document.createElement('script');
+        s.src = 'js/auto-trainer.js';
+        s.async = true;
+        document.head.appendChild(s);
+      }
+    } catch (e) {}
+  }, 5000);
+});
+
 // ----- Auto-start when ready -----
 // If DataProvider is configured with a real provider, it will pause the mock
 // engine and stream real quotes. Otherwise the OU random walk drives the site.
