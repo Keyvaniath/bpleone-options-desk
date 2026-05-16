@@ -675,9 +675,10 @@ const DataProvider = (function() {
 
   function startStooqFallback() {
     if (stooqPollTimer) return;
-    // First poll immediately, then every 30s.
+    // First poll immediately, then every 12s. Stooq has no documented rate limit but
+    // ~5 requests/sec is a polite ceiling. 12s × 3-4 chunks = ~3 req/poll cycle.
     stooqPollOnce();
-    stooqPollTimer = setInterval(stooqPollOnce, 30000);
+    stooqPollTimer = setInterval(stooqPollOnce, 12000);
   }
   function stopStooqFallback() {
     if (stooqPollTimer) { clearInterval(stooqPollTimer); stooqPollTimer = null; }
