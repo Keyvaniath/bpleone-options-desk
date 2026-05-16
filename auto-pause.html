@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Auto-Pause — bpleone / brain</title>
+<meta name="description" content="Circuit breaker. When trade trust drops below 40, the brain auto-pauses new trade ideas and notifies you.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.state-card { padding:48px;border-radius:20px;text-align:center; }
+.state-card.active { background:linear-gradient(135deg,rgba(16,185,129,0.10),rgba(16,185,129,0.02));border:3px solid rgba(16,185,129,0.5); }
+.state-card.cooldown { background:linear-gradient(135deg,rgba(245,158,11,0.10),rgba(245,158,11,0.02));border:3px solid rgba(245,158,11,0.5); }
+.state-card.paused { background:linear-gradient(135deg,rgba(239,68,68,0.10),rgba(239,68,68,0.02));border:3px solid rgba(239,68,68,0.5); }
+.state-card .big { font-family:var(--font-mono);font-size:80px;font-weight:900;line-height:1; }
+.state-card .label { font-size:36px;font-weight:800;letter-spacing:3px;margin-top:18px;text-transform:uppercase; }
+.hist-row { display:grid;grid-template-columns:130px 100px 90px 100px;gap:12px;padding:12px 14px;background:var(--bg-elevated);border-radius:8px;margin-bottom:6px;align-items:center;font-family:var(--font-mono);font-size:13px; }
+.hist-row.head { background:transparent;font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;font-weight:700; }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">🚨 Auto-Pause Circuit Breaker</div>
+      <div class="page-subtitle">When trade-trust drops below 40, brain auto-pauses · hysteresis prevents oscillation</div>
+    </div>
+  </div>
+
+  <div id="state-card" class="mb-24"></div>
+
+  <div class="card mb-24">
+    <div class="card-header"><div class="card-title">⚙ Thresholds</div></div>
+    <div style="font-size:13px;color:var(--text-secondary);line-height:1.7;">
+      <strong>Pause at trust &lt; 40</strong> — brain stops showing trade ideas on brain-bet<br>
+      <strong>Cooldown at trust 40-60</strong> — transitional state; brain doesn't show trades but is preparing to resume<br>
+      <strong>Resume at trust ≥ 60</strong> — full operation restored<br><br>
+      The hysteresis (different threshold to pause vs resume) prevents oscillation when the score is right near the boundary.
+    </div>
+  </div>
+
+  <div class="card mb-24">
+    <div class="card-header"><div class="card-title">📜 Transition history</div></div>
+    <div id="history-list"></div>
+  </div>
+
+  <div class="card">
+    <div class="card-header"><div class="card-title">📚 What it does</div></div>
+    <div style="font-size:13px;color:var(--text-secondary);line-height:1.7;">
+      Polls <a href="trade-trust.html">TradeTrust</a> every 60 seconds. When the score drops below 40, the circuit breaker fires:
+      <ul style="margin:8px 0 8px 24px;">
+        <li>Sets <code>bpleone_auto_pause_v1.state = 'PAUSED'</code> in localStorage</li>
+        <li>Fires a browser notification (if permitted)</li>
+        <li>Dispatches <code>bpleone:auto-pause-change</code> window event</li>
+        <li>Brain-bet checks <code>AutoPause.isPaused()</code> and shows "BRAIN PAUSED" instead of trade ideas</li>
+      </ul>
+      The state transitions are logged so Brandon can review what triggered each pause/resume.
+    </div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script src="js/trade-trust-score.js"></script>
+<script src="js/auto-pause.js"></script>
+<script>
+buildNav('auto-pause');
+
+function render() {
+  const st = AutoPause.state();
+  const trust = TradeTrust.score();
+  const cls = st === 'PAUSED' ? 'paused' : st === 'COOLDOWN' ? 'cooldown' : 'active';
+  const color = st === 'PAUSED' ? 'var(--red)' : st === 'COOLDOWN' ? 'var(--yellow)' : 'var(--green)';
+  const emoji = st === 'PAUSED' ? '🛑' : st === 'COOLDOWN' ? '⚠' : '✓';
+
+  document.getElementById('state-card').innerHTML = '<div class="state-card ' + cls + '">'
+    + '<div class="big" style="color:' + color + ';">' + emoji + '</div>'
+    + '<div class="label" style="color:' + color + ';">' + st + '</div>'
+    + '<div style="font-size:14px;color:var(--text-secondary);margin-top:18px;font-family:var(--font-mono);">Current trade trust: ' + trust.score + '/100 · ' + trust.tierLabel + '</div>'
+    + '<div style="font-size:12px;color:var(--text-muted);margin-top:8px;">Pause at &lt;' + AutoPause.PAUSE_THRESHOLD + ' · resume at ≥' + AutoPause.RESUME_THRESHOLD + '</div>'
+    + '</div>';
+
+  const list = document.getElementById('history-list');
+  const hist = AutoPause.history();
+  if (hist.length === 0) {
+    list.innerHTML = '<div style="text-align:center;padding:24px;color:var(--text-muted);font-size:13px;">No transitions yet. State changes will appear here.</div>';
+    return;
+  }
+  let html = '<div class="hist-row head"><div>Time</div><div>From</div><div>→</div><div>To (trust)</div></div>';
+  for (const h of hist) {
+    html += '<div class="hist-row">'
+      + '<div>' + new Date(h.ts).toLocaleString() + '</div>'
+      + '<div style="color:var(--text-muted);">' + h.from + '</div>'
+      + '<div style="color:var(--accent);">→</div>'
+      + '<div style="color:' + (h.to === 'PAUSED' ? 'var(--red)' : h.to === 'COOLDOWN' ? 'var(--yellow)' : 'var(--green)') + ';">' + h.to + ' (' + (h.score != null ? h.score : '?') + ')</div>'
+      + '</div>';
+  }
+  list.innerHTML = html;
+}
+
+render();
+setInterval(render, 8000);
+window.addEventListener('bpleone:auto-pause-change', render);
+window.addEventListener('bpleone:continuous-cycle', render);
+</script>
+</body>
+</html>

@@ -90,6 +90,8 @@
 <script src="js/ensemble-agreement.js"></script>
 <script src="js/knn-recall.js"></script>
 <script src="js/unified-predictor.js"></script>
+<script src="js/trade-trust-score.js"></script>
+<script src="js/auto-pause.js"></script>
 <script>
 buildNav('brain-bet');
 
@@ -145,6 +147,18 @@ function render() {
   const account = parseFloat(document.getElementById('account').value) || 10000;
   const riskPct = parseFloat(document.getElementById('risk').value) / 100 || 0.01;
   const riskDollars = account * riskPct;
+
+  // Step 0: auto-pause gate — if brain trust is critically low, refuse to show any trade
+  if (typeof AutoPause !== 'undefined' && AutoPause.isPaused()) {
+    const trust = (typeof TradeTrust !== 'undefined') ? TradeTrust.score() : null;
+    wrap.innerHTML = '<div class="bet-card sit-out" style="border-color:rgba(239,68,68,0.5);background:linear-gradient(135deg,rgba(239,68,68,0.10),rgba(239,68,68,0.02));">'
+      + '<div style="font-size:64px;line-height:1;">🛑</div>'
+      + '<div style="font-size:42px;font-weight:800;margin-top:18px;letter-spacing:2px;color:var(--red);">BRAIN PAUSED</div>'
+      + '<div style="font-size:16px;color:var(--text-secondary);margin-top:18px;max-width:600px;margin-left:auto;margin-right:auto;line-height:1.6;">The trade-trust circuit breaker has fired. Brain health score is below 40 — DO NOT TRADE recommended. Auto-resumes when trust recovers to 60+.</div>'
+      + (trust ? '<div style="font-size:12px;color:var(--text-muted);margin-top:18px;font-family:var(--font-mono);">Current trust: ' + trust.score + '/100 · Tier: ' + trust.tierLabel + '</div>' : '')
+      + '</div>';
+    return;
+  }
 
   // Step 1: selectivity gate
   let selectivity = null;

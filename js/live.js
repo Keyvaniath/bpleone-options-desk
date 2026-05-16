@@ -593,6 +593,14 @@ document.addEventListener('DOMContentLoaded', () => {
         s.async = false;
         document.head.appendChild(s);
       }
+      // Auto-Pause circuit breaker: when TradeTrust drops below 40, auto-
+      // pause new trade ideas. Hysteresis: requires 60+ to fully resume.
+      if (!document.querySelector('script[src*="auto-pause.js"]')) {
+        const s = document.createElement('script');
+        s.src = 'js/auto-pause.js';
+        s.async = false;
+        document.head.appendChild(s);
+      }
       // Unified predictor: chains every meta-module into ONE call.
       // Loads last so all dependencies are present.
       if (!document.querySelector('script[src*="unified-predictor.js"]')) {
