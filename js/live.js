@@ -343,14 +343,21 @@ function setDataMode(mode) {
   try { window.dispatchEvent(new CustomEvent('bpleone:data-mode', { detail: { mode } })); } catch (e) {}
 }
 
-// Lazy-load the auto-trainer. Runs once per ~20h to keep the model up to date
-// with the latest real Stooq bars. Loaded after first paint so it doesn't block.
+// Lazy-load the auto-trainer (daily bar refresh) and the continuous-learner
+// (every-page-load capture + resolve loop). Both run in the background after
+// first paint so they never block the UI.
 document.addEventListener('DOMContentLoaded', () => {
   setTimeout(() => {
     try {
       if (!document.querySelector('script[src*="auto-trainer.js"]')) {
         const s = document.createElement('script');
         s.src = 'js/auto-trainer.js';
+        s.async = true;
+        document.head.appendChild(s);
+      }
+      if (!document.querySelector('script[src*="continuous-learner.js"]')) {
+        const s = document.createElement('script');
+        s.src = 'js/continuous-learner.js';
         s.async = true;
         document.head.appendChild(s);
       }
