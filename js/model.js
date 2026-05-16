@@ -197,6 +197,18 @@ class Model {
     this.version = 1;
     this.lastTrainTs = 0;
     this.createdTs = Date.now();
+    // ---- ADAM OPTIMIZER STATE ----
+    // m = first moment (running gradient average)
+    // v = second moment (running squared-gradient average)
+    // Adam converges faster than plain SGD with less manual tuning of LR.
+    // Reference: Kingma & Ba 2014.
+    this.optimizer = 'adam';  // 'adam' or 'sgd'
+    this.m = new Array(n).fill(0);
+    this.v = new Array(n).fill(0);
+    this.adamBeta1 = 0.9;
+    this.adamBeta2 = 0.999;
+    this.adamEps = 1e-8;
+    this.adamStep = 0;
   }
 
   sigmoid(z) {
@@ -221,18 +233,48 @@ class Model {
    *  FEATURE IMPORTANCE: if window.FeatureImportance is loaded, applies
    *  per-feature learning-rate multipliers so high-alpha features train
    *  faster and low-alpha features train slower (auto-pruning).
+   *
+   *  OPTIMIZER: defaults to Adam (adaptive moments). Falls back to plain
+   *  SGD if this.optimizer === 'sgd'. Adam state (m, v) auto-initialized
+   *  in constructor; deserialize() also restores them if present.
    */
   train(x, y) {
     const { prob } = this.predict(x);
     const err = prob - y;
     const hasImportance = typeof window !== 'undefined' && window.FeatureImportance && typeof window.FeatureImportance.lrMultiplier === 'function';
-    for (let i = 0; i < x.length; i++) {
-      // Per-feature LR multiplier from FeatureImportance (alpha-map-driven)
-      const lrMult = hasImportance ? window.FeatureImportance.lrMultiplier(i) : 1.0;
-      // SGD update + L2 weight decay (skip bias term, last index)
-      const decay = (i === x.length - 1) ? 0 : this.l2 * this.weights[i];
-      this.weights[i] -= this.lr * lrMult * (err * x[i] + decay);
+
+    // Ensure Adam state arrays exist (for models deserialized before Adam upgrade)
+    if (!this.m || this.m.length !== x.length) this.m = new Array(x.length).fill(0);
+    if (!this.v || this.v.length !== x.length) this.v = new Array(x.length).fill(0);
+
+    if (this.optimizer === 'adam') {
+      this.adamStep++;
+      const b1 = this.adamBeta1, b2 = this.adamBeta2, eps = this.adamEps;
+      const b1Pow = 1 - Math.pow(b1, this.adamStep);
+      const b2Pow = 1 - Math.pow(b2, this.adamStep);
+      for (let i = 0; i < x.length; i++) {
+        const lrMult = hasImportance ? window.FeatureImportance.lrMultiplier(i) : 1.0;
+        const decay = (i === x.length - 1) ? 0 : this.l2 * this.weights[i];
+        const grad = err * x[i] + decay;
+        // First moment (running mean of gradient)
+        this.m[i] = b1 * this.m[i] + (1 - b1) * grad;
+        // Second moment (running mean of squared gradient)
+        this.v[i] = b2 * this.v[i] + (1 - b2) * grad * grad;
+        // Bias-corrected estimates
+        const mHat = this.m[i] / b1Pow;
+        const vHat = this.v[i] / b2Pow;
+        // Adam update with feature-importance multiplier on the effective LR
+        this.weights[i] -= this.lr * lrMult * mHat / (Math.sqrt(vHat) + eps);
+      }
+    } else {
+      // Legacy SGD path
+      for (let i = 0; i < x.length; i++) {
+        const lrMult = hasImportance ? window.FeatureImportance.lrMultiplier(i) : 1.0;
+        const decay = (i === x.length - 1) ? 0 : this.l2 * this.weights[i];
+        this.weights[i] -= this.lr * lrMult * (err * x[i] + decay);
+      }
     }
+
     const loss = -(y * Math.log(Math.max(1e-9, prob)) + (1 - y) * Math.log(Math.max(1e-9, 1 - prob)));
     this.n_trained++;
     if (y === 1) this.n_hits++; else this.n_misses++;
