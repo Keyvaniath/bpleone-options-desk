@@ -428,6 +428,14 @@ document.addEventListener('DOMContentLoaded', () => {
         s.async = false;
         document.head.appendChild(s);
       }
+      // k-NN recall: non-parametric memory. Finds similar past
+      // resolutions and blends their outcomes into predictions.
+      if (!document.querySelector('script[src*="knn-recall.js"]')) {
+        const s = document.createElement('script');
+        s.src = 'js/knn-recall.js';
+        s.async = false;
+        document.head.appendChild(s);
+      }
       // Conviction alerter: background notification when A-tier picks fire.
       if (!document.querySelector('script[src*="conviction-alerter.js"]')) {
         const s = document.createElement('script');

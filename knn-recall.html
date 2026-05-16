@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>k-NN Recall — bpleone / trade</title>
+<meta name="description" content="Non-parametric memory: for each new prediction, find the K most-similar past resolved cases and blend their outcomes.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.intro { background:linear-gradient(135deg,rgba(0,212,255,0.06),transparent);border:1px solid rgba(0,212,255,0.25);padding:24px;border-radius:14px;margin-bottom:24px; }
+.sym-card { padding:16px;background:var(--bg-elevated);border-radius:10px;margin-bottom:10px;font-family:var(--font-mono);font-size:11px; }
+.sym-card .head { display:grid;grid-template-columns:80px 100px 100px 100px 1fr;gap:14px;align-items:center;margin-bottom:10px; }
+.sym-card .neighbors { display:grid;grid-template-columns:repeat(5, 1fr);gap:6px;margin-top:8px; }
+.nb { padding:6px 8px;background:var(--bg);border-radius:4px;text-align:center;font-size:10px; }
+.nb.win { border-left:2px solid var(--green); }
+.nb.loss { border-left:2px solid var(--red); }
+.kpi-tile { padding:18px;background:var(--bg-elevated);border-radius:10px;text-align:center; }
+.kpi-tile .lbl { font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px; }
+.kpi-tile .val { font-family:var(--font-mono);font-size:22px;font-weight:800;margin-top:6px; }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">🧠 k-NN Recall</div>
+      <div class="page-subtitle">Non-parametric memory · find similar past predictions · blend their outcomes · <span id="market-clock">--</span></div>
+    </div>
+  </div>
+
+  <div class="intro">
+    <div style="font-size:14px;color:var(--text-primary);line-height:1.7;">
+      <strong>The principle:</strong> the 22-feature logistic regression model is parametric — it compresses everything into 22 weights. Useful for generalization, but throws away the memory of specific past situations.
+      <br><br>
+      <strong>k-NN recall fixes this:</strong> for every new prediction, find the K=10 most-similar past RESOLVED predictions (Euclidean distance, feature-importance weighted) and look at their realized outcomes. If 8 of 10 similar past cases won, k-NN votes 80%.
+      <br><br>
+      <strong>Blended output:</strong>
+      <code style="background:#000;color:#0f0;padding:2px 6px;border-radius:4px;display:inline-block;margin:6px 0;">final_prob = 0.7 × model_prob + 0.3 × knn_prob</code>
+      <br><br>
+      <strong>Why this catches what the model misses:</strong> the parametric model averages over all training data. If your most-recent 5 NVDA setups looked exactly like THIS setup and 4 of 5 won, k-NN sees that. The averaged model might dilute it with 100 other unrelated NVDA setups.
+    </div>
+  </div>
+
+  <div class="grid grid-4 mb-24">
+    <div class="kpi-tile"><div class="lbl">History size</div><div class="val" id="kHist">0</div></div>
+    <div class="kpi-tile"><div class="lbl">K (neighbors)</div><div class="val" id="kK">10</div></div>
+    <div class="kpi-tile"><div class="lbl">Default alpha</div><div class="val" id="kAlpha">0.70</div></div>
+    <div class="kpi-tile"><div class="lbl">Ready?</div><div class="val" id="kReady" style="font-size:14px;">—</div></div>
+  </div>
+
+  <div class="card mb-24">
+    <div class="card-header"><div class="card-title">🔍 Live per-symbol k-NN votes</div></div>
+    <div style="font-size:12px;color:var(--text-secondary);margin-bottom:14px;line-height:1.5;">
+      For each live symbol, the K=10 most-similar past resolved predictions and their outcomes. The k-NN probability is the inverse-distance-weighted win rate among those neighbors.
+    </div>
+    <div id="symBody"></div>
+  </div>
+
+  <div class="card">
+    <div class="card-header"><div class="card-title">🔬 How blending works</div></div>
+    <div style="font-size:13px;color:var(--text-secondary);line-height:1.7;">
+      <strong>α = 0.7 (default)</strong>: model carries 70% of the weight, k-NN gets 30%. The model dominates for general patterns; k-NN provides a sanity check from memory.
+      <br><br>
+      <strong>When k-NN disagrees strongly with the model:</strong> ensemble agreement scorer picks up the divergence and reduces overall confidence. So the two systems naturally check each other.
+      <br><br>
+      <strong>Distance metric:</strong> weighted Euclidean. Each feature's weight comes from FeatureImportance.lrMultiplier — so the high-alpha features dominate the similarity calculation. Noise features barely matter.
+      <br><br>
+      <strong>Why not always trust k-NN?</strong> Need enough history. Until 5+ resolved predictions exist, k-NN returns null and the system uses the model alone. After 50+, k-NN gets meaningful and starts catching pattern-specific signal the parametric model dilutes.
+    </div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script src="js/model.js"></script>
+<script src="js/feature-importance.js"></script>
+<script src="js/knn-recall.js"></script>
+<script>
+buildNav('knn-recall');
+
+const UNIVERSE = ['SPY','QQQ','IWM','AAPL','NVDA','TSLA','MSFT','META','AMZN','GOOGL','AMD','PLTR','SMCI','COIN','BTC','ETH','BABA','SHOP','CRM','UBER','XLE','GLD','SLV'];
+
+function isLiveQuote(q) {
+  return q && q.priceSource && q.priceSource !== 'stale-seed' && q.priceSource !== 'mock'
+    && q.liveAt && (Date.now() - q.liveAt) < 5 * 60 * 1000;
+}
+
+function render() {
+  if (typeof window.KNNRecall === 'undefined' || typeof QUOTES === 'undefined') { setTimeout(render, 500); return; }
+
+  const sum = window.KNNRecall.summary();
+  document.getElementById('kHist').textContent = sum.historySize;
+  document.getElementById('kReady').textContent = sum.ready ? 'YES' : 'NO';
+  document.getElementById('kReady').style.color = sum.ready ? 'var(--green)' : 'var(--yellow)';
+
+  const rows = [];
+  UNIVERSE.forEach(sym => {
+    const q = QUOTES[sym];
+    if (!isLiveQuote(q)) return;
+    const finding = { ts: Date.now(), type: 'knn-scan', severity: 1, meta: { sym, setup: 'scan', last: q.last } };
+    const features = FeatureExtractor.extract(finding);
+    if (!features || features.length !== 22) return;
+    const modelProb = ModelStore.load().predict(features).prob;
+    const knn = window.KNNRecall.predict(features);
+    if (!knn || knn.prob == null) return;
+    const blended = 0.7 * modelProb + 0.3 * knn.prob;
+    rows.push({ sym, modelProb, knnProb: knn.prob, blended, neighbors: knn.neighbors, n: knn.n });
+  });
+
+  if (rows.length === 0) {
+    document.getElementById('symBody').innerHTML = '<div style="padding:30px;text-align:center;color:var(--text-muted);font-size:12px;">Waiting for live data and enough resolution history (5+ resolutions needed).</div>';
+    return;
+  }
+
+  rows.sort((a, b) => Math.abs(b.blended - 0.5) - Math.abs(a.blended - 0.5));
+
+  document.getElementById('symBody').innerHTML = rows.map(r => {
+    const modelCol = r.modelProb >= 0.6 ? 'var(--green)' : r.modelProb <= 0.4 ? 'var(--red)' : 'var(--text-muted)';
+    const knnCol = r.knnProb >= 0.6 ? 'var(--green)' : r.knnProb <= 0.4 ? 'var(--red)' : 'var(--text-muted)';
+    const blendCol = r.blended >= 0.6 ? 'var(--green)' : r.blended <= 0.4 ? 'var(--red)' : 'var(--accent)';
+    const agreementNote = Math.abs(r.modelProb - r.knnProb) > 0.15 ? '<span style="color:var(--yellow);">⚠ divergence</span>' : '<span style="color:var(--green);">✓ agree</span>';
+    return '<div class="sym-card">'
+      + '<div class="head">'
+        + '<div><strong style="font-size:14px;">' + r.sym + '</strong></div>'
+        + '<div>model: <span style="color:' + modelCol + ';font-weight:700;">' + (r.modelProb * 100).toFixed(0) + '%</span></div>'
+        + '<div>k-NN: <span style="color:' + knnCol + ';font-weight:700;">' + (r.knnProb * 100).toFixed(0) + '%</span></div>'
+        + '<div>blend: <span style="color:' + blendCol + ';font-weight:700;">' + (r.blended * 100).toFixed(0) + '%</span></div>'
+        + '<div>' + agreementNote + '</div>'
+      + '</div>'
+      + '<div class="neighbors">'
+        + r.neighbors.slice(0, 5).map(n => {
+          const cls = n.outcome === 'correct' ? 'win' : 'loss';
+          return '<div class="nb ' + cls + '">' + n.sym + '<br><span style="color:var(--text-muted);font-size:9px;">d=' + n.distance.toFixed(2) + '</span></div>';
+        }).join('')
+      + '</div>'
+      + '</div>';
+  }).join('');
+}
+
+render();
+setInterval(render, 10000);
+</script>
+</body>
+</html>
