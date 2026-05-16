@@ -561,6 +561,14 @@ document.addEventListener('DOMContentLoaded', () => {
         s.async = false;
         document.head.appendChild(s);
       }
+      // Sample age decay: exponential decay of training-example weight by
+      // age. Half-life 7 days by default — recent examples dominate training.
+      if (!document.querySelector('script[src*="sample-decay.js"]')) {
+        const s = document.createElement('script');
+        s.src = 'js/sample-decay.js';
+        s.async = false;
+        document.head.appendChild(s);
+      }
       // Unified predictor: chains every meta-module into ONE call.
       // Loads last so all dependencies are present.
       if (!document.querySelector('script[src*="unified-predictor.js"]')) {

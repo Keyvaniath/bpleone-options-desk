@@ -243,6 +243,14 @@
             sampleWeight *= alMult;
           }
         } catch (e) {}
+        // SAMPLE AGE DECAY: older examples weigh less. half-life=7 days
+        // by default, so a 2-week-old example contributes 0.25x.
+        try {
+          if (typeof SampleDecay !== 'undefined' && entry.ts) {
+            const decayMult = SampleDecay.multiplier(entry.ts);
+            sampleWeight *= decayMult;
+          }
+        } catch (e) {}
 
         newHorizonRows.push({
           horizon, features: entry.features, label, weight: sampleWeight,

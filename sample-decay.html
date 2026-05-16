@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Sample Decay — bpleone / brain</title>
+<meta name="description" content="Exponential age decay of training samples. Older examples contribute less so the brain adapts faster to regime shifts.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.hl-card { padding:32px;border-radius:16px;text-align:center;background:linear-gradient(135deg,rgba(0,212,255,0.08),rgba(0,212,255,0.02));border:2px solid rgba(0,212,255,0.4); }
+.hl-card .big { font-family:var(--font-mono);font-size:64px;font-weight:900;line-height:1;color:var(--accent); }
+.tile { padding:18px;background:var(--bg-elevated);border-radius:10px; }
+.tile .lbl { font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;font-weight:700; }
+.tile .val { font-family:var(--font-mono);font-size:22px;font-weight:800;margin-top:6px;color:var(--accent); }
+.demo-grid { display:grid;grid-template-columns:repeat(5, 1fr);gap:10px; }
+@media (max-width:768px){ .demo-grid { grid-template-columns:repeat(2, 1fr); } }
+.demo-cell { padding:14px;background:var(--bg-elevated);border-radius:10px;text-align:center; }
+.demo-cell .l { font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;font-weight:700; }
+.demo-cell .v { font-family:var(--font-mono);font-size:18px;font-weight:800;margin-top:4px;color:var(--accent); }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">⏳ Sample Decay</div>
+      <div class="page-subtitle">Exponential age decay of training samples · recent examples dominate, old ones contribute less</div>
+    </div>
+  </div>
+
+  <div id="hl-card" class="mb-24"></div>
+
+  <div class="grid grid-3 mb-24" id="metrics-grid"></div>
+
+  <div class="card mb-24">
+    <div class="card-header"><div class="card-title">⚙ Configuration</div></div>
+    <div style="display:flex;gap:14px;flex-wrap:wrap;align-items:end;">
+      <label style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;font-weight:700;display:flex;flex-direction:column;gap:4px;">Half-life (days)<input id="hl-input" type="number" style="width:100px;padding:8px 12px;background:var(--bg-elevated);border:1px solid var(--border);color:var(--text-primary);border-radius:6px;font-family:var(--font-mono);font-size:14px;font-weight:700;text-align:right;" step="1" min="1" max="90" value="7"></label>
+      <button onclick="updateHL()" style="padding:10px 22px;background:var(--accent);color:#000;border:none;border-radius:8px;font-weight:700;cursor:pointer;font-size:14px;">Apply</button>
+      <button onclick="toggleEnabled()" id="toggle-btn" style="padding:10px 22px;background:var(--bg-elevated);color:var(--text-primary);border:1px solid var(--border);border-radius:8px;font-weight:700;cursor:pointer;font-size:14px;">Enable</button>
+    </div>
+    <div style="margin-top:14px;font-size:12px;color:var(--text-muted);font-family:var(--font-mono);">Range: [1, 90] days. Lower = adapt faster but lose context. Higher = stable but slow to react.</div>
+  </div>
+
+  <div class="card mb-24">
+    <div class="card-header"><div class="card-title">📊 Decay curve preview</div></div>
+    <div style="font-size:13px;color:var(--text-secondary);margin-bottom:12px;">For the current half-life, how each age maps to a sample-weight multiplier:</div>
+    <div class="demo-grid" id="demo-grid"></div>
+  </div>
+
+  <div class="card">
+    <div class="card-header"><div class="card-title">📚 Why decay older samples?</div></div>
+    <div style="font-size:13px;color:var(--text-secondary);line-height:1.7;">
+      A 6-week-old training example might come from a completely different market regime than today. If we keep weighting it equally with today's examples, the model averages across regimes and becomes slow to adapt.<br><br>
+      <strong>Exponential decay</strong> is the standard solution:
+      <code style="display:block;background:var(--bg-elevated);padding:10px;margin:8px 0;border-radius:6px;">decay(age) = exp(-age × ln(2) / half_life)</code>
+      With half_life=7 days: a 7-day-old example weighs 0.5×, a 14-day-old example weighs 0.25×, a 21-day-old example weighs 0.125×.<br><br>
+      <strong>The trade-off:</strong>
+      <ul style="margin:8px 0 8px 24px;">
+        <li>Lower half-life (3 days): brain adapts faster to new regime but loses long-term context. Better in volatile markets.</li>
+        <li>Higher half-life (30 days): brain has more memory but slower to react. Better in stable markets.</li>
+        <li>If the brain is being whipsawed by regime changes, lower this. If it's chasing noise, raise it.</li>
+      </ul>
+      The decay multiplier compounds with the R-multiple weight and the active-learning multiplier in <code>continuous-learner.js</code>'s resolution loop. Together they determine how much each example pushes the gradient.
+    </div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script src="js/sample-decay.js"></script>
+<script>
+buildNav('sample-decay');
+
+function fmt(n, d) { return n != null ? n.toFixed(d != null ? d : 3) : '—'; }
+
+function render() {
+  const s = SampleDecay.stats();
+  const card = document.getElementById('hl-card');
+  card.innerHTML = '<div class="hl-card">'
+    + '<div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:1px;font-weight:700;">Current half-life</div>'
+    + '<div class="big" style="margin-top:8px;">' + s.halfLife + ' days</div>'
+    + '<div style="font-size:14px;color:' + (s.enabled ? 'var(--green)' : 'var(--red)') + ';font-weight:700;margin-top:14px;">' + (s.enabled ? '✓ ACTIVE' : '✗ DISABLED') + '</div>'
+    + '</div>';
+
+  document.getElementById('metrics-grid').innerHTML = ''
+    + '<div class="tile"><div class="lbl">Decays applied</div><div class="val">' + s.appliedCount + '</div></div>'
+    + '<div class="tile"><div class="lbl">Range</div><div class="val">[' + s.min + ', ' + s.max + ']</div></div>'
+    + '<div class="tile"><div class="lbl">Default</div><div class="val">' + s.default + ' days</div></div>';
+
+  document.getElementById('hl-input').value = s.halfLife;
+  document.getElementById('toggle-btn').textContent = s.enabled ? 'Disable' : 'Enable';
+
+  const ages = [0, 1, 3, 7, 14, 21, 30, 60, 90];
+  const visAges = ages.slice(0, 10);
+  let html = '';
+  for (const age of visAges) {
+    const m = SampleDecay.multiplier(age);
+    html += '<div class="demo-cell">'
+      + '<div class="l">' + age + 'd</div>'
+      + '<div class="v">' + (m * 100).toFixed(1) + '%</div>'
+      + '</div>';
+  }
+  document.getElementById('demo-grid').innerHTML = html;
+}
+
+function updateHL() {
+  const hl = parseFloat(document.getElementById('hl-input').value);
+  if (!isNaN(hl)) {
+    SampleDecay.setHalfLife(hl);
+    render();
+  }
+}
+
+function toggleEnabled() {
+  SampleDecay.setEnabled(!SampleDecay.enabled());
+  render();
+}
+
+render();
+setInterval(render, 6000);
+</script>
+</body>
+</html>
