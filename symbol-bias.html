@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Symbol Bias — bpleone / trade</title>
+<meta name="description" content="Per-symbol learned offsets. The model adapts to each symbol's quirks while still sharing the general 22-feature backbone.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.intro { background:linear-gradient(135deg,rgba(0,212,255,0.06),transparent);border:1px solid rgba(0,212,255,0.25);padding:24px;border-radius:14px;margin-bottom:24px; }
+.sym-row { display:grid;grid-template-columns:80px 100px 70px 90px 110px 1fr;gap:14px;padding:11px 14px;border-bottom:1px solid var(--border);font-family:var(--font-mono);font-size:11px;align-items:center; }
+.sym-row.hdr { background:var(--bg-elevated);font-size:9px;color:var(--text-muted);font-weight:800;letter-spacing:0.4px; }
+.sym-row.positive { border-left:3px solid var(--green); }
+.sym-row.negative { border-left:3px solid var(--red); }
+.sym-row.fallback { border-left:3px solid var(--yellow);opacity:0.85; }
+.sym-row.neutral { border-left:3px solid var(--text-muted); }
+.bias-bar { height:6px;background:var(--bg);border-radius:3px;overflow:hidden;position:relative; }
+.bias-bar > div { height:100%; }
+.bias-bar .center { position:absolute;left:50%;top:0;bottom:0;width:1px;background:var(--text-muted);opacity:0.5; }
+.kpi-tile { padding:18px;background:var(--bg-elevated);border-radius:10px;text-align:center; }
+.kpi-tile .lbl { font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px; }
+.kpi-tile .val { font-family:var(--font-mono);font-size:22px;font-weight:800;margin-top:6px; }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">🎯 Symbol Bias</div>
+      <div class="page-subtitle">Per-symbol learned offsets · mixed-effects · sector transfer fallback · <span id="market-clock">--</span></div>
+    </div>
+    <div class="flex gap-8">
+      <button class="btn btn-ghost" id="resetBtn">🗑 Reset all</button>
+    </div>
+  </div>
+
+  <div class="intro">
+    <div style="font-size:14px;color:var(--text-primary);line-height:1.7;">
+      <strong>The problem:</strong> the shared 22-feature model captures general patterns but can't see symbol-specific quirks (NVDA's institutional flow profile, TSLA's retail-meme dynamics, MSFT's defensive-tech regime). One model, many symbols, suboptimal fit per symbol.
+      <br><br>
+      <strong>The mixed-effects fix:</strong> add ONE learned offset per symbol. When the shared model predicts <code>p_shared</code>, the final prediction is
+      <code style="background:#000;color:#0f0;padding:2px 6px;border-radius:4px;">p_final = sigmoid(logit(p_shared) + bias[sym])</code>
+      <br><br>
+      <strong>Sector transfer:</strong> until a symbol has 5+ own resolutions, it borrows the average bias of its sector peers. So AMD inherits NVDA's bias before AMD has its own data.
+      <br><br>
+      <strong>Learning rule:</strong> after each resolution, EMA update the symbol's bias toward the residual (label vs predicted). LR=0.05, clamped to ±1.5 in logit space.
+    </div>
+  </div>
+
+  <div class="grid grid-4 mb-24">
+    <div class="kpi-tile"><div class="lbl">Symbols tracked</div><div class="val" id="kN">0</div></div>
+    <div class="kpi-tile"><div class="lbl">Positive bias</div><div class="val" id="kPos" style="color:var(--green);">0</div></div>
+    <div class="kpi-tile"><div class="lbl">Negative bias</div><div class="val" id="kNeg" style="color:var(--red);">0</div></div>
+    <div class="kpi-tile"><div class="lbl">Sector fallback</div><div class="val" id="kFall" style="color:var(--yellow);">0</div></div>
+  </div>
+
+  <div class="card mb-24" style="padding:0;">
+    <div class="sym-row hdr">
+      <div>SYM</div><div>SECTOR</div><div>N</div><div>BIAS</div><div>EFFECTIVE</div><div>VISUAL</div>
+    </div>
+    <div id="symBody"></div>
+  </div>
+
+  <div class="card">
+    <div class="card-header"><div class="card-title">🔬 Reading the bias values</div></div>
+    <div style="font-size:13px;color:var(--text-secondary);line-height:1.7;">
+      Bias is in <strong>logit space</strong>, not probability space. A bias of +0.5 means: if shared model predicts 50% (logit 0), final is sigmoid(0+0.5) ≈ 62%. If shared predicts 70% (logit 0.85), final is sigmoid(1.35) ≈ 79%. The bias has bigger impact near 50%.
+      <br><br>
+      <strong>Positive bias</strong> = shared model has been UNDERESTIMATING this symbol (it wins more than predicted). The brain adds confidence.<br>
+      <strong>Negative bias</strong> = shared model has been OVERESTIMATING. The brain subtracts confidence.<br>
+      <strong>Zero bias</strong> = shared model has been calibrated on this symbol — no per-symbol adjustment needed.
+      <br><br>
+      <strong>Yellow (sector fallback)</strong>: this symbol doesn't have 5 resolutions yet, so it's borrowing the average bias of its sector peers. Transitions to its own bias once data accumulates.
+    </div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script src="js/symbol-bias.js"></script>
+<script>
+buildNav('symbol-bias');
+
+function render() {
+  if (typeof window.SymbolBias === 'undefined') { setTimeout(render, 500); return; }
+  const symbols = window.SymbolBias.summary();
+
+  document.getElementById('kN').textContent = symbols.length;
+  document.getElementById('kPos').textContent = symbols.filter(s => s.effectiveBias > 0.05).length;
+  document.getElementById('kNeg').textContent = symbols.filter(s => s.effectiveBias < -0.05).length;
+  document.getElementById('kFall').textContent = symbols.filter(s => s.sectorFallback).length;
+
+  const body = document.getElementById('symBody');
+  if (symbols.length === 0) {
+    body.innerHTML = '<div style="padding:30px;text-align:center;color:var(--text-muted);font-size:12px;">No symbol biases learned yet. Wait for continuous-learner to resolve some predictions.</div>';
+    return;
+  }
+
+  body.innerHTML = symbols.map(s => {
+    const cls = s.sectorFallback ? 'fallback' : Math.abs(s.bias) < 0.05 ? 'neutral' : s.bias > 0 ? 'positive' : 'negative';
+    const biasCol = s.bias > 0.05 ? 'var(--green)' : s.bias < -0.05 ? 'var(--red)' : 'var(--text-muted)';
+    const effCol = s.effectiveBias > 0.05 ? 'var(--green)' : s.effectiveBias < -0.05 ? 'var(--red)' : 'var(--text-muted)';
+    // Visual: -1.5 = left, 0 = center, +1.5 = right
+    const pct = ((s.effectiveBias + 1.5) / 3.0) * 100;
+    const barWidth = Math.min(50, Math.abs(s.effectiveBias) / 1.5 * 50);
+    const barLeft = s.effectiveBias >= 0 ? 50 : 50 - barWidth;
+    return '<div class="sym-row ' + cls + '">'
+      + '<div><strong>' + s.sym + '</strong></div>'
+      + '<div style="color:var(--text-muted);">' + s.sector + '</div>'
+      + '<div>' + s.n + '</div>'
+      + '<div style="color:' + biasCol + ';font-weight:700;">' + (s.bias >= 0 ? '+' : '') + s.bias.toFixed(3) + '</div>'
+      + '<div style="color:' + effCol + ';font-weight:700;">' + (s.effectiveBias >= 0 ? '+' : '') + s.effectiveBias.toFixed(3) + (s.sectorFallback ? ' (sector)' : '') + '</div>'
+      + '<div class="bias-bar"><div style="margin-left:' + barLeft + '%;width:' + barWidth + '%;background:' + effCol + ';"></div><div class="center"></div></div>'
+      + '</div>';
+  }).join('');
+}
+
+document.getElementById('resetBtn').addEventListener('click', () => {
+  if (!confirm('Reset ALL symbol biases? Brain will need to re-learn each symbol\'s quirks.')) return;
+  window.SymbolBias.reset();
+  render();
+});
+
+render();
+setInterval(render, 8000);
+</script>
+</body>
+</html>

@@ -404,6 +404,14 @@ document.addEventListener('DOMContentLoaded', () => {
         s.async = false;
         document.head.appendChild(s);
       }
+      // Symbol bias: per-symbol learned offset (mixed-effects).
+      // Fed by continuous-learner on every resolution.
+      if (!document.querySelector('script[src*="symbol-bias.js"]')) {
+        const s = document.createElement('script');
+        s.src = 'js/symbol-bias.js';
+        s.async = false;
+        document.head.appendChild(s);
+      }
       // Conviction alerter: background notification when A-tier picks fire.
       if (!document.querySelector('script[src*="conviction-alerter.js"]')) {
         const s = document.createElement('script');

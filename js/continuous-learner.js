@@ -221,6 +221,13 @@
               Calibrator.recordPair(entry.predProb, label);
             }
           } catch (e) {}
+          // SYMBOL BIAS: feed per-symbol bias term so the shared model can
+          // learn symbol-specific quirks on top of general features.
+          try {
+            if (typeof SymbolBias !== 'undefined' && entry.sym) {
+              SymbolBias.update(entry.sym, label, entry.predProb);
+            }
+          } catch (e) {}
         }
       });
 
