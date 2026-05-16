@@ -610,6 +610,14 @@ document.addEventListener('DOMContentLoaded', () => {
         s.async = false;
         document.head.appendChild(s);
       }
+      // Per-symbol Brier Skill: stratifies BSS by symbol so the brain knows
+      // which symbols it has real edge on.
+      if (!document.querySelector('script[src*="symbol-skill.js"]')) {
+        const s = document.createElement('script');
+        s.src = 'js/symbol-skill.js';
+        s.async = false;
+        document.head.appendChild(s);
+      }
       // Unified predictor: chains every meta-module into ONE call.
       // Loads last so all dependencies are present.
       if (!document.querySelector('script[src*="unified-predictor.js"]')) {
