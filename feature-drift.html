@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Feature Drift (PSI) — bpleone / trade</title>
+<meta name="description" content="Population Stability Index — leading indicator of regime shift. Catches drift before accuracy breaks.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<style>
+.intro { background:linear-gradient(135deg,rgba(245,158,11,0.06),transparent);border:1px solid rgba(245,158,11,0.25);padding:24px;border-radius:14px;margin-bottom:24px; }
+.psi-card { padding:32px;border-radius:14px;text-align:center;margin-bottom:24px; }
+.psi-card.stable { background:rgba(16,185,129,0.08);border:2px solid rgba(16,185,129,0.4); }
+.psi-card.minor { background:rgba(245,158,11,0.08);border:2px solid rgba(245,158,11,0.4); }
+.psi-card.major { background:rgba(239,68,68,0.1);border:2px solid rgba(239,68,68,0.4); }
+.psi-card .big { font-family:var(--font-mono);font-size:48px;font-weight:800;line-height:1; }
+.feat-row { display:grid;grid-template-columns:60px 1fr 80px 120px;gap:14px;padding:11px 14px;border-bottom:1px solid var(--border);font-family:var(--font-mono);font-size:11px;align-items:center; }
+.feat-row.hdr { background:var(--bg-elevated);font-size:9px;color:var(--text-muted);font-weight:800;letter-spacing:0.4px; }
+.feat-row.stable { border-left:3px solid var(--green); }
+.feat-row.minor { border-left:3px solid var(--yellow); }
+.feat-row.major { border-left:3px solid var(--red); }
+.kpi-tile { padding:18px;background:var(--bg-elevated);border-radius:10px;text-align:center; }
+.kpi-tile .lbl { font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px; }
+.kpi-tile .val { font-family:var(--font-mono);font-size:22px;font-weight:800;margin-top:6px; }
+.psi-bar { height:8px;background:var(--bg);border-radius:4px;overflow:hidden; }
+.psi-bar > div { height:100%; }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">📐 Feature Drift (PSI)</div>
+      <div class="page-subtitle">Population Stability Index · catches regime shifts BEFORE accuracy breaks · auto-snapshots weekly · <span id="market-clock">--</span></div>
+    </div>
+    <div class="flex gap-8">
+      <button class="btn btn-ghost" id="snapshotBtn">📸 Re-snapshot baseline</button>
+      <button class="btn btn-primary" id="recomputeBtn">↻ Recompute PSI</button>
+    </div>
+  </div>
+
+  <div class="intro">
+    <div style="font-size:14px;color:var(--text-primary);line-height:1.7;">
+      <strong>What PSI is:</strong> Population Stability Index measures how much a feature distribution has shifted from a historical baseline. For each feature, divide the baseline into 10 deciles. Then bin recent observations using the SAME edges. Compute:
+      <br>
+      <code style="background:#000;color:#0f0;padding:2px 6px;border-radius:4px;display:inline-block;margin:6px 0;">PSI = Σ (recent_pct - hist_pct) × ln(recent_pct / hist_pct)</code>
+      <br>
+      <strong>Thresholds (industry standard):</strong>
+      <ul style="margin:6px 0 0 20px;">
+        <li><strong style="color:var(--green);">&lt; 0.10 STABLE</strong> — no meaningful shift, brain operates normally</li>
+        <li><strong style="color:var(--yellow);">0.10-0.25 MINOR</strong> — monitor closely, may need retrain soon</li>
+        <li><strong style="color:var(--red);">&gt; 0.25 MAJOR</strong> — population has changed, model needs retraining</li>
+      </ul>
+      <strong>Why this is a leading indicator:</strong> rolling accuracy drift only triggers AFTER the model has been wrong many times. PSI triggers when the INPUT distribution shifts — before the model has even had a chance to be wrong. Buys you days of warning instead of minutes of regret.
+    </div>
+  </div>
+
+  <div id="overall"></div>
+
+  <div class="grid grid-4 mb-24">
+    <div class="kpi-tile"><div class="lbl">Baseline N</div><div class="val" id="kBase">—</div></div>
+    <div class="kpi-tile"><div class="lbl">Baseline age</div><div class="val" id="kAge">—</div></div>
+    <div class="kpi-tile"><div class="lbl">Recent N</div><div class="val" id="kRecent">—</div></div>
+    <div class="kpi-tile"><div class="lbl">Major-shift features</div><div class="val" id="kMajor" style="color:var(--red);">0</div></div>
+  </div>
+
+  <div class="grid grid-2 mb-24">
+    <div class="card">
+      <div class="card-header"><div class="card-title">📈 PSI history (last 50 measurements)</div></div>
+      <canvas id="historyChart" height="220"></canvas>
+    </div>
+    <div class="card">
+      <div class="card-header"><div class="card-title">📊 Per-feature PSI</div></div>
+      <canvas id="featureChart" height="220"></canvas>
+    </div>
+  </div>
+
+  <div class="card mb-24" style="padding:0;">
+    <div class="feat-row hdr">
+      <div>FEAT</div><div>NAME</div><div>PSI</div><div>STATUS</div>
+    </div>
+    <div id="featuresTable"></div>
+  </div>
+
+  <div class="card">
+    <div class="card-header"><div class="card-title">🔧 How this hooks into the brain</div></div>
+    <div style="font-size:13px;color:var(--text-secondary);line-height:1.7;">
+      <strong>Auto-check every 5 minutes</strong> while any page is open. If overall PSI exceeds 0.25:<br>
+      1. Fires <code>bpleone:concept-drift</code> event with detail={source: 'PSI', psi, status, perFeature}<br>
+      2. Sets <code>state.driftAdapting=true</code> in the brain-loop state<br>
+      3. Continuous-learner sees this and DOUBLES the learning rate for the next training batches<br>
+      4. Brain stays in adapt mode until rolling accuracy recovers above 55% (separately measured)<br>
+      <br>
+      <strong>Baseline snapshot policy:</strong> snapshot is taken when journal has 100+ captures, and re-taken every 7 days automatically. You can force re-snapshot via the button above (useful after a major news event that you want the brain to consider 'normal' going forward).
+    </div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script src="js/drift-psi.js"></script>
+<script>
+buildNav('feature-drift');
+
+const FEATURE_NAMES = [
+  'RSI/100','ATR%/10','RVOL/4','dist20MA','dist50MA','SPY chg','Sector chg','Beta/2',
+  'Spread (inv)','IV pct','Severity','Bullish setup','Bearish setup','Trend follow',
+  'Mean revert','Breakout','Brain weight','Regime','VIX','Coincident','Hour','Bias'
+];
+
+function render() {
+  if (typeof window.PSIDrift === 'undefined') { setTimeout(render, 500); return; }
+  const sum = window.PSIDrift.summary();
+
+  // Overall card
+  let cls, msg, detail;
+  if (!sum.current || !sum.current.ok) {
+    cls = 'stable';
+    msg = '⏳ WAITING FOR DATA';
+    detail = sum.current && sum.current.reason === 'need-more-data'
+      ? 'Need ' + (sum.current.needN - sum.current.haveN) + ' more historical captures to snapshot a baseline.'
+      : sum.current && sum.current.reason === 'need-more-recent'
+      ? 'Need ' + (30 - sum.current.haveN) + ' more recent captures to compute PSI.'
+      : 'Continuous-learner needs to capture more predictions before PSI can be computed.';
+    document.getElementById('overall').innerHTML = '<div class="psi-card stable"><div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:1px;">Overall PSI</div>'
+      + '<div class="big" style="color:var(--text-muted);">—</div>'
+      + '<div style="font-size:18px;font-weight:700;margin-top:14px;color:var(--text-muted);">' + msg + '</div>'
+      + '<div style="font-size:13px;color:var(--text-secondary);margin-top:14px;max-width:500px;margin:14px auto 0;line-height:1.6;">' + detail + '</div></div>';
+    document.getElementById('kBase').textContent = sum.snapshot ? sum.snapshot.n.toLocaleString() : '—';
+    document.getElementById('kRecent').textContent = sum.current && sum.current.haveN ? sum.current.haveN : '—';
+    document.getElementById('featuresTable').innerHTML = '<div style="padding:30px;text-align:center;color:var(--text-muted);font-size:12px;">No PSI data yet.</div>';
+    return;
+  }
+
+  const c = sum.current;
+  cls = c.status;
+  msg = c.status === 'major' ? '🚨 MAJOR DRIFT' : c.status === 'minor' ? '⚠ MINOR SHIFT' : '✓ STABLE';
+  detail = c.status === 'major'
+    ? 'Feature distribution has shifted significantly from baseline. Model may need retraining. The brain has been auto-flipped to adapt mode (2x learning rate).'
+    : c.status === 'minor'
+    ? 'Feature distribution shifting modestly. Monitor closely. If PSI continues to climb, consider re-snapshotting baseline.'
+    : 'Feature distribution matches historical baseline within noise. Brain operating in known territory.';
+  document.getElementById('overall').innerHTML = '<div class="psi-card ' + cls + '"><div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:1px;">Overall PSI</div>'
+    + '<div class="big" style="color:' + (cls === 'major' ? 'var(--red)' : cls === 'minor' ? 'var(--yellow)' : 'var(--green)') + ';">' + c.psi.toFixed(3) + '</div>'
+    + '<div style="font-size:18px;font-weight:700;margin-top:14px;color:' + (cls === 'major' ? 'var(--red)' : cls === 'minor' ? 'var(--yellow)' : 'var(--green)') + ';">' + msg + '</div>'
+    + '<div style="font-size:13px;color:var(--text-secondary);margin-top:14px;max-width:500px;margin:14px auto 0;line-height:1.6;">' + detail + '</div></div>';
+
+  document.getElementById('kBase').textContent = sum.snapshot ? sum.snapshot.n.toLocaleString() : '—';
+  document.getElementById('kAge').textContent = sum.snapshot ? sum.snapshot.ageHours.toFixed(1) + 'h' : '—';
+  document.getElementById('kRecent').textContent = c.recentN.toLocaleString();
+  const majorCount = c.perFeature.filter(f => f.psi > 0.25).length;
+  document.getElementById('kMajor').textContent = majorCount;
+
+  // History chart
+  const hist = sum.history.slice(-50);
+  if (window._histChart) window._histChart.destroy();
+  window._histChart = new Chart(document.getElementById('historyChart'), {
+    type: 'line',
+    data: {
+      labels: hist.map(h => new Date(h.ts).toLocaleString([], { month:'short', day:'numeric', hour:'2-digit' })),
+      datasets: [
+        { label: 'PSI', data: hist.map(h => h.psi), borderColor: '#00d4ff', backgroundColor: 'rgba(0,212,255,0.1)', tension:0.3, fill:true, pointRadius:0, borderWidth:2 },
+        { label: 'Minor threshold', data: hist.map(() => 0.10), borderColor: '#f59e0b', borderDash:[4,4], pointRadius:0, borderWidth:1 },
+        { label: 'Major threshold', data: hist.map(() => 0.25), borderColor: '#ef4444', borderDash:[4,4], pointRadius:0, borderWidth:1 }
+      ]
+    },
+    options: { responsive:true, maintainAspectRatio:false, plugins:{legend:{labels:{color:'#ccc',font:{size:10}}}}, scales:{x:{ticks:{color:'#888',maxTicksLimit:6},grid:{color:'#222'}},y:{ticks:{color:'#888'},grid:{color:'#222'},title:{display:true,text:'PSI',color:'#888'}}} }
+  });
+
+  // Per-feature chart
+  const fdata = c.perFeature.map(f => ({ name: FEATURE_NAMES[f.idx] || ('f' + f.idx), psi: f.psi }))
+    .sort((a, b) => b.psi - a.psi);
+  if (window._featChart) window._featChart.destroy();
+  window._featChart = new Chart(document.getElementById('featureChart'), {
+    type: 'bar',
+    data: {
+      labels: fdata.map(f => f.name),
+      datasets: [{ data: fdata.map(f => f.psi), backgroundColor: fdata.map(f => f.psi > 0.25 ? '#ef4444' : f.psi > 0.10 ? '#f59e0b' : '#10b981') }]
+    },
+    options: { indexAxis:'y', responsive:true, maintainAspectRatio:false, plugins:{legend:{display:false}}, scales:{x:{ticks:{color:'#888'},grid:{color:'#222'}},y:{ticks:{color:'#888',font:{size:9}},grid:{display:false}}} }
+  });
+
+  // Per-feature table
+  document.getElementById('featuresTable').innerHTML = c.perFeature.map(f => {
+    const name = FEATURE_NAMES[f.idx] || ('f' + f.idx);
+    const cls = f.psi > 0.25 ? 'major' : f.psi > 0.10 ? 'minor' : 'stable';
+    const col = f.psi > 0.25 ? 'var(--red)' : f.psi > 0.10 ? 'var(--yellow)' : 'var(--green)';
+    const pct = Math.min(100, (f.psi / 0.5) * 100);
+    return '<div class="feat-row ' + cls + '">'
+      + '<div style="color:var(--text-muted);">f' + f.idx + '</div>'
+      + '<div>' + name + '</div>'
+      + '<div style="color:' + col + ';font-weight:700;">' + f.psi.toFixed(3) + '</div>'
+      + '<div class="psi-bar"><div style="width:' + pct + '%;background:' + col + ';"></div></div>'
+      + '</div>';
+  }).join('');
+}
+
+document.getElementById('recomputeBtn').addEventListener('click', () => {
+  const r = window.PSIDrift.maybeAutoFire();
+  if (r && r.ok) alert('PSI recomputed: ' + r.psi.toFixed(3) + ' (' + r.status + ')');
+  else alert('Need more data. ' + (r && r.reason));
+  render();
+});
+document.getElementById('snapshotBtn').addEventListener('click', () => {
+  if (!confirm('Re-snapshot the baseline from current journal? Future PSI will be measured against this new baseline.')) return;
+  const r = window.PSIDrift.snapshot();
+  if (r.ok) alert('Snapshot taken with n=' + r.snap.n);
+  else alert('Snapshot failed: ' + r.reason);
+  render();
+});
+
+render();
+setInterval(render, 30000);
+window.addEventListener('bpleone:concept-drift', render);
+</script>
+</body>
+</html>

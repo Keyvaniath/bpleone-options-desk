@@ -379,6 +379,14 @@ document.addEventListener('DOMContentLoaded', () => {
         s.async = false;
         document.head.appendChild(s);
       }
+      // PSI drift detector: leading-indicator distribution shift via
+      // Population Stability Index. Auto-fires concept-drift event.
+      if (!document.querySelector('script[src*="drift-psi.js"]')) {
+        const s = document.createElement('script');
+        s.src = 'js/drift-psi.js';
+        s.async = false;
+        document.head.appendChild(s);
+      }
       if (!document.querySelector('script[src*="auto-trainer.js"]')) {
         const s = document.createElement('script');
         s.src = 'js/auto-trainer.js';
