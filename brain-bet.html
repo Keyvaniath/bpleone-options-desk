@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Brain Bet — bpleone / trade</title>
+<meta name="description" content="The one trade right now. Or nothing. Everything the brain knows condensed into a single decision card.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.bet-card { padding:48px;border-radius:20px;text-align:center;margin-bottom:24px;position:relative;overflow:hidden; }
+.bet-card.long { background:linear-gradient(135deg,rgba(16,185,129,0.12),rgba(16,185,129,0.02));border:3px solid rgba(16,185,129,0.4); }
+.bet-card.short { background:linear-gradient(135deg,rgba(239,68,68,0.12),rgba(239,68,68,0.02));border:3px solid rgba(239,68,68,0.4); }
+.bet-card.sit-out { background:linear-gradient(135deg,rgba(245,158,11,0.08),rgba(239,68,68,0.04));border:3px solid rgba(245,158,11,0.4); }
+.bet-card .sym { font-family:var(--font-mono);font-size:96px;font-weight:900;line-height:1;letter-spacing:-2px; }
+.bet-card .side-pill { display:inline-block;padding:8px 32px;border-radius:30px;font-family:var(--font-mono);font-size:24px;font-weight:800;letter-spacing:3px;margin-top:14px; }
+.bet-card .side-pill.long { background:rgba(16,185,129,0.25);color:var(--green); }
+.bet-card .side-pill.short { background:rgba(239,68,68,0.25);color:var(--red); }
+.bet-card .levels-grid { display:grid;grid-template-columns:repeat(3, 1fr);gap:18px;margin-top:30px; }
+.bet-card .level { padding:18px;background:rgba(0,0,0,0.25);border-radius:12px; }
+.bet-card .level .lbl { font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:1px;font-weight:700; }
+.bet-card .level .val { font-family:var(--font-mono);font-size:32px;font-weight:800;margin-top:6px; }
+.bet-card .size-block { margin-top:30px;padding:24px;background:rgba(0,0,0,0.35);border-radius:12px; }
+.bet-card .size-block .lbl { font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:1px;font-weight:700;margin-bottom:6px; }
+.bet-card .size-block .big-size { font-family:var(--font-mono);font-size:42px;font-weight:800; }
+.evidence-grid { display:grid;grid-template-columns:repeat(4, 1fr);gap:12px; }
+.evidence-tile { padding:14px;background:var(--bg-elevated);border-radius:10px;text-align:center; }
+.evidence-tile .lbl { font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px; }
+.evidence-tile .val { font-family:var(--font-mono);font-size:18px;font-weight:800;margin-top:4px; }
+.controls { display:flex;gap:12px;justify-content:center;margin-top:30px;flex-wrap:wrap; }
+.controls label { font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;font-weight:700;display:flex;flex-direction:column;align-items:flex-start;gap:4px; }
+.controls input { padding:8px 12px;background:var(--bg-elevated);border:1px solid var(--border);color:var(--text-primary);border-radius:6px;font-family:var(--font-mono);font-size:14px;font-weight:700;width:120px;text-align:right; }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">🎰 Brain Bet</div>
+      <div class="page-subtitle">The one trade right now · or nothing · all signals condensed into one decision · <span id="market-clock">--</span></div>
+    </div>
+    <div class="flex gap-8">
+      <a href="brain-conviction.html" class="btn btn-ghost">⭐ All Picks</a>
+      <a href="trade-selectivity.html" class="btn btn-ghost">🚦 Selectivity</a>
+    </div>
+  </div>
+
+  <div class="controls">
+    <label>Account size ($)<input type="number" id="account" value="10000" step="500"></label>
+    <label>Risk per trade (%)<input type="number" id="risk" value="1.0" step="0.25"></label>
+  </div>
+
+  <div id="bet"></div>
+
+  <div class="card">
+    <div class="card-header"><div class="card-title">📐 How the bet is built</div></div>
+    <div style="font-size:13px;color:var(--text-secondary);line-height:1.7;">
+      <strong>1. Trade Selectivity gate first.</strong> If score &lt; 50 (SIT OUT) → no bet shown, only the reasoning why.<br>
+      <strong>2. Run full pipeline on every symbol</strong> — features → OOD score → multi-horizon ensemble → Platt calibration → OOD pull. Same as brain-conviction.<br>
+      <strong>3. Pick the highest-conviction symbol</strong> that passes vetos (R:R ≥ 1.5, prob &gt; 60% or &lt; 40%, OOD &lt; 0.5, fresh real data).<br>
+      <strong>4. Compute size from Kelly fraction.</strong> size = (account × risk%) / (entry − stop). Bounded to ½ Kelly for safety.<br>
+      <strong>5. Show one card.</strong> Don't show ten picks — that's choice paralysis. Show the best one.<br>
+      <br>
+      <strong>Expected value (EV)</strong> in the evidence grid = (p_win × reward) - (p_loss × risk). Positive EV means the math works long-term. Negative EV means even if you "feel" right, the brain says don't.
+    </div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script src="js/model.js"></script>
+<script src="js/multi-horizon.js"></script>
+<script src="js/calibrator.js"></script>
+<script src="js/outlier-detector.js"></script>
+<script src="js/trade-selectivity.js"></script>
+<script>
+buildNav('brain-bet');
+
+const UNIVERSE = ['SPY','QQQ','IWM','AAPL','NVDA','TSLA','MSFT','META','AMZN','GOOGL','AMD','PLTR','SMCI','COIN','BTC','ETH','BABA','SHOP','CRM','UBER','XLE','GLD','SLV'];
+
+function isLiveQuote(q) {
+  return q && q.priceSource && q.priceSource !== 'stale-seed' && q.priceSource !== 'mock'
+    && q.liveAt && (Date.now() - q.liveAt) < 5 * 60 * 1000;
+}
+
+function rankOne(sym) {
+  if (typeof QUOTES === 'undefined' || !QUOTES[sym]) return null;
+  const q = QUOTES[sym];
+  if (!isLiveQuote(q)) return null;
+  if (typeof FeatureExtractor === 'undefined' || typeof ModelStore === 'undefined') return null;
+  const finding = { ts: Date.now(), type: 'bet-rank', severity: 1, meta: { sym, setup: 'rank', last: q.last, bias: q.changePct >= 0 ? 'long' : 'short' } };
+  const features = FeatureExtractor.extract(finding);
+  if (!features || features.length !== 22) return null;
+
+  let oodScore = 0;
+  if (typeof OutlierDetector !== 'undefined') {
+    const stats = OutlierDetector.featureStats();
+    if (stats && stats.ready) oodScore = OutlierDetector.oodScore(features);
+  }
+  if (oodScore > 0.5) return null;  // veto OOD
+
+  let rawProb;
+  if (typeof MultiHorizon !== 'undefined') rawProb = MultiHorizon.predictEnsemble(features).prob;
+  else rawProb = ModelStore.load().predict(features).prob;
+
+  let prob = rawProb;
+  if (typeof Calibrator !== 'undefined') {
+    const params = Calibrator._loadParams();
+    if (params) prob = Calibrator.calibrate(rawProb);
+  }
+  // OOD pull
+  if (oodScore > 0.3) prob = 0.5 + (prob - 0.5) * (1 - oodScore);
+
+  const conviction = Math.abs(prob - 0.5);
+  if (conviction < 0.10) return null;
+
+  let atr = q.dayHigh && q.dayLow ? (q.dayHigh - q.dayLow) : q.last * 0.015;
+  const side = prob >= 0.5 ? 'long' : 'short';
+  const entry = q.last;
+  const stop = side === 'long' ? entry - 1.5 * atr : entry + 1.5 * atr;
+  const target = side === 'long' ? entry + 3 * atr : entry - 3 * atr;
+  const risk = Math.abs(entry - stop);
+  const reward = Math.abs(target - entry);
+  const rr = risk > 0 ? reward / risk : 0;
+  if (rr < 1.5) return null;
+
+  return { sym, q, features, oodScore, prob, rawProb, conviction, side, entry, stop, target, risk, reward, rr, atr };
+}
+
+function render() {
+  if (typeof QUOTES === 'undefined') { setTimeout(render, 500); return; }
+  const wrap = document.getElementById('bet');
+  const account = parseFloat(document.getElementById('account').value) || 10000;
+  const riskPct = parseFloat(document.getElementById('risk').value) / 100 || 0.01;
+  const riskDollars = account * riskPct;
+
+  // Step 1: selectivity gate
+  let selectivity = null;
+  if (typeof TradeSelectivity !== 'undefined') selectivity = TradeSelectivity.compute();
+  if (selectivity && selectivity.tier === 'SIT_OUT') {
+    wrap.innerHTML = '<div class="bet-card sit-out">'
+      + '<div style="font-size:64px;line-height:1;">🛑</div>'
+      + '<div style="font-size:42px;font-weight:800;margin-top:18px;letter-spacing:2px;color:var(--yellow);">NO BET TODAY</div>'
+      + '<div style="font-size:16px;color:var(--text-secondary);margin-top:18px;max-width:600px;margin-left:auto;margin-right:auto;line-height:1.6;">' + selectivity.reasoning + '</div>'
+      + '<div style="font-size:12px;color:var(--text-muted);margin-top:18px;font-family:var(--font-mono);">Selectivity score: ' + selectivity.score + ' / 100</div>'
+      + '</div>';
+    return;
+  }
+
+  // Step 2: rank all
+  const candidates = UNIVERSE.map(rankOne).filter(Boolean);
+  if (candidates.length === 0) {
+    wrap.innerHTML = '<div class="bet-card sit-out">'
+      + '<div style="font-size:64px;line-height:1;">🌊</div>'
+      + '<div style="font-size:42px;font-weight:800;margin-top:18px;letter-spacing:2px;color:var(--yellow);">NO QUALIFYING SETUP</div>'
+      + '<div style="font-size:16px;color:var(--text-secondary);margin-top:18px;max-width:600px;margin-left:auto;margin-right:auto;line-height:1.6;">No symbol crossed the conviction threshold with valid R:R and non-OOD features. Brain is sitting out this minute. Refresh in a few minutes.</div>'
+      + '</div>';
+    return;
+  }
+  candidates.sort((a, b) => b.conviction - a.conviction);
+  const top = candidates[0];
+
+  // Position sizing: shares = riskDollars / risk-per-share
+  const shares = Math.max(1, Math.floor(riskDollars / top.risk));
+  const positionValue = shares * top.entry;
+  const expectedValue = (top.prob * top.reward - (1 - top.prob) * top.risk) * shares;
+  const expectedR = top.prob * (top.reward / top.risk) - (1 - top.prob);
+
+  // Selectivity hint for the card
+  let modeNote = '';
+  if (selectivity && selectivity.tier === 'SELECTIVE') {
+    modeNote = '<div style="background:rgba(245,158,11,0.15);color:var(--yellow);padding:8px 16px;border-radius:20px;display:inline-block;font-size:11px;font-weight:700;margin-bottom:18px;text-transform:uppercase;letter-spacing:1px;">⚠ SELECTIVE — consider half size · score ' + selectivity.score + '/100</div>';
+  }
+
+  wrap.innerHTML = '<div class="bet-card ' + top.side + '">'
+    + (modeNote ? '<div>' + modeNote + '</div>' : '')
+    + '<div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:1.5px;font-weight:700;">The brain says</div>'
+    + '<div class="sym" style="color:' + (top.side === 'long' ? 'var(--green)' : 'var(--red)') + ';margin-top:8px;">' + top.sym + '</div>'
+    + '<div class="side-pill ' + top.side + '">' + top.side.toUpperCase() + '</div>'
+    + '<div style="font-size:14px;color:var(--text-secondary);margin-top:18px;">Calibrated probability: <strong style="font-family:var(--font-mono);font-size:24px;color:var(--accent);">' + (top.prob * 100).toFixed(0) + '%</strong></div>'
+    + '<div class="levels-grid">'
+      + '<div class="level"><div class="lbl">Entry</div><div class="val">$' + top.entry.toFixed(2) + '</div></div>'
+      + '<div class="level"><div class="lbl">Stop</div><div class="val" style="color:var(--red);">$' + top.stop.toFixed(2) + '</div></div>'
+      + '<div class="level"><div class="lbl">Target</div><div class="val" style="color:var(--green);">$' + top.target.toFixed(2) + '</div></div>'
+    + '</div>'
+    + '<div class="size-block">'
+      + '<div class="lbl">Position size (' + (riskPct * 100).toFixed(1) + '% risk on $' + account.toLocaleString() + ')</div>'
+      + '<div class="big-size">' + shares.toLocaleString() + ' shares · $' + Math.round(positionValue).toLocaleString() + '</div>'
+      + '<div style="font-size:11px;color:var(--text-muted);margin-top:6px;font-family:var(--font-mono);">Risk: $' + (shares * top.risk).toFixed(0) + ' · Reward: $' + (shares * top.reward).toFixed(0) + ' · R:R ' + top.rr.toFixed(2) + ':1</div>'
+    + '</div>'
+    + '</div>'
+
+    + '<div class="evidence-grid mb-24">'
+      + '<div class="evidence-tile"><div class="lbl">Expected value</div><div class="val" style="color:' + (expectedValue > 0 ? 'var(--green)' : 'var(--red)') + ';">' + (expectedValue >= 0 ? '+' : '-') + '$' + Math.abs(expectedValue).toFixed(0) + '</div></div>'
+      + '<div class="evidence-tile"><div class="lbl">EV per share (R)</div><div class="val" style="color:' + (expectedR > 0 ? 'var(--green)' : 'var(--red)') + ';">' + (expectedR >= 0 ? '+' : '') + expectedR.toFixed(3) + 'R</div></div>'
+      + '<div class="evidence-tile"><div class="lbl">OOD score</div><div class="val" style="color:' + (top.oodScore < 0.3 ? 'var(--green)' : top.oodScore < 0.5 ? 'var(--yellow)' : 'var(--red)') + ';">' + (top.oodScore * 100).toFixed(0) + '%</div></div>'
+      + '<div class="evidence-tile"><div class="lbl">Selectivity</div><div class="val">' + (selectivity ? selectivity.score : '—') + '/100</div></div>'
+    + '</div>'
+
+    + '<div style="text-align:center;font-size:13px;color:var(--text-secondary);line-height:1.7;margin-bottom:24px;">'
+      + (expectedValue > 0
+        ? '✓ <strong style="color:var(--green);">Positive expected value.</strong> The math says this trade pays out over time if the probability is honest.'
+        : '⚠ <strong style="color:var(--red);">Negative expected value.</strong> Even at this probability, the R:R doesn\'t justify the trade. Pass.')
+    + '</div>';
+}
+
+['account', 'risk'].forEach(id => document.getElementById(id).addEventListener('input', render));
+render();
+setInterval(render, 5000);
+window.addEventListener('bpleone:continuous-cycle', render);
+</script>
+</body>
+</html>
