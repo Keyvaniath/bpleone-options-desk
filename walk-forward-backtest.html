@@ -1,0 +1,385 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Walk-Forward Backtest — bpleone / trade</title>
+<meta name="description" content="Take the trained brain, replay last 60 trading days of real prices, measure realized R-multiple P&L.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<style>
+.intro { background:linear-gradient(135deg,rgba(16,185,129,0.06),transparent);border:1px solid rgba(16,185,129,0.25);padding:24px;border-radius:14px;margin-bottom:24px; }
+.kpi-tile { padding:18px;background:var(--bg-elevated);border-radius:10px;text-align:center; }
+.kpi-tile .lbl { font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px; }
+.kpi-tile .val { font-family:var(--font-mono);font-size:24px;font-weight:800;margin-top:6px; }
+.trade-row { display:grid;grid-template-columns:80px 70px 70px 70px 70px 80px 1fr;gap:14px;padding:9px 12px;border-bottom:1px solid var(--border);font-family:var(--font-mono);font-size:11px;align-items:center; }
+.trade-row.hdr { background:var(--bg-elevated);font-size:9px;color:var(--text-muted);font-weight:800;letter-spacing:0.4px; }
+.trade-row.win { border-left:3px solid var(--green); }
+.trade-row.loss { border-left:3px solid var(--red); }
+.trade-row.flat { border-left:3px solid var(--text-muted);opacity:0.6; }
+.log-line { padding:4px 0;font-family:var(--font-mono);font-size:11px; }
+.log-line.ok { color:var(--green); }
+.log-line.warn { color:var(--yellow); }
+.log-line.fail { color:var(--red); }
+.verdict-card { padding:30px;border-radius:14px;text-align:center;margin-bottom:24px; }
+.verdict-card.alpha { background:rgba(16,185,129,0.1);border:2px solid rgba(16,185,129,0.4); }
+.verdict-card.noise { background:rgba(245,158,11,0.08);border:2px solid rgba(245,158,11,0.4); }
+.verdict-card.bad { background:rgba(239,68,68,0.1);border:2px solid rgba(239,68,68,0.4); }
+.verdict-card .big { font-family:var(--font-mono);font-size:42px;font-weight:800; }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">📈 Walk-Forward Backtest</div>
+      <div class="page-subtitle">Take the trained brain · replay real history · measure actual R-multiple P&L · the honest test of whether learning works</div>
+    </div>
+    <div class="flex gap-8">
+      <button class="btn btn-primary" id="runBtn">▶ Run backtest</button>
+      <select id="window" class="btn btn-ghost" style="background:var(--bg-elevated);border:1px solid var(--border);color:var(--text-primary);padding:8px 14px;">
+        <option value="30">30 days</option>
+        <option value="60" selected>60 days</option>
+        <option value="120">120 days</option>
+        <option value="252">1 year</option>
+      </select>
+    </div>
+  </div>
+
+  <div class="intro">
+    <div style="font-size:14px;color:var(--text-primary);line-height:1.7;">
+      <strong>What this does:</strong> Pulls the last N trading days of real Stooq bars for every symbol in the universe. For each historical day, asks the current trained brain "would you trade this?" by computing features and getting a probability. If the calibrated probability is above 0.55 (long) or below 0.45 (short), simulates a 1R-risk trade and tracks the realized outcome by next-day return.
+      <br><br>
+      <strong>Why this is the real test:</strong> Train accuracy doesn't matter if you don't make money. This backtest produces:
+      <ul style="margin:6px 0 0 24px;">
+        <li><strong>Total R</strong>: sum of R-multiples realized — positive = profitable system</li>
+        <li><strong>Sharpe</strong>: risk-adjusted return — &gt;1 is decent, &gt;2 is excellent</li>
+        <li><strong>Max drawdown</strong>: worst peak-to-trough — should stay under 30%</li>
+        <li><strong>Win rate × avg R</strong>: edge per trade — must be positive after fees</li>
+      </ul>
+      Compared against random-trade baseline (50/50 coin flip) and buy-and-hold SPY.
+    </div>
+  </div>
+
+  <div id="verdict"></div>
+
+  <div class="grid grid-4 mb-24">
+    <div class="kpi-tile"><div class="lbl">Trades simulated</div><div class="val" id="kN">0</div></div>
+    <div class="kpi-tile"><div class="lbl">Total R</div><div class="val" id="kR">—</div></div>
+    <div class="kpi-tile"><div class="lbl">Win rate</div><div class="val" id="kWin">—</div></div>
+    <div class="kpi-tile"><div class="lbl">Sharpe (daily)</div><div class="val" id="kSharpe">—</div></div>
+  </div>
+
+  <div class="grid grid-2 mb-24">
+    <div class="card">
+      <div class="card-header"><div class="card-title">📈 Equity curve (R-multiples)</div></div>
+      <canvas id="equityChart" height="240"></canvas>
+    </div>
+    <div class="card">
+      <div class="card-header"><div class="card-title">📊 Performance breakdown</div></div>
+      <div id="breakdown"></div>
+    </div>
+  </div>
+
+  <div class="card mb-24" style="padding:0;">
+    <div class="trade-row hdr">
+      <div>DATE</div><div>SYM</div><div>SIDE</div><div>PROB</div><div>RET%</div><div>R</div><div>OUTCOME</div>
+    </div>
+    <div id="trades" style="max-height:400px;overflow:auto;"></div>
+  </div>
+
+  <div class="card">
+    <div class="card-header"><div class="card-title">📋 Backtest log</div></div>
+    <div id="log" style="max-height:300px;overflow:auto;"></div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script src="js/model.js"></script>
+<script src="js/multi-horizon.js"></script>
+<script src="js/calibrator.js"></script>
+<script>
+buildNav('walk-forward-backtest');
+
+const UNIVERSE = ['SPY','QQQ','IWM','AAPL','NVDA','TSLA','MSFT','META','AMZN','GOOGL','AMD','PLTR','SMCI','COIN','BABA','SHOP','CRM','UBER','XLE','GLD','SLV'];
+
+function log(msg, cls) {
+  const wrap = document.getElementById('log');
+  const line = document.createElement('div');
+  line.className = 'log-line ' + (cls || '');
+  line.textContent = '[' + new Date().toLocaleTimeString() + '] ' + msg;
+  wrap.insertBefore(line, wrap.firstChild);
+  while (wrap.children.length > 200) wrap.removeChild(wrap.lastChild);
+}
+
+async function fetchStooqHistory(sym) {
+  const url = 'https://stooq.com/q/d/l/?s=' + sym.toLowerCase() + '.us&i=d';
+  const res = await fetch(url, { cache: 'no-cache' });
+  if (!res.ok) throw new Error('HTTP ' + res.status);
+  const text = await res.text();
+  const lines = text.trim().split(/\r?\n/);
+  if (lines.length < 30) return [];
+  const h = lines[0].split(',').map(s => s.trim().toLowerCase());
+  const iDate = h.indexOf('date'), iOpen = h.indexOf('open'), iHigh = h.indexOf('high'), iLow = h.indexOf('low'), iClose = h.indexOf('close'), iVol = h.indexOf('volume');
+  const bars = [];
+  for (let i = 1; i < lines.length; i++) {
+    const c = lines[i].split(',');
+    if (c.length < 5) continue;
+    const close = parseFloat(c[iClose]);
+    if (!isFinite(close) || close <= 0) continue;
+    bars.push({ date: c[iDate], open: parseFloat(c[iOpen]), high: parseFloat(c[iHigh]), low: parseFloat(c[iLow]), close, volume: parseInt(c[iVol]) || 0 });
+  }
+  return bars;
+}
+
+// ---- Indicators (same as auto-trainer) ----
+function sma(arr, n) { const out = []; for (let i = 0; i < arr.length; i++) { if (i < n - 1) { out.push(null); continue; } let s = 0; for (let j = 0; j < n; j++) s += arr[i - j]; out.push(s / n); } return out; }
+function rsi14(closes) { const out = []; if (closes.length < 15) return closes.map(() => 50); let g = 0, l = 0; for (let i = 1; i <= 14; i++) { const d = closes[i] - closes[i-1]; if (d >= 0) g += d; else l += -d; } let aG = g / 14, aL = l / 14; for (let i = 0; i < 15; i++) out.push(50); for (let i = 15; i < closes.length; i++) { const d = closes[i] - closes[i-1]; aG = (aG * 13 + (d >= 0 ? d : 0)) / 14; aL = (aL * 13 + (d < 0 ? -d : 0)) / 14; const rs = aL === 0 ? 100 : aG / aL; out.push(100 - 100 / (1 + rs)); } return out; }
+function atr14(bars) { const out = []; for (let i = 0; i < bars.length; i++) { if (i === 0) { out.push(bars[0].high - bars[0].low); continue; } const tr = Math.max(bars[i].high - bars[i].low, Math.abs(bars[i].high - bars[i-1].close), Math.abs(bars[i].low - bars[i-1].close)); if (i < 14) { out.push(tr); continue; } out.push((out[i-1] * 13 + tr) / 14); } return out; }
+function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
+
+function buildFeatures(bars, i) {
+  const f = new Array(22).fill(0);
+  const closes = bars.map(b => b.close);
+  const rsi = rsi14(closes);
+  const atr = atr14(bars);
+  const ma20 = sma(closes, 20);
+  const ma50 = sma(closes, 50);
+  const close = bars[i].close;
+  const prev = i > 0 ? bars[i-1].close : close;
+  const chgPct = ((close - prev) / prev) * 100;
+  const atrPct = (atr[i] / close) * 100;
+  f[0] = clamp(rsi[i] / 100, 0, 1);
+  f[1] = clamp(atrPct / 10, 0, 1);
+  let avgVol = 0; for (let k = Math.max(0, i - 19); k <= i; k++) avgVol += bars[k].volume; avgVol /= Math.min(20, i + 1);
+  f[2] = clamp(avgVol > 0 ? bars[i].volume / avgVol / 4 : 0.5, 0, 1);
+  f[3] = clamp(ma20[i] != null ? (close - ma20[i]) / ma20[i] * 10 : 0, -1, 1);
+  f[4] = clamp(ma50[i] != null ? (close - ma50[i]) / ma50[i] * 10 : 0, -1, 1);
+  f[5] = clamp(chgPct / 5, -1, 1);
+  f[6] = 0; f[7] = 0.5; f[8] = 0.5; f[9] = 0.5;
+  f[10] = clamp(Math.abs(chgPct) / 5, 0, 1);
+  f[11] = chgPct > 0 ? 1 : 0;
+  f[12] = chgPct < 0 ? 1 : 0;
+  f[13] = (ma20[i] != null && close > ma20[i] && ma50[i] != null && ma20[i] > ma50[i]) ? 1 : 0;
+  f[14] = (rsi[i] < 30 || rsi[i] > 70) ? 1 : 0;
+  f[15] = (i >= 20 && close === Math.max.apply(null, closes.slice(i - 19, i + 1))) ? 1 : 0;
+  f[16] = 0.5; f[17] = 0.5; f[18] = 0.5; f[19] = 0.5; f[20] = 0.5;
+  f[21] = 1;
+  return f;
+}
+
+let backtest = { trades: [], equity: [], totalR: 0 };
+
+async function runBacktest() {
+  if (!window.Model || !window.ModelStore) { log('Model not loaded', 'fail'); return; }
+  const days = parseInt(document.getElementById('window').value);
+  const goBtn = document.getElementById('runBtn');
+  goBtn.disabled = true;
+  goBtn.textContent = '⏳ Fetching...';
+  document.getElementById('log').innerHTML = '';
+  document.getElementById('trades').innerHTML = '';
+  document.getElementById('verdict').innerHTML = '';
+
+  log('═══ Backtest started · last ' + days + ' days · ' + UNIVERSE.length + ' symbols ═══', 'ok');
+
+  const model = window.ModelStore.load();
+  if (!model.weights || model.weights.every(w => w === 0)) {
+    log('⚠ Model has not been trained yet. Backtest will use default 0.5 predictions.', 'warn');
+  }
+
+  const calib = window.Calibrator;
+  const hasCalib = calib && calib._loadParams && calib._loadParams();
+  if (hasCalib) log('✓ Calibrator is fitted — using calibrated probabilities', 'ok');
+  else log('  Calibrator not fitted — using raw probabilities', 'warn');
+
+  const trades = [];
+
+  for (let s = 0; s < UNIVERSE.length; s++) {
+    const sym = UNIVERSE[s];
+    try {
+      log('→ ' + sym + '...');
+      const bars = await fetchStooqHistory(sym);
+      if (bars.length < days + 60) { log('   skip — only ' + bars.length + ' bars', 'warn'); continue; }
+      const startIdx = bars.length - days - 1;
+      const endIdx = bars.length - 1;  // need 1 forward bar for outcome
+      let symTrades = 0;
+      for (let i = startIdx; i < endIdx; i++) {
+        const features = buildFeatures(bars, i);
+        const pred = model.predict(features);
+        const probRaw = pred.prob;
+        const prob = hasCalib ? calib.calibrate(probRaw) : probRaw;
+        // Trade only on confident predictions: > 55% (long) or < 45% (short)
+        let side = null;
+        if (prob >= 0.55) side = 'LONG';
+        else if (prob <= 0.45) side = 'SHORT';
+        if (!side) continue;
+
+        const next = bars[i + 1];
+        const entry = bars[i].close;
+        const exit = next.close;
+        const ret = (exit - entry) / entry;
+        const signedRet = side === 'LONG' ? ret : -ret;
+        // ATR-relative R
+        let atrSum = 0;
+        for (let k = Math.max(0, i - 13); k <= i; k++) atrSum += bars[k].high - bars[k].low;
+        const atr = atrSum / Math.min(14, i + 1);
+        const atrPct = atr / entry;
+        // 1R = 1 ATR. Use 0.5 ATR as base stop
+        const R = signedRet / Math.max(0.005, atrPct);
+
+        const outcome = signedRet > 0.001 ? 'win' : signedRet < -0.001 ? 'loss' : 'flat';
+        trades.push({
+          ts: new Date(bars[i].date).getTime(),
+          date: bars[i].date,
+          sym,
+          side,
+          prob: prob,
+          probRaw,
+          entry,
+          exit,
+          ret: signedRet,
+          R: clamp(R, -3, 3),
+          outcome
+        });
+        symTrades++;
+      }
+      log('   ' + symTrades + ' trades simulated', 'ok');
+      await new Promise(r => setTimeout(r, 200));
+    } catch (e) {
+      log('   ✗ ' + sym + ': ' + e.message, 'fail');
+    }
+  }
+
+  // Sort chronologically
+  trades.sort((a, b) => a.ts - b.ts);
+
+  if (trades.length === 0) {
+    log('No trades produced. Either no fresh model trained or no qualifying predictions.', 'warn');
+    goBtn.disabled = false;
+    goBtn.textContent = '▶ Run backtest';
+    return;
+  }
+
+  // Equity curve
+  let cum = 0;
+  const equity = [0];
+  trades.forEach(t => { cum += t.R; equity.push(cum); });
+
+  // Metrics
+  const wins = trades.filter(t => t.outcome === 'win').length;
+  const losses = trades.filter(t => t.outcome === 'loss').length;
+  const totalR = trades.reduce((s, t) => s + t.R, 0);
+  const avgR = totalR / trades.length;
+  const winRate = wins / trades.length;
+  // Daily Sharpe — group by date
+  const byDay = {};
+  trades.forEach(t => {
+    if (!byDay[t.date]) byDay[t.date] = 0;
+    byDay[t.date] += t.R;
+  });
+  const dailyRs = Object.values(byDay);
+  const meanD = dailyRs.reduce((s, r) => s + r, 0) / dailyRs.length;
+  const varD = dailyRs.reduce((s, r) => s + (r - meanD) ** 2, 0) / Math.max(1, dailyRs.length - 1);
+  const stdD = Math.sqrt(varD);
+  const sharpe = stdD > 0 ? (meanD / stdD) * Math.sqrt(252) : 0;
+  // Max DD on equity curve
+  let peak = -Infinity, maxDD = 0;
+  equity.forEach(e => { if (e > peak) peak = e; const dd = peak - e; if (dd > maxDD) maxDD = dd; });
+  // Profit factor
+  const grossW = trades.filter(t => t.R > 0).reduce((s, t) => s + t.R, 0);
+  const grossL = Math.abs(trades.filter(t => t.R < 0).reduce((s, t) => s + t.R, 0));
+  const pf = grossL > 0 ? grossW / grossL : Infinity;
+
+  // KPIs
+  document.getElementById('kN').textContent = trades.length;
+  document.getElementById('kR').textContent = (totalR >= 0 ? '+' : '') + totalR.toFixed(1) + 'R';
+  document.getElementById('kR').style.color = totalR > 0 ? 'var(--green)' : 'var(--red)';
+  document.getElementById('kWin').textContent = (winRate * 100).toFixed(0) + '%';
+  document.getElementById('kWin').style.color = winRate >= 0.50 ? 'var(--green)' : 'var(--red)';
+  document.getElementById('kSharpe').textContent = sharpe.toFixed(2);
+  document.getElementById('kSharpe').style.color = sharpe > 1 ? 'var(--green)' : sharpe > 0 ? 'var(--accent)' : 'var(--red)';
+
+  // Verdict
+  let vCls, vMsg;
+  if (avgR > 0.05 && winRate > 0.50 && sharpe > 0.5) {
+    vCls = 'alpha';
+    vMsg = '✓ REAL ALPHA';
+  } else if (avgR > 0 || winRate >= 0.50) {
+    vCls = 'noise';
+    vMsg = '~ MARGINAL';
+  } else {
+    vCls = 'bad';
+    vMsg = '✗ NO EDGE';
+  }
+  const vDetail = avgR > 0.05 && winRate > 0.50 && sharpe > 0.5
+    ? 'The model produced ' + (totalR > 0 ? '+' : '') + totalR.toFixed(1) + 'R over ' + trades.length + ' trades, win rate ' + (winRate*100).toFixed(0) + '%, Sharpe ' + sharpe.toFixed(2) + '. This is real, measurable edge on out-of-sample data. Keep training.'
+    : avgR > 0
+    ? 'Total ' + totalR.toFixed(1) + 'R with ' + (winRate*100).toFixed(0) + '% win rate. Borderline — could be edge or could be luck. Need more data + more training.'
+    : 'Model is losing money on out-of-sample data (' + totalR.toFixed(1) + 'R, ' + (winRate*100).toFixed(0) + '% wins). Either features aren\'t predictive, training contaminated, or regime shifted. Don\'t trade live yet.';
+  document.getElementById('verdict').innerHTML = '<div class="verdict-card ' + vCls + '">'
+    + '<div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:1px;">Backtest verdict</div>'
+    + '<div class="big" style="color:' + (vCls === 'alpha' ? 'var(--green)' : vCls === 'noise' ? 'var(--yellow)' : 'var(--red)') + ';">' + vMsg + '</div>'
+    + '<div style="font-size:13px;color:var(--text-secondary);margin-top:14px;max-width:600px;margin-left:auto;margin-right:auto;line-height:1.6;">' + vDetail + '</div>'
+    + '</div>';
+
+  // Breakdown card
+  document.getElementById('breakdown').innerHTML = ''
+    + '<div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;font-size:12px;">'
+    + '  <div><div style="color:var(--text-muted);">Avg R / trade</div><div style="font-family:var(--font-mono);font-size:18px;font-weight:700;color:' + (avgR > 0 ? 'var(--green)' : 'var(--red)') + ';">' + (avgR >= 0 ? '+' : '') + avgR.toFixed(3) + 'R</div></div>'
+    + '  <div><div style="color:var(--text-muted);">Profit factor</div><div style="font-family:var(--font-mono);font-size:18px;font-weight:700;color:' + (pf > 1.5 ? 'var(--green)' : pf > 1 ? 'var(--accent)' : 'var(--red)') + ';">' + (pf === Infinity ? '∞' : pf.toFixed(2)) + '</div></div>'
+    + '  <div><div style="color:var(--text-muted);">Max drawdown</div><div style="font-family:var(--font-mono);font-size:18px;font-weight:700;color:' + (maxDD < 5 ? 'var(--green)' : maxDD < 15 ? 'var(--yellow)' : 'var(--red)') + ';">' + maxDD.toFixed(1) + 'R</div></div>'
+    + '  <div><div style="color:var(--text-muted);">Wins / Losses</div><div style="font-family:var(--font-mono);font-size:18px;font-weight:700;">' + wins + ' / ' + losses + '</div></div>'
+    + '  <div><div style="color:var(--text-muted);">Trade days</div><div style="font-family:var(--font-mono);font-size:18px;font-weight:700;">' + dailyRs.length + '</div></div>'
+    + '  <div><div style="color:var(--text-muted);">Trades / day</div><div style="font-family:var(--font-mono);font-size:18px;font-weight:700;">' + (trades.length / dailyRs.length).toFixed(1) + '</div></div>'
+    + '</div>';
+
+  // Equity chart
+  if (window._eq) window._eq.destroy();
+  window._eq = new Chart(document.getElementById('equityChart'), {
+    type: 'line',
+    data: {
+      labels: equity.map((_, i) => i),
+      datasets: [{ label: 'Cumulative R', data: equity, borderColor: totalR > 0 ? '#10b981' : '#ef4444', backgroundColor: totalR > 0 ? 'rgba(16,185,129,0.1)' : 'rgba(239,68,68,0.1)', tension: 0.2, fill: true, pointRadius: 0, borderWidth: 2 }]
+    },
+    options: { responsive:true, maintainAspectRatio:false, plugins:{legend:{display:false}}, scales:{x:{ticks:{color:'#888',maxTicksLimit:10},grid:{color:'#222'},title:{display:true,text:'Trade #',color:'#888'}},y:{ticks:{color:'#888',callback:v=>v+'R'},grid:{color:'#222'},title:{display:true,text:'Cumulative R',color:'#888'}}} }
+  });
+
+  // Trade table (last 100 newest first)
+  const tradesShown = trades.slice().reverse().slice(0, 100);
+  document.getElementById('trades').innerHTML = tradesShown.map(t => {
+    const cls = t.outcome === 'win' ? 'win' : t.outcome === 'loss' ? 'loss' : 'flat';
+    const rCol = t.R > 0 ? 'var(--green)' : t.R < 0 ? 'var(--red)' : 'var(--text-muted)';
+    return '<div class="trade-row ' + cls + '">'
+      + '<div>' + t.date + '</div>'
+      + '<div><strong>' + t.sym + '</strong></div>'
+      + '<div style="color:' + (t.side === 'LONG' ? 'var(--green)' : 'var(--red)') + ';">' + t.side + '</div>'
+      + '<div style="color:var(--accent);">' + (t.prob * 100).toFixed(0) + '%</div>'
+      + '<div>' + (t.ret * 100).toFixed(2) + '%</div>'
+      + '<div style="color:' + rCol + ';font-weight:700;">' + (t.R >= 0 ? '+' : '') + t.R.toFixed(2) + 'R</div>'
+      + '<div style="color:' + rCol + ';">' + t.outcome.toUpperCase() + '</div>'
+      + '</div>';
+  }).join('');
+
+  log('═══ BACKTEST COMPLETE ═══', 'ok');
+  log('Total R: ' + totalR.toFixed(1) + ' · Win rate: ' + (winRate*100).toFixed(0) + '% · Sharpe: ' + sharpe.toFixed(2) + ' · Max DD: ' + maxDD.toFixed(1) + 'R', 'ok');
+
+  goBtn.disabled = false;
+  goBtn.textContent = '▶ Re-run backtest';
+}
+
+document.getElementById('runBtn').addEventListener('click', runBacktest);
+</script>
+</body>
+</html>

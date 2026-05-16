@@ -82,6 +82,15 @@
       };
       try {
         const features = FeatureExtractor.extract(finding);
+        // OUTLIER DETECTION: update running feature stats + check OOD
+        // before using this prediction. OOD inputs reduce confidence.
+        let oodScore = 0;
+        try {
+          if (typeof OutlierDetector !== 'undefined') {
+            OutlierDetector.update(features);
+            oodScore = OutlierDetector.oodScore(features);
+          }
+        } catch (e) {}
         // Per-horizon predictions if multi-horizon is loaded
         let ensemble = null;
         try {
@@ -90,6 +99,10 @@
           }
         } catch (e) {}
         const pred = model.predict(features);
+        // If input is OOD, pull confidence toward 0.5 (no signal)
+        if (oodScore > 0.5) {
+          pred.prob = 0.5 + (pred.prob - 0.5) * (1 - oodScore);
+        }
         const journalEntry = {
           id: 'c-' + Date.now() + '-' + sym,
           ts: Date.now(),
@@ -97,12 +110,15 @@
           entryPx: q.last,
           features: features,
           predProb: pred.prob,
+          oodScore: oodScore,
           priceSource: q.priceSource,
           regime: regimeInfo.name,
           regimeVix: regimeInfo.vix,
           regimeSpyChg: regimeInfo.spyChg,
           resolved: { short: false, mid: false, long: false }
         };
+        // Persist the OOD assessment for trending dashboards
+        try { if (typeof OutlierDetector !== 'undefined') OutlierDetector.logPrediction(features, pred.prob); } catch (e) {}
         if (ensemble) {
           journalEntry.ensembleProb = ensemble.prob;
           journalEntry.horizonProbs = ensemble.byHorizon;

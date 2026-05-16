@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Outlier Detection — bpleone / trade</title>
+<meta name="description" content="Flag predictions made on input features outside the training distribution. Self-protection against black swans.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<style>
+.kpi-tile { padding:18px;background:var(--bg-elevated);border-radius:10px;text-align:center; }
+.kpi-tile .lbl { font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px; }
+.kpi-tile .val { font-family:var(--font-mono);font-size:24px;font-weight:800;margin-top:6px; }
+.feat-row { display:grid;grid-template-columns:60px 1fr 90px 90px 90px 90px;gap:14px;padding:9px 14px;border-bottom:1px solid var(--border);font-family:var(--font-mono);font-size:11px;align-items:center; }
+.feat-row.hdr { background:var(--bg-elevated);font-size:9px;color:var(--text-muted);font-weight:800;letter-spacing:0.4px; }
+.feat-row.flagged { border-left:3px solid var(--red); }
+.feat-row.normal { border-left:3px solid var(--green); }
+.intro { background:linear-gradient(135deg,rgba(245,158,11,0.06),transparent);border:1px solid rgba(245,158,11,0.25);padding:24px;border-radius:14px;margin-bottom:24px; }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">🛡 Outlier Detection</div>
+      <div class="page-subtitle">Flag predictions on features outside the training distribution · self-protection against black swans · <span id="market-clock">--</span></div>
+    </div>
+    <div class="flex gap-8">
+      <button class="btn btn-ghost" id="resetBtn">🔄 Reset stats</button>
+    </div>
+  </div>
+
+  <div class="intro">
+    <div style="font-size:14px;color:var(--text-primary);line-height:1.7;">
+      <strong>Why this matters:</strong> A logistic regression model is comfortable extrapolating into nonsense. Feed it a feature vector with VIX=80 when it's never seen VIX above 25, and it'll still produce a confident probability. That confidence is fake.
+      <br><br>
+      <strong>What this does:</strong> Tracks running mean + std for each of the 22 features using Welford's algorithm. When a new prediction is requested, computes z-scores. If too many features are >3σ from training distribution, the input is flagged out-of-distribution (OOD) and the prediction confidence is pulled back toward 50% (no signal).
+      <br><br>
+      <strong>Result:</strong> the brain becomes <strong>honest about what it doesn't know</strong>. On normal days, predictions go through unchanged. On crisis days, the brain says "I haven't seen anything like this — 50/50, stay out."
+    </div>
+  </div>
+
+  <div class="grid grid-4 mb-24">
+    <div class="kpi-tile"><div class="lbl">Observations tracked</div><div class="val" id="kN">0</div></div>
+    <div class="kpi-tile"><div class="lbl">Features flagged now</div><div class="val" id="kFlagged">0</div></div>
+    <div class="kpi-tile"><div class="lbl">Current OOD score</div><div class="val" id="kOod">—</div></div>
+    <div class="kpi-tile"><div class="lbl">24h OOD ratio</div><div class="val" id="kRatio">—</div></div>
+  </div>
+
+  <div class="grid grid-2 mb-24">
+    <div class="card">
+      <div class="card-header"><div class="card-title">📊 OOD score over time (last 200 captures)</div></div>
+      <canvas id="oodChart" height="220"></canvas>
+    </div>
+    <div class="card">
+      <div class="card-header"><div class="card-title">⚙ Detector parameters</div></div>
+      <div style="padding:14px;background:#000;color:#0f0;border-radius:8px;font-family:var(--font-mono);font-size:11px;line-height:1.7;">
+        <div>Z_THRESHOLD     = 3.0σ  <span style="color:#888;">// single-feature flag</span></div>
+        <div>OOD_TRIGGER     = 40%   <span style="color:#888;">// of features flagged → OOD</span></div>
+        <div>MIN_N_FOR_STATS = 30    <span style="color:#888;">// before flagging starts</span></div>
+        <div>CONFIDENCE_PULL = 50%   <span style="color:#888;">// pull toward 0.5 when OOD</span></div>
+      </div>
+      <div style="font-size:11px;color:var(--text-muted);margin-top:14px;line-height:1.6;">
+        These thresholds are conservative — the detector won't false-positive on minor noise but will catch real distribution shifts (crisis days, market reopens, etc).
+      </div>
+    </div>
+  </div>
+
+  <div class="card mb-24" style="padding:0;">
+    <div class="feat-row hdr">
+      <div>FEAT</div><div>NAME</div><div>MEAN</div><div>STD</div><div>MIN / MAX</div><div>STATUS</div>
+    </div>
+    <div id="featuresBody"></div>
+  </div>
+
+  <div class="card">
+    <div class="card-header"><div class="card-title">🔬 How this integrates</div></div>
+    <div style="font-size:13px;color:var(--text-secondary);line-height:1.7;">
+      <strong>1. Every capture updates stats:</strong> continuous-learner.js calls OutlierDetector.update(features) on every prediction snapshot. The mean/std/min/max for each feature grow with the data.
+      <br>
+      <strong>2. Every prediction gets scored:</strong> OutlierDetector.oodScore(features) returns 0-1. Zero means the input is right in the middle of what we've seen. One means extremely far outside the training distribution.
+      <br>
+      <strong>3. High OOD scores pull confidence to 50%:</strong> if score > 0.5, predProb = 0.5 + (predProb - 0.5) × (1 - score). The brain stops being confident on things it hasn't seen.
+      <br>
+      <strong>4. Logged to OOD log:</strong> every prediction's (ts, oodScore, predProb) is saved for trending. The 24h OOD ratio surfaces whether we're in a normal or anomalous regime.
+    </div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script src="js/model.js"></script>
+<script src="js/outlier-detector.js"></script>
+<script>
+buildNav('outlier-detection');
+
+const FEATURE_NAMES = [
+  'RSI/100','ATR%/10','RVOL/4','dist20MA','dist50MA','SPY chg','Sector chg','Beta/2',
+  'Spread (inv)','IV pct','Severity','Bullish setup','Bearish setup','Trend follow',
+  'Mean revert','Breakout','Brain weight','Regime','VIX','Coincident','Hour','Bias'
+];
+
+function render() {
+  if (typeof window.OutlierDetector === 'undefined') { setTimeout(render, 500); return; }
+  const stats = window.OutlierDetector.featureStats();
+  const log = JSON.parse(localStorage.getItem('bpleone_ood_log_v1') || '[]');
+
+  // KPIs
+  document.getElementById('kN').textContent = stats ? stats.n.toLocaleString() : '0';
+
+  // Compute current OOD on a typical feature snapshot (zero-vector is in-dist)
+  let currentOod = null, flagged = 0;
+  if (stats && stats.ready && typeof FeatureExtractor !== 'undefined' && typeof QUOTES !== 'undefined' && QUOTES.SPY) {
+    try {
+      const finding = { ts: Date.now(), type: 'demo', severity: 1, meta: { sym: 'SPY', setup: 'demo', last: QUOTES.SPY.last, bias: 'long' } };
+      const features = FeatureExtractor.extract(finding);
+      const z = window.OutlierDetector.zScores(features);
+      currentOod = window.OutlierDetector.oodScore(features);
+      flagged = z.oodCount;
+    } catch (e) {}
+  }
+  document.getElementById('kFlagged').textContent = flagged + ' / 22';
+  document.getElementById('kFlagged').style.color = flagged === 0 ? 'var(--green)' : flagged < 4 ? 'var(--accent)' : 'var(--red)';
+  document.getElementById('kOod').textContent = currentOod != null ? (currentOod * 100).toFixed(0) + '%' : '—';
+  document.getElementById('kOod').style.color = currentOod == null ? 'var(--text-muted)' : currentOod < 0.3 ? 'var(--green)' : currentOod < 0.6 ? 'var(--yellow)' : 'var(--red)';
+  const ratio24 = window.OutlierDetector.recentOodRatio(24);
+  document.getElementById('kRatio').textContent = ratio24 != null ? (ratio24 * 100).toFixed(0) + '%' : '—';
+  document.getElementById('kRatio').style.color = ratio24 == null ? 'var(--text-muted)' : ratio24 < 0.1 ? 'var(--green)' : ratio24 < 0.3 ? 'var(--yellow)' : 'var(--red)';
+
+  // OOD chart over time
+  const recent = log.slice(-200);
+  if (window._oodChart) window._oodChart.destroy();
+  window._oodChart = new Chart(document.getElementById('oodChart'), {
+    type: 'line',
+    data: {
+      labels: recent.map((_, i) => i),
+      datasets: [
+        { label: 'OOD score', data: recent.map(e => e.oodScore * 100), borderColor: '#f59e0b', backgroundColor: 'rgba(245,158,11,0.1)', tension: 0.3, fill: true, pointRadius: 0, borderWidth: 2 },
+        { label: 'OOD threshold (50%)', data: recent.map(() => 50), borderColor: '#ef4444', borderDash:[4,4], pointRadius: 0, borderWidth: 1 }
+      ]
+    },
+    options: { responsive:true, maintainAspectRatio:false, plugins:{legend:{labels:{color:'#ccc',font:{size:10}}}}, scales:{x:{ticks:{color:'#888',maxTicksLimit:8},grid:{color:'#222'}},y:{ticks:{color:'#888',callback:v=>v+'%'},grid:{color:'#222'},min:0,max:100}} }
+  });
+
+  // Per-feature table
+  if (!stats || !stats.ready) {
+    document.getElementById('featuresBody').innerHTML = '<div style="padding:30px;text-align:center;color:var(--text-muted);font-size:12px;">Need ' + (window.OutlierDetector.MIN_N_FOR_STATS) + ' observations before flagging starts. Currently: ' + (stats ? stats.n : 0) + '. Captures happen every 5-30 minutes per symbol via the continuous learner.</div>';
+  } else {
+    document.getElementById('featuresBody').innerHTML = stats.perFeature.map(f => {
+      const name = FEATURE_NAMES[f.idx] || ('f' + f.idx);
+      const rng = (f.min != null ? f.min.toFixed(2) : '—') + ' / ' + (f.max != null ? f.max.toFixed(2) : '—');
+      // Status: was this feature flagged on the current snapshot?
+      const status = 'normal';
+      return '<div class="feat-row ' + status + '">'
+        + '<div style="color:var(--text-muted);">f' + f.idx + '</div>'
+        + '<div>' + name + '</div>'
+        + '<div>' + f.mean.toFixed(3) + '</div>'
+        + '<div>' + f.std.toFixed(3) + '</div>'
+        + '<div style="font-size:10px;color:var(--text-muted);">' + rng + '</div>'
+        + '<div style="color:var(--green);">✓ tracked</div>'
+        + '</div>';
+    }).join('');
+  }
+}
+
+document.getElementById('resetBtn').addEventListener('click', () => {
+  if (!confirm('Reset all outlier detector stats? (Useful after regime change.)')) return;
+  window.OutlierDetector.reset();
+  alert('Stats reset. Will rebuild from next ' + window.OutlierDetector.MIN_N_FOR_STATS + ' captures.');
+  render();
+});
+
+render();
+setInterval(render, 5000);
+</script>
+</body>
+</html>

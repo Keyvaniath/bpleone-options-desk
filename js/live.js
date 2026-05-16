@@ -365,6 +365,13 @@ document.addEventListener('DOMContentLoaded', () => {
         s.async = false;
         document.head.appendChild(s);
       }
+      // Outlier detector: maintains running feature stats, flags OOD inputs.
+      if (!document.querySelector('script[src*="outlier-detector.js"]')) {
+        const s = document.createElement('script');
+        s.src = 'js/outlier-detector.js';
+        s.async = false;
+        document.head.appendChild(s);
+      }
       if (!document.querySelector('script[src*="auto-trainer.js"]')) {
         const s = document.createElement('script');
         s.src = 'js/auto-trainer.js';
