@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Brain Monitor — bpleone / trade</title>
+<meta name="description" content="Watch the brain learn in real time. Every finding, every outcome, every training step, live.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<style>
+.kpi-tile { padding:18px;background:var(--bg-elevated);border-radius:10px;text-align:center; }
+.kpi-tile .lbl { font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px; }
+.kpi-tile .val { font-family:var(--font-mono);font-size:24px;font-weight:800;margin-top:6px; }
+.event-row { padding:11px 14px;border-bottom:1px solid var(--border);display:grid;grid-template-columns:90px 60px 1fr 80px 80px;gap:14px;font-family:var(--font-mono);font-size:11px;align-items:center; }
+.event-row.emit { border-left:3px solid var(--accent); }
+.event-row.outcome { border-left:3px solid var(--purple); }
+.event-row.train { border-left:3px solid var(--green); }
+.event-row.skip { border-left:3px solid var(--yellow);opacity:0.7; }
+.live-tick { display:inline-flex;align-items:center;gap:6px;font-size:11px;color:var(--text-muted); }
+.live-tick::before { content:'●';color:var(--green);animation:pulse 1.6s infinite; }
+@keyframes pulse { 0%,100%{opacity:1;}50%{opacity:0.3;} }
+.weight-row { display:grid;grid-template-columns:160px 1fr 70px;gap:14px;padding:6px 0;font-family:var(--font-mono);font-size:11px;align-items:center; }
+.weight-bar { height:6px;background:var(--bg);border-radius:3px;overflow:hidden; }
+.weight-bar > div { height:100%; }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">🧠 Brain Monitor</div>
+      <div class="page-subtitle"><span class="live-tick">LIVE</span> · Watch the brain learn in real time · auto-refreshes every 3s</div>
+    </div>
+    <div class="flex gap-8">
+      <a href="brain-health.html" class="btn btn-ghost">🩺 Health audit</a>
+      <a href="historical-trainer.html" class="btn btn-primary">🎓 Train on history</a>
+    </div>
+  </div>
+
+  <div class="grid grid-4 mb-24">
+    <div class="kpi-tile"><div class="lbl">Findings (live-tagged)</div><div class="val" id="kFindLive" style="color:var(--green);">0</div></div>
+    <div class="kpi-tile"><div class="lbl">Training rows (live)</div><div class="val" id="kTrainLive" style="color:var(--accent);">0</div></div>
+    <div class="kpi-tile"><div class="lbl">Model n_trained</div><div class="val" id="kNTrain">0</div></div>
+    <div class="kpi-tile"><div class="lbl">Recent test accuracy</div><div class="val" id="kAcc">—</div></div>
+  </div>
+
+  <div class="grid grid-2 mb-24">
+    <div class="card">
+      <div class="card-header"><div class="card-title">📉 Recent training loss (last 100 steps)</div></div>
+      <canvas id="lossChart" height="200"></canvas>
+    </div>
+    <div class="card">
+      <div class="card-header"><div class="card-title">🎯 Probability distribution of last 50 findings</div></div>
+      <canvas id="probChart" height="200"></canvas>
+    </div>
+  </div>
+
+  <div class="grid grid-2 mb-24">
+    <div class="card">
+      <div class="card-header"><div class="card-title">📡 Live event feed</div></div>
+      <div style="font-size:11px;color:var(--text-muted);padding:8px 0;">Every emit, outcome, and training step the brain processes.</div>
+      <div id="events" style="max-height:400px;overflow:auto;"></div>
+    </div>
+    <div class="card">
+      <div class="card-header"><div class="card-title">⚖ Top feature weights</div></div>
+      <div style="font-size:11px;color:var(--text-muted);padding:8px 0;">Which inputs the brain has learned matter. Big positive = predicts wins. Big negative = predicts losses.</div>
+      <div id="weights"></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-header"><div class="card-title">🔬 What "self-learning" looks like</div></div>
+    <div style="font-size:13px;color:var(--text-secondary);line-height:1.7;">
+      A working learning brain shows three signals on this page over time:
+      <br>
+      1. <strong>Loss curve trending down.</strong> Each new training example moves loss toward zero. If loss is flat or rising, the brain is stuck.<br>
+      2. <strong>Test accuracy &gt; baseline.</strong> If accuracy beats the 'always guess up' baseline, real signal is being learned. Check via <a href="historical-trainer.html" style="color:var(--accent);">Historical Trainer</a>.<br>
+      3. <strong>Feature weights diverging from zero.</strong> A trained brain has clear opinions — some features have weight > 0.5, others &lt; -0.5. A brain with all weights near zero hasn't learned anything yet.
+    </div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script src="js/model.js"></script>
+<script>
+buildNav('brain-monitor');
+
+const FEATURE_NAMES = [
+  'RSI/100', 'ATR%/10', 'RVOL/4', 'dist20MA', 'dist50MA', 'SPY chg', 'Sector chg', 'Beta/2',
+  'Spread (inv)', 'IV pct', 'Severity', 'Bullish setup', 'Bearish setup', 'Trend follow',
+  'Mean revert', 'Breakout', 'Brain weight', 'Regime', 'VIX', 'Coincident', 'Hour', 'Bias'
+];
+
+function loadFindings() { try { return JSON.parse(localStorage.getItem('bpleone_brain_findings_v1') || '{"items":[]}').items; } catch(e) { return []; } }
+function loadTrain() { try { return JSON.parse(localStorage.getItem('bpleone_train_v1') || '[]'); } catch(e) { return []; } }
+function loadModel() { try { return JSON.parse(localStorage.getItem('bpleone_model_v1') || 'null'); } catch(e) { return null; } }
+
+function render() {
+  const findings = loadFindings();
+  const train = loadTrain();
+  const model = loadModel();
+
+  // KPIs
+  const findLive = findings.filter(f => f.dataSource === 'live').length;
+  const trainLive = train.filter(t => (t.meta && t.meta.dataSource) === 'live' || t.dataSource === 'live').length;
+  document.getElementById('kFindLive').textContent = findLive;
+  document.getElementById('kTrainLive').textContent = trainLive;
+  document.getElementById('kNTrain').textContent = model ? (model.n_trained || 0) : 0;
+
+  // Loss curve from model history if available
+  const recentLoss = model && model.lossHistory ? model.lossHistory.slice(-100) : [];
+  if (window._loss) window._loss.destroy();
+  window._loss = new Chart(document.getElementById('lossChart'), {
+    type: 'line',
+    data: { labels: recentLoss.map((_, i) => i), datasets: [{ data: recentLoss, borderColor:'#00d4ff', backgroundColor:'rgba(0,212,255,0.1)', tension:0.3, fill:true, pointRadius:0, borderWidth:2 }] },
+    options: { responsive:true, maintainAspectRatio:false, plugins:{legend:{display:false}}, scales:{x:{ticks:{color:'#888'},grid:{color:'#222'}},y:{ticks:{color:'#888'},grid:{color:'#222'},title:{display:true,text:'Cross-entropy loss',color:'#888'}}} }
+  });
+
+  // Probability distribution of last 50 findings
+  const probs = findings.slice(0, 50).map(f => f.modelProb).filter(p => typeof p === 'number');
+  const buckets = [0,0,0,0,0,0,0,0,0,0];  // 0-10%, 10-20%, ... 90-100%
+  probs.forEach(p => { const idx = Math.min(9, Math.floor(p * 10)); buckets[idx]++; });
+  if (window._prob) window._prob.destroy();
+  window._prob = new Chart(document.getElementById('probChart'), {
+    type: 'bar',
+    data: { labels: ['0-10%','10-20%','20-30%','30-40%','40-50%','50-60%','60-70%','70-80%','80-90%','90-100%'], datasets: [{ data: buckets, backgroundColor: ['#ef4444','#f59e0b','#f59e0b','#f59e0b','#888','#00d4ff','#00d4ff','#10b981','#10b981','#10b981'] }] },
+    options: { responsive:true, maintainAspectRatio:false, plugins:{legend:{display:false}}, scales:{x:{ticks:{color:'#888',font:{size:9}},grid:{display:false}},y:{ticks:{color:'#888',precision:0},grid:{color:'#222'}}} }
+  });
+
+  // Event feed — show recent findings with their state
+  const events = [];
+  findings.slice(0, 50).forEach(f => {
+    const sym = f.meta && f.meta.sym;
+    const setup = f.meta && f.meta.setup || f.type || '?';
+    const prob = f.modelProb;
+    const isLive = f.dataSource === 'live';
+    if (!f.outcome) {
+      events.push({ ts: f.ts, kind: 'emit', sym, setup, prob, isLive });
+    } else if (f.outcome === 'hit' || f.outcome === 'miss') {
+      events.push({ ts: f.outcomeRatedAt || f.ts, kind: isLive ? 'train' : 'skip', sym, setup, prob, isLive, outcome: f.outcome });
+    } else {
+      events.push({ ts: f.outcomeRatedAt || f.ts, kind: 'skip', sym, setup, prob, isLive, outcome: f.outcome });
+    }
+  });
+  events.sort((a, b) => b.ts - a.ts);
+  const wrap = document.getElementById('events');
+  if (events.length === 0) {
+    wrap.innerHTML = '<div style="padding:30px;text-align:center;color:var(--text-muted);font-size:12px;">No brain events yet. Visit Trade of the Day or wait for live data + brain ticks.</div>';
+  } else {
+    wrap.innerHTML = events.slice(0, 50).map(e => {
+      const tstr = new Date(e.ts).toLocaleTimeString('en-US', { hour12: false });
+      const probStr = typeof e.prob === 'number' ? (e.prob * 100).toFixed(0) + '%' : '—';
+      const probCol = typeof e.prob === 'number' ? (e.prob >= 0.7 ? 'var(--green)' : e.prob >= 0.5 ? 'var(--accent)' : 'var(--red)') : 'var(--text-muted)';
+      const tag = e.kind === 'emit' ? 'EMIT' : e.kind === 'train' ? (e.outcome === 'hit' ? 'TRAIN+' : 'TRAIN-') : 'SKIP';
+      const tagCol = e.kind === 'emit' ? 'var(--accent)' : e.kind === 'train' ? (e.outcome === 'hit' ? 'var(--green)' : 'var(--red)') : 'var(--yellow)';
+      return '<div class="event-row ' + e.kind + '">'
+        + '<div style="color:var(--text-muted);">' + tstr + '</div>'
+        + '<div style="color:' + tagCol + ';font-weight:700;">' + tag + '</div>'
+        + '<div><strong style="color:var(--text-primary);">' + (e.sym || '?') + '</strong> <span style="color:var(--text-muted);">· ' + e.setup + '</span></div>'
+        + '<div style="color:' + probCol + ';font-weight:700;">' + probStr + '</div>'
+        + '<div style="color:' + (e.isLive ? 'var(--green)' : 'var(--yellow)') + ';">' + (e.isLive ? 'live' : 'mock') + '</div>'
+        + '</div>';
+    }).join('');
+  }
+
+  // Feature weights
+  if (model && model.weights && model.weights.length) {
+    const weighted = model.weights.map((w, i) => ({ name: FEATURE_NAMES[i] || ('f' + i), w, absW: Math.abs(w) }));
+    weighted.sort((a, b) => b.absW - a.absW);
+    const top = weighted.slice(0, 12);
+    const maxW = Math.max(...top.map(x => x.absW), 0.1);
+    document.getElementById('weights').innerHTML = top.map(x => {
+      const pct = (x.absW / maxW) * 100;
+      const col = x.w >= 0 ? '#10b981' : '#ef4444';
+      return '<div class="weight-row">'
+        + '<div>' + x.name + '</div>'
+        + '<div class="weight-bar"><div style="width:' + pct + '%;background:' + col + ';margin-left:' + (x.w < 0 ? (100 - pct) : 0) + '%;"></div></div>'
+        + '<div style="text-align:right;color:' + col + ';font-weight:700;">' + (x.w >= 0 ? '+' : '') + x.w.toFixed(3) + '</div>'
+        + '</div>';
+    }).join('');
+  } else {
+    document.getElementById('weights').innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-muted);font-size:12px;">No trained model yet. Run <a href="historical-trainer.html" style="color:var(--accent);">Historical Trainer</a> to begin.</div>';
+  }
+}
+
+render();
+setInterval(render, 3000);
+window.addEventListener('bpleone:brain-finding', render);
+window.addEventListener('bpleone:model-trained', render);
+</script>
+</body>
+</html>
