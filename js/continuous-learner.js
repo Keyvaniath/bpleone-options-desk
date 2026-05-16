@@ -124,6 +124,25 @@
           journalEntry.horizonProbs = ensemble.byHorizon;
           journalEntry.horizonWeights = ensemble.weights;
         }
+        // Capture base predictions for the meta-stacker. Stored on the entry so
+        // when it resolves we can train MetaStacker on (basePreds, actualWin).
+        try {
+          const bp = { model: pred.prob };
+          if (ensemble) bp.ensemble = ensemble.prob;
+          if (typeof BootstrapEnsemble !== 'undefined') {
+            const b = BootstrapEnsemble.predict(features);
+            if (b && b.predictions.length > 0) bp.bootstrap = b.mean;
+          }
+          if (typeof KNNRecall !== 'undefined') {
+            const k = KNNRecall.predict(features);
+            if (k && k.prob != null) bp.knn = k.prob;
+          }
+          if (typeof SWA !== 'undefined') {
+            const s = SWA.predict(features);
+            if (s && s.prob != null) bp.swa = s.prob;
+          }
+          journalEntry.basePreds = bp;
+        } catch (e) {}
         journal.push(journalEntry);
         state.lastCaptureBySym[sym] = Date.now();
         // Active-learning: mark uncertain if main prob in [0.40, 0.60]
@@ -242,6 +261,14 @@
           try {
             if (typeof Conformal !== 'undefined') {
               Conformal.recordPair(entry.predProb, label);
+            }
+          } catch (e) {}
+          // META-STACKER: feed (basePreds, actualWin) to the meta-model so
+          // it can learn optimal blend weights for the ensemble. Replaces
+          // the hard-coded 0.35/0.25/... weights with learned ones.
+          try {
+            if (typeof MetaStacker !== 'undefined' && entry.basePreds) {
+              MetaStacker.train(entry.basePreds, label);
             }
           } catch (e) {}
         }

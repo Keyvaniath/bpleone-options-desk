@@ -454,6 +454,14 @@ document.addEventListener('DOMContentLoaded', () => {
         s.async = false;
         document.head.appendChild(s);
       }
+      // Meta-Stacker: learns optimal blend weights for the 5 base learners
+      // from resolved (basePreds, win/loss) pairs. Replaces hard-coded blend.
+      if (!document.querySelector('script[src*="meta-stacker.js"]')) {
+        const s = document.createElement('script');
+        s.src = 'js/meta-stacker.js';
+        s.async = false;
+        document.head.appendChild(s);
+      }
       // Unified predictor: chains every meta-module into ONE call.
       // Loads last so all dependencies are present.
       if (!document.querySelector('script[src*="unified-predictor.js"]')) {

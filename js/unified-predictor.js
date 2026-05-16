@@ -100,22 +100,42 @@
       }
     }
 
-    // 5. Blend (weighted by which sources are available)
-    // base weights: model 0.35, ensemble 0.25, bootstrap 0.13, k-NN 0.13, SWA 0.14
+    // 5. Blend — use MetaStacker if ready (learned weights), else fall
+    // back to hard-coded weights. MetaStacker becomes ready after ~30
+    // resolutions and from then on its weights replace the manual choice.
     let blendedProb = components.rawProb;
+    let blendSource = 'hardcoded';
     {
-      const sources = [
-        { prob: components.rawProb, w: 0.35 },
-        { prob: ensembleProb, w: 0.25 },
-        { prob: bootstrapProb, w: 0.13 },
-        { prob: knnProb, w: 0.13 },
-        { prob: swaProb, w: 0.14 }
-      ].filter(s => s.prob != null);
-      const totalW = sources.reduce((s, x) => s + x.w, 0);
-      if (totalW > 0) {
-        blendedProb = sources.reduce((s, x) => s + x.prob * (x.w / totalW), 0);
+      const basePreds = {
+        model: components.rawProb,
+        ensemble: ensembleProb,
+        bootstrap: bootstrapProb,
+        knn: knnProb,
+        swa: swaProb
+      };
+      let stackedPred = null;
+      if (typeof MetaStacker !== 'undefined') {
+        stackedPred = safe(() => MetaStacker.predict(basePreds), null);
+      }
+      if (stackedPred && stackedPred.prob != null) {
+        blendedProb = stackedPred.prob;
+        blendSource = 'meta-stacker';
+        components.stackedBlend = stackedPred.prob;
+      } else {
+        const sources = [
+          { prob: components.rawProb, w: 0.35 },
+          { prob: ensembleProb, w: 0.25 },
+          { prob: bootstrapProb, w: 0.13 },
+          { prob: knnProb, w: 0.13 },
+          { prob: swaProb, w: 0.14 }
+        ].filter(s => s.prob != null);
+        const totalW = sources.reduce((s, x) => s + x.w, 0);
+        if (totalW > 0) {
+          blendedProb = sources.reduce((s, x) => s + x.prob * (x.w / totalW), 0);
+        }
       }
       components.blendedProb = blendedProb;
+      components.blendSource = blendSource;
     }
 
     // 6. Calibration
@@ -205,7 +225,7 @@
     if (ensembleProb != null) narrative.push('Ensemble (3 horizons): ' + (ensembleProb * 100).toFixed(0) + '%.');
     if (knnProb != null) narrative.push('k-NN of similar past: ' + (knnProb * 100).toFixed(0) + '%.');
     if (swaProb != null) narrative.push('SWA averaged weights: ' + (swaProb * 100).toFixed(0) + '%.');
-    narrative.push('Blended: ' + (blendedProb * 100).toFixed(0) + '%.');
+    narrative.push('Blended (' + blendSource + '): ' + (blendedProb * 100).toFixed(0) + '%.');
     if (components.calibrationActive) narrative.push('Calibrated: ' + (calibratedProb * 100).toFixed(0) + '%.');
     if (Math.abs(components.symbolBias) > 0.05) narrative.push('Symbol bias ' + (components.symbolBias >= 0 ? '+' : '') + components.symbolBias.toFixed(2) + ' → ' + (biasedProb * 100).toFixed(0) + '%.');
     if (oodScore > 0.3) narrative.push('OOD ' + (oodScore * 100).toFixed(0) + '% → pulled toward 50%.');

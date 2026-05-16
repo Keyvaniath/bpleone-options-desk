@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Meta-Stacker — bpleone / brain</title>
+<meta name="description" content="The brain's learned ensemble blender. Replaces hand-picked weights with weights learned from resolved trades.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.status-card { padding:32px;border-radius:16px;text-align:center; }
+.status-card.warm { background:linear-gradient(135deg,rgba(16,185,129,0.12),rgba(16,185,129,0.02));border:2px solid rgba(16,185,129,0.4); }
+.status-card.cold { background:linear-gradient(135deg,rgba(245,158,11,0.12),rgba(245,158,11,0.02));border:2px solid rgba(245,158,11,0.4); }
+.status-card .big { font-family:var(--font-mono);font-size:72px;font-weight:900;line-height:1; }
+.metric-tile { padding:18px;background:var(--bg-elevated);border-radius:10px; }
+.metric-tile .lbl { font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;font-weight:700; }
+.metric-tile .val { font-family:var(--font-mono);font-size:24px;font-weight:800;margin-top:6px;color:var(--accent); }
+.metric-tile .sub { font-size:11px;color:var(--text-muted);font-family:var(--font-mono);margin-top:4px; }
+.weight-bar { display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--border); }
+.weight-bar:last-child { border-bottom:none; }
+.weight-bar .name { width:130px;font-size:13px;font-weight:600; }
+.weight-bar .bar-track { flex:1;height:10px;background:var(--bg-elevated);border-radius:5px;overflow:hidden;position:relative; }
+.weight-bar .bar-fill { height:100%;background:linear-gradient(90deg,var(--accent),#10b981);border-radius:5px;transition:width 0.5s; }
+.weight-bar .pct { width:60px;text-align:right;font-family:var(--font-mono);font-size:14px;font-weight:700;color:var(--accent); }
+.weight-bar .raw { width:80px;text-align:right;font-family:var(--font-mono);font-size:12px;color:var(--text-muted); }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">🧱 Meta-Stacker</div>
+      <div class="page-subtitle">The brain learns how to blend its own ensemble · replaces hand-picked weights with data-driven ones</div>
+    </div>
+  </div>
+
+  <div id="status-box" class="mb-24"></div>
+
+  <div class="grid grid-3 mb-24" id="metrics-grid"></div>
+
+  <div class="card">
+    <div class="card-header"><div class="card-title">⚖ Learned blend weights</div></div>
+    <div style="font-size:13px;color:var(--text-secondary);margin-bottom:14px;">The model trains a tiny logistic regression on resolved (base_predictions, win) tuples. These are the softmax-normalized weights it has learned. Compare them to the hand-picked starting weights below.</div>
+    <div id="weights-bars"></div>
+    <div style="margin-top:18px;padding:14px;background:var(--bg-elevated);border-radius:10px;font-size:12px;color:var(--text-muted);font-family:var(--font-mono);">
+      <strong style="color:var(--text-secondary);">Starting weights (used in cold start):</strong> model 35% · ensemble 25% · bootstrap 13% · k-NN 13% · SWA 14%<br>
+      <strong style="color:var(--text-secondary);">Raw (logit-space) weights are above; the bias term is shown separately.</strong>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-header"><div class="card-title">📚 What is meta-stacking?</div></div>
+    <div style="font-size:13px;color:var(--text-secondary);line-height:1.7;">
+      The brain has five different ways to predict the same thing:<br>
+      <ul style="margin:8px 0 8px 24px;">
+        <li><strong>Model</strong> — logistic regression on 22 features, trained with Adam</li>
+        <li><strong>Ensemble</strong> — multi-horizon (10min/30min/4h) average</li>
+        <li><strong>Bootstrap</strong> — K=5 models trained on resampled data, then averaged</li>
+        <li><strong>k-NN</strong> — non-parametric memory of the 10 most similar past resolutions</li>
+        <li><strong>SWA</strong> — average of late-training weights, sits in flatter minimum</li>
+      </ul>
+      Previously we blended them with hand-picked weights. <strong>The hand-picked weights are guesses.</strong> The Meta-Stacker replaces them with weights learned from the data:<br><br>
+      <strong>1. At predict time</strong>, collect the five base predictions as features: <code>x = [p_model, p_ensemble, p_bootstrap, p_knn, p_swa, 1]</code><br>
+      <strong>2. Train a logistic regression</strong>: <code>meta_p = sigmoid(w · x)</code><br>
+      <strong>3. On resolution</strong>, do an online SGD step on the meta-weights with the actual outcome<br><br>
+      <strong>Cold start:</strong> Below 30 resolutions, fall back to the hand-picked weights. After that, the learned blend takes over. The Unified Predictor automatically chooses whichever is available.<br><br>
+      <strong>Why this is good:</strong> if k-NN starts outperforming the parametric model in a specific regime, its weight grows automatically. If SWA's average becomes stale during a regime shift, its weight shrinks. The blend self-tunes.
+    </div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script src="js/meta-stacker.js"></script>
+<script>
+buildNav('meta-stacker');
+
+function render() {
+  const stats = MetaStacker.stats();
+  const statusBox = document.getElementById('status-box');
+
+  if (!stats.ready) {
+    statusBox.innerHTML = '<div class="status-card cold">'
+      + '<div class="big" style="color:var(--yellow);">' + stats.nTrained + '/' + stats.minTrained + '</div>'
+      + '<div style="font-size:18px;font-weight:700;color:var(--text-primary);margin-top:14px;">Meta-Stacker training</div>'
+      + '<div style="font-size:13px;color:var(--text-secondary);margin-top:10px;">Need ' + (stats.minTrained - stats.nTrained) + ' more resolutions before the learned blend takes over. Until then, the hand-picked weights stay in effect.</div>'
+      + '</div>';
+  } else {
+    statusBox.innerHTML = '<div class="status-card warm">'
+      + '<div style="font-size:13px;color:var(--text-muted);text-transform:uppercase;letter-spacing:1px;font-weight:700;">Resolutions trained on</div>'
+      + '<div class="big" style="margin-top:8px;color:var(--green);">' + stats.nTrained + '</div>'
+      + '<div style="font-size:14px;color:var(--text-secondary);margin-top:14px;">✓ Learned blend active in UnifiedPredictor</div>'
+      + '</div>';
+  }
+
+  // Metrics
+  const acc = stats.recentAccuracy != null ? (stats.recentAccuracy * 100).toFixed(1) + '%' : '—';
+  const loss = stats.avgRecentLoss != null ? stats.avgRecentLoss.toFixed(4) : '—';
+  const lastTs = stats.lastTrainTs ? new Date(stats.lastTrainTs).toLocaleTimeString() : '—';
+  document.getElementById('metrics-grid').innerHTML = ''
+    + '<div class="metric-tile"><div class="lbl">Recent accuracy</div><div class="val">' + acc + '</div><div class="sub">last 50 meta-predictions</div></div>'
+    + '<div class="metric-tile"><div class="lbl">Avg log loss</div><div class="val">' + loss + '</div><div class="sub">lower is better</div></div>'
+    + '<div class="metric-tile"><div class="lbl">Last update</div><div class="val" style="font-size:18px;">' + lastTs + '</div><div class="sub">trains on every resolution</div></div>';
+
+  // Weight bars
+  const nw = MetaStacker.normalizedWeights();
+  const raw = MetaStacker.weights();
+  const order = ['model', 'ensemble', 'bootstrap', 'knn', 'swa'];
+  const labels = { model: '🧠 Model', ensemble: '🎼 Multi-horizon', bootstrap: '🪣 Bootstrap K=5', knn: '🔍 k-NN', swa: '📊 SWA' };
+  let html = '';
+  for (const k of order) {
+    const pct = (nw[k] * 100).toFixed(1);
+    const rawW = raw[k];
+    html += '<div class="weight-bar">'
+      + '<div class="name">' + labels[k] + '</div>'
+      + '<div class="bar-track"><div class="bar-fill" style="width:' + pct + '%;"></div></div>'
+      + '<div class="pct">' + pct + '%</div>'
+      + '<div class="raw">w=' + rawW.toFixed(3) + '</div>'
+      + '</div>';
+  }
+  html += '<div class="weight-bar" style="border-top:2px solid var(--border);"><div class="name" style="color:var(--text-muted);">bias (intercept)</div><div class="bar-track" style="visibility:hidden;"></div><div class="pct" style="color:var(--text-muted);">—</div><div class="raw">w=' + raw.bias.toFixed(3) + '</div></div>';
+  document.getElementById('weights-bars').innerHTML = html;
+}
+
+render();
+setInterval(render, 8000);
+window.addEventListener('bpleone:continuous-cycle', render);
+</script>
+</body>
+</html>
