@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Unified Predictor — bpleone / trade</title>
+<meta name="description" content="The full prediction pipeline in one view. Every step from raw model to final size multiplier, transparent.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.intro { background:linear-gradient(135deg,rgba(0,212,255,0.06),transparent);border:1px solid rgba(0,212,255,0.25);padding:24px;border-radius:14px;margin-bottom:24px; }
+.pipeline { padding:18px;background:var(--bg-elevated);border-radius:10px;margin-bottom:14px; }
+.pipeline .step { padding:10px 14px;border-bottom:1px solid var(--border);display:grid;grid-template-columns:160px 90px 1fr;gap:12px;font-family:var(--font-mono);font-size:11px;align-items:center; }
+.pipeline .step:last-child { border:none; }
+.pipeline .step .num { color:var(--text-muted);font-weight:700; }
+.pipeline .step .val { font-weight:800; }
+.pipeline .step.skipped { opacity:0.5; }
+.pipeline .step.final { background:rgba(0,212,255,0.06); }
+.sym-select { padding:8px 14px;background:var(--bg-elevated);border:1px solid var(--border);color:var(--text-primary);border-radius:6px;font-family:var(--font-mono);font-size:13px;font-weight:700; }
+.narrative { padding:18px;background:var(--bg-elevated);border-radius:10px;font-size:14px;line-height:1.85;color:var(--text-primary);margin-top:14px; }
+.final-block { padding:24px;border-radius:14px;text-align:center;margin-bottom:24px; }
+.final-block.long { background:rgba(16,185,129,0.08);border:2px solid rgba(16,185,129,0.4); }
+.final-block.short { background:rgba(239,68,68,0.08);border:2px solid rgba(239,68,68,0.4); }
+.final-block.neutral { background:rgba(245,158,11,0.06);border:2px solid rgba(245,158,11,0.3); }
+.final-block .big { font-family:var(--font-mono);font-size:40px;font-weight:800;line-height:1; }
+.final-block .sub { font-size:14px;color:var(--text-secondary);margin-top:8px; }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">🔮 Unified Predictor</div>
+      <div class="page-subtitle">Full pipeline for a symbol · every step exposed · how raw model becomes final trade · <span id="market-clock">--</span></div>
+    </div>
+    <div class="flex gap-8">
+      <label style="display:flex;gap:8px;align-items:center;font-size:12px;color:var(--text-muted);">Symbol: <select id="symSelect" class="sym-select"></select></label>
+    </div>
+  </div>
+
+  <div class="intro">
+    <div style="font-size:14px;color:var(--text-primary);line-height:1.7;">
+      <strong>One call, the whole chain:</strong> the brain now has 10+ specialized prediction modules. This page calls UnifiedPredictor.predict() which composes them all in the right order and returns one number — plus every intermediate value so you can trace exactly how raw 60% became calibrated 64% became OOD-pulled 58% became final.
+      <br><br>
+      <strong>What flows through:</strong>
+      <ul style="margin:6px 0 0 20px;">
+        <li>Raw logistic regression → multi-horizon ensemble → bootstrap ensemble → k-NN recall</li>
+        <li>Blend all 4 sources (weighted: model 40%, ensemble 30%, bootstrap 15%, k-NN 15%)</li>
+        <li>Calibrator (Platt scaling) → SymbolBias (mixed-effects) → OOD pull</li>
+        <li>MC Dropout uncertainty + Ensemble agreement → compound size multiplier</li>
+      </ul>
+    </div>
+  </div>
+
+  <div id="finalBlock"></div>
+
+  <div class="pipeline">
+    <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.6px;font-weight:700;margin-bottom:14px;padding:0 14px;">🔗 Pipeline trace</div>
+    <div id="pipelineBody"></div>
+  </div>
+
+  <div class="narrative" id="narrative">—</div>
+
+  <div class="card mt-24">
+    <div class="card-header"><div class="card-title">🎯 Where this gets used</div></div>
+    <div style="font-size:13px;color:var(--text-secondary);line-height:1.7;">
+      <strong>brain-bet</strong> reads UnifiedPredictor.predict() for its top-pick decision card<br>
+      <strong>brain-conviction</strong> ranks all symbols via UnifiedPredictor<br>
+      <strong>conviction-alerter</strong> uses UnifiedPredictor to detect A-tier setups<br>
+      <strong>conviction-tracker</strong> records the final probability with all metadata<br>
+      <br>
+      Result: one source of truth for "what does the brain say about this symbol?" — downstream pages don't replicate the chain.
+    </div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script src="js/model.js"></script>
+<script src="js/multi-horizon.js"></script>
+<script src="js/calibrator.js"></script>
+<script src="js/outlier-detector.js"></script>
+<script src="js/bayesian-dropout.js"></script>
+<script src="js/symbol-bias.js"></script>
+<script src="js/bootstrap-ensemble.js"></script>
+<script src="js/ensemble-agreement.js"></script>
+<script src="js/knn-recall.js"></script>
+<script src="js/unified-predictor.js"></script>
+<script>
+buildNav('unified-predictor');
+
+const UNIVERSE = ['SPY','QQQ','IWM','AAPL','NVDA','TSLA','MSFT','META','AMZN','GOOGL','AMD','PLTR','SMCI','COIN','BTC','ETH','BABA','SHOP','CRM','UBER','XLE','GLD','SLV'];
+
+const sel = document.getElementById('symSelect');
+UNIVERSE.forEach(s => {
+  const o = document.createElement('option');
+  o.value = s; o.textContent = s;
+  if (s === 'NVDA') o.selected = true;
+  sel.appendChild(o);
+});
+
+function isLiveQuote(q) {
+  return q && q.priceSource && q.priceSource !== 'stale-seed' && q.priceSource !== 'mock'
+    && q.liveAt && (Date.now() - q.liveAt) < 5 * 60 * 1000;
+}
+
+function fmt(p) { return p != null ? (p * 100).toFixed(1) + '%' : '—'; }
+
+function render() {
+  if (typeof window.UnifiedPredictor === 'undefined') { setTimeout(render, 500); return; }
+  const sym = sel.value;
+  if (typeof QUOTES === 'undefined' || !QUOTES[sym]) return;
+  const q = QUOTES[sym];
+
+  if (!isLiveQuote(q)) {
+    document.getElementById('finalBlock').innerHTML = '<div class="final-block neutral"><div class="big">— NO LIVE DATA —</div><div class="sub">' + sym + ' has no fresh real-source price. Waiting for Stooq/Coinbase.</div></div>';
+    document.getElementById('pipelineBody').innerHTML = '';
+    document.getElementById('narrative').textContent = '—';
+    return;
+  }
+
+  const finding = { ts: Date.now(), type: 'unified-scan', severity: 1, meta: { sym, setup: 'scan', last: q.last } };
+  const features = FeatureExtractor.extract(finding);
+  if (!features || features.length !== 22) {
+    document.getElementById('finalBlock').innerHTML = '<div class="final-block neutral"><div class="big">— FEATURE ERROR —</div></div>';
+    return;
+  }
+
+  const r = window.UnifiedPredictor.predict(sym, features);
+  if (!r) {
+    document.getElementById('finalBlock').innerHTML = '<div class="final-block neutral"><div class="big">— PREDICTOR ERROR —</div></div>';
+    return;
+  }
+
+  // Final block
+  const dirCls = r.finalProb >= 0.55 ? 'long' : r.finalProb <= 0.45 ? 'short' : 'neutral';
+  const dirCol = r.finalProb >= 0.55 ? 'var(--green)' : r.finalProb <= 0.45 ? 'var(--red)' : 'var(--yellow)';
+  const dirLbl = r.finalProb >= 0.55 ? '↑ LONG' : r.finalProb <= 0.45 ? '↓ SHORT' : '~ NEUTRAL';
+  document.getElementById('finalBlock').innerHTML = '<div class="final-block ' + dirCls + '">'
+    + '<div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:1px;">' + sym + ' · final prediction</div>'
+    + '<div class="big" style="color:' + dirCol + ';margin-top:8px;">' + (r.finalProb * 100).toFixed(1) + '%</div>'
+    + '<div class="sub" style="color:' + dirCol + ';font-weight:700;">' + dirLbl + ' · size mult ' + r.finalSizeMult.toFixed(2) + 'x</div>'
+    + '</div>';
+
+  // Pipeline steps
+  const steps = [];
+  const c = r.components;
+  steps.push({ num: '1', name: 'Raw model', val: fmt(c.rawProb), status: 'on', detail: 'Logistic regression on 22 features' });
+  steps.push({ num: '2', name: 'Multi-horizon ensemble', val: fmt(c.ensembleProb), status: c.ensembleProb != null ? 'on' : 'skipped', detail: c.ensembleRegime ? 'regime: ' + c.ensembleRegime : 'not loaded' });
+  steps.push({ num: '3', name: 'Bootstrap ensemble', val: fmt(c.bootstrapProb), status: c.bootstrapProb != null ? 'on' : 'skipped', detail: c.bootstrapStd != null ? 'std: ' + c.bootstrapStd.toFixed(3) : '' });
+  steps.push({ num: '4', name: 'k-NN recall', val: fmt(c.knnProb), status: c.knnProb != null ? 'on' : 'skipped', detail: c.knnNeighbors ? c.knnNeighbors + ' neighbors' : 'needs more history' });
+  steps.push({ num: '5', name: '⚙ Blended', val: fmt(c.blendedProb), status: 'on', detail: 'weighted avg of 1-4' });
+  steps.push({ num: '6', name: 'Calibrated (Platt)', val: fmt(c.calibratedProb), status: c.calibrationActive ? 'on' : 'skipped', detail: c.calibrationActive ? '✓ active' : 'no fit yet' });
+  steps.push({ num: '7', name: 'Symbol bias', val: fmt(c.biasedProb), status: c.symbolBias != null ? 'on' : 'skipped', detail: c.symbolBias != null ? 'bias: ' + (c.symbolBias >= 0 ? '+' : '') + c.symbolBias.toFixed(3) : 'no bias' });
+  steps.push({ num: '8', name: 'OOD pull', val: fmt(c.finalProb), status: c.oodScore > 0.3 ? 'on' : 'skipped', detail: c.oodScore != null ? 'OOD: ' + (c.oodScore * 100).toFixed(0) + '%' : 'not loaded' });
+  steps.push({ num: '9', name: 'Bayesian uncertainty', val: c.uncertaintyStd != null ? '± ' + (c.uncertaintyStd * 100).toFixed(1) + '%' : '—', status: c.uncertaintyStd != null ? 'on' : 'skipped', detail: c.uncertaintyCategory || '' });
+  steps.push({ num: '10', name: 'Ensemble agreement', val: c.agreementScore != null ? (c.agreementScore * 100).toFixed(0) + '%' : '—', status: c.agreementScore != null ? 'on' : 'skipped', detail: c.agreementTier || '' });
+  steps.push({ num: '11', name: 'Size multiplier', val: r.finalSizeMult.toFixed(2) + 'x', status: 'final', detail: 'compound of uncertainty + agreement + OOD' });
+
+  document.getElementById('pipelineBody').innerHTML = steps.map(s => '<div class="step ' + s.status + '">'
+    + '<div class="num">' + s.num + '. ' + s.name + '</div>'
+    + '<div class="val" style="color:var(--accent);">' + s.val + '</div>'
+    + '<div style="color:var(--text-muted);">' + s.detail + '</div>'
+    + '</div>').join('');
+
+  // Narrative
+  document.getElementById('narrative').textContent = r.narrative;
+}
+
+sel.addEventListener('change', render);
+render();
+setInterval(render, 5000);
+</script>
+</body>
+</html>

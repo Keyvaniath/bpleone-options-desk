@@ -436,6 +436,14 @@ document.addEventListener('DOMContentLoaded', () => {
         s.async = false;
         document.head.appendChild(s);
       }
+      // Unified predictor: chains every meta-module into ONE call.
+      // Loads last so all dependencies are present.
+      if (!document.querySelector('script[src*="unified-predictor.js"]')) {
+        const s = document.createElement('script');
+        s.src = 'js/unified-predictor.js';
+        s.async = false;
+        document.head.appendChild(s);
+      }
       // Conviction alerter: background notification when A-tier picks fire.
       if (!document.querySelector('script[src*="conviction-alerter.js"]')) {
         const s = document.createElement('script');
