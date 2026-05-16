@@ -659,8 +659,13 @@ const Learn = (function () {
     return trade;
   }
 
-  // Auto-seed on load
-  try { seedIfEmpty(); rebalanceConditional(); } catch (e) {}
+  // Auto-seed DISABLED — was generating 240 synthetic trades with Math.random()
+  // outcomes on first load. That poisoned every analytics page (Cohort,
+  // Performance Attribution, Best Symbols, etc.) with fake history that
+  // users couldn't distinguish from real data. The honest default is empty —
+  // analytics pages should show 'no data yet' until real trades exist.
+  // To force a synthetic seed for testing, call Learn.seedIfEmpty() from console.
+  try { rebalanceConditional(); } catch (e) {}
 
   return {
     recordTrade, closeTrade, recordSignal, adjustedScore, stats, getWeights,

@@ -455,15 +455,29 @@ const ModelTrainer = {
 };
 
 /**
- * Auto-seed: if the model has never been trained AND there's no training data,
- * silently generate ~200 synthetic labeled rows + train 3 epochs so the model
- * is usable from minute one. This is idempotent — runs only once per browser.
+ * DEPRECATED: this used to seed 200 synthetic Math.random() rows and train the
+ * model on them so it would 'be useful from minute one'. That was wrong —
+ * training on random features just makes the model produce confident garbage
+ * predictions. The honest default is a blank model that returns 0.5 (neutral)
+ * for everything until real labeled trades come in.
+ *
+ * Function is kept callable for explicit opt-in via model-seed.html, but it
+ * is NO LONGER called automatically. It tags every row with priceSource='mock'
+ * and dataSource='mock' so the trainer correctly refuses to use them.
  */
 function autoSeedIfNeeded() {
+  // Default behavior is now to do NOTHING. The model stays at default weights
+  // (predictions = 0.5) until real labeled trades fill the training set.
+  // To force a synthetic seed, call ModelStore.forceSyntheticSeed() explicitly.
+  return false;
+}
+
+/** Internal: only call from explicit user action (e.g. model-seed.html). */
+function _generateSyntheticSeed(force) {
   try {
-    if (localStorage.getItem('bpleone_model_autoseeded_v1')) return false;
+    if (!force && localStorage.getItem('bpleone_model_autoseeded_v1')) return false;
     const existing = ModelStore.getTrainingData();
-    if (existing.length > 30) return false; // user has real data — don't pollute
+    if (existing.length > 30 && !force) return false; // user has real data — don't pollute
     const SETUP_PRIORS = [
       { name: '52w-breakout', hr: 0.62, mom: 1, brk: 1, bull: 1 },
       { name: 'bull-flag', hr: 0.58, mom: 1, brk: 0, bull: 1 },
@@ -516,9 +530,18 @@ function autoSeedIfNeeded() {
       const sh = rows.slice().sort(() => Math.random() - 0.5);
       sh.forEach(r => model.train(r.features, r.label));
     }
-    rows.forEach(r => ModelStore.addTrainingRow(r.features, r.label, { sym: 'AUTOSEED', setup: r.setup }));
+    // Tag every synthetic row explicitly so the trainer refuses to use them
+    // unless explicitly opted in. priceSource='mock' + dataSource='mock' makes
+    // them invisible to the live-only training path.
+    rows.forEach(r => ModelStore.addTrainingRow(r.features, r.label, {
+      sym: 'AUTOSEED',
+      setup: r.setup,
+      dataSource: 'mock',
+      priceSource: 'mock',
+      synthetic: true
+    }));
     ModelStore.save(model);
-    ModelStore.saveVersion(model, 'auto-seed (200 rows × 3 epochs)');
+    ModelStore.saveVersion(model, 'synthetic-seed (200 rows × 3 epochs)');
     localStorage.setItem('bpleone_model_autoseeded_v1', String(Date.now()));
     try { window.dispatchEvent(new CustomEvent('bpleone:model-autoseeded', { detail: { rows: 200 } })); } catch (e) {}
     return true;

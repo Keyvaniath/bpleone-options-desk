@@ -123,17 +123,26 @@ function tick() {
   const thr = +document.getElementById('threshold').value / 100;
   const riskAmt = +document.getElementById('riskAmt').value || 500;
 
-  // Open new positions
+  // Helper: refuse to act on stale-seed or mock prices
+  function isRealQuote(q) {
+    return q && q.priceSource && q.priceSource !== 'stale-seed' && q.priceSource !== 'mock'
+      && q.liveAt && (Date.now() - q.liveAt) < 60 * 60 * 1000;
+  }
+
+  // Open new positions — only when we have a real entry price
   findings.forEach(f => {
     if (!f.modelProb) return;
     if ((f.severity || 1) < 2) return;
     if (Math.abs(f.modelProb - 0.5) < (thr - 0.5)) return; // model not confident enough
+    if (f.dataSource !== 'live') return; // skip mock-tagged findings
     const sym = f.meta && f.meta.sym;
     if (!sym) return;
+    const q = (typeof QUOTES !== 'undefined') ? QUOTES[sym] : null;
+    if (!isRealQuote(q)) return; // refuse to open at fake prices
     if (state.open.find(p => p.sym === sym)) return; // already in position
     if (state.open.find(p => p.findingId === f.id)) return;
     if (state.closed.find(p => p.findingId === f.id)) return; // already traded
-    // Open
+    // Open at REAL price
     const side = f.modelProb >= 0.5 ? 'LONG' : 'SHORT';
     state.open.push({
       findingId: f.id,
@@ -144,27 +153,40 @@ function tick() {
       severity: f.severity,
       setup: (f.meta && f.meta.setup) || f.type,
       riskAmt,
-      entry: 100, // synthetic
+      entry: q.last,                 // REAL entry price
+      entrySource: q.priceSource,    // tag source for audit
+      qty: Math.max(1, Math.floor(riskAmt / Math.max(1, q.last * 0.015))),  // 1.5% stop sizing
       status: 'open'
     });
   });
 
-  // Close positions when their finding has an outcome
+  // Close positions when their finding has an outcome — at REAL exit prices only
   for (let i = state.open.length - 1; i >= 0; i--) {
     const p = state.open[i];
     const f = findings.find(x => x.id === p.findingId);
     if (!f) continue;
-    if (f.outcome === 'hit' || f.outcome === 'miss') {
-      const predHit = p.modelProb >= 0.5;
-      const correct = (predHit && f.outcome === 'hit') || (!predHit && f.outcome === 'miss');
-      const pnl = correct ? p.riskAmt * 1.8 : -p.riskAmt * 1.0; // 1.8R win / 1R loss
-      state.equity += pnl;
-      state.equityHistory.push({ ts: Date.now(), eq: state.equity });
-      if (state.equityHistory.length > 1000) state.equityHistory.shift();
-      state.closed.unshift({ ...p, exit: 100 + (pnl / p.riskAmt), closedTs: Date.now(), pnl, correct, outcome: f.outcome });
-      if (state.closed.length > 500) state.closed.length = 500;
-      state.open.splice(i, 1);
-    }
+    if (f.outcome !== 'hit' && f.outcome !== 'miss') continue;
+    const q = (typeof QUOTES !== 'undefined') ? QUOTES[p.sym] : null;
+    if (!isRealQuote(q)) continue; // wait for real exit price before closing
+    const exit = q.last;
+    // REAL P&L from actual price movement
+    const grossMove = (exit - p.entry) * (p.qty || 1);
+    const pnl = p.side === 'LONG' ? grossMove : -grossMove;
+    const correct = pnl > 0;
+    state.equity += pnl;
+    state.equityHistory.push({ ts: Date.now(), eq: state.equity });
+    if (state.equityHistory.length > 1000) state.equityHistory.shift();
+    state.closed.unshift({
+      ...p,
+      exit,
+      exitSource: q.priceSource,
+      closedTs: Date.now(),
+      pnl,
+      correct,
+      outcome: f.outcome
+    });
+    if (state.closed.length > 500) state.closed.length = 500;
+    state.open.splice(i, 1);
   }
   save(state);
   paint();

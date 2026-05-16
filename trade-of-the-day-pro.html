@@ -65,13 +65,28 @@ function paint() {
   if (!window.ModelStore) { setTimeout(paint, 500); return; }
   const findings = (function () { try { return JSON.parse(localStorage.getItem('bpleone_brain_findings_v1') || '{"items":[]}').items; } catch (e) { return []; } })();
   const learn = (function () { try { return JSON.parse(localStorage.getItem('bpleone_learn_v1') || '{}'); } catch (e) { return {}; } })();
+  // DATA INTEGRITY: only consider findings from real data feed.
+  // A finding tagged dataSource='live' was emitted while the data provider was
+  // pushing real quotes. Everything else is poisoned and gets ignored.
   const candidates = findings.filter(f =>
+    f.dataSource === 'live' &&
     typeof f.modelProb === 'number' &&
     f.modelProb >= 0.60 &&
     (f.severity === 'high' || f.severity === 'medium' || (f.severity || 1) >= 2) &&
     !f.outcome &&
     (Date.now() - f.ts) < 4 * 3600 * 1000
   );
+
+  // Also bail out completely if site is in mock mode — no fake picks
+  if (window.BPLEONE_DATA_MODE !== 'live') {
+    document.getElementById('heroSection').innerHTML = '<div class="totd-hero" style="text-align:center;">'
+      + '<div style="font-size:48px;margin-bottom:14px;">🛑</div>'
+      + '<div style="font-size:22px;font-weight:800;color:var(--red);margin-bottom:10px;">No pick — live data required</div>'
+      + '<div style="font-size:13px;color:var(--text-secondary);max-width:500px;margin:0 auto;line-height:1.6;">TOTD PRO refuses to publish a pick from simulated prices. Open <a href="data-truth.html" style="color:var(--accent);">Data Truth</a> to check status, or <a href="live-data-setup.html" style="color:var(--accent);">Live Data Setup</a> to wire Finnhub free.</div>'
+      + '</div>';
+    document.getElementById('backups').innerHTML = '';
+    return;
+  }
 
   // Score = modelProb * severity * (1 + (brainWeight - 1))
   candidates.forEach(f => {

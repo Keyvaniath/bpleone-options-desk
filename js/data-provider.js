@@ -685,6 +685,74 @@ const DataProvider = (function() {
     // ~5 requests/sec is a polite ceiling. 12s × 3-4 chunks = ~3 req/poll cycle.
     stooqPollOnce();
     stooqPollTimer = setInterval(stooqPollOnce, 12000);
+    // Also start Coinbase realtime crypto feed — free, CORS, no key.
+    startCoinbaseCrypto();
+  }
+
+  // ---------- Coinbase realtime crypto fallback (BTC/ETH) ----------
+  // Coinbase Exchange has a free public WebSocket with full CORS. Real-time
+  // tick data for BTC-USD and ETH-USD. No API key, no signup.
+  let coinbaseSocket = null;
+  let coinbaseReconnect = null;
+
+  function startCoinbaseCrypto() {
+    if (coinbaseSocket && coinbaseSocket.readyState === WebSocket.OPEN) return;
+    try {
+      const ws = new WebSocket('wss://ws-feed.exchange.coinbase.com');
+      coinbaseSocket = ws;
+      ws.onopen = () => {
+        ws.send(JSON.stringify({
+          type: 'subscribe',
+          product_ids: ['BTC-USD', 'ETH-USD'],
+          channels: ['ticker']
+        }));
+      };
+      ws.onmessage = (ev) => {
+        try {
+          const m = JSON.parse(ev.data);
+          if (m.type !== 'ticker' || !m.product_id || !m.price) return;
+          const sym = m.product_id === 'BTC-USD' ? 'BTC' : m.product_id === 'ETH-USD' ? 'ETH' : null;
+          if (!sym || typeof QUOTES === 'undefined' || !QUOTES[sym]) return;
+          const q = QUOTES[sym];
+          const price = parseFloat(m.price);
+          if (!isFinite(price) || price <= 0) return;
+          if (q.last !== price) q.prevClose = q.prevClose || q.last;
+          q.last = price;
+          q.bid = parseFloat(m.best_bid) || +(price - 0.5).toFixed(2);
+          q.ask = parseFloat(m.best_ask) || +(price + 0.5).toFixed(2);
+          q.volume = parseFloat(m.volume_24h) || q.volume;
+          q.dayHigh = parseFloat(m.high_24h) || q.dayHigh;
+          q.dayLow = parseFloat(m.low_24h) || q.dayLow;
+          if (q.prevClose > 0) {
+            q.change = q.last - q.prevClose;
+            q.changePct = (q.change / q.prevClose) * 100;
+          }
+          q.source = 'coinbase';
+          q.priceSource = 'coinbase';
+          q.liveAt = Date.now();
+          q.ts = Date.now();
+          // Flip site mode to live if Coinbase is the first real source
+          try {
+            if (window.BPLEONE_DATA_MODE !== 'live') {
+              window.BPLEONE_DATA_MODE = 'live';
+              window.BPLEONE_LIVE_SOURCE = 'coinbase';
+              window.dispatchEvent(new CustomEvent('bpleone:data-mode', { detail: { mode: 'live', source: 'coinbase' } }));
+            }
+          } catch (e) {}
+          try { if (typeof Feed !== 'undefined') Feed.publish(sym, q); } catch (e) {}
+        } catch (e) {}
+      };
+      ws.onclose = () => {
+        coinbaseSocket = null;
+        if (!coinbaseReconnect) coinbaseReconnect = setTimeout(() => { coinbaseReconnect = null; startCoinbaseCrypto(); }, 5000);
+      };
+      ws.onerror = () => { try { ws.close(); } catch (e) {} };
+    } catch (e) {}
+  }
+  function stopCoinbaseCrypto() {
+    try { if (coinbaseSocket) coinbaseSocket.close(); } catch (e) {}
+    coinbaseSocket = null;
+    if (coinbaseReconnect) { clearTimeout(coinbaseReconnect); coinbaseReconnect = null; }
   }
   function stopStooqFallback() {
     if (stooqPollTimer) { clearInterval(stooqPollTimer); stooqPollTimer = null; }
