@@ -569,6 +569,14 @@ document.addEventListener('DOMContentLoaded', () => {
         s.async = false;
         document.head.appendChild(s);
       }
+      // Hindsight replay: hard-negative mining. Confidently-wrong predictions
+      // are saved + replayed with 3x weight to amplify the correction.
+      if (!document.querySelector('script[src*="hindsight-replay.js"]')) {
+        const s = document.createElement('script');
+        s.src = 'js/hindsight-replay.js';
+        s.async = false;
+        document.head.appendChild(s);
+      }
       // Unified predictor: chains every meta-module into ONE call.
       // Loads last so all dependencies are present.
       if (!document.querySelector('script[src*="unified-predictor.js"]')) {

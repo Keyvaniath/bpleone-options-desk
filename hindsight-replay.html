@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Hindsight Replay — bpleone / brain</title>
+<meta name="description" content="Hard negative mining. The brain stores confidently-wrong past predictions and replays them with extra weight to amplify the correction.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.pool-card { padding:32px;border-radius:16px;text-align:center;background:linear-gradient(135deg,rgba(167,139,250,0.10),rgba(167,139,250,0.02));border:2px solid rgba(167,139,250,0.4); }
+.pool-card .big { font-family:var(--font-mono);font-size:64px;font-weight:900;line-height:1;color:#a78bfa; }
+.tile { padding:18px;background:var(--bg-elevated);border-radius:10px; }
+.tile .lbl { font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;font-weight:700; }
+.tile .val { font-family:var(--font-mono);font-size:22px;font-weight:800;margin-top:6px;color:var(--accent); }
+.preview-row { display:grid;grid-template-columns:80px 60px 1fr 100px 80px;gap:10px;padding:10px 14px;background:var(--bg-elevated);border-radius:8px;margin-bottom:6px;align-items:center;font-family:var(--font-mono);font-size:13px; }
+.preview-row.head { background:transparent;font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;font-weight:700; }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">🔁 Hindsight Replay</div>
+      <div class="page-subtitle">Hard-negative mining · the brain replays confidently-wrong predictions with extra weight</div>
+    </div>
+  </div>
+
+  <div id="pool-card" class="mb-24"></div>
+
+  <div class="grid grid-3 mb-24" id="metrics-grid"></div>
+
+  <div class="card mb-24">
+    <div class="card-header"><div class="card-title">📋 Recent confidently-wrong examples</div></div>
+    <div style="font-size:13px;color:var(--text-secondary);margin-bottom:14px;">Predictions where the model was at least 70% confident (or 30%) and the trade went against it. These are the highest-signal training examples.</div>
+    <div id="preview-list"></div>
+  </div>
+
+  <div class="card">
+    <div class="card-header"><div class="card-title">📚 How hindsight replay works</div></div>
+    <div style="font-size:13px;color:var(--text-secondary);line-height:1.7;">
+      Most resolutions are unsurprising — the model said 70%, the trade went the right way, you train on it and move on. But occasionally the model says 85% confidently, then the trade <em>goes against it</em>. <strong>Those are the examples that contain the most learning signal</strong> — the model has a confident wrong belief that needs to be corrected.<br><br>
+      <strong>The algorithm:</strong>
+      <ol style="margin:8px 0 8px 24px;">
+        <li>On every resolution, check if |predicted - 0.5| &gt; 0.20 AND the prediction was wrong.</li>
+        <li>If yes, add the (features, predProb, actualLabel) tuple to the hindsight pool.</li>
+        <li>After each main training round, replay the last 3 hindsight examples through <code>model.train()</code> with 3× learning rate.</li>
+        <li>The model's gradient on those examples is amplified, correcting the confident-wrong belief faster.</li>
+      </ol>
+      <strong>Why this works:</strong> standard SGD weights each example equally. But the examples that move the loss the most are the ones the model was most wrong about. Hindsight replay is a form of <em>hard negative mining</em> — bias the gradient toward examples where the model needs the most learning.<br><br>
+      <strong>Pool is FIFO-capped</strong> at 100 examples to avoid memory bloat. Label smoothing applies during replay if enabled.
+    </div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script src="js/hindsight-replay.js"></script>
+<script>
+buildNav('hindsight-replay');
+
+function fmt(n, d) { return n != null ? n.toFixed(d != null ? d : 3) : '—'; }
+function fmtPct(p) { return p != null ? (p * 100).toFixed(1) + '%' : '—'; }
+
+function render() {
+  const s = HindsightReplay.stats();
+  document.getElementById('pool-card').innerHTML = '<div class="pool-card">'
+    + '<div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:1px;font-weight:700;">Hindsight pool size</div>'
+    + '<div class="big" style="margin-top:8px;">' + s.poolSize + '/' + s.maxPool + '</div>'
+    + '<div style="font-size:14px;color:var(--text-secondary);margin-top:14px;">Confident-wrong predictions awaiting replay</div>'
+    + '</div>';
+
+  document.getElementById('metrics-grid').innerHTML = ''
+    + '<div class="tile"><div class="lbl">Total replays</div><div class="val">' + s.totalReplays + '</div></div>'
+    + '<div class="tile"><div class="lbl">Replay weight</div><div class="val">' + s.replayWeight + 'x</div></div>'
+    + '<div class="tile"><div class="lbl">Confidence threshold</div><div class="val">±' + (s.confidenceThreshold * 100).toFixed(0) + '%</div></div>';
+
+  const preview = HindsightReplay.poolPreview(20);
+  const list = document.getElementById('preview-list');
+  if (preview.length === 0) {
+    list.innerHTML = '<div style="text-align:center;padding:24px;color:var(--text-muted);font-size:13px;">No confident-wrong predictions yet. They appear here as the brain makes them.</div>';
+    return;
+  }
+  let html = '<div class="preview-row head"><div>Time</div><div>Sym</div><div></div><div>Predicted</div><div>Actual</div></div>';
+  for (const p of preview) {
+    const dir = p.p >= 0.5 ? '↑' : '↓';
+    const actualDir = p.y === 1 ? '↑ win' : '↓ loss';
+    html += '<div class="preview-row">'
+      + '<div>' + new Date(p.t).toLocaleTimeString() + '</div>'
+      + '<div style="font-weight:700;">' + (p.sym || '?') + '</div>'
+      + '<div></div>'
+      + '<div style="color:var(--accent);">' + dir + ' ' + fmtPct(p.p) + '</div>'
+      + '<div style="color:' + (p.y === 1 ? 'var(--green)' : 'var(--red)') + ';">' + actualDir + '</div>'
+      + '</div>';
+  }
+  list.innerHTML = html;
+}
+
+render();
+setInterval(render, 8000);
+window.addEventListener('bpleone:continuous-cycle', render);
+</script>
+</body>
+</html>

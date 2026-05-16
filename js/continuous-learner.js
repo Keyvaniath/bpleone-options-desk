@@ -371,6 +371,14 @@
               DowPerf.recordResolution(entry.predProb, label, entry.ts);
             }
           } catch (e) {}
+          // HINDSIGHT REPLAY: if the model was confidently wrong on this
+          // example, add it to the hindsight pool for later replay with
+          // elevated weight.
+          try {
+            if (typeof HindsightReplay !== 'undefined' && entry.features) {
+              HindsightReplay.record(entry.features, entry.predProb, label, entry.sym);
+            }
+          } catch (e) {}
         }
       });
 
@@ -444,6 +452,15 @@
     model.lr = originalLR;
     model.n_trained = (model.n_trained || 0) + newRows.length;
     ModelStore.save(model);
+
+    // HINDSIGHT REPLAY: after the main training pass, replay a small batch
+    // of confidently-wrong past predictions to amplify learning on those.
+    try {
+      if (typeof HindsightReplay !== 'undefined') {
+        HindsightReplay.triggerReplay(model, 3);
+        ModelStore.save(model); // persist any weight changes from replay
+      }
+    } catch (e) {}
 
     // FEATURE ATTRIBUTION: for each resolved entry, compute per-feature
     // contribution to the prediction logit, then update the feature-alpha map.
