@@ -228,6 +228,14 @@
               SymbolBias.update(entry.sym, label, entry.predProb);
             }
           } catch (e) {}
+          // BOOTSTRAP ENSEMBLE: train K=5 models with online bagging
+          // (each sample included in each model w/ p=0.6) for rigorous
+          // uncertainty estimates beyond MC Dropout.
+          try {
+            if (typeof BootstrapEnsemble !== 'undefined') {
+              BootstrapEnsemble.train(entry.features, label, sampleWeight);
+            }
+          } catch (e) {}
         }
       });
 

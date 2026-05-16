@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Ensemble Agreement — bpleone / trade</title>
+<meta name="description" content="Cross-method agreement scorer combining multi-horizon, bootstrap, MC dropout into one composite confidence indicator.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.intro { background:linear-gradient(135deg,rgba(0,212,255,0.06),transparent);border:1px solid rgba(0,212,255,0.25);padding:24px;border-radius:14px;margin-bottom:24px; }
+.sym-row { display:grid;grid-template-columns:80px 90px 110px 110px 100px 100px 1fr;gap:14px;padding:11px 14px;border-bottom:1px solid var(--border);font-family:var(--font-mono);font-size:11px;align-items:center; }
+.sym-row.hdr { background:var(--bg-elevated);font-size:9px;color:var(--text-muted);font-weight:800;letter-spacing:0.4px; }
+.sym-row.strong { border-left:3px solid var(--green); }
+.sym-row.moderate { border-left:3px solid var(--accent); }
+.sym-row.mixed { border-left:3px solid var(--yellow); }
+.sym-row.fragmented { border-left:3px solid var(--red); }
+.bar { height:8px;background:var(--bg);border-radius:4px;overflow:hidden; }
+.bar > div { height:100%; }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">🤝 Ensemble Agreement</div>
+      <div class="page-subtitle">Cross-method consensus · multi-horizon × bootstrap × MC dropout · informs final size multiplier · <span id="market-clock">--</span></div>
+    </div>
+  </div>
+
+  <div class="intro">
+    <div style="font-size:14px;color:var(--text-primary);line-height:1.7;">
+      <strong>The principle:</strong> three independent uncertainty estimators (multi-horizon ensemble, bootstrap K=5 models, MC dropout) all output probabilities. When they ALL agree on direction AND magnitude, the prediction is robust. When they split, the prediction is fragile.
+      <br><br>
+      <strong>The math:</strong>
+      <ul style="margin:6px 0 0 20px;">
+        <li><strong>direction_agreement</strong> = fraction of estimators on the majority side (1.0 = unanimous)</li>
+        <li><strong>magnitude_agreement</strong> = 1 - (pooled std / 0.20). Tight spread = high agreement.</li>
+        <li><strong>score = (direction + magnitude) / 2</strong>, range [0, 1]</li>
+      </ul>
+      <br>
+      <strong>Tiers:</strong>
+      <ul style="margin:6px 0 0 20px;">
+        <li><strong style="color:var(--green);">≥0.85 STRONG</strong> — amplify size 1.10×</li>
+        <li><strong style="color:var(--accent);">0.65-0.85 MODERATE</strong> — full size</li>
+        <li><strong style="color:var(--yellow);">0.45-0.65 MIXED</strong> — half size</li>
+        <li><strong style="color:var(--red);">&lt;0.45 FRAGMENTED</strong> — 0.40× size or skip</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="card mb-24" style="padding:0;">
+    <div class="sym-row hdr">
+      <div>SYM</div><div>SCORE</div><div>DIRECTION</div><div>MAGNITUDE</div><div>METHODS</div><div>TIER</div><div>VISUAL</div>
+    </div>
+    <div id="symBody"></div>
+  </div>
+
+  <div class="card">
+    <div class="card-header"><div class="card-title">🔬 Reading the methods</div></div>
+    <div style="font-size:13px;color:var(--text-secondary);line-height:1.7;">
+      <strong>Multi-horizon ensemble:</strong> three time-horizon models (1d, 5d, 20d). If short says LONG but long says SHORT, the setup is at a regime transition — risky.<br>
+      <strong>Bootstrap ensemble:</strong> five models trained on random 60% subsets of data. If their outputs cluster tightly, signal is robust. If they spread, model is uncertain.<br>
+      <strong>MC Dropout:</strong> 20 samples with random 20% feature masking. Measures fragility to feature noise.<br>
+      <br>
+      <strong>METHODS column:</strong> count of estimator methods loaded and producing predictions. Should be 3 once enough training data accumulates.
+      <br><br>
+      <strong>Why all three:</strong> each captures a different uncertainty source. Multi-horizon = time-frame consensus. Bootstrap = data-subset robustness. Dropout = feature robustness. Real edge comes when all three say yes.
+    </div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script src="js/model.js"></script>
+<script src="js/multi-horizon.js"></script>
+<script src="js/bootstrap-ensemble.js"></script>
+<script src="js/bayesian-dropout.js"></script>
+<script src="js/ensemble-agreement.js"></script>
+<script>
+buildNav('ensemble-agreement');
+
+const UNIVERSE = ['SPY','QQQ','IWM','AAPL','NVDA','TSLA','MSFT','META','AMZN','GOOGL','AMD','PLTR','SMCI','COIN','BTC','ETH','BABA','SHOP','CRM','UBER','XLE','GLD','SLV'];
+
+function isLiveQuote(q) {
+  return q && q.priceSource && q.priceSource !== 'stale-seed' && q.priceSource !== 'mock'
+    && q.liveAt && (Date.now() - q.liveAt) < 5 * 60 * 1000;
+}
+
+function render() {
+  if (typeof window.EnsembleAgreement === 'undefined' || typeof QUOTES === 'undefined') { setTimeout(render, 500); return; }
+  const model = ModelStore.load();
+  const rows = [];
+
+  UNIVERSE.forEach(sym => {
+    const q = QUOTES[sym];
+    if (!isLiveQuote(q)) return;
+    const finding = { ts: Date.now(), type: 'ea-scan', severity: 1, meta: { sym, setup: 'scan', last: q.last } };
+    const features = FeatureExtractor.extract(finding);
+    if (!features || features.length !== 22) return;
+    const r = window.EnsembleAgreement.compute(features, model);
+    if (!r) return;
+    const tier = window.EnsembleAgreement.categorize(r.score);
+    const mult = window.EnsembleAgreement.sizeMultiplier(r.score);
+    rows.push({ sym, ...r, tier, mult });
+  });
+
+  if (rows.length === 0) {
+    document.getElementById('symBody').innerHTML = '<div style="padding:30px;text-align:center;color:var(--text-muted);font-size:12px;">Waiting for live data and trained models...</div>';
+    return;
+  }
+
+  rows.sort((a, b) => b.score - a.score);
+
+  document.getElementById('symBody').innerHTML = rows.map(r => {
+    const tier = r.tier;
+    const tierCol = tier === 'strong' ? 'var(--green)' : tier === 'moderate' ? 'var(--accent)' : tier === 'mixed' ? 'var(--yellow)' : 'var(--red)';
+    return '<div class="sym-row ' + tier + '">'
+      + '<div><strong>' + r.sym + '</strong></div>'
+      + '<div style="color:' + tierCol + ';font-weight:700;">' + (r.score * 100).toFixed(0) + '%</div>'
+      + '<div>' + (r.directionAgreement * 100).toFixed(0) + '%</div>'
+      + '<div>' + (r.magnitudeAgreement * 100).toFixed(0) + '%</div>'
+      + '<div>' + r.methodCount + ' / 3</div>'
+      + '<div style="color:' + tierCol + ';font-weight:700;">' + tier.toUpperCase() + ' (' + r.mult.toFixed(2) + 'x)</div>'
+      + '<div class="bar"><div style="width:' + (r.score * 100) + '%;background:' + tierCol + ';"></div></div>'
+      + '</div>';
+  }).join('');
+}
+
+render();
+setInterval(render, 10000);
+</script>
+</body>
+</html>
