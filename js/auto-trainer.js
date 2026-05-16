@@ -141,7 +141,10 @@
     setLast(Date.now());  // claim the slot immediately to prevent concurrent runs
 
     const model = window.ModelStore.load();
+    // Also train the per-horizon ensemble models if available
+    const hasHorizons = typeof window.MultiHorizon !== 'undefined';
     let trained = 0;
+    let trainedHorizons = { short: 0, mid: 0, long: 0 };
     let symsFetched = 0;
     let lossSum = 0;
 
@@ -156,7 +159,8 @@
         symsFetched++;
         const seen = alreadyTrained[sym] || '';
         const startIdx = 50;
-        const endIdx = bars.length - 1;  // need 1 forward bar for label
+        // Need at least 20 forward bars to compute the LONG-horizon label
+        const endIdx = bars.length - 21;
         for (let i = startIdx; i < endIdx; i++) {
           if (bars[i].date <= seen) continue;
           const features = buildFeaturesForBar(bars, i);
@@ -164,19 +168,43 @@
           for (let k = Math.max(0, i - 13); k <= i; k++) atrSum += bars[k].high - bars[k].low;
           const atr = atrSum / Math.min(14, i + 1);
           const atrPct = atr / bars[i].close;
-          const ret1d = (bars[i + 1].close - bars[i].close) / bars[i].close;
-          const label = ret1d > 0.3 * atrPct ? 1 : 0;
-          const { loss } = model.train(features, label);
-          lossSum += loss;
-          window.ModelStore.addTrainingRow(features, label, {
-            sym: sym,
-            setup: 'auto-train-' + bars[i].date,
-            dataSource: 'live',
-            priceSource: 'stooq',
-            historical: true,
-            autoTrained: true
+
+          // Compute returns at three horizons + their reward-shaped weights
+          const horizons = [
+            { name: 'short', barsAhead: 1,  minMove: 0.3 * atrPct },
+            { name: 'mid',   barsAhead: 5,  minMove: 1.0 * atrPct },
+            { name: 'long',  barsAhead: 20, minMove: 3.0 * atrPct }
+          ];
+          horizons.forEach(h => {
+            const futClose = bars[i + h.barsAhead];
+            if (!futClose) return;
+            const ret = (futClose.close - bars[i].close) / bars[i].close;
+            const label = ret > h.minMove ? 1 : (ret < -h.minMove ? 0 : null);
+            if (label === null) return;  // skip flat moves
+            const rMult = Math.abs(ret) / Math.max(0.001, h.minMove / 3);
+            const w = Math.max(0.25, Math.min(4, rMult));
+            // Train the matching horizon model if MultiHorizon is loaded
+            if (hasHorizons) {
+              window.MultiHorizon.trainHorizon(h.name, features, label, w);
+              trainedHorizons[h.name]++;
+            }
+            // Train the main model on SHORT only (for backwards compat)
+            if (h.name === 'short') {
+              const { loss } = model.train(features, label);
+              lossSum += loss;
+              window.ModelStore.addTrainingRow(features, label, {
+                sym: sym,
+                setup: 'auto-train-' + bars[i].date,
+                dataSource: 'live',
+                priceSource: 'stooq',
+                historical: true,
+                autoTrained: true,
+                horizon: h.name,
+                sampleWeight: w
+              });
+              trained++;
+            }
           });
-          trained++;
           alreadyTrained[sym] = bars[i].date;
         }
         await new Promise(r => setTimeout(r, 300));  // be polite
@@ -191,18 +219,21 @@
       try { localStorage.setItem('bpleone_auto_train_seen_v1', JSON.stringify(alreadyTrained)); } catch (e) {}
       try {
         window.dispatchEvent(new CustomEvent('bpleone:auto-trained', {
-          detail: { batchSize: trained, symsFetched, avgLoss: lossSum / trained }
+          detail: { batchSize: trained, symsFetched, avgLoss: lossSum / trained, trainedHorizons }
         }));
       } catch (e) {}
       // Quiet log for the brain-changelog
       try {
         const log = JSON.parse(localStorage.getItem('bpleone_brain_changelog_v1') || '[]');
+        const horizonStr = hasHorizons
+          ? ' · per-horizon: short=' + trainedHorizons.short + ', mid=' + trainedHorizons.mid + ', long=' + trainedHorizons.long
+          : '';
         log.unshift({
           ts: Date.now(),
           type: 'train',
           title: 'Auto-train: ' + trained + ' new bars',
-          body: 'Fetched latest Stooq bars across ' + symsFetched + ' symbols. Trained ' + trained + ' new examples. Avg loss: ' + (lossSum / trained).toFixed(3),
-          meta: { trained, symsFetched, source: 'auto-train' }
+          body: 'Fetched latest Stooq bars across ' + symsFetched + ' symbols. Trained ' + trained + ' main rows. Avg loss: ' + (lossSum / trained).toFixed(3) + horizonStr,
+          meta: { trained, symsFetched, source: 'auto-train', trainedHorizons }
         });
         localStorage.setItem('bpleone_brain_changelog_v1', JSON.stringify(log.slice(0, 200)));
       } catch (e) {}
