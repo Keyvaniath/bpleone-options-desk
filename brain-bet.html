@@ -83,6 +83,7 @@
 <script src="js/calibrator.js"></script>
 <script src="js/outlier-detector.js"></script>
 <script src="js/trade-selectivity.js"></script>
+<script src="js/bayesian-dropout.js"></script>
 <script>
 buildNav('brain-bet');
 
@@ -170,8 +171,21 @@ function render() {
   candidates.sort((a, b) => b.conviction - a.conviction);
   const top = candidates[0];
 
-  // Position sizing: shares = riskDollars / risk-per-share
-  const shares = Math.max(1, Math.floor(riskDollars / top.risk));
+  // Bayesian uncertainty via MC Dropout — narrows position size when
+  // model isn't confident about its own prediction
+  let uncertainty = null;
+  let uncertSizeMult = 1.0;
+  let uncertCat = 'unknown';
+  if (typeof BayesianDropout !== 'undefined') {
+    const model = ModelStore.load();
+    uncertainty = BayesianDropout.predict(model, top.features);
+    uncertCat = BayesianDropout.categorize(uncertainty);
+    uncertSizeMult = BayesianDropout.sizeMultiplier(uncertainty);
+  }
+
+  // Position sizing: shares = riskDollars × uncertaintyMultiplier / risk-per-share
+  const adjustedRiskDollars = riskDollars * uncertSizeMult;
+  const shares = Math.max(1, Math.floor(adjustedRiskDollars / top.risk));
   const positionValue = shares * top.entry;
   const expectedValue = (top.prob * top.reward - (1 - top.prob) * top.risk) * shares;
   const expectedR = top.prob * (top.reward / top.risk) - (1 - top.prob);
@@ -187,16 +201,17 @@ function render() {
     + '<div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:1.5px;font-weight:700;">The brain says</div>'
     + '<div class="sym" style="color:' + (top.side === 'long' ? 'var(--green)' : 'var(--red)') + ';margin-top:8px;">' + top.sym + '</div>'
     + '<div class="side-pill ' + top.side + '">' + top.side.toUpperCase() + '</div>'
-    + '<div style="font-size:14px;color:var(--text-secondary);margin-top:18px;">Calibrated probability: <strong style="font-family:var(--font-mono);font-size:24px;color:var(--accent);">' + (top.prob * 100).toFixed(0) + '%</strong></div>'
+    + '<div style="font-size:14px;color:var(--text-secondary);margin-top:18px;">Calibrated probability: <strong style="font-family:var(--font-mono);font-size:24px;color:var(--accent);">' + (top.prob * 100).toFixed(0) + '%</strong>' + (uncertainty ? ' <span style="font-family:var(--font-mono);font-size:14px;color:var(--text-muted);">± ' + (uncertainty.std * 100).toFixed(1) + '%</span>' : '') + '</div>'
+    + (uncertainty ? '<div style="font-size:11px;color:var(--text-muted);margin-top:6px;font-family:var(--font-mono);">90% interval: [' + (uncertainty.p5 * 100).toFixed(0) + '%, ' + (uncertainty.p95 * 100).toFixed(0) + '%] · confidence: <strong style="color:' + (uncertCat === 'high' ? 'var(--green)' : uncertCat === 'medium' ? 'var(--accent)' : 'var(--yellow)') + ';">' + uncertCat + '</strong></div>' : '')
     + '<div class="levels-grid">'
       + '<div class="level"><div class="lbl">Entry</div><div class="val">$' + top.entry.toFixed(2) + '</div></div>'
       + '<div class="level"><div class="lbl">Stop</div><div class="val" style="color:var(--red);">$' + top.stop.toFixed(2) + '</div></div>'
       + '<div class="level"><div class="lbl">Target</div><div class="val" style="color:var(--green);">$' + top.target.toFixed(2) + '</div></div>'
     + '</div>'
     + '<div class="size-block">'
-      + '<div class="lbl">Position size (' + (riskPct * 100).toFixed(1) + '% risk on $' + account.toLocaleString() + ')</div>'
+      + '<div class="lbl">Position size (' + (riskPct * 100).toFixed(1) + '% risk on $' + account.toLocaleString() + (uncertSizeMult < 1 ? ', adjusted ' + (uncertSizeMult * 100).toFixed(0) + '% for uncertainty' : '') + ')</div>'
       + '<div class="big-size">' + shares.toLocaleString() + ' shares · $' + Math.round(positionValue).toLocaleString() + '</div>'
-      + '<div style="font-size:11px;color:var(--text-muted);margin-top:6px;font-family:var(--font-mono);">Risk: $' + (shares * top.risk).toFixed(0) + ' · Reward: $' + (shares * top.reward).toFixed(0) + ' · R:R ' + top.rr.toFixed(2) + ':1</div>'
+      + '<div style="font-size:11px;color:var(--text-muted);margin-top:6px;font-family:var(--font-mono);">Risk: $' + (shares * top.risk).toFixed(0) + ' · Reward: $' + (shares * top.reward).toFixed(0) + ' · R:R ' + top.rr.toFixed(2) + ':1' + (uncertSizeMult < 1 ? ' · 🛡 sized down ' + ((1 - uncertSizeMult) * 100).toFixed(0) + '% for low confidence' : '') + '</div>'
     + '</div>'
     + '</div>'
 

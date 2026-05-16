@@ -396,6 +396,14 @@ document.addEventListener('DOMContentLoaded', () => {
         s.async = false;
         document.head.appendChild(s);
       }
+      // Bayesian uncertainty (MC dropout) for confidence intervals on
+      // every prediction. Used by brain-bet for size adjustment.
+      if (!document.querySelector('script[src*="bayesian-dropout.js"]')) {
+        const s = document.createElement('script');
+        s.src = 'js/bayesian-dropout.js';
+        s.async = false;
+        document.head.appendChild(s);
+      }
       // Conviction alerter: background notification when A-tier picks fire.
       if (!document.querySelector('script[src*="conviction-alerter.js"]')) {
         const s = document.createElement('script');

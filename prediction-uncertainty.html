@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Prediction Uncertainty — bpleone / trade</title>
+<meta name="description" content="Bayesian MC Dropout — confidence intervals on every prediction. 70% ± 2% vs 70% ± 15% means very different things.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<style>
+.intro { background:linear-gradient(135deg,rgba(167,139,250,0.06),transparent);border:1px solid rgba(167,139,250,0.25);padding:24px;border-radius:14px;margin-bottom:24px; }
+.sym-row { display:grid;grid-template-columns:80px 90px 110px 110px 100px 100px 1fr;gap:14px;padding:12px 14px;border-bottom:1px solid var(--border);font-family:var(--font-mono);font-size:11px;align-items:center; }
+.sym-row.hdr { background:var(--bg-elevated);font-size:9px;color:var(--text-muted);font-weight:800;letter-spacing:0.4px; }
+.sym-row.high { border-left:3px solid var(--green); }
+.sym-row.medium { border-left:3px solid var(--accent); }
+.sym-row.low { border-left:3px solid var(--yellow); }
+.sym-row.very-low { border-left:3px solid var(--red); }
+.conf-bar { height:6px;background:var(--bg);border-radius:3px;overflow:hidden;position:relative; }
+.conf-bar > div { height:100%; }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">🎲 Prediction Uncertainty</div>
+      <div class="page-subtitle">Bayesian MC Dropout · confidence intervals on every prediction · informs position sizing · <span id="market-clock">--</span></div>
+    </div>
+  </div>
+
+  <div class="intro">
+    <div style="font-size:14px;color:var(--text-primary);line-height:1.7;">
+      <strong>The problem with a single probability:</strong> when the brain says "70%", it doesn't tell you HOW confident it is in that 70%. Could be a robust 70% (drop any 20% of features and you still get 70%) or a fragile 70% (drop different features and you get anywhere from 50% to 90%).
+      <br><br>
+      <strong>MC Dropout estimates this cheaply:</strong> randomly mask 20% of features, predict, repeat 20 times, average + std. The math:
+      <ul style="margin:6px 0 0 20px;">
+        <li><strong>Mean</strong> = avg of 20 samples = point estimate of probability</li>
+        <li><strong>Std</strong> = variance across samples = uncertainty</li>
+        <li><strong>p5, p95</strong> = 5th and 95th percentiles = 90% confidence interval</li>
+      </ul>
+      <br>
+      <strong>Confidence categories:</strong>
+      <ul style="margin:6px 0 0 20px;">
+        <li><strong style="color:var(--green);">HIGH</strong> std &lt; 3pp → full 1.0× size multiplier</li>
+        <li><strong style="color:var(--accent);">MEDIUM</strong> std 3-6pp → 0.75× size</li>
+        <li><strong style="color:var(--yellow);">LOW</strong> std 6-10pp → 0.50× size</li>
+        <li><strong style="color:var(--red);">VERY LOW</strong> std &gt; 10pp → 0.25× size</li>
+      </ul>
+      The brain-bet page reads this and shrinks position size automatically when uncertainty is high. So you risk less on shaky picks.
+    </div>
+  </div>
+
+  <div class="card mb-24">
+    <div class="card-header"><div class="card-title">📊 Live uncertainty per symbol</div></div>
+    <div style="font-size:12px;color:var(--text-secondary);margin-bottom:14px;line-height:1.5;">
+      For each universe symbol with a live quote, computes Bayesian uncertainty. Wide intervals = low confidence even at high mean.
+    </div>
+    <div class="sym-row hdr">
+      <div>SYM</div><div>MEAN</div><div>90% INTERVAL</div><div>STD</div><div>CONFIDENCE</div><div>SIZE MULT</div><div>VISUAL</div>
+    </div>
+    <div id="symBody"></div>
+  </div>
+
+  <div class="card">
+    <div class="card-header"><div class="card-title">🔬 Why this matters for risk</div></div>
+    <div style="font-size:13px;color:var(--text-secondary);line-height:1.7;">
+      Two trades both with 70% probability but very different uncertainty:
+      <br><br>
+      <strong>Trade A:</strong> 70% ± 2% → 90% interval [67%, 73%]. Robust. Take full 1% risk.<br>
+      <strong>Trade B:</strong> 70% ± 12% → 90% interval [55%, 85%]. Fragile. Take 0.25% risk.
+      <br><br>
+      Trade A and Trade B have identical "best estimate" but very different actual risk profiles. Bayesian uncertainty quantifies that automatically. The brain-bet page reads this and shrinks position size when uncertainty is high.
+      <br><br>
+      <strong>The intuition behind MC Dropout:</strong> if removing different subsets of features from your input barely changes the prediction, the model is finding robust signal across many features = high confidence. If different subsets produce wildly different predictions, the model is relying on a few features that might be noise = low confidence.
+    </div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script src="js/model.js"></script>
+<script src="js/bayesian-dropout.js"></script>
+<script>
+buildNav('prediction-uncertainty');
+
+const UNIVERSE = ['SPY','QQQ','IWM','AAPL','NVDA','TSLA','MSFT','META','AMZN','GOOGL','AMD','PLTR','SMCI','COIN','BTC','ETH','BABA','SHOP','CRM','UBER','XLE','GLD','SLV'];
+
+function isLiveQuote(q) {
+  return q && q.priceSource && q.priceSource !== 'stale-seed' && q.priceSource !== 'mock'
+    && q.liveAt && (Date.now() - q.liveAt) < 5 * 60 * 1000;
+}
+
+function render() {
+  if (typeof window.BayesianDropout === 'undefined' || typeof QUOTES === 'undefined') {
+    setTimeout(render, 500);
+    return;
+  }
+  const model = ModelStore.load();
+  const rows = [];
+
+  UNIVERSE.forEach(sym => {
+    const q = QUOTES[sym];
+    if (!isLiveQuote(q)) return;
+    const finding = { ts: Date.now(), type: 'uncert-scan', severity: 1, meta: { sym, setup: 'scan', last: q.last, bias: q.changePct >= 0 ? 'long' : 'short' } };
+    const features = FeatureExtractor.extract(finding);
+    if (!features || features.length !== 22) return;
+    const u = BayesianDropout.predict(model, features);
+    const cat = BayesianDropout.categorize(u);
+    const mult = BayesianDropout.sizeMultiplier(u);
+    rows.push({ sym, mean: u.mean, std: u.std, p5: u.p5, p95: u.p95, cat, mult });
+  });
+
+  if (rows.length === 0) {
+    document.getElementById('symBody').innerHTML = '<div style="padding:30px;text-align:center;color:var(--text-muted);font-size:12px;">Waiting for live data. Stooq or Coinbase must populate fresh prices first.</div>';
+    return;
+  }
+
+  // Sort by mean conviction (distance from 0.5)
+  rows.sort((a, b) => Math.abs(b.mean - 0.5) - Math.abs(a.mean - 0.5));
+
+  document.getElementById('symBody').innerHTML = rows.map(r => {
+    const meanCol = r.mean >= 0.6 ? 'var(--green)' : r.mean <= 0.4 ? 'var(--red)' : 'var(--text-muted)';
+    const catCol = r.cat === 'high' ? 'var(--green)' : r.cat === 'medium' ? 'var(--accent)' : r.cat === 'low' ? 'var(--yellow)' : 'var(--red)';
+    // Interval width visualization — narrow bar = high confidence, wide = low
+    const intervalWidth = (r.p95 - r.p5) * 100;
+    const widthPct = Math.min(100, intervalWidth);
+    const leftPct = r.p5 * 100;
+    return '<div class="sym-row ' + r.cat + '">'
+      + '<div><strong>' + r.sym + '</strong></div>'
+      + '<div style="color:' + meanCol + ';font-weight:700;">' + (r.mean * 100).toFixed(1) + '%</div>'
+      + '<div style="color:var(--text-muted);">[' + (r.p5 * 100).toFixed(0) + '%, ' + (r.p95 * 100).toFixed(0) + '%]</div>'
+      + '<div style="color:' + catCol + ';">±' + (r.std * 100).toFixed(1) + '%</div>'
+      + '<div style="color:' + catCol + ';font-weight:700;">' + r.cat.toUpperCase() + '</div>'
+      + '<div>' + r.mult.toFixed(2) + 'x</div>'
+      + '<div class="conf-bar"><div style="margin-left:' + leftPct + '%;width:' + widthPct + '%;background:' + catCol + ';"></div></div>'
+      + '</div>';
+  }).join('');
+}
+
+render();
+setInterval(render, 8000);
+</script>
+</body>
+</html>
