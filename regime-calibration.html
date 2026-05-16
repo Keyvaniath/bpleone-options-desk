@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Regime Calibration — bpleone / brain</title>
+<meta name="description" content="Per-regime probability calibration. Honest probabilities in bull, bear, chop, and high-vol markets — not just on average.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.regime-tile { padding:18px;background:var(--bg-elevated);border-radius:10px;border:1px solid var(--border); }
+.regime-tile.active { border-color:var(--accent);box-shadow:0 0 14px rgba(0,212,255,0.18); }
+.regime-tile.ready { border-color:var(--green); }
+.regime-tile h3 { font-size:14px;font-weight:700;margin:0 0 8px;display:flex;justify-content:space-between;align-items:center; }
+.regime-tile .pill { font-size:10px;padding:2px 8px;border-radius:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px; }
+.regime-tile .pill.green { background:rgba(16,185,129,0.18);color:var(--green); }
+.regime-tile .pill.yellow { background:rgba(245,158,11,0.18);color:var(--yellow); }
+.regime-tile .pill.active { background:var(--accent);color:#000; }
+.regime-tile .num { font-family:var(--font-mono);font-size:22px;font-weight:800;color:var(--accent); }
+.regime-tile .lbl { font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;font-weight:700; }
+.regime-tile .params { font-family:var(--font-mono);font-size:12px;color:var(--text-secondary);margin-top:8px; }
+.demo-curve { margin-top:14px;height:120px;width:100%; }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">🎚 Regime Calibration</div>
+      <div class="page-subtitle">Per-regime Platt scaling · honest probabilities in every market condition</div>
+    </div>
+  </div>
+
+  <div class="card mb-24" style="text-align:center;">
+    <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:1px;font-weight:700;">Current market regime</div>
+    <div id="current-regime" style="font-family:var(--font-mono);font-size:48px;font-weight:900;margin-top:8px;color:var(--accent);">—</div>
+    <div id="current-context" style="font-size:13px;color:var(--text-secondary);margin-top:6px;font-family:var(--font-mono);"></div>
+  </div>
+
+  <div class="grid grid-3 mb-24" id="regime-grid"></div>
+
+  <div class="card">
+    <div class="card-header"><div class="card-title">📚 Why this matters</div></div>
+    <div style="font-size:13px;color:var(--text-secondary);line-height:1.7;">
+      Probability calibration (Platt scaling) fits a sigmoid mapping <code>p_cal = sigmoid(a × logit(p_raw) + b)</code> to past (predicted, actual) pairs. The global Calibrator averages this fit across every market condition.<br><br>
+      <strong>The problem:</strong> a model that's well-calibrated in calm markets is often <em>overconfident</em> in high-vol markets. The same raw 70% might really win 70% in chop but only 55% when VIX is 25+. Averaging hides this.<br><br>
+      <strong>The fix:</strong> maintain a separate Platt scaler per regime:
+      <ul style="margin:8px 0 8px 24px;">
+        <li><strong>bull</strong> — SPY day chg &gt; +0.5%, VIX &lt; 18</li>
+        <li><strong>bear</strong> — SPY day chg &lt; -0.5%, VIX &lt; 25</li>
+        <li><strong>chop</strong> — |SPY| &lt; 0.5%, VIX &lt; 22</li>
+        <li><strong>high-vol</strong> — VIX ≥ 22 OR |SPY| &gt; 1.5%</li>
+        <li><strong>mixed</strong> — everything else</li>
+      </ul>
+      At predict time, the Unified Predictor picks the right calibrator based on current SPY/VIX. Falls back to the global Calibrator (or raw) if the current regime has fewer than 30 resolved samples.
+    </div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script src="js/calibrator.js"></script>
+<script src="js/regime-calibrator.js"></script>
+<script>
+buildNav('regime-calibration');
+
+const REGIME_LABELS = {
+  'bull':     { emoji: '🐂', name: 'Bull',     desc: 'Up day, low vol' },
+  'bear':     { emoji: '🐻', name: 'Bear',     desc: 'Down day, calm' },
+  'chop':     { emoji: '🌊', name: 'Chop',     desc: 'Flat, low vol' },
+  'high-vol': { emoji: '🌪', name: 'High Vol', desc: 'VIX ≥ 22 or big move' },
+  'mixed':    { emoji: '🌫', name: 'Mixed',    desc: 'Falls through other rules' }
+};
+
+function render() {
+  const current = RegimeCalibrator.classifyRegime();
+  document.getElementById('current-regime').textContent = REGIME_LABELS[current].emoji + ' ' + REGIME_LABELS[current].name.toUpperCase();
+  let ctx = '';
+  if (typeof QUOTES !== 'undefined') {
+    const spy = QUOTES.SPY ? (QUOTES.SPY.changePct != null ? QUOTES.SPY.changePct.toFixed(2) + '%' : '—') : '—';
+    const vix = QUOTES.VIX ? (QUOTES.VIX.last != null ? QUOTES.VIX.last.toFixed(1) : '—') : '—';
+    ctx = 'SPY ' + spy + ' · VIX ' + vix + ' · ' + REGIME_LABELS[current].desc;
+  }
+  document.getElementById('current-context').textContent = ctx;
+
+  const stats = RegimeCalibrator.stats();
+  const grid = document.getElementById('regime-grid');
+  let html = '';
+  for (const r of RegimeCalibrator.REGIMES) {
+    const s = stats[r];
+    const isCurrent = r === current;
+    const tierClass = s.fitted ? 'ready' : (isCurrent ? 'active' : '');
+    const pillCls = s.fitted ? 'green' : (s.n >= 15 ? 'yellow' : '');
+    const pillText = s.fitted ? 'FITTED' : (s.n >= 15 ? 'WARMING' : 'IDLE');
+    const fittedAt = s.fittedAt ? new Date(s.fittedAt).toLocaleTimeString() : '—';
+    html += '<div class="regime-tile ' + tierClass + '">'
+      + '<h3>' + REGIME_LABELS[r].emoji + ' ' + REGIME_LABELS[r].name + (isCurrent ? ' <span class="pill active">NOW</span>' : '')
+      + (pillText !== 'IDLE' ? '<span class="pill ' + pillCls + '">' + pillText + '</span>' : '')
+      + '</h3>'
+      + '<div class="lbl">samples</div><div class="num">' + s.n + '</div>'
+      + '<div class="params">' + (s.fitted ? 'a=' + s.a.toFixed(3) + '<br>b=' + s.b.toFixed(3) + '<br>fitted @ ' + fittedAt : 'need ' + Math.max(0, 30 - s.n) + ' more') + '</div>'
+      + '</div>';
+  }
+  grid.innerHTML = html;
+}
+
+render();
+setInterval(render, 8000);
+window.addEventListener('bpleone:continuous-cycle', render);
+</script>
+</body>
+</html>

@@ -462,6 +462,15 @@ document.addEventListener('DOMContentLoaded', () => {
         s.async = false;
         document.head.appendChild(s);
       }
+      // Regime-Stratified Calibrator: separate Platt scalers per market
+      // regime (bull/bear/chop/high-vol/mixed) so calibration adapts to
+      // current conditions instead of averaging across regimes.
+      if (!document.querySelector('script[src*="regime-calibrator.js"]')) {
+        const s = document.createElement('script');
+        s.src = 'js/regime-calibrator.js';
+        s.async = false;
+        document.head.appendChild(s);
+      }
       // Unified predictor: chains every meta-module into ONE call.
       // Loads last so all dependencies are present.
       if (!document.querySelector('script[src*="unified-predictor.js"]')) {

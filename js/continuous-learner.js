@@ -240,6 +240,14 @@
               Calibrator.recordPair(entry.predProb, label);
             }
           } catch (e) {}
+          // REGIME-STRATIFIED CALIBRATION: also feed the pair to the per-regime
+          // calibrator using the regime that was captured with the entry. This
+          // lets honest probabilities be regime-specific (bull/bear/chop/high-vol).
+          try {
+            if (typeof RegimeCalibrator !== 'undefined') {
+              RegimeCalibrator.recordPair(entry.predProb, label, entry.regime);
+            }
+          } catch (e) {}
           // SYMBOL BIAS: feed per-symbol bias term so the shared model can
           // learn symbol-specific quirks on top of general features.
           try {

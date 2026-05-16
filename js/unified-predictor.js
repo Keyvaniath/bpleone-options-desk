@@ -138,18 +138,35 @@
       components.blendSource = blendSource;
     }
 
-    // 6. Calibration
+    // 6. Calibration — prefer regime-specific calibrator if available,
+    // fall back to the global Platt scaler, then to identity.
     let calibratedProb = blendedProb;
-    if (typeof Calibrator !== 'undefined') {
+    let calibrationActive = false;
+    let calibrationKind = 'none';
+    let currentRegime = null;
+    if (typeof RegimeCalibrator !== 'undefined') {
+      try {
+        currentRegime = RegimeCalibrator.classifyRegime();
+        const rcStats = RegimeCalibrator.stats();
+        if (rcStats[currentRegime] && rcStats[currentRegime].fitted) {
+          calibratedProb = RegimeCalibrator.calibrate(blendedProb, currentRegime);
+          calibrationActive = true;
+          calibrationKind = 'regime:' + currentRegime;
+        }
+      } catch (e) {}
+    }
+    if (!calibrationActive && typeof Calibrator !== 'undefined') {
       const params = safe(() => Calibrator._loadParams(), null);
       if (params) {
         calibratedProb = safe(() => Calibrator.calibrate(blendedProb), blendedProb);
-        components.calibratedProb = calibratedProb;
-        components.calibrationActive = true;
-      } else {
-        components.calibrationActive = false;
+        calibrationActive = true;
+        calibrationKind = 'global';
       }
     }
+    components.calibratedProb = calibratedProb;
+    components.calibrationActive = calibrationActive;
+    components.calibrationKind = calibrationKind;
+    if (currentRegime) components.currentRegime = currentRegime;
 
     // 7. Symbol bias
     let biasedProb = calibratedProb;
@@ -226,7 +243,7 @@
     if (knnProb != null) narrative.push('k-NN of similar past: ' + (knnProb * 100).toFixed(0) + '%.');
     if (swaProb != null) narrative.push('SWA averaged weights: ' + (swaProb * 100).toFixed(0) + '%.');
     narrative.push('Blended (' + blendSource + '): ' + (blendedProb * 100).toFixed(0) + '%.');
-    if (components.calibrationActive) narrative.push('Calibrated: ' + (calibratedProb * 100).toFixed(0) + '%.');
+    if (components.calibrationActive) narrative.push('Calibrated (' + calibrationKind + '): ' + (calibratedProb * 100).toFixed(0) + '%.');
     if (Math.abs(components.symbolBias) > 0.05) narrative.push('Symbol bias ' + (components.symbolBias >= 0 ? '+' : '') + components.symbolBias.toFixed(2) + ' → ' + (biasedProb * 100).toFixed(0) + '%.');
     if (oodScore > 0.3) narrative.push('OOD ' + (oodScore * 100).toFixed(0) + '% → pulled toward 50%.');
     narrative.push('Final: ' + (finalProb * 100).toFixed(0) + '%' + (uncertainty ? ' ± ' + (uncertainty.std * 100).toFixed(0) + '%' : '') + '.');
