@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Conviction Alerts — bpleone / trade</title>
+<meta name="description" content="Real-time alerts when the brain produces A-tier conviction picks. Background watcher fires desktop notifications.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.intro { background:linear-gradient(135deg,rgba(239,68,68,0.06),transparent);border:1px solid rgba(239,68,68,0.25);padding:24px;border-radius:14px;margin-bottom:24px; }
+.kpi-tile { padding:18px;background:var(--bg-elevated);border-radius:10px;text-align:center; }
+.kpi-tile .lbl { font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px; }
+.kpi-tile .val { font-family:var(--font-mono);font-size:22px;font-weight:800;margin-top:6px; }
+.alert-row { padding:14px 16px;background:var(--bg-elevated);border-radius:10px;margin-bottom:8px;display:grid;grid-template-columns:140px 70px 60px 90px 80px 80px 80px 1fr;gap:12px;align-items:center;font-family:var(--font-mono);font-size:11px; }
+.alert-row.long { border-left:3px solid var(--green); }
+.alert-row.short { border-left:3px solid var(--red); }
+.perm-card { padding:24px;border-radius:12px;text-align:center;margin-bottom:24px; }
+.perm-card.granted { background:rgba(16,185,129,0.08);border:2px solid rgba(16,185,129,0.4); }
+.perm-card.denied { background:rgba(239,68,68,0.08);border:2px solid rgba(239,68,68,0.4); }
+.perm-card.default { background:rgba(245,158,11,0.08);border:2px solid rgba(245,158,11,0.4); }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">🔔 Conviction Alerts</div>
+      <div class="page-subtitle">Real-time A-tier alerts · background watcher · desktop notifications · <span id="market-clock">--</span></div>
+    </div>
+    <div class="flex gap-8">
+      <button class="btn btn-primary" id="permBtn">🔔 Grant browser notification</button>
+      <button class="btn btn-ghost" id="testBtn">📨 Send test alert</button>
+      <button class="btn btn-ghost" id="clearBtn">🗑 Clear history</button>
+    </div>
+  </div>
+
+  <div class="intro">
+    <div style="font-size:14px;color:var(--text-primary);line-height:1.7;">
+      <strong>The mechanism:</strong> a background watcher runs every 90 seconds on every page (loaded via live.js). It runs the full brain-conviction pipeline (features → OOD → ensemble → calibration) for every symbol. When a NEW pick has calibrated probability ≥ 0.70 (LONG) or ≤ 0.30 (SHORT), AND trade-selectivity is ACTIVE (not SIT OUT), it fires a browser desktop notification and logs the event.
+      <br><br>
+      <strong>Cooldown:</strong> each symbol has a 60-minute alert cooldown — you won't be spammed by the same setup. After 60 minutes, if the setup is still A-tier, you'll get a fresh alert.
+      <br><br>
+      <strong>Selectivity gate:</strong> even if a symbol crosses 70%, alerts are SUPPRESSED when trade-selectivity is SIT_OUT. The brain stays quiet during bad regimes.
+    </div>
+  </div>
+
+  <div id="permCard"></div>
+
+  <div class="grid grid-4 mb-24">
+    <div class="kpi-tile"><div class="lbl">Total alerts fired</div><div class="val" id="kTotal">0</div></div>
+    <div class="kpi-tile"><div class="lbl">Last 24h</div><div class="val" id="k24" style="color:var(--accent);">0</div></div>
+    <div class="kpi-tile"><div class="lbl">Last hour</div><div class="val" id="k1h" style="color:var(--green);">0</div></div>
+    <div class="kpi-tile"><div class="lbl">Watcher status</div><div class="val" id="kStatus" style="font-size:14px;">—</div></div>
+  </div>
+
+  <div class="card mb-24">
+    <div class="card-header"><div class="card-title">📋 Recent alerts</div></div>
+    <div id="alerts"></div>
+  </div>
+
+  <div class="card">
+    <div class="card-header"><div class="card-title">🔬 How it integrates</div></div>
+    <div style="font-size:13px;color:var(--text-secondary);line-height:1.7;">
+      <strong>Trigger conditions (all must pass):</strong>
+      <ul style="margin:6px 0 0 20px;">
+        <li>Symbol has fresh real-source price (priceSource ≠ stale-seed, liveAt &lt; 5min)</li>
+        <li>OOD score &lt; 0.5</li>
+        <li>Calibrated probability ≥ 0.70 (LONG) or ≤ 0.30 (SHORT)</li>
+        <li>Trade Selectivity tier is ACTIVE or SELECTIVE (not SIT OUT)</li>
+        <li>Symbol cooldown elapsed (60 min since last alert for same sym)</li>
+      </ul>
+      <br>
+      <strong>What fires:</strong>
+      <ul style="margin:6px 0 0 20px;">
+        <li>Browser <code>Notification</code> with title/body/icon</li>
+        <li><code>bpleone:conviction-alert</code> custom event for in-page listeners</li>
+        <li>Entry added to <code>bpleone_conviction_alert_log_v1</code></li>
+        <li>Entry appended to <code>bpleone_brain_changelog_v1</code> for audit</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script src="js/model.js"></script>
+<script src="js/multi-horizon.js"></script>
+<script src="js/calibrator.js"></script>
+<script src="js/outlier-detector.js"></script>
+<script src="js/trade-selectivity.js"></script>
+<script src="js/conviction-alerter.js"></script>
+<script>
+buildNav('conviction-alerts');
+
+function fmtTime(ts) {
+  const diff = Date.now() - ts;
+  if (diff < 60000) return Math.floor(diff/1000) + 's ago';
+  if (diff < 3600000) return Math.floor(diff/60000) + 'm ago';
+  if (diff < 86400000) return Math.floor(diff/3600000) + 'h ago';
+  return new Date(ts).toLocaleString();
+}
+
+function render() {
+  if (typeof window.ConvictionAlerter === 'undefined') { setTimeout(render, 500); return; }
+  const log = window.ConvictionAlerter.recent();
+  document.getElementById('kTotal').textContent = log.length;
+  const dayAgo = Date.now() - 24 * 3600 * 1000;
+  const hourAgo = Date.now() - 3600 * 1000;
+  document.getElementById('k24').textContent = log.filter(a => a.ts >= dayAgo).length;
+  document.getElementById('k1h').textContent = log.filter(a => a.ts >= hourAgo).length;
+  document.getElementById('kStatus').textContent = window.ConvictionAlerter ? 'ACTIVE' : 'OFF';
+
+  // Permission card
+  const perm = 'Notification' in window ? Notification.permission : 'unsupported';
+  const permWrap = document.getElementById('permCard');
+  if (perm === 'granted') {
+    permWrap.innerHTML = '<div class="perm-card granted"><div style="font-size:24px;font-weight:800;color:var(--green);">✓ Browser notifications enabled</div><div style="font-size:13px;color:var(--text-secondary);margin-top:10px;">You\'ll get desktop alerts when the brain finds A-tier setups. Cooldown: 60min per symbol.</div></div>';
+  } else if (perm === 'denied') {
+    permWrap.innerHTML = '<div class="perm-card denied"><div style="font-size:24px;font-weight:800;color:var(--red);">✗ Browser notifications blocked</div><div style="font-size:13px;color:var(--text-secondary);margin-top:10px;">Re-enable in your browser settings (lock icon → Notifications → Allow). Alerts still log to this page even without browser notifications.</div></div>';
+  } else if (perm === 'default') {
+    permWrap.innerHTML = '<div class="perm-card default"><div style="font-size:24px;font-weight:800;color:var(--yellow);">⚠ Browser notifications not yet granted</div><div style="font-size:13px;color:var(--text-secondary);margin-top:10px;">Click "Grant browser notification" above. You\'ll see one permission dialog from your browser — say Allow.</div></div>';
+  } else {
+    permWrap.innerHTML = '<div class="perm-card denied"><div style="font-size:24px;font-weight:800;color:var(--text-muted);">— Notifications unsupported</div><div style="font-size:13px;color:var(--text-secondary);margin-top:10px;">This browser doesn\'t support desktop notifications. Alerts still log here.</div></div>';
+  }
+
+  // Alert feed
+  const wrap = document.getElementById('alerts');
+  if (log.length === 0) {
+    wrap.innerHTML = '<div style="padding:40px;text-align:center;color:var(--text-muted);font-size:13px;">No alerts yet. The watcher runs every 90 seconds. When a symbol crosses A-tier conviction (≥70% or ≤30%), you\'ll see it here + a desktop notification.</div>';
+  } else {
+    wrap.innerHTML = log.slice(0, 50).map(a => {
+      const cls = a.side === 'LONG' ? 'long' : 'short';
+      const sideCol = a.side === 'LONG' ? 'var(--green)' : 'var(--red)';
+      return '<div class="alert-row ' + cls + '">'
+        + '<div style="color:var(--text-muted);">' + fmtTime(a.ts) + '</div>'
+        + '<div><strong>' + a.sym + '</strong></div>'
+        + '<div style="color:' + sideCol + ';">' + a.side + '</div>'
+        + '<div style="color:var(--accent);font-weight:700;">' + (a.prob * 100).toFixed(0) + '%</div>'
+        + '<div>$' + a.entry.toFixed(2) + '</div>'
+        + '<div style="color:var(--red);">$' + a.stop.toFixed(2) + '</div>'
+        + '<div style="color:var(--green);">$' + a.target.toFixed(2) + '</div>'
+        + '<div style="color:var(--text-muted);">OOD ' + (a.oodScore * 100).toFixed(0) + '%</div>'
+        + '</div>';
+    }).join('');
+  }
+}
+
+document.getElementById('permBtn').addEventListener('click', async () => {
+  if (!('Notification' in window)) { alert('This browser does not support notifications.'); return; }
+  const result = await Notification.requestPermission();
+  alert('Permission: ' + result);
+  render();
+});
+
+document.getElementById('testBtn').addEventListener('click', () => {
+  if (!('Notification' in window)) { alert('No notification support'); return; }
+  if (Notification.permission !== 'granted') { alert('Grant permission first'); return; }
+  new Notification('🎯 TEST · NVDA · LONG · 72%', { body: 'Entry $178.45 · Stop $174.20 · Target $186.95', icon: '/favicon.svg' });
+  alert('Test notification sent (if not visible, check browser focus / OS notification settings)');
+});
+
+document.getElementById('clearBtn').addEventListener('click', () => {
+  if (!confirm('Clear all alert history?')) return;
+  window.ConvictionAlerter.clearState();
+  render();
+});
+
+render();
+setInterval(render, 5000);
+window.addEventListener('bpleone:conviction-alert', render);
+</script>
+</body>
+</html>

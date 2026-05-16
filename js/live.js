@@ -396,6 +396,13 @@ document.addEventListener('DOMContentLoaded', () => {
         s.async = false;
         document.head.appendChild(s);
       }
+      // Conviction alerter: background notification when A-tier picks fire.
+      if (!document.querySelector('script[src*="conviction-alerter.js"]')) {
+        const s = document.createElement('script');
+        s.src = 'js/conviction-alerter.js';
+        s.async = false;
+        document.head.appendChild(s);
+      }
       if (!document.querySelector('script[src*="auto-trainer.js"]')) {
         const s = document.createElement('script');
         s.src = 'js/auto-trainer.js';
