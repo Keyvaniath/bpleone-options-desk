@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Feature Importance — bpleone / trade</title>
+<meta name="description" content="Auto feature pruning + boosting. Low-alpha features get muted, high-alpha features get amplified. Self-discovery.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<style>
+.intro { background:linear-gradient(135deg,rgba(167,139,250,0.06),transparent);border:1px solid rgba(167,139,250,0.25);padding:24px;border-radius:14px;margin-bottom:24px; }
+.kpi-tile { padding:18px;background:var(--bg-elevated);border-radius:10px;text-align:center; }
+.kpi-tile .lbl { font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px; }
+.kpi-tile .val { font-family:var(--font-mono);font-size:24px;font-weight:800;margin-top:6px; }
+.feat-row { display:grid;grid-template-columns:50px 1fr 70px 70px 80px 100px 1fr 70px;gap:14px;padding:10px 14px;border-bottom:1px solid var(--border);font-family:var(--font-mono);font-size:11px;align-items:center; }
+.feat-row.hdr { background:var(--bg-elevated);font-size:9px;color:var(--text-muted);font-weight:800;letter-spacing:0.4px; }
+.feat-row.boosted { border-left:3px solid var(--green); }
+.feat-row.pruned { border-left:3px solid var(--red); }
+.feat-row.neutral { border-left:3px solid var(--text-muted); }
+.mult-bar { height:6px;background:var(--bg);border-radius:3px;overflow:hidden;position:relative; }
+.mult-bar > div { height:100%; }
+.mult-bar .center { position:absolute;left:50%;top:0;bottom:0;width:1px;background:var(--text-muted);opacity:0.5; }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">🧪 Feature Importance</div>
+      <div class="page-subtitle">Auto feature pruning + boosting · low-alpha features get muted · high-alpha features get amplified · self-discovery · <span id="market-clock">--</span></div>
+    </div>
+    <div class="flex gap-8">
+      <button class="btn btn-ghost" id="recomputeBtn">↻ Recompute now</button>
+    </div>
+  </div>
+
+  <div class="intro">
+    <div style="font-size:14px;color:var(--text-primary);line-height:1.7;">
+      <strong>The idea:</strong> the continuous-learner records every resolved prediction's per-feature contribution to the logit. Over enough samples, real predictors will have <strong>positive average contribution on wins</strong> and <strong>negative on losses</strong>. Noise features will show roughly zero contribution either way.
+      <br><br>
+      <strong>The mechanism:</strong> for each feature i, compute
+      <code style="background:#000;color:#0f0;padding:2px 6px;border-radius:4px;">alpha_score = avgContribWin - avgContribLoss</code>
+      then build a per-feature learning-rate multiplier:
+      <code style="background:#000;color:#0f0;padding:2px 6px;border-radius:4px;">mult = clamp(1.0 + 4.0 × alpha_score, 0.2, 2.0)</code>
+      <br><br>
+      <strong>The result:</strong> high-signal features train ~2× faster, noise features train ~5× slower. Over time, the model learns to ignore noise without any change to the feature pipeline. The brain effectively discovers its own feature selection.
+    </div>
+  </div>
+
+  <div class="grid grid-4 mb-24">
+    <div class="kpi-tile"><div class="lbl">Features tracked</div><div class="val" id="kN">22</div></div>
+    <div class="kpi-tile"><div class="lbl">Boosted (mult ≥ 1.3)</div><div class="val" id="kBoost" style="color:var(--green);">0</div></div>
+    <div class="kpi-tile"><div class="lbl">Pruned (mult ≤ 0.7)</div><div class="val" id="kPrune" style="color:var(--red);">0</div></div>
+    <div class="kpi-tile"><div class="lbl">Total resolutions seen</div><div class="val" id="kTotal" style="color:var(--accent);">0</div></div>
+  </div>
+
+  <div class="card mb-24">
+    <div class="card-header"><div class="card-title">📊 Learning-rate multiplier per feature</div></div>
+    <div style="font-size:11px;color:var(--text-muted);margin-bottom:14px;line-height:1.5;">
+      Center line = neutral (1.0x). Right of center = boosted (predictive feature). Left = pruned (noise).
+    </div>
+    <canvas id="multChart" height="220"></canvas>
+  </div>
+
+  <div class="card mb-24" style="padding:0;">
+    <div class="feat-row hdr">
+      <div>F#</div><div>NAME</div><div>WINS</div><div>LOSSES</div><div>ALPHA</div><div>MULT</div><div>MULT VIS</div><div>STATUS</div>
+    </div>
+    <div id="featuresTable"></div>
+  </div>
+
+  <div class="card">
+    <div class="card-header"><div class="card-title">🔬 How this integrates</div></div>
+    <div style="font-size:13px;color:var(--text-secondary);line-height:1.7;">
+      The Model.train() function in js/model.js now reads <code>window.FeatureImportance.lrMultiplier(i)</code> on every SGD step:
+      <br><br>
+      <code style="background:#000;color:#0f0;padding:8px 12px;border-radius:6px;display:block;font-size:11px;line-height:1.7;">// SGD update + L2 weight decay + feature importance<br>const lrMult = FeatureImportance.lrMultiplier(i);<br>const decay = (i === last) ? 0 : this.l2 * this.weights[i];<br>this.weights[i] -= this.lr * lrMult * (err * x[i] + decay);</code>
+      <br>
+      Cache refreshes every 60 seconds in the background. The multiplier is bounded to [0.2, 2.0] to prevent runaway updates or permanent disabling.
+      <br><br>
+      Until each feature has 20+ resolutions, multiplier defaults to 1.0 (no effect). The model isn't penalized for thin data.
+    </div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script src="js/model.js"></script>
+<script src="js/feature-importance.js"></script>
+<script>
+buildNav('feature-importance');
+
+const FEATURE_NAMES = [
+  'RSI/100','ATR%/10','RVOL/4','dist20MA','dist50MA','SPY chg','Sector chg','Beta/2',
+  'Spread (inv)','IV pct','Severity','Bullish setup','Bearish setup','Trend follow',
+  'Mean revert','Breakout','Brain weight','Regime','VIX','Coincident','Hour','Bias'
+];
+
+function render() {
+  if (typeof window.FeatureImportance === 'undefined') { setTimeout(render, 500); return; }
+  const features = window.FeatureImportance.summary();
+
+  const boosted = features.filter(f => f.status === 'boosted').length;
+  const pruned = features.filter(f => f.status === 'pruned').length;
+  const totalN = features.reduce((s, f) => s + f.n, 0);
+  document.getElementById('kBoost').textContent = boosted;
+  document.getElementById('kPrune').textContent = pruned;
+  document.getElementById('kTotal').textContent = totalN.toLocaleString();
+
+  // Bar chart
+  const sorted = features.slice().sort((a, b) => b.mult - a.mult);
+  if (window._multChart) window._multChart.destroy();
+  window._multChart = new Chart(document.getElementById('multChart'), {
+    type: 'bar',
+    data: {
+      labels: sorted.map(f => FEATURE_NAMES[f.idx] || ('f' + f.idx)),
+      datasets: [{ data: sorted.map(f => f.mult), backgroundColor: sorted.map(f => f.mult >= 1.3 ? '#10b981' : f.mult <= 0.7 ? '#ef4444' : '#888') }]
+    },
+    options: { indexAxis:'y', responsive:true, maintainAspectRatio:false, plugins:{legend:{display:false}, annotation:{} }, scales:{x:{ticks:{color:'#888'},grid:{color:'#222'},title:{display:true,text:'LR multiplier (1.0 = neutral)',color:'#888'}},y:{ticks:{color:'#888',font:{size:9}},grid:{display:false}}} }
+  });
+
+  // Table
+  document.getElementById('featuresTable').innerHTML = features.map(f => {
+    const name = FEATURE_NAMES[f.idx] || ('f' + f.idx);
+    const cls = f.status;
+    const statusCol = f.status === 'boosted' ? 'var(--green)' : f.status === 'pruned' ? 'var(--red)' : 'var(--text-muted)';
+    const statusLbl = f.status === 'boosted' ? '⬆ BOOST' : f.status === 'pruned' ? '⬇ PRUNE' : '— neutral';
+    const pct = (f.mult / 2.0) * 100;  // 0-100% where 50% = 1.0x
+    const barCol = f.mult >= 1.3 ? '#10b981' : f.mult <= 0.7 ? '#ef4444' : '#888';
+    return '<div class="feat-row ' + cls + '">'
+      + '<div style="color:var(--text-muted);">f' + f.idx + '</div>'
+      + '<div>' + name + '</div>'
+      + '<div style="color:var(--green);">' + f.wins + '</div>'
+      + '<div style="color:var(--red);">' + f.losses + '</div>'
+      + '<div style="color:' + (f.alphaScore > 0 ? 'var(--green)' : 'var(--red)') + ';">' + (f.alphaScore >= 0 ? '+' : '') + f.alphaScore.toFixed(3) + '</div>'
+      + '<div style="color:' + statusCol + ';font-weight:700;">' + f.mult.toFixed(2) + 'x</div>'
+      + '<div class="mult-bar"><div style="width:' + pct + '%;background:' + barCol + ';"></div><div class="center"></div></div>'
+      + '<div style="color:' + statusCol + ';font-size:9px;font-weight:700;">' + statusLbl + '</div>'
+      + '</div>';
+  }).join('');
+}
+
+document.getElementById('recomputeBtn').addEventListener('click', () => {
+  window.FeatureImportance.recompute();
+  alert('Multipliers recomputed from latest alpha map.');
+  render();
+});
+
+render();
+setInterval(render, 10000);
+</script>
+</body>
+</html>

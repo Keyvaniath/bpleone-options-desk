@@ -387,6 +387,15 @@ document.addEventListener('DOMContentLoaded', () => {
         s.async = false;
         document.head.appendChild(s);
       }
+      // Feature importance: auto-prunes low-alpha features by reducing
+      // their per-feature learning rate. Reads alpha map, exposes
+      // window.FeatureImportance.lrMultiplier(i) for Model.train.
+      if (!document.querySelector('script[src*="feature-importance.js"]')) {
+        const s = document.createElement('script');
+        s.src = 'js/feature-importance.js';
+        s.async = false;
+        document.head.appendChild(s);
+      }
       if (!document.querySelector('script[src*="auto-trainer.js"]')) {
         const s = document.createElement('script');
         s.src = 'js/auto-trainer.js';

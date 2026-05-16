@@ -217,14 +217,21 @@ class Model {
     return { prob, score: Math.round(prob * 100), z, contributions };
   }
 
-  /** Train one sample. y in {0, 1}. Returns {loss, p}. */
+  /** Train one sample. y in {0, 1}. Returns {loss, p}.
+   *  FEATURE IMPORTANCE: if window.FeatureImportance is loaded, applies
+   *  per-feature learning-rate multipliers so high-alpha features train
+   *  faster and low-alpha features train slower (auto-pruning).
+   */
   train(x, y) {
     const { prob } = this.predict(x);
     const err = prob - y;
+    const hasImportance = typeof window !== 'undefined' && window.FeatureImportance && typeof window.FeatureImportance.lrMultiplier === 'function';
     for (let i = 0; i < x.length; i++) {
+      // Per-feature LR multiplier from FeatureImportance (alpha-map-driven)
+      const lrMult = hasImportance ? window.FeatureImportance.lrMultiplier(i) : 1.0;
       // SGD update + L2 weight decay (skip bias term, last index)
       const decay = (i === x.length - 1) ? 0 : this.l2 * this.weights[i];
-      this.weights[i] -= this.lr * (err * x[i] + decay);
+      this.weights[i] -= this.lr * lrMult * (err * x[i] + decay);
     }
     const loss = -(y * Math.log(Math.max(1e-9, prob)) + (1 - y) * Math.log(Math.max(1e-9, 1 - prob)));
     this.n_trained++;
