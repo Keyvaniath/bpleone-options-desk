@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SWA Tracker — bpleone / brain</title>
+<meta name="description" content="Stochastic Weight Averaging — the brain's averaged-weights generalization upgrade. Tracks snapshots and divergence from the live model.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.snap-card { padding:32px;border-radius:16px;text-align:center; }
+.snap-card.warm { background:linear-gradient(135deg,rgba(16,185,129,0.12),rgba(16,185,129,0.02));border:2px solid rgba(16,185,129,0.4); }
+.snap-card.cold { background:linear-gradient(135deg,rgba(245,158,11,0.12),rgba(245,158,11,0.02));border:2px solid rgba(245,158,11,0.4); }
+.snap-card .big { font-family:var(--font-mono);font-size:72px;font-weight:900;line-height:1; }
+.snap-card .small { font-size:12px;color:var(--text-muted);margin-top:8px;text-transform:uppercase;letter-spacing:1px;font-weight:700; }
+.metric-tile { padding:18px;background:var(--bg-elevated);border-radius:10px; }
+.metric-tile .lbl { font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;font-weight:700; }
+.metric-tile .val { font-family:var(--font-mono);font-size:24px;font-weight:800;margin-top:6px;color:var(--accent); }
+.metric-tile .sub { font-size:11px;color:var(--text-muted);font-family:var(--font-mono);margin-top:4px; }
+.weights-table { font-family:var(--font-mono);font-size:12px;width:100%;border-collapse:collapse; }
+.weights-table th, .weights-table td { padding:8px 14px;text-align:left;border-bottom:1px solid var(--border); }
+.weights-table th { color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;font-size:10px;font-weight:700; }
+.weights-table td.num { text-align:right;font-weight:700; }
+.diff-pos { color:var(--green); }
+.diff-neg { color:var(--red); }
+.diff-zero { color:var(--text-muted); }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">📊 SWA Tracker</div>
+      <div class="page-subtitle">Stochastic Weight Averaging · averaged weights sit in flatter minima · better generalization</div>
+    </div>
+  </div>
+
+  <div id="snap-box" class="mb-24"></div>
+
+  <div class="grid grid-3 mb-24" id="metrics-grid"></div>
+
+  <div class="card">
+    <div class="card-header"><div class="card-title">⚖ Weight comparison</div></div>
+    <div style="font-size:13px;color:var(--text-secondary);margin-bottom:14px;">Each feature's SWA-averaged weight vs the latest live weight. Large differences = model still drifting at this feature.</div>
+    <div id="weights-table-wrap"></div>
+  </div>
+
+  <div class="card">
+    <div class="card-header"><div class="card-title">📚 What is SWA?</div></div>
+    <div style="font-size:13px;color:var(--text-secondary);line-height:1.7;">
+      <strong>The problem:</strong> Adam optimizer (and SGD) converges to sharp local minima in the loss landscape. Sharp minima often correspond to overfitted solutions — small changes in input cause big changes in prediction. They generalize poorly.<br><br>
+      <strong>The fix (Izmailov et al. 2018):</strong> instead of using the final weights from training, average the weights from late training. The average sits in a <em>flatter</em> region of the loss landscape, where small input perturbations cause small output changes. Flatter minima have been shown to generalize better.<br><br>
+      <strong>How it works here:</strong> every 60 seconds, the SWA module snapshots <code>model.weights</code> and updates a running average:<br>
+      <code style="display:block;background:var(--bg-elevated);padding:10px;margin:8px 0;border-radius:6px;">swa_w_new = (n × swa_w_old + new_w) / (n + 1)</code>
+      Once we have ≥5 snapshots, <code>SWA.predict()</code> uses the averaged weights for inference. The Unified Predictor blends SWA's prediction (14% weight) with the live model, multi-horizon ensemble, bootstrap, and k-NN.<br><br>
+      <strong>Divergence as uncertainty signal:</strong> if the L2 distance between SWA and live model weights is large, the model is still drifting fast — high uncertainty. If divergence is small, the model has settled — lower uncertainty.
+    </div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script src="js/model.js"></script>
+<script src="js/swa.js"></script>
+<script>
+buildNav('swa-tracker');
+
+function render() {
+  const stats = SWA.stats();
+  const snapBox = document.getElementById('snap-box');
+
+  if (!stats.ready) {
+    snapBox.innerHTML = '<div class="snap-card cold">'
+      + '<div class="big" style="color:var(--yellow);">' + stats.nSnapshots + '/' + stats.minSnapshots + '</div>'
+      + '<div style="font-size:18px;font-weight:700;color:var(--text-primary);margin-top:14px;">Snapshots building up</div>'
+      + '<div class="small" style="margin-top:8px;">SWA snapshots every 60s when the model trains. Need ' + (stats.minSnapshots - stats.nSnapshots) + ' more.</div>'
+      + '</div>';
+  } else {
+    snapBox.innerHTML = '<div class="snap-card warm">'
+      + '<div class="small">Snapshots accumulated</div>'
+      + '<div class="big" style="margin-top:8px;color:var(--green);">' + stats.nSnapshots + '</div>'
+      + '<div style="font-size:13px;color:var(--text-secondary);margin-top:14px;">SWA is active. Averaged weights are blended into UnifiedPredictor at 14% weight.</div>'
+      + '</div>';
+  }
+
+  const grid = document.getElementById('metrics-grid');
+  const swaW = SWA.weights();
+  const liveModel = (typeof ModelStore !== 'undefined') ? ModelStore.load() : null;
+  const div = liveModel ? SWA.divergence(liveModel) : null;
+  const lastSnap = stats.lastSnapshotTs ? new Date(stats.lastSnapshotTs).toLocaleTimeString() : '—';
+  grid.innerHTML = ''
+    + '<div class="metric-tile"><div class="lbl">Snapshots</div><div class="val">' + stats.nSnapshots + '</div><div class="sub">total taken since last reset</div></div>'
+    + '<div class="metric-tile"><div class="lbl">Weight divergence</div><div class="val">' + (div != null ? div.toFixed(4) : '—') + '</div><div class="sub">L2 distance: SWA ↔ live model</div></div>'
+    + '<div class="metric-tile"><div class="lbl">Last snapshot</div><div class="val" style="font-size:18px;">' + lastSnap + '</div><div class="sub">snapshots fire every 60s during training</div></div>';
+
+  // Weights table
+  const wrap = document.getElementById('weights-table-wrap');
+  if (!swaW || !liveModel) {
+    wrap.innerHTML = '<div style="color:var(--text-muted);font-size:13px;text-align:center;padding:14px;">Waiting for first snapshot.</div>';
+    return;
+  }
+  const liveW = liveModel.weights;
+  const FNAMES = (typeof FEATURES !== 'undefined') ? FEATURES : swaW.map((_, i) => 'feat_' + i);
+  let html = '<table class="weights-table"><thead><tr><th>Feature</th><th style="text-align:right;">Live</th><th style="text-align:right;">SWA</th><th style="text-align:right;">Δ</th></tr></thead><tbody>';
+  for (let i = 0; i < swaW.length; i++) {
+    const d = liveW[i] - swaW[i];
+    const cls = Math.abs(d) < 0.001 ? 'diff-zero' : (d > 0 ? 'diff-pos' : 'diff-neg');
+    html += '<tr><td>' + FNAMES[i] + '</td>'
+         + '<td class="num">' + liveW[i].toFixed(4) + '</td>'
+         + '<td class="num">' + swaW[i].toFixed(4) + '</td>'
+         + '<td class="num ' + cls + '">' + (d >= 0 ? '+' : '') + d.toFixed(4) + '</td></tr>';
+  }
+  html += '</tbody></table>';
+  wrap.innerHTML = html;
+}
+
+render();
+setInterval(render, 8000);
+window.addEventListener('bpleone:continuous-cycle', render);
+</script>
+</body>
+</html>

@@ -445,6 +445,15 @@ document.addEventListener('DOMContentLoaded', () => {
         s.async = false;
         document.head.appendChild(s);
       }
+      // SWA: Stochastic Weight Averaging. Auto-snapshots weights into a
+      // running average every 60s; the average sits in a flatter minimum
+      // and generalizes better than the latest weights.
+      if (!document.querySelector('script[src*="swa.js"]')) {
+        const s = document.createElement('script');
+        s.src = 'js/swa.js';
+        s.async = false;
+        document.head.appendChild(s);
+      }
       // Unified predictor: chains every meta-module into ONE call.
       // Loads last so all dependencies are present.
       if (!document.querySelector('script[src*="unified-predictor.js"]')) {

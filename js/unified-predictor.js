@@ -86,15 +86,30 @@
       }
     }
 
+    // 4b. SWA (Stochastic Weight Averaging) — averaged weights from late
+    // training, generalizes better than sharp final weights.
+    let swaProb = null;
+    if (typeof SWA !== 'undefined') {
+      const s = safe(() => SWA.predict(features), null);
+      if (s && s.prob != null) {
+        swaProb = s.prob;
+        components.swaProb = s.prob;
+        components.swaSnapshots = s.nSnapshots;
+        const div = safe(() => SWA.divergence(model), null);
+        if (div != null) components.swaDivergence = div;
+      }
+    }
+
     // 5. Blend (weighted by which sources are available)
-    // base weights: model 0.40, ensemble 0.30, bootstrap 0.15, k-NN 0.15
+    // base weights: model 0.35, ensemble 0.25, bootstrap 0.13, k-NN 0.13, SWA 0.14
     let blendedProb = components.rawProb;
     {
       const sources = [
-        { prob: components.rawProb, w: 0.40 },
-        { prob: ensembleProb, w: 0.30 },
-        { prob: bootstrapProb, w: 0.15 },
-        { prob: knnProb, w: 0.15 }
+        { prob: components.rawProb, w: 0.35 },
+        { prob: ensembleProb, w: 0.25 },
+        { prob: bootstrapProb, w: 0.13 },
+        { prob: knnProb, w: 0.13 },
+        { prob: swaProb, w: 0.14 }
       ].filter(s => s.prob != null);
       const totalW = sources.reduce((s, x) => s + x.w, 0);
       if (totalW > 0) {
@@ -189,6 +204,7 @@
     narrative.push('Raw model: ' + (components.rawProb * 100).toFixed(0) + '%.');
     if (ensembleProb != null) narrative.push('Ensemble (3 horizons): ' + (ensembleProb * 100).toFixed(0) + '%.');
     if (knnProb != null) narrative.push('k-NN of similar past: ' + (knnProb * 100).toFixed(0) + '%.');
+    if (swaProb != null) narrative.push('SWA averaged weights: ' + (swaProb * 100).toFixed(0) + '%.');
     narrative.push('Blended: ' + (blendedProb * 100).toFixed(0) + '%.');
     if (components.calibrationActive) narrative.push('Calibrated: ' + (calibratedProb * 100).toFixed(0) + '%.');
     if (Math.abs(components.symbolBias) > 0.05) narrative.push('Symbol bias ' + (components.symbolBias >= 0 ? '+' : '') + components.symbolBias.toFixed(2) + ' → ' + (biasedProb * 100).toFixed(0) + '%.');
