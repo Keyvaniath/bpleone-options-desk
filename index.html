@@ -30,10 +30,20 @@
     <h1>Trade with <span class="gradient-text">institutional clarity.</span><br>Built for retail.</h1>
     <p>Daily trade ideas, unusual options flow, and the technical setups that matter — distilled from an equity-research workflow into a desk you can actually use.</p>
     <div class="hero-cta">
+      <a href="money-made.html" class="btn btn-primary btn-lg" style="background:linear-gradient(135deg,#10b981,#059669);border:none;">💵 Money Made →</a>
+      <a href="make-money.html" class="btn btn-primary btn-lg" style="background:linear-gradient(135deg,#00d4ff,#0094c7);border:none;color:#000;">💰 Make Money</a>
       <a href="brain-hub.html" class="btn btn-primary btn-lg" style="background:linear-gradient(135deg,#7c3aed,#a78bfa);border:none;">🧠 Brain Hub →</a>
+      <a href="how-to-make-money.html" class="btn btn-secondary btn-lg">📖 How-to Guide</a>
       <a href="morning-brief.html" class="btn btn-secondary btn-lg">☀ Morning Brief</a>
-      <a href="smart-watchlist.html" class="btn btn-secondary btn-lg">⭐ Smart Watchlist</a>
-      <a href="jump-to.html" class="btn btn-secondary btn-lg">⚡ Jump To (⌘K)</a>
+    </div>
+    <!-- Live money-made counter (populates from MoneyTracker.summary()) -->
+    <div id="home-money-tile" style="margin-top:16px;padding:16px 22px;border-radius:14px;background:linear-gradient(135deg,rgba(16,185,129,0.08),rgba(16,185,129,0.02));border:1px solid rgba(16,185,129,0.3);display:none;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:14px;">
+      <div>
+        <div style="font-size:10px;font-weight:800;letter-spacing:1.5px;color:var(--text-muted);text-transform:uppercase;">Brain P&amp;L · last 30 days</div>
+        <div id="home-money-amount" style="font-family:var(--font-mono);font-size:32px;font-weight:900;line-height:1;margin-top:4px;color:var(--green);">$0.00</div>
+        <div id="home-money-meta" style="font-size:12px;color:var(--text-muted);margin-top:4px;"></div>
+      </div>
+      <a href="money-made.html" style="font-size:12px;font-weight:700;color:var(--accent);text-decoration:none;">See full breakdown →</a>
     </div>
 
     <!-- LIVE DATA STATUS — auto-shows the real source (Stooq/Finnhub/etc) -->
@@ -365,6 +375,40 @@
     setInterval(refresh, 30000);
   }
   setTimeout(pollBrainCoach, 2000);
+
+  // Live brain P&L tile — populates from MoneyTracker.summary(). Shows
+  // last 30 days. Hides if no resolved trades yet (so the hero stays clean
+  // on a fresh browser).
+  function pollMoneyTracker() {
+    const tile = document.getElementById('home-money-tile');
+    if (!tile || typeof window.MoneyTracker === 'undefined') {
+      setTimeout(pollMoneyTracker, 2000);
+      return;
+    }
+    function refresh() {
+      try {
+        const s = window.MoneyTracker.summary();
+        if (s.empty || !s.windows || !s.windows.d30 || s.windows.d30.totalTrades === 0) {
+          tile.style.display = 'none';
+          return;
+        }
+        const w = s.windows.d30;
+        tile.style.display = 'flex';
+        const amt = document.getElementById('home-money-amount');
+        const meta = document.getElementById('home-money-meta');
+        const sign = w.totalPnL >= 0 ? '+' : '';
+        const color = w.totalPnL >= 0 ? 'var(--green)' : 'var(--red)';
+        if (amt) {
+          amt.textContent = sign + '$' + Math.abs(w.totalPnL).toLocaleString(undefined, { maximumFractionDigits: 2, minimumFractionDigits: 2 });
+          amt.style.color = color;
+        }
+        if (meta) meta.textContent = w.totalTrades + ' trades · ' + ((w.winRate || 0) * 100).toFixed(0) + '% win rate · best ' + (w.bestTrade ? w.bestTrade.sym : '—');
+      } catch (e) {}
+    }
+    refresh();
+    setInterval(refresh, 12000);
+  }
+  setTimeout(pollMoneyTracker, 3000);
 </script>
 </body>
 </html>
