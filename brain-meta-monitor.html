@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Brain Meta-Monitor — bpleone</title>
+<meta name="description" content="Is the brain itself getting better over time? Weekly hit-rate trend, calibration drift, edge accumulation.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.verdict { padding:30px;border-radius:18px;text-align:center;margin-bottom:24px; }
+.verdict.improving { background:linear-gradient(135deg,rgba(16,185,129,0.10),rgba(16,185,129,0.02));border:2px solid var(--green); }
+.verdict.steady { background:linear-gradient(135deg,rgba(0,212,255,0.08),rgba(0,212,255,0.02));border:2px solid var(--accent); }
+.verdict.degrading { background:linear-gradient(135deg,rgba(220,38,38,0.10),rgba(220,38,38,0.02));border:2px solid var(--red); }
+.verdict .big { font-family:var(--font-mono);font-size:44px;font-weight:900;line-height:1; }
+.verdict.improving .big { color:var(--green); }
+.verdict.steady .big { color:var(--accent); }
+.verdict.degrading .big { color:var(--red); }
+.tile { padding:18px;background:var(--bg-elevated);border-radius:10px; }
+.tile .lbl { font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;font-weight:700; }
+.tile .val { font-family:var(--font-mono);font-size:22px;font-weight:800;margin-top:6px;color:var(--accent); }
+#chart { width:100%;height:280px; }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">📈 Brain Meta-Monitor</div>
+      <div class="page-subtitle">Is the brain itself getting better over time? Weekly hit-rate trend, edge accumulation, recent-vs-historical comparison.</div>
+    </div>
+  </div>
+
+  <div id="verdict" class="verdict steady"><div class="big">⏳ Loading</div></div>
+
+  <div class="grid grid-4 mb-24" id="kpi-grid"></div>
+
+  <div class="card mb-24">
+    <div class="card-header"><div class="card-title">📊 Weekly hit rate trend</div></div>
+    <canvas id="chart"></canvas>
+  </div>
+
+  <div class="card mb-24">
+    <div class="card-header"><div class="card-title">📋 Recent vs Historical</div></div>
+    <div id="compare-list" style="font-family:var(--font-mono);font-size:13px;line-height:2;color:var(--text-secondary);"></div>
+  </div>
+
+  <div class="card">
+    <div class="card-header"><div class="card-title">🔗 Related</div></div>
+    <div style="display:flex;gap:12px;flex-wrap:wrap;">
+      <a href="brain-insights.html" style="text-decoration:none;display:inline-block;background:linear-gradient(135deg,#00d4ff,#0094c7);color:#000;padding:10px 18px;border-radius:8px;font-weight:700;">💡 Insights</a>
+      <a href="calibration-view.html" style="text-decoration:none;display:inline-block;background:rgba(120,140,160,0.12);color:var(--accent);padding:10px 18px;border-radius:8px;font-weight:700;">📐 Calibration</a>
+      <a href="brain-health-pro.html" style="text-decoration:none;display:inline-block;background:rgba(120,140,160,0.12);color:var(--accent);padding:10px 18px;border-radius:8px;font-weight:700;">❤️ Health</a>
+    </div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/charts.js"></script>
+<script src="js/live.js"></script>
+<script>buildNav('brain-meta-monitor');</script>
+<script>
+let chart = null;
+function loadResolved() {
+  try {
+    const j = JSON.parse(localStorage.getItem('bpleone_pred_journal_v1') || '[]');
+    return j.filter(e => e.outcome && (e.outcome === 'correct' || e.outcome === 'wrong'));
+  } catch (e) { return []; }
+}
+function weeklyTrend() {
+  const entries = loadResolved();
+  if (entries.length === 0) return [];
+  // Group by ISO week
+  const buckets = {};
+  for (const e of entries) {
+    const d = new Date(e.ts);
+    const year = d.getFullYear();
+    const startOfYear = new Date(year, 0, 1);
+    const days = Math.floor((d - startOfYear) / 86400000);
+    const week = Math.floor(days / 7);
+    const k = year + '-W' + (week < 10 ? '0' + week : week);
+    if (!buckets[k]) buckets[k] = { wins: 0, total: 0, ts: d.getTime() };
+    buckets[k].total++;
+    if (e.outcome === 'correct') buckets[k].wins++;
+  }
+  return Object.entries(buckets).map(([k, b]) => ({ week: k, wins: b.wins, total: b.total, wr: b.wins / b.total, ts: b.ts })).sort((a, b) => a.ts - b.ts);
+}
+
+function render() {
+  const trend = weeklyTrend();
+  // KPIs
+  const all = loadResolved();
+  const totalWins = all.filter(e => e.outcome === 'correct').length;
+  const totalLosses = all.filter(e => e.outcome === 'wrong').length;
+  const overallWR = (totalWins + totalLosses) > 0 ? totalWins / (totalWins + totalLosses) : null;
+  // Recent vs historical
+  const recent20 = all.slice(-20);
+  const recentWR = recent20.filter(e => e.outcome === 'correct').length / Math.max(1, recent20.length);
+  const older20 = all.slice(-40, -20);
+  const olderWR = older20.length > 0 ? older20.filter(e => e.outcome === 'correct').length / older20.length : null;
+  let verdict = 'steady', verdictText = 'STEADY', verdictMsg = 'Brain hit rate is stable over time.';
+  if (olderWR != null && recentWR != null) {
+    const delta = recentWR - olderWR;
+    if (delta > 0.05) { verdict = 'improving'; verdictText = '📈 IMPROVING'; verdictMsg = 'Recent 20 trades win ' + (delta * 100).toFixed(0) + '% more than prior 20. Brain is learning.'; }
+    else if (delta < -0.05) { verdict = 'degrading'; verdictText = '📉 DEGRADING'; verdictMsg = 'Recent 20 trades win ' + (Math.abs(delta) * 100).toFixed(0) + '% less than prior 20. Investigate.'; }
+  } else if (all.length === 0) { verdictText = '⏳ NO DATA'; verdictMsg = 'Need resolved trades to assess.'; }
+  const v = document.getElementById('verdict');
+  v.className = 'verdict ' + verdict;
+  v.innerHTML = '<div class="big">' + verdictText + '</div><div style="color:var(--text-secondary);font-size:14px;margin-top:10px;">' + verdictMsg + '</div>';
+  document.getElementById('kpi-grid').innerHTML =
+    '<div class="tile"><div class="lbl">Total resolved</div><div class="val">' + all.length + '</div></div>' +
+    '<div class="tile"><div class="lbl">Overall WR</div><div class="val">' + (overallWR != null ? (overallWR * 100).toFixed(0) + '%' : '—') + '</div></div>' +
+    '<div class="tile"><div class="lbl">Recent 20 WR</div><div class="val">' + (recent20.length > 0 ? (recentWR * 100).toFixed(0) + '%' : '—') + '</div></div>' +
+    '<div class="tile"><div class="lbl">Prior 20 WR</div><div class="val">' + (olderWR != null ? (olderWR * 100).toFixed(0) + '%' : '—') + '</div></div>';
+  // Chart
+  if (trend.length > 0 && typeof Chart !== 'undefined') {
+    const labels = trend.map(t => t.week);
+    const wrs = trend.map(t => +(t.wr * 100).toFixed(1));
+    if (chart) chart.destroy();
+    chart = new Chart(document.getElementById('chart'), {
+      type: 'line',
+      data: { labels, datasets: [{ label: 'Win rate %', data: wrs, borderColor: '#00d4ff', backgroundColor: 'rgba(0,212,255,0.12)', fill: true, tension: 0.3, borderWidth: 2.5, pointRadius: 4, pointBackgroundColor: wrs.map(w => w >= 50 ? '#10b981' : '#dc2626') }] },
+      options: { responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { display: false } },
+        scales: { y: { min: 0, max: 100, ticks: { color: 'rgba(255,255,255,0.5)', callback: v => v + '%' } }, x: { ticks: { color: 'rgba(255,255,255,0.5)' } } } }
+    });
+  }
+  // Compare
+  const compare = [];
+  if (overallWR != null && recentWR != null) compare.push('Overall WR: <strong>' + (overallWR * 100).toFixed(0) + '%</strong>');
+  if (recentWR != null) compare.push('Recent 20: <strong>' + (recentWR * 100).toFixed(0) + '%</strong>');
+  if (olderWR != null) compare.push('Prior 20: <strong>' + (olderWR * 100).toFixed(0) + '%</strong>');
+  if (trend.length >= 2) compare.push('Weeks tracked: <strong>' + trend.length + '</strong>');
+  document.getElementById('compare-list').innerHTML = compare.length ? compare.map(c => '<div>' + c + '</div>').join('') : '<div style="color:var(--text-muted);">No data yet.</div>';
+}
+setTimeout(render, 500);
+setInterval(render, 12000);
+</script>
+</body>
+</html>

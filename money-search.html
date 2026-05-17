@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Money Search — bpleone</title>
+<meta name="description" content="Type-ahead search for every money-layer page. Find anything in 2 keystrokes.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.search-wrap { padding:24px;border-radius:16px;background:var(--bg-elevated);margin-bottom:18px; }
+.search-input { width:100%;background:rgba(0,0,0,0.4);border:2px solid var(--accent);border-radius:10px;padding:18px 22px;color:var(--text);font-family:var(--font-mono);font-size:20px; }
+.search-input:focus { outline:none;border-color:#a884ff;box-shadow:0 0 20px rgba(0,212,255,0.25); }
+.result { display:flex;justify-content:space-between;align-items:center;padding:14px 18px;background:var(--bg-elevated);border-radius:10px;margin-bottom:6px;text-decoration:none;color:var(--text);transition:0.15s;border-left:3px solid transparent; }
+.result:hover { border-left-color:var(--accent);background:rgba(0,212,255,0.06); }
+.result .left .title { font-weight:800;font-size:15px; }
+.result .left .desc { font-size:12px;color:var(--text-muted);margin-top:3px; }
+.result .right { font-family:var(--font-mono);font-size:11px;color:var(--text-muted);padding:4px 10px;border-radius:5px;background:rgba(255,255,255,0.04); }
+.section-head { font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:1.5px;font-weight:800;margin:18px 0 8px;padding-left:8px; }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">🔎 Money Search</div>
+      <div class="page-subtitle">Type-ahead across every money-layer page. Searches title + description + tags.</div>
+    </div>
+  </div>
+
+  <div class="search-wrap">
+    <input id="search" class="search-input" type="text" placeholder="Type to search (e.g. 'kelly', 'alerts', 'risk')..." autofocus>
+  </div>
+
+  <div id="results"></div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script>buildNav('money-search');</script>
+<script>
+const PAGES = [
+  { url: 'money-made.html', title: '💵 Money Made', desc: 'Brain P&L lifetime / 7d / 30d / 90d', tags: 'pnl profit tracker money', cat: 'Money' },
+  { url: 'make-money.html', title: '💰 Make Money', desc: 'Live allocator dashboard with Kelly sizing', tags: 'kelly allocator size dashboard', cat: 'Money' },
+  { url: 'auto-trade.html', title: '🤖 Auto-Trade', desc: 'Closed-loop paper trading on high-conviction signals', tags: 'autopilot bot autotrade closed loop', cat: 'Money' },
+  { url: 'high-conviction-alerts.html', title: '🔔 High-Conviction Alerts', desc: 'Browser push for ≥75% signals', tags: 'alerts notifications browser push', cat: 'Money' },
+  { url: 'how-to-make-money.html', title: '📖 How to Make Money', desc: '7-step daily routine + compounding calculator', tags: 'guide routine steps how-to', cat: 'Money' },
+  { url: 'options-101.html', title: '🎓 Options 101', desc: 'Beginner options education', tags: 'options calls puts beginner education', cat: 'Money' },
+  { url: 'goal-tracker.html', title: '🎯 Goal Tracker', desc: 'Weekly / monthly / yearly $ goals', tags: 'goals progress targets', cat: 'Money' },
+  { url: 'bankroll-milestones.html', title: '🏆 Bankroll Milestones', desc: '$1k → $1M progress milestones', tags: 'milestones bankroll progress', cat: 'Money' },
+
+  { url: 'brain-vs-spy-live.html', title: '⚖️ Brain vs SPY', desc: 'Side-by-side equity comparison vs buy-and-hold', tags: 'spy benchmark alpha', cat: 'Analysis' },
+  { url: 'money-changelog.html', title: '📜 Money Changelog', desc: 'Every phase shipped in the money layer', tags: 'changelog history', cat: 'Analysis' },
+  { url: 'brain-backtest.html', title: '⏪ Brain Backtester', desc: 'Sweep sizing + filter params over history', tags: 'backtest grid sweep params', cat: 'Analysis' },
+  { url: 'pnl-calendar.html', title: '📆 P&L Calendar', desc: 'Daily P&L heatmap calendar', tags: 'calendar heatmap daily', cat: 'Analysis' },
+  { url: 'brain-time-of-day.html', title: '⏰ Brain Time-of-Day', desc: 'Per-hour win rate + P&L heatmap', tags: 'hour time-of-day session', cat: 'Analysis' },
+  { url: 'hot-symbols.html', title: '🔥 Hot Symbols', desc: 'Most-alerted symbols ranked by heat', tags: 'hot symbols leaderboard ranking', cat: 'Analysis' },
+  { url: 'outcome-distribution.html', title: '📈 Outcome Distribution', desc: 'R-multiple histogram', tags: 'distribution histogram outcomes', cat: 'Analysis' },
+  { url: 'calibration-view.html', title: '📐 Calibration View', desc: 'Per-bucket reliability diagram', tags: 'calibration brier ece reliability', cat: 'Analysis' },
+  { url: 'source-performance.html', title: '📡 Source Performance', desc: 'P&L per data source', tags: 'source performance attribution', cat: 'Analysis' },
+  { url: 'pattern-recall.html', title: '🔍 Pattern Recall', desc: 'KNN nearest historical neighbors per signal', tags: 'pattern knn neighbors similar', cat: 'Analysis' },
+  { url: 'trade-quality.html', title: '⭐ Trade Quality', desc: '1-5 star process rating per trade', tags: 'quality process stars', cat: 'Analysis' },
+  { url: 'brain-meta-monitor.html', title: '📈 Brain Meta-Monitor', desc: 'Is the brain itself getting better over time?', tags: 'meta monitor improvement drift', cat: 'Analysis' },
+  { url: 'symbol-deep-dive.html', title: '🔬 Symbol Deep Dive', desc: 'Per-symbol breakdown of all signals + outcomes', tags: 'symbol deep dive ticker per-symbol', cat: 'Analysis' },
+
+  { url: 'risk-simulator.html', title: '🎲 Risk-of-Ruin Sim', desc: 'Monte Carlo 1000 sims', tags: 'risk ruin monte carlo simulation', cat: 'Risk' },
+  { url: 'risk-gauge.html', title: '⚖ Live Risk Gauge', desc: 'Real-time $ at risk vs bankroll', tags: 'risk gauge live', cat: 'Risk' },
+  { url: 'loss-cooloff.html', title: '⏸ Loss Cool-Off', desc: 'Auto-pause after N consecutive losses', tags: 'cooloff loss streak protection', cat: 'Risk' },
+  { url: 'equity-protector.html', title: '🛡 Equity Drawdown Protector', desc: 'Master kill-switch on portfolio drawdown', tags: 'drawdown protector dd killswitch', cat: 'Risk' },
+  { url: 'position-correlation.html', title: '🔗 Position Correlation', desc: 'Live pairwise correlation of open trades', tags: 'correlation diversification n_eff', cat: 'Risk' },
+  { url: 'earnings-awareness.html', title: '📅 Earnings Awareness', desc: 'Flag open trades crossing earnings', tags: 'earnings risk awareness', cat: 'Risk' },
+  { url: 'pre-trade-checklist.html', title: '✅ Pre-Trade Checklist', desc: '10-point gate evaluation per signal', tags: 'checklist gates pre-trade', cat: 'Risk' },
+
+  { url: 'data-reliability.html', title: '📊 Data Reliability', desc: 'Validator stats, stale-symbol tracking', tags: 'data reliability stale validator', cat: 'Data' },
+  { url: 'source-quality.html', title: '⚖️ Source Quality', desc: 'Smart source preference ranking', tags: 'source quality preference ranking', cat: 'Data' },
+  { url: 'historical-bootstrap.html', title: '⏪ Historical Bootstrap', desc: '60-day backfill from Stooq', tags: 'historical bootstrap backfill', cat: 'Data' },
+  { url: 'weekly-refresh.html', title: '📅 Weekly Refresh', desc: 'Auto re-pull bootstrap every 7 days', tags: 'weekly refresh auto', cat: 'Data' },
+
+  { url: 'voice-coach.html', title: '🎙️ Voice Coach', desc: 'Speak signals aloud via Web Speech', tags: 'voice speech audio coach', cat: 'Notifications' },
+  { url: 'sound-synth.html', title: '🔊 Sound Synth', desc: 'Synthesized beeps for alerts', tags: 'sound synth audio beep', cat: 'Notifications' },
+  { url: 'webhook-bridge.html', title: '🌐 Webhook Bridge', desc: 'Discord / Slack / generic alert forwarder', tags: 'webhook discord slack', cat: 'Notifications' },
+  { url: 'mobile-money.html', title: '📱 Mobile Mission Control', desc: 'Phone-first dashboard', tags: 'mobile phone control', cat: 'Notifications' },
+
+  { url: 'state-backup.html', title: '💾 State Backup', desc: 'Export / import all localStorage state', tags: 'backup export import', cat: 'Tools' },
+  { url: 'money-hotkeys.html', title: '⌨ Money Hotkeys', desc: 'Vim-style keyboard shortcuts', tags: 'hotkeys keyboard shortcuts vim', cat: 'Tools' },
+  { url: 'auto-watchlist.html', title: '⭐ Auto-Watchlist', desc: 'Curated symbols from alerts', tags: 'watchlist auto curated', cat: 'Tools' },
+  { url: 'brain-health-pro.html', title: '❤️ Brain Health Pro', desc: 'One-page subsystem diagnostic', tags: 'health diagnostic status', cat: 'Tools' },
+  { url: 'brain-insights.html', title: '💡 Brain Insights', desc: 'Auto-coaching takeaways', tags: 'insights coaching takeaways', cat: 'Tools' },
+  { url: 'mental-game.html', title: '🎯 Mental Game', desc: 'Streaks + tilt detection', tags: 'mental game streak tilt psychology', cat: 'Tools' },
+  { url: 'trade-notes.html', title: '📓 Trade Notes', desc: 'Thesis + retro journal', tags: 'notes journal thesis retro', cat: 'Tools' },
+  { url: 'trade-plans.html', title: '📝 Trade Plans', desc: 'AI-generated trade plans', tags: 'plans ai thesis', cat: 'Tools' },
+  { url: 'ai-market-pulse.html', title: '🌍 AI Market Pulse', desc: '3-sentence market summary via Claude', tags: 'ai pulse market claude', cat: 'Tools' },
+  { url: 'brain-daily-card.html', title: '📰 Brain Daily Card', desc: 'Shareable daily summary', tags: 'card shareable daily', cat: 'Tools' },
+  { url: 'daily-replay.html', title: '📼 Daily Replay', desc: 'EOD recap timeline', tags: 'replay daily recap timeline', cat: 'Tools' },
+  { url: 'smart-defaults.html', title: '⚡ Smart Defaults', desc: 'One-click setup wizard', tags: 'defaults wizard setup onboarding', cat: 'Tools' }
+];
+
+function render(query) {
+  const q = (query || '').toLowerCase().trim();
+  const filtered = q ? PAGES.filter(p => {
+    const blob = (p.title + ' ' + p.desc + ' ' + p.tags + ' ' + p.cat).toLowerCase();
+    return blob.indexOf(q) !== -1;
+  }) : PAGES;
+  const out = document.getElementById('results');
+  if (filtered.length === 0) {
+    out.innerHTML = '<div style="text-align:center;color:var(--text-muted);padding:32px;">No matches for "' + q + '".</div>';
+    return;
+  }
+  // Group by category
+  const byCat = {};
+  filtered.forEach(p => { if (!byCat[p.cat]) byCat[p.cat] = []; byCat[p.cat].push(p); });
+  const order = ['Money', 'Analysis', 'Risk', 'Data', 'Notifications', 'Tools'];
+  let html = '';
+  for (const cat of order) {
+    if (!byCat[cat]) continue;
+    html += '<div class="section-head">' + cat + '</div>';
+    html += byCat[cat].map(p =>
+      '<a href="' + p.url + '" class="result"><div class="left"><div class="title">' + p.title + '</div><div class="desc">' + p.desc + '</div></div><div class="right">' + p.url.replace('.html', '') + '</div></a>'
+    ).join('');
+  }
+  out.innerHTML = html;
+}
+
+document.getElementById('search').addEventListener('input', e => render(e.target.value));
+render('');
+</script>
+</body>
+</html>
