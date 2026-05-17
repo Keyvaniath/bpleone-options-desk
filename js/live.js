@@ -419,6 +419,14 @@ document.addEventListener('DOMContentLoaded', () => {
         s.async = true;
         document.head.appendChild(s);
       }
+      // Seed Detector — dims any data-live element whose QUOTES symbol
+      // hasn't been touched by a live source (seed-only). Tooltip shows source.
+      if (!document.querySelector('script[src*="seed-detector.js"]')) {
+        const s = document.createElement('script');
+        s.src = 'js/seed-detector.js';
+        s.async = true;
+        document.head.appendChild(s);
+      }
       // Auto-Trade closed loop — opens paper trades on high-conviction brain signals.
       // Off by default; user must enable on auto-trade.html. Auto-loads here so
       // the 15s polling can run from any page once the user has flipped the toggle.
