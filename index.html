@@ -36,15 +36,15 @@
       <a href="jump-to.html" class="btn btn-secondary btn-lg">⚡ Jump To (⌘K)</a>
     </div>
 
-    <!-- LIVE DATA CTA — shown only when no real provider is connected -->
-    <div id="home-live-cta" style="margin-top:24px;padding:22px 26px;border-radius:14px;background:linear-gradient(135deg,rgba(245,158,11,0.10),rgba(239,68,68,0.05));border:1px solid rgba(245,158,11,0.4);display:none;">
+    <!-- LIVE DATA STATUS — auto-shows the real source (Stooq/Finnhub/etc) -->
+    <div id="home-live-cta" style="margin-top:24px;padding:18px 24px;border-radius:14px;display:none;">
       <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:14px;">
         <div style="flex:1;min-width:280px;">
-          <div style="font-size:11px;font-weight:800;letter-spacing:1.5px;color:#f59e0b;">⚠ USING MOCK DATA — brain is learning on synthetic walks</div>
-          <div style="font-size:18px;font-weight:800;margin-top:6px;">Connect real market data in 60 seconds</div>
-          <div style="font-size:12px;color:var(--text-muted);margin-top:4px;font-family:var(--font-mono);">Finnhub free tier: no card, 60 req/min, ticks immediately</div>
+          <div id="home-live-headline" style="font-size:11px;font-weight:800;letter-spacing:1.5px;"></div>
+          <div id="home-live-body" style="font-size:14px;font-weight:700;margin-top:6px;"></div>
+          <div id="home-live-source" style="font-size:11px;color:var(--text-muted);margin-top:4px;font-family:var(--font-mono);"></div>
         </div>
-        <a href="connect-live-data.html" class="btn btn-primary" style="background:linear-gradient(135deg,#f59e0b,#ef4444);border:none;font-weight:800;">📡 Connect Live Data →</a>
+        <a href="connect-live-data.html" class="btn btn-secondary" style="font-weight:700;">📡 Manage Live Data →</a>
       </div>
     </div>
 
@@ -283,17 +283,60 @@
     renderSectorChart('sectorChart');
   });
 
-  // Show the live-data CTA only when no real provider is connected
+  // Show the live-data status card with the ACTUAL active data source.
+  // Stooq + Coinbase run by default (no key needed) — that's already "live data."
+  // Finnhub/Polygon are optional real-time upgrades.
   function checkLiveData() {
     try {
       const cta = document.getElementById('home-live-cta');
       if (!cta || typeof window.DataProvider === 'undefined') return;
       const status = window.DataProvider.getStatus ? window.DataProvider.getStatus() : null;
-      const isMock = !status || !status.enabled || status.provider === 'mock' || !status.provider;
-      cta.style.display = isMock ? 'block' : 'none';
+      const stooqStatus = window.DataProvider.getStooqStatus ? window.DataProvider.getStooqStatus() : null;
+      const headline = document.getElementById('home-live-headline');
+      const body = document.getElementById('home-live-body');
+      const source = document.getElementById('home-live-source');
+
+      const stooqLive = stooqStatus && (stooqStatus.polling || stooqStatus.lastFetchOk > 0);
+      const realtime = status && status.enabled && status.provider && status.provider !== 'mock' && status.provider !== 'stooq';
+
+      // Sample a real symbol to confirm prices are flowing
+      let liveSourceText = '';
+      try {
+        if (typeof window.QUOTES !== 'undefined' && window.QUOTES.SPY) {
+          const q = window.QUOTES.SPY;
+          if (q.priceSource && q.priceSource !== 'stale-seed' && q.priceSource !== 'mock') {
+            liveSourceText = 'SPY $' + (q.last ? q.last.toFixed(2) : '—') + ' · source: ' + q.priceSource;
+          }
+        }
+      } catch (e) {}
+
+      cta.style.display = 'block';
+      if (realtime && status.status === 'connected') {
+        cta.style.background = 'linear-gradient(135deg,rgba(16,185,129,0.10),rgba(16,185,129,0.02))';
+        cta.style.border = '1px solid rgba(16,185,129,0.4)';
+        headline.textContent = '✓ REAL-TIME — ' + status.provider.toUpperCase();
+        headline.style.color = '#10b981';
+        body.textContent = 'WebSocket streaming · sub-second equity ticks';
+        source.textContent = liveSourceText;
+      } else if (stooqLive) {
+        cta.style.background = 'linear-gradient(135deg,rgba(16,185,129,0.10),rgba(16,185,129,0.02))';
+        cta.style.border = '1px solid rgba(16,185,129,0.4)';
+        headline.textContent = '✓ LIVE DATA — STOOQ + COINBASE (free, zero-config)';
+        headline.style.color = '#10b981';
+        body.textContent = 'Real prices flowing · equities 12s polling (15-min delayed) · crypto realtime · upgrade to real-time anytime';
+        source.textContent = liveSourceText;
+      } else {
+        cta.style.background = 'linear-gradient(135deg,rgba(245,158,11,0.10),rgba(239,68,68,0.05))';
+        cta.style.border = '1px solid rgba(245,158,11,0.4)';
+        headline.textContent = '⚠ WARMING UP DATA';
+        headline.style.color = '#f59e0b';
+        body.textContent = 'Stooq polling not yet started — first poll within 12s';
+        source.textContent = '';
+      }
     } catch (e) {}
   }
-  setTimeout(checkLiveData, 2000);
+  setTimeout(checkLiveData, 2500);
+  setTimeout(checkLiveData, 15000);
   setInterval(checkLiveData, 30000);
 
   // Surface the live brain-coach summary on the homepage. Waits for the

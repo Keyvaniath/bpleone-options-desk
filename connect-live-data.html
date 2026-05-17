@@ -53,10 +53,14 @@
 
   <div class="grid grid-4 mb-24" id="status-grid"></div>
 
+  <div style="padding:14px 18px;background:rgba(16,185,129,0.08);border-left:3px solid var(--green);border-radius:6px;margin-bottom:14px;font-size:13px;color:var(--text-secondary);line-height:1.6;">
+    <strong style="color:var(--green);">✓ You already have free real prices running.</strong> Stooq polls equities every 12s (15-min delayed) and Coinbase streams crypto realtime via WebSocket — both with zero config. The optional providers below upgrade equities to <strong>real-time</strong> (no delay) which matters if you trade options at the open or scalp intraday moves.
+  </div>
+
   <div class="action-card">
-    <h3>🔑 Configure & connect</h3>
+    <h3>🔑 Upgrade to real-time (optional)</h3>
     <div style="font-size:13px;color:var(--text-secondary);margin-bottom:10px;">
-      Pick a provider and paste your API key. The free tier of <a href="https://finnhub.io/register" target="_blank" class="helper-link">Finnhub</a> is the fastest path (no credit card, 60 req/min). Polygon is the gold standard for full equity + options ($199/mo).
+      Add a WebSocket provider for sub-second equity ticks. The free tier of <a href="https://finnhub.io/register" target="_blank" class="helper-link">Finnhub</a> is the fastest path (no credit card, 60 req/min). Polygon is the gold standard for full equity + options ($29/mo Starter, $199/mo Indices). If no key is configured, Stooq's 12s polling stays in effect.
     </div>
     <div class="input-row">
       <select id="provider-input">
@@ -107,26 +111,34 @@ buildNav('connect-live-data');
 
 function render() {
   const status = DataProvider.getStatus();
+  const stooqStatus = (DataProvider.getStooqStatus && DataProvider.getStooqStatus()) || {};
   const card = document.getElementById('status-card');
   const grid = document.getElementById('status-grid');
 
+  // Detect what data is ACTUALLY flowing — Stooq runs by default, no key needed.
+  // Real-time WebSocket providers (Finnhub/Polygon/etc) override Stooq when configured.
+  const stooqRunning = stooqStatus.polling || stooqStatus.lastFetchOk > 0;
+  const realtimeConfigured = status.provider && status.provider !== 'mock' && status.enabled && status.provider !== 'stooq';
+
   let cardClass = 'big-card';
   let icon, msg, sub;
-  if (status.status === 'connected') {
-    cardClass += '';
-    icon = '🟢'; msg = 'LIVE DATA STREAMING'; sub = 'Connected to ' + status.provider + ' · ' + (status.messagesReceived || 0) + ' messages';
+  if (realtimeConfigured && status.status === 'connected') {
+    icon = '🟢'; msg = 'REAL-TIME STREAMING'; sub = 'WebSocket: ' + status.provider + ' · ' + (status.messagesReceived || 0) + ' ticks';
   } else if (status.status === 'connecting') {
     cardClass += ' disconnected';
     icon = '🟡'; msg = 'CONNECTING…'; sub = 'Connecting to ' + status.provider;
   } else if (status.status === 'error') {
     cardClass += ' error';
-    icon = '🔴'; msg = 'CONNECTION ERROR'; sub = status.lastError || 'Unknown error';
+    icon = '🔴'; msg = 'WEBSOCKET ERROR — Stooq fallback still active'; sub = status.lastError || 'Unknown error';
+  } else if (stooqRunning) {
+    // This is the DEFAULT state — real prices from Stooq + Coinbase, no key needed
+    icon = '🟢'; msg = 'LIVE DATA — STOOQ + COINBASE (free)'; sub = 'Real prices · stocks 12s polling (15-min delayed) · crypto realtime WebSocket · zero config';
   } else if (status.enabled === false || status.provider === 'mock') {
     cardClass += ' disconnected';
-    icon = '⚠'; msg = 'USING MOCK DATA'; sub = 'Brain is learning on synthetic OU walks — configure a real provider above';
+    icon = '⚠'; msg = 'MOCK DATA ONLY'; sub = 'Stooq fallback isn\'t polling — check browser console for fetch errors';
   } else {
     cardClass += ' disconnected';
-    icon = '⚫'; msg = 'DISCONNECTED'; sub = 'No provider connected';
+    icon = '⚫'; msg = 'WARMING UP'; sub = 'First Stooq poll completes within 12s of page load';
   }
   card.className = cardClass;
   card.innerHTML = '<div class="icon">' + icon + '</div>'

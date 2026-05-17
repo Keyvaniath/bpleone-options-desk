@@ -1124,17 +1124,18 @@ function initLivePulseTicker() {
   }, 15000);
 }
 
-// Force live-data attempt on every page load
+// Force live-data attempt on every page load. Stooq + Coinbase free polling
+// start automatically via DataProvider.init() — no key needed for real prices.
+// Configuring Finnhub/Polygon UPGRADES equities to real-time WebSocket ticks.
 function tryAutoConnectLiveData() {
   if (typeof window === 'undefined' || !window.DataProvider) return;
   try {
+    // Always init — boots Stooq/Coinbase fallbacks AND any configured WS provider
+    if (window.DataProvider.init) window.DataProvider.init();
+    // If a real-time WS provider is configured but disconnected, kick reconnect
     const status = window.DataProvider.getStatus && window.DataProvider.getStatus();
-    if (status && status.enabled && status.provider !== 'mock') {
-      // Already configured — kick a reconnect
+    if (status && status.enabled && status.provider && status.provider !== 'mock' && status.provider !== 'stooq' && status.status !== 'connected') {
       if (window.DataProvider.reconnect) window.DataProvider.reconnect();
-    } else {
-      // Init even with mock so QUOTES update reliably
-      if (window.DataProvider.init) window.DataProvider.init();
     }
   } catch (e) {}
 }
