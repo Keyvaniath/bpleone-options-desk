@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Brain Time-of-Day — bpleone</title>
+<meta name="description" content="When does the brain perform best? Per-hour win rate and P&L heatmap.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.tile { padding:18px;background:var(--bg-elevated);border-radius:10px; }
+.tile .lbl { font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;font-weight:700; }
+.tile .val { font-family:var(--font-mono);font-size:22px;font-weight:800;margin-top:6px;color:var(--accent); }
+.tile.good .val { color:var(--green); }
+.tile.bad .val { color:var(--red); }
+#hour-chart { width:100%;height:260px; }
+.hour-grid { display:grid;grid-template-columns:repeat(24,1fr);gap:4px;margin-top:14px; }
+.hour-cell { aspect-ratio:1;border-radius:6px;display:flex;flex-direction:column;justify-content:center;align-items:center;font-family:var(--font-mono);font-size:9px;color:var(--text-secondary);text-align:center;background:rgba(255,255,255,0.03); }
+.hour-cell .h { font-weight:800;font-size:10px;color:var(--text-muted); }
+.hour-cell .v { font-weight:900;font-size:11px;margin-top:2px; }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">⏰ Brain Time-of-Day</div>
+      <div class="page-subtitle">Per-hour performance heatmap. Find your brain's sweet hours (and the danger windows).</div>
+    </div>
+  </div>
+
+  <div class="grid grid-3 mb-24" id="kpi-grid"></div>
+
+  <div class="card mb-24">
+    <div class="card-header"><div class="card-title">📊 Hourly $ P&amp;L (UTC hours)</div></div>
+    <canvas id="hour-chart"></canvas>
+  </div>
+
+  <div class="card mb-24">
+    <div class="card-header"><div class="card-title">🌡 Hourly heatmap (24h grid)</div></div>
+    <div class="hour-grid" id="hour-grid"></div>
+    <div style="font-size:11px;color:var(--text-muted);margin-top:10px;">Each cell shows hour-of-day + total $ P&amp;L resolved in that hour. Green = profitable, red = losing.</div>
+  </div>
+
+  <div class="card">
+    <div class="card-header"><div class="card-title">🔗 Related</div></div>
+    <div style="display:flex;gap:12px;flex-wrap:wrap;">
+      <a href="pnl-calendar.html" style="text-decoration:none;display:inline-block;background:linear-gradient(135deg,#00d4ff,#0094c7);color:#000;padding:10px 18px;border-radius:8px;font-weight:700;">📆 Calendar</a>
+      <a href="hot-symbols.html" style="text-decoration:none;display:inline-block;background:rgba(120,140,160,0.12);color:var(--accent);padding:10px 18px;border-radius:8px;font-weight:700;">🔥 Hot Symbols</a>
+      <a href="source-performance.html" style="text-decoration:none;display:inline-block;background:rgba(120,140,160,0.12);color:var(--accent);padding:10px 18px;border-radius:8px;font-weight:700;">📡 Per-source</a>
+    </div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/charts.js"></script>
+<script src="js/live.js"></script>
+<script>buildNav('brain-time-of-day');</script>
+<script>
+let chart = null;
+function fmt$(v) { if (!isFinite(v) || v === 0) return ''; const s = v < 0 ? '-' : '+'; return s + '$' + Math.abs(v).toFixed(0); }
+function getTrades() {
+  if (!window.MoneyTracker) return [];
+  const s = window.MoneyTracker.summary();
+  if (s.empty || !s.windows || !s.windows.lifetime) return [];
+  return s.windows.lifetime.trades || [];
+}
+function render() {
+  const trades = getTrades();
+  const buckets = Array.from({ length: 24 }, (_, i) => ({ hour: i, pnl: 0, wins: 0, losses: 0, count: 0 }));
+  for (const t of trades) {
+    const h = new Date(t.ts).getHours();
+    buckets[h].pnl += t.pnl;
+    buckets[h].count++;
+    if (t.pnl > 0) buckets[h].wins++;
+    else if (t.pnl < 0) buckets[h].losses++;
+  }
+  // KPIs
+  const best = buckets.slice().sort((a, b) => b.pnl - a.pnl)[0];
+  const worst = buckets.slice().sort((a, b) => a.pnl - b.pnl)[0];
+  const busiest = buckets.slice().sort((a, b) => b.count - a.count)[0];
+  document.getElementById('kpi-grid').innerHTML =
+    '<div class="tile good"><div class="lbl">Best hour</div><div class="val" style="font-size:16px;">' + (best && best.pnl > 0 ? best.hour + ':00 (' + fmt$(best.pnl) + ')' : '—') + '</div></div>' +
+    '<div class="tile bad"><div class="lbl">Worst hour</div><div class="val" style="font-size:16px;">' + (worst && worst.pnl < 0 ? worst.hour + ':00 (' + fmt$(worst.pnl) + ')' : '—') + '</div></div>' +
+    '<div class="tile"><div class="lbl">Busiest hour</div><div class="val" style="font-size:16px;">' + (busiest && busiest.count > 0 ? busiest.hour + ':00 (' + busiest.count + ' trades)' : '—') + '</div></div>';
+  // Chart
+  const ctx = document.getElementById('hour-chart');
+  if (ctx && typeof Chart !== 'undefined') {
+    const labels = buckets.map(b => b.hour + ':00');
+    const data = buckets.map(b => +b.pnl.toFixed(2));
+    const colors = data.map(v => v >= 0 ? 'rgba(16,185,129,0.7)' : 'rgba(220,38,38,0.7)');
+    if (chart) chart.destroy();
+    chart = new Chart(ctx, {
+      type: 'bar',
+      data: { labels, datasets: [{ data, backgroundColor: colors }] },
+      options: { responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { display: false }, tooltip: { callbacks: { label: c => '$' + c.parsed.y.toFixed(2) + ' · ' + buckets[c.dataIndex].count + ' trades' } } },
+        scales: { x: { ticks: { color: 'rgba(255,255,255,0.5)' } }, y: { ticks: { color: 'rgba(255,255,255,0.5)', callback: v => '$' + v.toFixed(0) } } } }
+    });
+  }
+  // Grid
+  const maxAbs = Math.max(1, ...buckets.map(b => Math.abs(b.pnl)));
+  document.getElementById('hour-grid').innerHTML = buckets.map(b => {
+    const intensity = Math.abs(b.pnl) / maxAbs;
+    const bg = b.pnl > 0 ? 'rgba(16,185,129,' + (0.1 + intensity * 0.5) + ')' : b.pnl < 0 ? 'rgba(220,38,38,' + (0.1 + intensity * 0.5) + ')' : 'rgba(120,140,160,0.06)';
+    return '<div class="hour-cell" style="background:' + bg + ';" title="' + b.hour + ':00 · ' + b.count + ' trades · $' + b.pnl.toFixed(0) + '"><div class="h">' + b.hour + 'h</div><div class="v" style="color:' + (b.pnl >= 0 ? 'var(--green)' : 'var(--red)') + ';">' + fmt$(b.pnl) + '</div></div>';
+  }).join('');
+}
+setTimeout(render, 500);
+setInterval(render, 10000);
+</script>
+</body>
+</html>

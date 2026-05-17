@@ -464,6 +464,13 @@ document.addEventListener('DOMContentLoaded', () => {
         s.async = true;
         document.head.appendChild(s);
       }
+      // Equity Drawdown Protector — master kill-switch on portfolio DD.
+      if (!document.querySelector('script[src*="equity-protector.js"]')) {
+        const s = document.createElement('script');
+        s.src = 'js/equity-protector.js';
+        s.async = false;
+        document.head.appendChild(s);
+      }
       // Multi-horizon ensemble MUST load before continuous-learner so the
       // learner can call MultiHorizon.* immediately on first capture.
       if (!document.querySelector('script[src*="multi-horizon.js"]')) {

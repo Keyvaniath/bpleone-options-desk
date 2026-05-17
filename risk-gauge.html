@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Live Risk Gauge — bpleone</title>
+<meta name="description" content="Real-time gauge: how much $ is at risk right now across all open auto-trades vs your bankroll?">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.gauge-wrap { padding:32px;border-radius:18px;background:var(--bg-elevated);text-align:center; }
+.gauge-bar { height:32px;background:rgba(255,255,255,0.06);border-radius:16px;overflow:hidden;position:relative;margin:18px 0; }
+.gauge-bar > span { display:block;height:100%;transition:width 0.4s ease;border-radius:16px; }
+.gauge-bar > span.green { background:linear-gradient(90deg,#10b981,#059669); }
+.gauge-bar > span.yellow { background:linear-gradient(90deg,#f59e0b,#d97706); }
+.gauge-bar > span.red { background:linear-gradient(90deg,#dc2626,#991b1b); }
+.gauge-marker { position:absolute;top:-2px;bottom:-2px;width:2px;background:rgba(255,255,255,0.5); }
+.gauge-marker .lbl { position:absolute;bottom:-22px;left:50%;transform:translateX(-50%);font-size:10px;color:var(--text-muted);font-family:var(--font-mono);white-space:nowrap; }
+.tile { padding:18px;background:var(--bg-elevated);border-radius:10px; }
+.tile .lbl { font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;font-weight:700; }
+.tile .val { font-family:var(--font-mono);font-size:22px;font-weight:800;margin-top:6px;color:var(--accent); }
+table.t { width:100%;border-collapse:collapse;font-size:13px;font-family:var(--font-mono); }
+table.t th { text-align:left;padding:10px 12px;border-bottom:1px solid var(--bg-elevated);color:var(--text-muted);font-size:11px;text-transform:uppercase;letter-spacing:0.5px;font-weight:700; }
+table.t td { padding:8px 10px;border-bottom:1px solid rgba(255,255,255,0.04); }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">⚖ Live Risk Gauge</div>
+      <div class="page-subtitle">Real-time: $ at risk across all open Auto-Trades vs your bankroll. Visual gauge with policy markers.</div>
+    </div>
+  </div>
+
+  <div class="gauge-wrap mb-24">
+    <div style="display:flex;justify-content:space-between;font-size:14px;color:var(--text-secondary);">
+      <span>$0</span>
+      <span>Bankroll: <strong id="bank-label">—</strong></span>
+    </div>
+    <div class="gauge-bar">
+      <span id="bar-fill" class="green" style="width:0%;"></span>
+      <div class="gauge-marker" style="left:5%;"><div class="lbl">5%</div></div>
+      <div class="gauge-marker" style="left:10%;"><div class="lbl">10% (default cap)</div></div>
+      <div class="gauge-marker" style="left:25%;"><div class="lbl">25%</div></div>
+    </div>
+    <div style="font-family:var(--font-mono);font-size:36px;font-weight:900;color:var(--accent);" id="gauge-pct">0%</div>
+    <div style="color:var(--text-muted);font-size:13px;margin-top:4px;" id="gauge-meta">Loading…</div>
+  </div>
+
+  <div class="grid grid-4 mb-24" id="kpi-grid"></div>
+
+  <div class="card mb-24">
+    <div class="card-header"><div class="card-title">📋 Open positions risk breakdown</div></div>
+    <table class="t" id="pos-table">
+      <thead><tr><th>Symbol</th><th>Side</th><th>Shares</th><th>Risk $</th><th>% of bankroll</th><th>Live P&amp;L</th></tr></thead>
+      <tbody id="pos-body"></tbody>
+    </table>
+  </div>
+
+  <div class="card">
+    <div class="card-header"><div class="card-title">🔗 Related</div></div>
+    <div style="display:flex;gap:12px;flex-wrap:wrap;">
+      <a href="auto-trade.html" style="text-decoration:none;display:inline-block;background:linear-gradient(135deg,#f59e0b,#d97706);color:#000;padding:10px 18px;border-radius:8px;font-weight:700;">🤖 Auto-Trade</a>
+      <a href="position-correlation.html" style="text-decoration:none;display:inline-block;background:rgba(120,140,160,0.12);color:var(--accent);padding:10px 18px;border-radius:8px;font-weight:700;">🔗 Correlation</a>
+      <a href="equity-protector.html" style="text-decoration:none;display:inline-block;background:rgba(120,140,160,0.12);color:var(--accent);padding:10px 18px;border-radius:8px;font-weight:700;">🛡 DD Protector</a>
+    </div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script>buildNav('risk-gauge');</script>
+<script>
+function fmt$(v) { if (!isFinite(v)) return '$0'; const s = v < 0 ? '-' : ''; return s + '$' + Math.abs(v).toLocaleString(undefined, { maximumFractionDigits: 2 }); }
+function render() {
+  if (!window.AutoTrade) { setTimeout(render, 500); return; }
+  const cfg = window.AutoTrade.getConfig();
+  const open = window.AutoTrade.openTrades();
+  const bankroll = cfg.bankroll || 10000;
+  const totalRisk = open.reduce((s, t) => s + (t.riskDollars || 0), 0);
+  const pct = bankroll > 0 ? totalRisk / bankroll : 0;
+  document.getElementById('bank-label').textContent = fmt$(bankroll);
+  // Bar
+  const bar = document.getElementById('bar-fill');
+  // Scale: max display = 35% (so 25% marker is visible)
+  const displayPct = Math.min(100, (pct * 100) / 0.35 * 100);
+  bar.style.width = displayPct + '%';
+  let cls = 'green';
+  if (pct >= cfg.maxTotalRiskPct) cls = 'red';
+  else if (pct >= cfg.maxTotalRiskPct * 0.7) cls = 'yellow';
+  bar.className = cls;
+  document.getElementById('gauge-pct').textContent = (pct * 100).toFixed(2) + '%';
+  document.getElementById('gauge-pct').style.color = cls === 'red' ? 'var(--red)' : cls === 'yellow' ? 'var(--yellow)' : 'var(--green)';
+  const remaining = bankroll * cfg.maxTotalRiskPct - totalRisk;
+  document.getElementById('gauge-meta').textContent = fmt$(totalRisk) + ' at risk · Cap ' + (cfg.maxTotalRiskPct * 100).toFixed(0) + '% · Remaining capacity ' + fmt$(Math.max(0, remaining));
+  // KPIs
+  const cap = bankroll * cfg.maxTotalRiskPct;
+  const capacity = Math.max(0, cap - totalRisk);
+  document.getElementById('kpi-grid').innerHTML =
+    '<div class="tile"><div class="lbl">Bankroll</div><div class="val">' + fmt$(bankroll) + '</div></div>' +
+    '<div class="tile" style="background:rgba(245,158,11,0.06);"><div class="lbl">$ at risk</div><div class="val" style="color:var(--yellow);">' + fmt$(totalRisk) + '</div></div>' +
+    '<div class="tile" style="background:rgba(16,185,129,0.06);"><div class="lbl">Capacity left</div><div class="val" style="color:var(--green);">' + fmt$(capacity) + '</div></div>' +
+    '<div class="tile"><div class="lbl">Open positions</div><div class="val">' + open.length + ' / ' + cfg.maxOpenPositions + '</div></div>';
+  // Positions
+  const body = document.getElementById('pos-body');
+  if (open.length === 0) {
+    body.innerHTML = '<tr><td colspan="6" style="color:var(--text-muted);text-align:center;padding:18px;">No open positions.</td></tr>';
+    return;
+  }
+  body.innerHTML = open.map(t => {
+    const q = window.QUOTES && window.QUOTES[t.sym];
+    const livePx = q && q.last ? q.last : t.entryPx;
+    const pnl = (livePx - t.entryPx) * t.direction * t.shares;
+    const pctOfBank = bankroll > 0 ? (t.riskDollars || 0) / bankroll : 0;
+    return '<tr><td><strong>' + t.sym + '</strong></td><td>' + (t.direction > 0 ? 'LONG' : 'SHORT') + '</td><td>' + t.shares + '</td><td>' + fmt$(t.riskDollars || 0) + '</td><td>' + (pctOfBank * 100).toFixed(2) + '%</td><td style="color:' + (pnl >= 0 ? 'var(--green)' : 'var(--red)') + ';font-weight:700;">' + (pnl >= 0 ? '+' : '') + fmt$(pnl) + '</td></tr>';
+  }).join('');
+}
+setTimeout(render, 500);
+setInterval(render, 3000);
+</script>
+</body>
+</html>

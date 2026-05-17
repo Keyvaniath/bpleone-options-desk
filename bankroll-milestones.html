@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Bankroll Milestones — bpleone</title>
+<meta name="description" content="Track your journey from starting bankroll through $10k, $100k, $1M milestones with brain P&L progress.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.hero { padding:36px 32px;border-radius:18px;background:linear-gradient(135deg,rgba(16,185,129,0.10),rgba(140,100,255,0.06));border:2px solid var(--green);text-align:center;margin-bottom:24px; }
+.hero .big { font-family:var(--font-mono);font-size:48px;font-weight:900;line-height:1;color:var(--green); }
+.hero .lbl { font-size:14px;color:var(--text-muted);text-transform:uppercase;letter-spacing:2px;font-weight:800;margin-bottom:10px; }
+.milestone { padding:18px 22px;background:var(--bg-elevated);border-radius:12px;margin-bottom:10px;display:flex;justify-content:space-between;align-items:center;gap:14px;flex-wrap:wrap;border-left:4px solid transparent; }
+.milestone.hit { border-left-color:var(--green);background:rgba(16,185,129,0.05); }
+.milestone.next { border-left-color:var(--accent);background:rgba(0,212,255,0.04); }
+.milestone .left { flex:1; }
+.milestone .label { font-family:var(--font-mono);font-size:18px;font-weight:900; }
+.milestone .meta { font-size:12px;color:var(--text-muted);margin-top:4px; }
+.milestone .right { text-align:right;font-family:var(--font-mono); }
+.milestone .right .pct { font-size:24px;font-weight:900; }
+.milestone .right .gap { font-size:12px;color:var(--text-muted);margin-top:4px; }
+.progress-bar { height:8px;background:rgba(255,255,255,0.06);border-radius:4px;overflow:hidden;width:100%;margin-top:8px; }
+.progress-bar > span { display:block;height:100%;background:linear-gradient(90deg,#00d4ff,#10b981);transition:width 0.4s; }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">🏆 Bankroll Milestones</div>
+      <div class="page-subtitle">Where you are on the long path from starting bankroll to financial freedom. Real math, real progress.</div>
+    </div>
+  </div>
+
+  <div class="hero">
+    <div class="lbl">Current bankroll + brain P&amp;L</div>
+    <div class="big" id="hero-amount">—</div>
+    <div style="color:var(--text-secondary);margin-top:10px;font-size:13px;" id="hero-meta">Loading…</div>
+  </div>
+
+  <div id="milestones-list"></div>
+
+  <div class="card mt-24">
+    <div class="card-header"><div class="card-title">🔗 Related</div></div>
+    <div style="display:flex;gap:12px;flex-wrap:wrap;">
+      <a href="goal-tracker.html" style="text-decoration:none;display:inline-block;background:linear-gradient(135deg,#00d4ff,#0094c7);color:#000;padding:10px 18px;border-radius:8px;font-weight:700;">🎯 Goal Tracker</a>
+      <a href="money-made.html" style="text-decoration:none;display:inline-block;background:rgba(120,140,160,0.12);color:var(--accent);padding:10px 18px;border-radius:8px;font-weight:700;">💵 Money Made</a>
+      <a href="how-to-make-money.html" style="text-decoration:none;display:inline-block;background:rgba(120,140,160,0.12);color:var(--accent);padding:10px 18px;border-radius:8px;font-weight:700;">📖 How-to</a>
+    </div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script>buildNav('bankroll-milestones');</script>
+<script>
+const MILESTONES = [
+  { value: 1000, label: '$1k', emoji: '🟢' },
+  { value: 5000, label: '$5k', emoji: '💚' },
+  { value: 10000, label: '$10k', emoji: '🌟' },
+  { value: 25000, label: '$25k', emoji: '💎' },
+  { value: 50000, label: '$50k', emoji: '🚀' },
+  { value: 100000, label: '$100k', emoji: '🔥' },
+  { value: 250000, label: '$250k', emoji: '👑' },
+  { value: 500000, label: '$500k', emoji: '🏆' },
+  { value: 1000000, label: '$1M', emoji: '💰' }
+];
+
+function fmt$(v) { if (!isFinite(v)) return '$0'; return '$' + Math.abs(v).toLocaleString(undefined, { maximumFractionDigits: 0 }); }
+
+function render() {
+  let bankroll = 10000;
+  let pnl = 0;
+  if (window.MoneyTracker) {
+    try {
+      const c = window.MoneyTracker.getConfig();
+      bankroll = c.bankroll || 10000;
+      const s = window.MoneyTracker.summary();
+      if (!s.empty && s.windows && s.windows.lifetime) pnl = s.windows.lifetime.totalPnL || 0;
+    } catch (e) {}
+  }
+  if (window.AutoTrade) {
+    try { const st = window.AutoTrade.stats(); pnl += st.totalPnL || 0; } catch (e) {}
+  }
+  const current = bankroll + pnl;
+  document.getElementById('hero-amount').textContent = fmt$(current);
+  document.getElementById('hero-meta').textContent = 'Starting bankroll ' + fmt$(bankroll) + ' + brain P&L ' + (pnl >= 0 ? '+' : '') + fmt$(pnl);
+  const list = document.getElementById('milestones-list');
+  list.innerHTML = MILESTONES.map(m => {
+    const hit = current >= m.value;
+    const cls = hit ? 'hit' : (current >= m.value * 0.5 ? 'next' : '');
+    const pct = Math.min(100, (current / m.value) * 100);
+    const gap = m.value - current;
+    return '<div class="milestone ' + cls + '">' +
+      '<div class="left"><div class="label">' + m.emoji + ' ' + m.label + '</div><div class="meta">' + (hit ? '✓ Hit (' + ((current / m.value - 1) * 100).toFixed(0) + '% over)' : 'Need ' + fmt$(gap) + ' more') + '</div><div class="progress-bar"><span style="width:' + pct + '%;"></span></div></div>' +
+      '<div class="right"><div class="pct" style="color:' + (hit ? 'var(--green)' : 'var(--accent)') + ';">' + Math.round(pct) + '%</div><div class="gap">' + fmt$(m.value) + ' target</div></div>' +
+    '</div>';
+  }).join('');
+}
+setTimeout(render, 500);
+setInterval(render, 8000);
+</script>
+</body>
+</html>

@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Equity Protector — bpleone</title>
+<meta name="description" content="Master kill-switch: auto-pause Auto-Trade when portfolio equity drops X% from peak.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.status { padding:32px;border-radius:18px;text-align:center;margin-bottom:24px; }
+.status.armed { background:linear-gradient(135deg,rgba(16,185,129,0.10),rgba(16,185,129,0.02));border:3px solid var(--green); }
+.status.warning { background:linear-gradient(135deg,rgba(245,158,11,0.10),rgba(245,158,11,0.02));border:3px solid var(--yellow); }
+.status.triggered { background:linear-gradient(135deg,rgba(220,38,38,0.12),rgba(220,38,38,0.02));border:3px solid var(--red); }
+.status .big { font-family:var(--font-mono);font-size:48px;font-weight:900;line-height:1; }
+.tile { padding:18px;background:var(--bg-elevated);border-radius:10px; }
+.tile .lbl { font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;font-weight:700; }
+.tile .val { font-family:var(--font-mono);font-size:22px;font-weight:800;margin-top:6px;color:var(--accent); }
+table.t { width:100%;border-collapse:collapse;font-size:13px;font-family:var(--font-mono); }
+table.t th { text-align:left;padding:8px 10px;border-bottom:1px solid var(--bg-elevated);color:var(--text-muted);font-size:11px;text-transform:uppercase;letter-spacing:0.5px;font-weight:700; }
+table.t td { padding:8px 10px;border-bottom:1px solid rgba(255,255,255,0.04); }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">🛡 Equity Drawdown Protector</div>
+      <div class="page-subtitle">Master kill-switch: auto-pause Auto-Trade when portfolio drops X% from peak. Re-enables on recovery.</div>
+    </div>
+  </div>
+
+  <div id="status" class="status armed"><div class="big">…</div><div style="margin-top:10px;color:var(--text-secondary);" id="status-desc">Loading</div></div>
+
+  <div class="grid grid-4 mb-24" id="kpi-grid"></div>
+
+  <div class="card mb-24">
+    <div class="card-header"><div class="card-title">⚙️ Settings</div></div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:14px;">
+      <label style="font-size:11px;color:var(--text-muted);font-weight:700;text-transform:uppercase;">Max DD %<input id="cfg-dd" type="number" value="10" min="1" max="50" step="1" style="width:100%;background:rgba(0,0,0,0.3);border:1px solid rgba(255,255,255,0.1);border-radius:6px;padding:8px 10px;color:var(--text);font-family:var(--font-mono);font-size:14px;margin-top:6px;"></label>
+      <label style="font-size:11px;color:var(--text-muted);font-weight:700;text-transform:uppercase;">Recovery %<input id="cfg-rec" type="number" value="50" min="10" max="100" step="5" style="width:100%;background:rgba(0,0,0,0.3);border:1px solid rgba(255,255,255,0.1);border-radius:6px;padding:8px 10px;color:var(--text);font-family:var(--font-mono);font-size:14px;margin-top:6px;"></label>
+      <label style="font-size:11px;color:var(--text-muted);font-weight:700;text-transform:uppercase;display:flex;align-items:flex-end;gap:8px;cursor:pointer;"><input id="cfg-auto" type="checkbox" checked> Auto-reenable</label>
+    </div>
+    <div style="margin-top:14px;display:flex;gap:10px;flex-wrap:wrap;">
+      <button onclick="saveCfg()" style="padding:10px 22px;background:linear-gradient(135deg,#00d4ff,#0094c7);color:#000;border:none;border-radius:6px;font-weight:700;cursor:pointer;">💾 Save</button>
+      <button onclick="resetState()" style="padding:10px 18px;background:rgba(220,38,38,0.18);color:var(--red);border:1px solid rgba(220,38,38,0.4);border-radius:6px;font-weight:700;cursor:pointer;">🔁 Reset peak</button>
+    </div>
+  </div>
+
+  <div class="card mb-24">
+    <div class="card-header"><div class="card-title">📜 Trigger history</div></div>
+    <table class="t" id="hist-table">
+      <thead><tr><th>When</th><th>Kind</th><th>Equity</th><th>DD%</th></tr></thead>
+      <tbody id="hist-body"></tbody>
+    </table>
+  </div>
+
+  <div class="card">
+    <div class="card-header"><div class="card-title">🔗 Related</div></div>
+    <div style="display:flex;gap:12px;flex-wrap:wrap;">
+      <a href="loss-cooloff.html" style="text-decoration:none;display:inline-block;background:rgba(120,140,160,0.12);color:var(--accent);padding:10px 18px;border-radius:8px;font-weight:700;">⏸ Loss Cool-off</a>
+      <a href="auto-trade.html" style="text-decoration:none;display:inline-block;background:rgba(120,140,160,0.12);color:var(--accent);padding:10px 18px;border-radius:8px;font-weight:700;">🤖 Auto-Trade</a>
+      <a href="risk-simulator.html" style="text-decoration:none;display:inline-block;background:rgba(120,140,160,0.12);color:var(--accent);padding:10px 18px;border-radius:8px;font-weight:700;">🎲 Risk Sim</a>
+    </div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script src="js/equity-protector.js"></script>
+<script>buildNav('equity-protector');</script>
+<script>
+function fmt$(v) { if (!isFinite(v)) return '$0'; const s = v < 0 ? '-' : ''; return s + '$' + Math.abs(v).toLocaleString(undefined, { maximumFractionDigits: 2 }); }
+function fmtAgo(t) { if (!t) return '—'; const ms = Date.now() - t; if (ms < 60000) return Math.round(ms/1000) + 's ago'; if (ms < 3600000) return Math.round(ms/60000) + 'm ago'; if (ms < 86400000) return Math.round(ms/3600000) + 'h ago'; return Math.round(ms/86400000) + 'd ago'; }
+
+function loadCfg() {
+  if (!window.EquityProtector) return;
+  const c = window.EquityProtector.getConfig();
+  document.getElementById('cfg-dd').value = (c.maxDrawdownPct * 100).toFixed(0);
+  document.getElementById('cfg-rec').value = (c.recoveryPct * 100).toFixed(0);
+  document.getElementById('cfg-auto').checked = c.autoReenable;
+}
+function saveCfg() {
+  if (!window.EquityProtector) return;
+  window.EquityProtector.config({
+    maxDrawdownPct: (parseFloat(document.getElementById('cfg-dd').value) || 10) / 100,
+    recoveryPct: (parseFloat(document.getElementById('cfg-rec').value) || 50) / 100,
+    autoReenable: document.getElementById('cfg-auto').checked
+  });
+  render();
+}
+function resetState() { if (!confirm('Reset peak to current equity?')) return; window.EquityProtector.reset(); render(); }
+function render() {
+  if (!window.EquityProtector) { setTimeout(render, 500); return; }
+  const s = window.EquityProtector.status();
+  const card = document.getElementById('status');
+  const desc = document.getElementById('status-desc');
+  if (s.triggered) {
+    card.className = 'status triggered';
+    card.querySelector('.big').textContent = '🛑 TRIGGERED -' + (s.drawdownPct * 100).toFixed(1) + '%';
+    desc.textContent = 'Triggered ' + fmtAgo(s.triggeredAt) + '. Auto-Trade paused. Will re-enable on recovery.';
+  } else if (s.drawdownPct >= s.thresholdPct * 0.7) {
+    card.className = 'status warning';
+    card.querySelector('.big').textContent = '⚠ APPROACHING ' + (s.drawdownPct * 100).toFixed(1) + '%';
+    desc.textContent = 'Currently ' + (s.drawdownPct * 100).toFixed(1) + '% drawdown. Trigger at ' + (s.thresholdPct * 100).toFixed(0) + '%.';
+  } else {
+    card.className = 'status armed';
+    card.querySelector('.big').textContent = 'ARMED';
+    desc.textContent = 'Watching. Will trigger if equity drops ' + (s.thresholdPct * 100).toFixed(0) + '% from peak. Currently DD ' + (s.drawdownPct * 100).toFixed(1) + '%.';
+  }
+  document.getElementById('kpi-grid').innerHTML =
+    '<div class="tile"><div class="lbl">Peak equity</div><div class="val" style="color:var(--green);">' + fmt$(s.peakEquity) + '</div></div>' +
+    '<div class="tile"><div class="lbl">Current equity</div><div class="val" style="color:' + (s.currentEquity >= s.peakEquity ? 'var(--green)' : 'var(--red)') + ';">' + fmt$(s.currentEquity) + '</div></div>' +
+    '<div class="tile"><div class="lbl">Drawdown $</div><div class="val" style="color:var(--red);">-' + fmt$(s.drawdownDollars) + '</div></div>' +
+    '<div class="tile"><div class="lbl">Drawdown %</div><div class="val" style="color:' + (s.drawdownPct > s.thresholdPct ? 'var(--red)' : 'var(--accent)') + ';">' + (s.drawdownPct * 100).toFixed(2) + '%</div></div>';
+  const body = document.getElementById('hist-body');
+  if (s.history.length === 0) body.innerHTML = '<tr><td colspan="4" style="color:var(--text-muted);text-align:center;padding:18px;">No history yet.</td></tr>';
+  else body.innerHTML = s.history.map(h => '<tr><td>' + fmtAgo(h.ts) + '</td><td>' + h.kind + '</td><td>' + fmt$(h.equity || 0) + '</td><td>' + ((h.ddPct || 0) * 100).toFixed(1) + '%</td></tr>').join('');
+}
+setTimeout(() => { loadCfg(); render(); }, 500);
+setInterval(render, 5000);
+</script>
+</body>
+</html>

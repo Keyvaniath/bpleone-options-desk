@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Hot Symbols — bpleone</title>
+<meta name="description" content="Symbols the brain has alerted on most this week. Heat ranking by alert count + conviction.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.tile { padding:18px;background:var(--bg-elevated);border-radius:10px; }
+.tile .lbl { font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;font-weight:700; }
+.tile .val { font-family:var(--font-mono);font-size:22px;font-weight:800;margin-top:6px;color:var(--accent); }
+.tab-row { display:flex;gap:4px;margin-bottom:18px;border-bottom:2px solid var(--bg-elevated); }
+.tab-row button { background:none;border:none;color:var(--text-muted);padding:10px 18px;font-weight:700;cursor:pointer;font-size:13px;border-bottom:2px solid transparent;margin-bottom:-2px; }
+.tab-row button.active { color:var(--accent);border-bottom-color:var(--accent); }
+.row { padding:14px 18px;background:var(--bg-elevated);border-radius:10px;margin-bottom:6px;display:flex;justify-content:space-between;align-items:center;gap:14px;flex-wrap:wrap; }
+.row .rank { font-family:var(--font-mono);font-size:14px;font-weight:800;color:var(--text-muted);min-width:30px; }
+.row .sym { font-family:var(--font-mono);font-size:18px;font-weight:900;min-width:80px; }
+.row .meta { color:var(--text-muted);font-size:12px;font-family:var(--font-mono); }
+.row .count { font-family:var(--font-mono);font-size:18px;font-weight:800;color:var(--accent); }
+.heat { display:inline-block;width:20px;height:20px;border-radius:4px;vertical-align:middle;margin-right:6px; }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">🔥 Hot Symbols</div>
+      <div class="page-subtitle">Symbols the brain has alerted on the most. Heat = alert count × average conviction.</div>
+    </div>
+  </div>
+
+  <div class="grid grid-3 mb-24" id="kpi-grid"></div>
+
+  <div class="tab-row" id="tabs">
+    <button data-w="1" class="active">Last 24h</button>
+    <button data-w="7">Last 7d</button>
+    <button data-w="30">Last 30d</button>
+    <button data-w="">All-time</button>
+  </div>
+
+  <div id="hot-list"></div>
+
+  <div class="card mt-24">
+    <div class="card-header"><div class="card-title">🔗 Related</div></div>
+    <div style="display:flex;gap:12px;flex-wrap:wrap;">
+      <a href="auto-watchlist.html" style="text-decoration:none;display:inline-block;background:linear-gradient(135deg,#a884ff,#7c3aed);color:#fff;padding:10px 18px;border-radius:8px;font-weight:700;">⭐ Auto-Watchlist</a>
+      <a href="high-conviction-alerts.html" style="text-decoration:none;display:inline-block;background:rgba(120,140,160,0.12);color:var(--accent);padding:10px 18px;border-radius:8px;font-weight:700;">🔔 Alerts feed</a>
+      <a href="source-performance.html" style="text-decoration:none;display:inline-block;background:rgba(120,140,160,0.12);color:var(--accent);padding:10px 18px;border-radius:8px;font-weight:700;">📡 Per source</a>
+    </div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script>buildNav('hot-symbols');</script>
+<script>
+let currentDays = 1;
+function heatColor(score) {
+  if (score >= 12) return '#dc2626';
+  if (score >= 6) return '#f59e0b';
+  if (score >= 3) return '#00d4ff';
+  return 'rgba(120,140,160,0.5)';
+}
+function render() {
+  if (!window.HighConvictionAlerts) { setTimeout(render, 500); return; }
+  const feed = window.HighConvictionAlerts.feed(500);
+  const cutoff = currentDays ? Date.now() - currentDays * 24 * 60 * 60 * 1000 : 0;
+  const filtered = feed.filter(a => a.ts >= cutoff);
+  // Aggregate by symbol
+  const bySym = {};
+  filtered.forEach(a => {
+    if (!bySym[a.sym]) bySym[a.sym] = { sym: a.sym, count: 0, totalConv: 0, longCount: 0, shortCount: 0, lastTs: 0, lastDir: '' };
+    const e = bySym[a.sym];
+    e.count++;
+    e.totalConv += a.conviction || 0;
+    if (a.direction === 'LONG') e.longCount++; else e.shortCount++;
+    if (a.ts > e.lastTs) { e.lastTs = a.ts; e.lastDir = a.direction; }
+  });
+  const sorted = Object.values(bySym).map(e => {
+    e.avgConv = e.count > 0 ? e.totalConv / e.count : 0;
+    e.heat = e.count * (e.avgConv - 0.5) * 2;
+    return e;
+  }).sort((a, b) => b.heat - a.heat);
+  // KPIs
+  document.getElementById('kpi-grid').innerHTML =
+    '<div class="tile"><div class="lbl">Unique symbols</div><div class="val">' + sorted.length + '</div></div>' +
+    '<div class="tile"><div class="lbl">Total alerts</div><div class="val">' + filtered.length + '</div></div>' +
+    '<div class="tile"><div class="lbl">Hottest</div><div class="val" style="font-size:16px;">' + (sorted[0] ? sorted[0].sym : '—') + '</div></div>';
+  const list = document.getElementById('hot-list');
+  if (sorted.length === 0) {
+    list.innerHTML = '<div style="text-align:center;color:var(--text-muted);padding:24px;">No alerts in this window yet.</div>';
+    return;
+  }
+  list.innerHTML = sorted.map((e, i) =>
+    '<div class="row">' +
+      '<div class="rank">#' + (i + 1) + '</div>' +
+      '<div class="sym">' + e.sym + '</div>' +
+      '<div class="meta" style="flex:1;">' +
+        '<span class="heat" style="background:' + heatColor(e.heat) + ';"></span>' +
+        e.count + ' alerts · avg ' + Math.round(e.avgConv * 100) + '% conv · ' +
+        '<span style="color:var(--green);">' + e.longCount + ' L</span> / <span style="color:var(--red);">' + e.shortCount + ' S</span> · ' +
+        'last ' + Math.round((Date.now() - e.lastTs) / 60000) + 'm ago' +
+      '</div>' +
+      '<div class="count">' + e.heat.toFixed(1) + '</div>' +
+    '</div>'
+  ).join('');
+}
+document.querySelectorAll('#tabs button').forEach(b => {
+  b.addEventListener('click', () => {
+    document.querySelectorAll('#tabs button').forEach(x => x.classList.remove('active'));
+    b.classList.add('active');
+    const w = b.getAttribute('data-w');
+    currentDays = w ? parseInt(w) : null;
+    render();
+  });
+});
+setTimeout(render, 500);
+setInterval(render, 8000);
+</script>
+</body>
+</html>
