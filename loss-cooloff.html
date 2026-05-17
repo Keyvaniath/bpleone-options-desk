@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Loss Cool-Off — bpleone</title>
+<meta name="description" content="Auto-disable Auto-Trade after N consecutive losses. Hard rule against revenge trading.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.status-card { padding:32px;border-radius:18px;text-align:center;margin-bottom:24px; }
+.status-card.armed { background:linear-gradient(135deg,rgba(16,185,129,0.10),rgba(16,185,129,0.02));border:3px solid var(--green); }
+.status-card.cooling { background:linear-gradient(135deg,rgba(245,158,11,0.12),rgba(245,158,11,0.02));border:3px solid var(--yellow); }
+.status-card.off { background:linear-gradient(135deg,rgba(120,140,160,0.10),rgba(120,140,160,0.02));border:3px solid rgba(120,140,160,0.4); }
+.status-card .big { font-family:var(--font-mono);font-size:44px;font-weight:900;line-height:1; }
+.status-card.armed .big { color:var(--green); }
+.status-card.cooling .big { color:var(--yellow); }
+.status-card.off .big { color:var(--text-muted); }
+.tile { padding:18px;background:var(--bg-elevated);border-radius:10px; }
+.tile .lbl { font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;font-weight:700; }
+.tile .val { font-family:var(--font-mono);font-size:24px;font-weight:800;margin-top:6px;color:var(--accent); }
+table.t { width:100%;border-collapse:collapse;font-size:13px;font-family:var(--font-mono); }
+table.t th { text-align:left;padding:10px 12px;border-bottom:1px solid var(--bg-elevated);color:var(--text-muted);font-size:11px;text-transform:uppercase;letter-spacing:0.5px;font-weight:700; }
+table.t td { padding:10px 12px;border-bottom:1px solid rgba(255,255,255,0.04); }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">⏸ Loss Cool-Off</div>
+      <div class="page-subtitle">Hard rule: after N consecutive losses, Auto-Trade is automatically paused for X hours. No revenge trading.</div>
+    </div>
+  </div>
+
+  <div id="status-card" class="status-card off">
+    <div class="big">…</div>
+    <div style="color:var(--text-secondary);font-size:14px;margin-top:10px;" id="status-desc">Loading…</div>
+  </div>
+
+  <div class="grid grid-3 mb-24" id="kpi-grid"></div>
+
+  <div class="card mb-24">
+    <div class="card-header"><div class="card-title">⚙️ Settings</div></div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:14px;">
+      <label style="font-size:11px;color:var(--text-muted);font-weight:700;text-transform:uppercase;">Consec losses trigger<input id="cfg-trigger" type="number" value="3" min="2" max="10" step="1" style="width:100%;background:rgba(0,0,0,0.3);border:1px solid rgba(255,255,255,0.1);border-radius:6px;padding:8px 10px;color:var(--text);font-family:var(--font-mono);font-size:14px;margin-top:6px;"></label>
+      <label style="font-size:11px;color:var(--text-muted);font-weight:700;text-transform:uppercase;">Cool-off hours<input id="cfg-hours" type="number" value="2" min="0.5" max="48" step="0.5" style="width:100%;background:rgba(0,0,0,0.3);border:1px solid rgba(255,255,255,0.1);border-radius:6px;padding:8px 10px;color:var(--text);font-family:var(--font-mono);font-size:14px;margin-top:6px;"></label>
+      <label style="font-size:11px;color:var(--text-muted);font-weight:700;text-transform:uppercase;display:flex;align-items:flex-end;gap:8px;cursor:pointer;"><input id="cfg-auto" type="checkbox" checked> Auto-reenable when cooled</label>
+    </div>
+    <div style="margin-top:18px;display:flex;gap:10px;flex-wrap:wrap;">
+      <button onclick="saveCfg()" style="padding:10px 22px;background:linear-gradient(135deg,#00d4ff,#0094c7);color:#000;border:none;border-radius:6px;font-weight:700;cursor:pointer;">💾 Save</button>
+      <button onclick="toggleEnabled()" id="enable-btn" style="padding:10px 18px;background:linear-gradient(135deg,#10b981,#059669);color:#fff;border:none;border-radius:6px;font-weight:700;cursor:pointer;">⏸ Disable</button>
+      <button onclick="manualOverride()" style="padding:10px 18px;background:rgba(245,158,11,0.18);color:var(--yellow);border:1px solid rgba(245,158,11,0.4);border-radius:6px;font-weight:700;cursor:pointer;">⚡ Override cool-off now</button>
+    </div>
+  </div>
+
+  <div class="card mb-24">
+    <div class="card-header"><div class="card-title">📜 Trigger history</div></div>
+    <table class="t" id="hist-table">
+      <thead><tr><th>When</th><th>Kind</th><th>Notes</th></tr></thead>
+      <tbody id="hist-body"></tbody>
+    </table>
+  </div>
+
+  <div class="card">
+    <div class="card-header"><div class="card-title">🔗 Related</div></div>
+    <div style="display:flex;gap:12px;flex-wrap:wrap;">
+      <a href="auto-trade.html" style="text-decoration:none;display:inline-block;background:linear-gradient(135deg,#f59e0b,#d97706);color:#000;padding:10px 18px;border-radius:8px;font-weight:700;">🤖 Auto-Trade</a>
+      <a href="mental-game.html" style="text-decoration:none;display:inline-block;background:rgba(120,140,160,0.12);color:var(--accent);padding:10px 18px;border-radius:8px;font-weight:700;">🎯 Mental Game</a>
+      <a href="risk-simulator.html" style="text-decoration:none;display:inline-block;background:rgba(120,140,160,0.12);color:var(--accent);padding:10px 18px;border-radius:8px;font-weight:700;">🎲 Risk Sim</a>
+    </div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script src="js/loss-cooloff.js"></script>
+<script>buildNav('loss-cooloff');</script>
+<script>
+function fmtAgo(t) { if (!t) return '—'; const ms = Date.now() - t; if (ms < 60000) return Math.round(ms/1000) + 's ago'; if (ms < 3600000) return Math.round(ms/60000) + 'm ago'; if (ms < 86400000) return Math.round(ms/3600000) + 'h ago'; return Math.round(ms/86400000) + 'd ago'; }
+function fmtRemaining(ms) { if (ms <= 0) return '0'; const h = ms / 3600000; if (h > 1) return h.toFixed(1) + 'h'; return Math.round(ms / 60000) + 'm'; }
+
+function loadCfg() {
+  if (!window.LossCooloff) return;
+  const c = window.LossCooloff.getConfig();
+  document.getElementById('cfg-trigger').value = c.consecLossesTrigger;
+  document.getElementById('cfg-hours').value = c.cooloffHours;
+  document.getElementById('cfg-auto').checked = c.autoReenable;
+  const btn = document.getElementById('enable-btn');
+  if (c.enabled) { btn.textContent = '⏸ Disable'; btn.style.background = 'linear-gradient(135deg,#dc2626,#991b1b)'; }
+  else { btn.textContent = '▶ Enable'; btn.style.background = 'linear-gradient(135deg,#10b981,#059669)'; }
+}
+function saveCfg() {
+  if (!window.LossCooloff) return;
+  window.LossCooloff.config({
+    consecLossesTrigger: parseInt(document.getElementById('cfg-trigger').value) || 3,
+    cooloffHours: parseFloat(document.getElementById('cfg-hours').value) || 2,
+    autoReenable: document.getElementById('cfg-auto').checked
+  });
+  render();
+}
+function toggleEnabled() {
+  if (!window.LossCooloff) return;
+  const cfg = window.LossCooloff.getConfig();
+  if (cfg.enabled) window.LossCooloff.disable();
+  else window.LossCooloff.enable();
+  loadCfg();
+  render();
+}
+function manualOverride() {
+  if (!confirm('Skip remaining cool-off? Auto-Trade will re-enable next tick.')) return;
+  window.LossCooloff.manualOverride();
+  render();
+}
+function render() {
+  if (!window.LossCooloff) { setTimeout(render, 500); return; }
+  const s = window.LossCooloff.status();
+  const card = document.getElementById('status-card');
+  const desc = document.getElementById('status-desc');
+  if (!s.config.enabled) {
+    card.className = 'status-card off';
+    card.querySelector('.big').textContent = 'OFF';
+    desc.textContent = 'Cool-off rule is disabled. AutoTrade will not auto-pause on loss streaks.';
+  } else if (s.active) {
+    card.className = 'status-card cooling';
+    card.querySelector('.big').textContent = '🧊 COOLING ' + fmtRemaining(s.remainingMs);
+    desc.textContent = 'Triggered ' + fmtAgo(s.lastTriggerAt) + '. AutoTrade auto-paused. Will re-enable when timer expires.';
+  } else {
+    card.className = 'status-card armed';
+    card.querySelector('.big').textContent = 'ARMED';
+    desc.textContent = 'Will trigger after ' + s.triggerAt + ' consecutive losses. Currently ' + s.currentConsec + ' consec losses.';
+  }
+  document.getElementById('kpi-grid').innerHTML =
+    '<div class="tile"><div class="lbl">Current consec losses</div><div class="val" style="color:' + (s.currentConsec >= s.triggerAt ? 'var(--red)' : s.currentConsec >= s.triggerAt - 1 ? 'var(--yellow)' : 'var(--accent)') + ';">' + s.currentConsec + ' / ' + s.triggerAt + '</div></div>' +
+    '<div class="tile"><div class="lbl">Triggers in history</div><div class="val">' + s.history.filter(h => h.kind === 'trigger').length + '</div></div>' +
+    '<div class="tile"><div class="lbl">Last trigger</div><div class="val" style="font-size:14px;">' + (s.lastTriggerAt ? fmtAgo(s.lastTriggerAt) : 'never') + '</div></div>';
+  // History
+  const body = document.getElementById('hist-body');
+  if (s.history.length === 0) {
+    body.innerHTML = '<tr><td colspan="3" style="color:var(--text-muted);text-align:center;padding:18px;">No triggers yet.</td></tr>';
+  } else {
+    body.innerHTML = s.history.map(h => {
+      const kind = h.kind === 'trigger' ? '<span style="color:var(--red);font-weight:800;">🚨 TRIGGER</span>' : h.kind === 'auto-reenable' ? '<span style="color:var(--green);">✓ AUTO-REENABLE</span>' : '<span style="color:var(--yellow);">⚡ OVERRIDE</span>';
+      const notes = h.consecLosses ? h.consecLosses + ' losses · ' + h.cooloffHours + 'h pause' : '';
+      return '<tr><td>' + fmtAgo(h.ts) + '</td><td>' + kind + '</td><td>' + notes + '</td></tr>';
+    }).join('');
+  }
+}
+setTimeout(() => { loadCfg(); render(); }, 500);
+setInterval(render, 6000);
+</script>
+</body>
+</html>

@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Goal Tracker — bpleone</title>
+<meta name="description" content="Set $ goals (weekly/monthly/yearly). Track progress against brain P&L in real time.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.progress-card { padding:32px;border-radius:18px;margin-bottom:18px; }
+.progress-card.met { background:linear-gradient(135deg,rgba(16,185,129,0.10),rgba(16,185,129,0.02));border:2px solid var(--green); }
+.progress-card.ontrack { background:linear-gradient(135deg,rgba(0,212,255,0.08),rgba(0,212,255,0.02));border:2px solid var(--accent); }
+.progress-card.behind { background:linear-gradient(135deg,rgba(245,158,11,0.08),rgba(245,158,11,0.02));border:2px solid var(--yellow); }
+.progress-card.miss { background:linear-gradient(135deg,rgba(220,38,38,0.08),rgba(220,38,38,0.02));border:2px solid var(--red); }
+.progress-card .header { display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:14px; }
+.progress-card .label { font-size:14px;color:var(--text-muted);text-transform:uppercase;letter-spacing:1px;font-weight:800; }
+.progress-card .pct { font-family:var(--font-mono);font-size:32px;font-weight:900;line-height:1; }
+.progress-card.met .pct { color:var(--green); }
+.progress-card.ontrack .pct { color:var(--accent); }
+.progress-card.behind .pct { color:var(--yellow); }
+.progress-card.miss .pct { color:var(--red); }
+.progress-bar { height:16px;background:rgba(255,255,255,0.06);border-radius:8px;overflow:hidden; }
+.progress-bar > span { display:block;height:100%;transition:width 0.5s ease; }
+.progress-bar.met > span { background:linear-gradient(90deg,#10b981,#059669); }
+.progress-bar.ontrack > span { background:linear-gradient(90deg,#00d4ff,#0094c7); }
+.progress-bar.behind > span { background:linear-gradient(90deg,#f59e0b,#d97706); }
+.progress-bar.miss > span { background:linear-gradient(90deg,#dc2626,#991b1b); }
+.progress-card .meta { margin-top:14px;display:flex;justify-content:space-between;font-family:var(--font-mono);font-size:12px;color:var(--text-secondary);flex-wrap:wrap;gap:8px; }
+.cfg-grid { display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:14px; }
+.cfg-grid label { display:block;font-size:11px;color:var(--text-muted);font-weight:700;text-transform:uppercase;letter-spacing:0.5px; }
+.cfg-grid input { width:100%;background:rgba(0,0,0,0.3);border:1px solid rgba(255,255,255,0.1);border-radius:6px;padding:8px 10px;color:var(--text);font-family:var(--font-mono);font-size:14px;margin-top:6px; }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">🎯 Goal Tracker</div>
+      <div class="page-subtitle">Set your weekly / monthly / yearly $ goals. See progress against brain P&L in real time.</div>
+    </div>
+  </div>
+
+  <div class="card mb-24">
+    <div class="card-header"><div class="card-title">⚙️ Goals</div></div>
+    <div class="cfg-grid">
+      <label>Weekly goal $<input id="g-w" type="number" value="200" min="0" step="10"></label>
+      <label>Monthly goal $<input id="g-m" type="number" value="800" min="0" step="50"></label>
+      <label>Yearly goal $<input id="g-y" type="number" value="10000" min="0" step="500"></label>
+    </div>
+    <div style="margin-top:14px;">
+      <button onclick="saveGoals()" style="padding:10px 22px;background:linear-gradient(135deg,#00d4ff,#0094c7);color:#000;border:none;border-radius:6px;font-weight:700;cursor:pointer;">💾 Save goals</button>
+    </div>
+  </div>
+
+  <div id="weekly" class="progress-card ontrack">
+    <div class="header"><div><div class="label">📅 This week</div><div style="font-family:var(--font-mono);font-size:18px;font-weight:800;margin-top:2px;">$0 of $0 target</div></div><div class="pct">0%</div></div>
+    <div class="progress-bar ontrack"><span style="width:0%;"></span></div>
+    <div class="meta"></div>
+  </div>
+
+  <div id="monthly" class="progress-card ontrack">
+    <div class="header"><div><div class="label">📆 This month</div><div style="font-family:var(--font-mono);font-size:18px;font-weight:800;margin-top:2px;">$0 of $0 target</div></div><div class="pct">0%</div></div>
+    <div class="progress-bar ontrack"><span style="width:0%;"></span></div>
+    <div class="meta"></div>
+  </div>
+
+  <div id="yearly" class="progress-card ontrack">
+    <div class="header"><div><div class="label">🗓 This year</div><div style="font-family:var(--font-mono);font-size:18px;font-weight:800;margin-top:2px;">$0 of $0 target</div></div><div class="pct">0%</div></div>
+    <div class="progress-bar ontrack"><span style="width:0%;"></span></div>
+    <div class="meta"></div>
+  </div>
+
+  <div class="card">
+    <div class="card-header"><div class="card-title">🔗 Related</div></div>
+    <div style="display:flex;gap:12px;flex-wrap:wrap;">
+      <a href="money-made.html" style="text-decoration:none;display:inline-block;background:linear-gradient(135deg,#10b981,#059669);color:#fff;padding:10px 18px;border-radius:8px;font-weight:700;">💵 Money Made</a>
+      <a href="pnl-calendar.html" style="text-decoration:none;display:inline-block;background:rgba(120,140,160,0.12);color:var(--accent);padding:10px 18px;border-radius:8px;font-weight:700;">📆 Calendar</a>
+      <a href="how-to-make-money.html" style="text-decoration:none;display:inline-block;background:rgba(120,140,160,0.12);color:var(--accent);padding:10px 18px;border-radius:8px;font-weight:700;">📖 Guide</a>
+    </div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script>buildNav('goal-tracker');</script>
+<script>
+const KEY = 'bpleone_goal_tracker_v1';
+function loadGoals() { try { return JSON.parse(localStorage.getItem(KEY) || '{"weekly":200,"monthly":800,"yearly":10000}'); } catch (e) { return { weekly: 200, monthly: 800, yearly: 10000 }; } }
+function saveGoals() {
+  const g = {
+    weekly: parseFloat(document.getElementById('g-w').value) || 200,
+    monthly: parseFloat(document.getElementById('g-m').value) || 800,
+    yearly: parseFloat(document.getElementById('g-y').value) || 10000
+  };
+  localStorage.setItem(KEY, JSON.stringify(g));
+  render();
+}
+function fmt$(v) { if (!isFinite(v)) return '$0'; const s = v < 0 ? '-' : ''; return s + '$' + Math.abs(v).toLocaleString(undefined, { maximumFractionDigits: 2 }); }
+
+function periodWindow(kind) {
+  const now = new Date();
+  if (kind === 'weekly') {
+    const day = now.getDay();
+    const monday = new Date(now);
+    monday.setDate(now.getDate() - (day === 0 ? 6 : day - 1));
+    monday.setHours(0, 0, 0, 0);
+    return { start: monday.getTime(), days: 7 };
+  }
+  if (kind === 'monthly') {
+    const start = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
+    const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+    return { start, days: daysInMonth };
+  }
+  if (kind === 'yearly') {
+    const start = new Date(now.getFullYear(), 0, 1).getTime();
+    return { start, days: 365 };
+  }
+}
+
+function pnlSinceTs(ts) {
+  if (!window.MoneyTracker) return 0;
+  const s = window.MoneyTracker.summary();
+  if (s.empty || !s.windows || !s.windows.lifetime) return 0;
+  return (s.windows.lifetime.trades || []).filter(t => t.ts >= ts).reduce((sum, t) => sum + t.pnl, 0);
+}
+
+function renderCard(elId, kind, target) {
+  const w = periodWindow(kind);
+  const pnl = pnlSinceTs(w.start);
+  const pct = target > 0 ? (pnl / target) * 100 : 0;
+  const card = document.getElementById(elId);
+  let cls = 'ontrack';
+  if (pct >= 100) cls = 'met';
+  else if (pct >= 70) cls = 'ontrack';
+  else if (pct >= 30) cls = 'behind';
+  else if (pnl < 0) cls = 'miss';
+  else cls = 'behind';
+  card.className = 'progress-card ' + cls;
+  const bar = card.querySelector('.progress-bar');
+  bar.className = 'progress-bar ' + cls;
+  card.querySelector('.header > div:first-child > div:nth-child(2)').textContent = fmt$(pnl) + ' of ' + fmt$(target) + ' target';
+  card.querySelector('.pct').textContent = pct.toFixed(0) + '%';
+  bar.querySelector('span').style.width = Math.min(100, Math.max(0, pct)) + '%';
+  // Meta: days through period + projected
+  const dayMs = 86400000;
+  const elapsedDays = Math.max(1, Math.floor((Date.now() - w.start) / dayMs));
+  const pctTimeElapsed = Math.min(100, (elapsedDays / w.days) * 100);
+  const projected = elapsedDays > 0 ? (pnl / elapsedDays) * w.days : 0;
+  card.querySelector('.meta').innerHTML = '<span>Day ' + elapsedDays + ' of ' + w.days + ' (' + pctTimeElapsed.toFixed(0) + '% through)</span><span>Projected: ' + fmt$(projected) + '</span>';
+}
+
+function render() {
+  const g = loadGoals();
+  document.getElementById('g-w').value = g.weekly;
+  document.getElementById('g-m').value = g.monthly;
+  document.getElementById('g-y').value = g.yearly;
+  renderCard('weekly', 'weekly', g.weekly);
+  renderCard('monthly', 'monthly', g.monthly);
+  renderCard('yearly', 'yearly', g.yearly);
+}
+setTimeout(render, 600);
+setInterval(render, 8000);
+</script>
+</body>
+</html>

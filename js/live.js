@@ -450,6 +450,13 @@ document.addEventListener('DOMContentLoaded', () => {
         s.async = false;
         document.head.appendChild(s);
       }
+      // Loss Cool-Off — auto-disables AutoTrade after N consec losses.
+      if (!document.querySelector('script[src*="loss-cooloff.js"]')) {
+        const s = document.createElement('script');
+        s.src = 'js/loss-cooloff.js';
+        s.async = false;
+        document.head.appendChild(s);
+      }
       // Multi-horizon ensemble MUST load before continuous-learner so the
       // learner can call MultiHorizon.* immediately on first capture.
       if (!document.querySelector('script[src*="multi-horizon.js"]')) {
