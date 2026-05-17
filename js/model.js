@@ -212,6 +212,10 @@ class Model {
   }
 
   sigmoid(z) {
+    // Audit pass 15: NaN-safe. If z is NaN/Infinity (corrupted weights, bad
+    // feature row), return 0.5 (no signal) instead of NaN which would poison
+    // every downstream calibration + sizing calc.
+    if (!isFinite(z)) return 0.5;
     z = Math.max(-30, Math.min(30, z));
     return 1 / (1 + Math.exp(-z));
   }
