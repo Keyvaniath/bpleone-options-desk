@@ -1006,6 +1006,54 @@ function initSearch() {
   });
 }
 
+// Sticky brain-status footer — slim bar at the very bottom of every page
+// that shows the live brain coach headline + key metrics. Polls BrainCoach
+// once it's available. Persists user dismissal preference.
+function initBrainStatusBar() {
+  if (typeof document === 'undefined' || typeof window === 'undefined') return;
+  if (document.getElementById('brain-status-bar')) return;
+  // Skip if user previously dismissed
+  try { if (localStorage.getItem('bpleone_status_bar_dismissed') === '1') return; } catch (e) {}
+
+  const bar = document.createElement('div');
+  bar.id = 'brain-status-bar';
+  bar.style.cssText = 'position:fixed;left:0;right:0;bottom:0;z-index:1000;background:rgba(10,16,24,0.96);backdrop-filter:blur(10px);border-top:1px solid var(--border);padding:8px 18px;display:none;align-items:center;gap:14px;font-size:12px;font-family:-apple-system,BlinkMacSystemFont,Inter,sans-serif;color:var(--text-secondary);';
+  bar.innerHTML = ''
+    + '<span id="bsb-dot" style="width:8px;height:8px;border-radius:50%;background:var(--text-muted);box-shadow:0 0 6px var(--text-muted);"></span>'
+    + '<span id="bsb-headline" style="font-weight:700;color:var(--text-primary);">Brain status loading…</span>'
+    + '<span id="bsb-metrics" style="font-family:var(--font-mono);color:var(--text-muted);font-size:11px;"></span>'
+    + '<span style="flex:1;"></span>'
+    + '<a href="brain-coach-live.html" style="color:var(--accent);text-decoration:none;font-weight:700;font-size:11px;">Coach →</a>'
+    + '<a href="brain-truth.html" style="color:var(--accent);text-decoration:none;font-weight:700;font-size:11px;">All modules →</a>'
+    + '<button id="bsb-close" style="background:transparent;border:none;color:var(--text-muted);cursor:pointer;font-size:18px;line-height:1;padding:0 4px;" title="Dismiss for this browser">×</button>';
+  document.body.appendChild(bar);
+
+  const close = document.getElementById('bsb-close');
+  if (close) close.onclick = () => {
+    bar.style.display = 'none';
+    try { localStorage.setItem('bpleone_status_bar_dismissed', '1'); } catch (e) {}
+  };
+
+  function refresh() {
+    if (typeof window.BrainCoach === 'undefined') { setTimeout(refresh, 2000); return; }
+    try {
+      const s = window.BrainCoach.summary();
+      bar.style.display = 'flex';
+      document.getElementById('bsb-dot').style.background = s.headlineColor;
+      document.getElementById('bsb-dot').style.boxShadow = '0 0 6px ' + s.headlineColor;
+      document.getElementById('bsb-headline').textContent = s.headline;
+      document.getElementById('bsb-headline').style.color = s.headlineColor;
+      let metrics = 'Health ' + s.healthScore + '/100';
+      if (s.snapshot.bss != null) metrics += ' · BSS ' + (s.snapshot.bss >= 0 ? '+' : '') + s.snapshot.bss.toFixed(2);
+      if (s.snapshot.sharpe != null) metrics += ' · Sharpe ' + s.snapshot.sharpe.toFixed(2);
+      if (s.alertCount > 0) metrics += ' · ⚠ ' + s.alertCount + ' alerts';
+      document.getElementById('bsb-metrics').textContent = metrics;
+    } catch (e) {}
+  }
+  refresh();
+  setInterval(refresh, 30000);
+}
+
 document.addEventListener('DOMContentLoaded', () => {
   buildFooter();
   startMarketClock();
@@ -1014,4 +1062,6 @@ document.addEventListener('DOMContentLoaded', () => {
   initFilters();
   initSort();
   initSearch();
+  // Give BrainCoach time to load (lazy-loaded by live.js) before showing bar
+  setTimeout(initBrainStatusBar, 4000);
 });
