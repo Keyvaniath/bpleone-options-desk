@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Brain Backup — bpleone</title>
+<meta name="description" content="Export the brain's learning state to a file. Import it back on another device. Critical for backups and migration.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.action-card { padding:24px;background:var(--bg-elevated);border-radius:12px;border:1px solid var(--border);margin-bottom:14px; }
+.action-card h3 { font-size:16px;margin:0 0 8px;color:var(--accent); }
+.action-card p { font-size:13px;color:var(--text-secondary);line-height:1.6;margin-bottom:14px; }
+.btn { padding:12px 24px;border:none;border-radius:8px;font-weight:700;cursor:pointer;font-size:14px; }
+.btn-primary { background:var(--accent);color:#000; }
+.btn-danger { background:rgba(239,68,68,0.18);color:var(--red);border:1px solid rgba(239,68,68,0.5); }
+.btn-secondary { background:var(--bg-base);color:var(--text-primary);border:1px solid var(--border); }
+.summary-tile { padding:18px;background:var(--bg-elevated);border-radius:10px; }
+.summary-tile .lbl { font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;font-weight:700; }
+.summary-tile .val { font-family:var(--font-mono);font-size:24px;font-weight:800;margin-top:6px;color:var(--accent); }
+#drop-zone { padding:32px;border:2px dashed var(--border);border-radius:12px;text-align:center;background:var(--bg-elevated);font-size:14px;color:var(--text-secondary);cursor:pointer;transition:all 0.2s; }
+#drop-zone.dragover { border-color:var(--accent);background:rgba(0,212,255,0.05); }
+.result { padding:14px;background:var(--bg-elevated);border-radius:8px;font-family:var(--font-mono);font-size:12px;margin-top:14px;color:var(--text-secondary); }
+.result.success { border-left:3px solid var(--green);color:var(--text-primary); }
+.result.error { border-left:3px solid var(--red); }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">💾 Brain Backup / Restore</div>
+      <div class="page-subtitle">Export brain state to a file · import on another device · safe migration</div>
+    </div>
+  </div>
+
+  <div class="grid grid-3 mb-24" id="summary-grid"></div>
+
+  <div class="action-card">
+    <h3>📥 Download brain snapshot</h3>
+    <p>Bundles every <code>bpleone_*</code> localStorage key into a single JSON file. Save this anywhere — it contains all the brain's learned weights, calibration params, performance history, and per-symbol stats.</p>
+    <button class="btn btn-primary" onclick="doDownload()">📥 Download backup file</button>
+    <div id="download-result"></div>
+  </div>
+
+  <div class="action-card">
+    <h3>📤 Upload &amp; restore</h3>
+    <p>Restore a brain snapshot from a file. The brain will pick up exactly where it left off. <strong>Important:</strong> by default this MERGES with current state (existing keys are overwritten by snapshot keys; other current state is kept). Check "Replace mode" to wipe current state first.</p>
+    <div style="margin-bottom:14px;">
+      <label style="font-size:13px;color:var(--text-secondary);"><input type="checkbox" id="replace-mode"> Replace mode (clear all current brain state before importing)</label>
+    </div>
+    <div id="drop-zone" ondrop="drop(event)" ondragover="dragover(event)" ondragleave="dragleave(event)" onclick="document.getElementById('file-input').click()">
+      Click or drag a <code>.json</code> backup file here
+    </div>
+    <input id="file-input" type="file" accept=".json" style="display:none;" onchange="handleFile(event.target.files[0])">
+    <div id="upload-result"></div>
+  </div>
+
+  <div class="action-card" style="border-color:rgba(239,68,68,0.3);">
+    <h3 style="color:var(--red);">⚠ Danger zone — clear all brain state</h3>
+    <p>Wipes every <code>bpleone_*</code> localStorage key. The brain forgets everything and starts fresh. Use only if the brain is in a bad state and you've backed up your snapshot first.</p>
+    <button class="btn btn-danger" onclick="doClear()">🧹 Clear all brain state</button>
+  </div>
+
+  <div class="card">
+    <div class="card-header"><div class="card-title">📚 When to use this</div></div>
+    <div style="font-size:13px;color:var(--text-secondary);line-height:1.7;">
+      <strong>Backup regularly:</strong> the brain's learning is stored only in your browser's localStorage. If you clear browser data, switch browsers, or change devices, the brain forgets. Weekly backups protect against that.<br><br>
+      <strong>Migrate to a new device:</strong> export on your laptop, email yourself the file, open the site on the new device, import. Brain remembers everything.<br><br>
+      <strong>Share with others:</strong> a snapshot is anonymous — just localStorage values. No personal info. You could share your brain state with a fellow trader so they get the head start of your learning.<br><br>
+      <strong>Reset to a known-good state:</strong> if the brain enters a bad regime (e.g. drift makes BSS negative and it can't recover), you can restore from a snapshot when it was working well.
+    </div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script src="js/brain-snapshot.js"></script>
+<script>
+buildNav('brain-backup');
+
+function fmt(n, d) { return n != null ? n.toFixed(d != null ? d : 1) : '—'; }
+
+function render() {
+  const s = BrainSnapshot.summary();
+  document.getElementById('summary-grid').innerHTML = ''
+    + '<div class="summary-tile"><div class="lbl">Brain keys</div><div class="val">' + s.keys + '</div></div>'
+    + '<div class="summary-tile"><div class="lbl">State size</div><div class="val">' + s.sizeKB + ' KB</div></div>'
+    + '<div class="summary-tile"><div class="lbl">Oldest entry</div><div class="val" style="font-size:18px;">' + (s.ageOfOldestMs ? Math.round(s.ageOfOldestMs / 86400000) + 'd ago' : '—') + '</div></div>';
+}
+
+function doDownload() {
+  const r = BrainSnapshot.download();
+  if (!r) return;
+  document.getElementById('download-result').innerHTML = '<div class="result success">✓ Downloaded ' + r.filename + ' (' + r.keys + ' keys, ' + (r.size / 1024).toFixed(1) + ' KB)</div>';
+}
+
+function dragover(e) { e.preventDefault(); document.getElementById('drop-zone').classList.add('dragover'); }
+function dragleave(e) { document.getElementById('drop-zone').classList.remove('dragover'); }
+function drop(e) {
+  e.preventDefault();
+  document.getElementById('drop-zone').classList.remove('dragover');
+  if (e.dataTransfer.files[0]) handleFile(e.dataTransfer.files[0]);
+}
+
+function handleFile(file) {
+  if (!file) return;
+  const replace = document.getElementById('replace-mode').checked;
+  if (replace && !confirm('Replace mode is ON. This will WIPE all current brain state before importing. Continue?')) return;
+  BrainSnapshot.upload(file).then(r => {
+    if (r.error) {
+      document.getElementById('upload-result').innerHTML = '<div class="result error">✗ ' + r.error + '</div>';
+    } else {
+      document.getElementById('upload-result').innerHTML = '<div class="result success">✓ Restored ' + r.restored + ' keys (' + r.skipped + ' skipped). Snapshot from ' + r.timestampReadable + '</div>';
+      render();
+    }
+  });
+  // Re-apply replace if checked
+  if (replace) {
+    BrainSnapshot.clear();
+    BrainSnapshot.upload(file).then(r => render());
+  }
+}
+
+function doClear() {
+  if (!confirm('Wipe ALL brain learning state? This cannot be undone unless you have a backup.')) return;
+  if (!confirm('Are you sure? The brain will forget everything.')) return;
+  BrainSnapshot.clear();
+  render();
+  alert('Brain state cleared. Refresh the page to start fresh.');
+}
+
+render();
+setInterval(render, 5000);
+</script>
+</body>
+</html>
