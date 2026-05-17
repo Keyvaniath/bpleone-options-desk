@@ -501,6 +501,13 @@ document.addEventListener('DOMContentLoaded', () => {
         s.async = false;
         document.head.appendChild(s);
       }
+      // Mixup augmentation: synthetic training examples by interpolating pairs.
+      if (!document.querySelector('script[src*="mixup.js"]')) {
+        const s = document.createElement('script');
+        s.src = 'js/mixup.js';
+        s.async = false;
+        document.head.appendChild(s);
+      }
       // Regime-Stratified Calibrator: separate Platt scalers per market
       // regime (bull/bear/chop/high-vol/mixed) so calibration adapts to
       // current conditions instead of averaging across regimes.

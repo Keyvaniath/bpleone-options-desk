@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Mixup — bpleone / brain</title>
+<meta name="description" content="Synthetic training data via feature interpolation. Regularizes the model toward smooth decision boundaries.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.alpha-card { padding:32px;border-radius:16px;text-align:center;background:linear-gradient(135deg,rgba(167,139,250,0.10),rgba(167,139,250,0.02));border:2px solid rgba(167,139,250,0.4); }
+.alpha-card .big { font-family:var(--font-mono);font-size:64px;font-weight:900;line-height:1;color:#a78bfa; }
+.tile { padding:18px;background:var(--bg-elevated);border-radius:10px; }
+.tile .lbl { font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;font-weight:700; }
+.tile .val { font-family:var(--font-mono);font-size:22px;font-weight:800;margin-top:6px;color:var(--accent); }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">🧬 Mixup Augmentation</div>
+      <div class="page-subtitle">Synthetic training data via feature interpolation · smooths decision boundaries</div>
+    </div>
+  </div>
+
+  <div id="alpha-card" class="mb-24"></div>
+
+  <div class="grid grid-3 mb-24" id="metrics-grid"></div>
+
+  <div class="card mb-24">
+    <div class="card-header"><div class="card-title">⚙ Configuration</div></div>
+    <div style="font-size:13px;color:var(--text-secondary);margin-bottom:14px;">
+      <strong>Disabled by default</strong> because it generates extra training examples per resolution. Enable when:
+      <ul style="margin:8px 0 8px 24px;">
+        <li>Sample size is small (&lt;200 resolutions) and you want regularization</li>
+        <li>Reliability diagram shows the model is overconfident in specific regions</li>
+        <li>Counterfactual replay shows brittlePct &gt; 30%</li>
+      </ul>
+    </div>
+    <div style="display:flex;gap:14px;flex-wrap:wrap;align-items:end;">
+      <label style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;font-weight:700;display:flex;flex-direction:column;gap:4px;">Alpha (α)<input id="alpha-input" type="number" style="width:100px;padding:8px 12px;background:var(--bg-elevated);border:1px solid var(--border);color:var(--text-primary);border-radius:6px;font-family:var(--font-mono);font-size:14px;font-weight:700;text-align:right;" step="0.1" min="0.01" max="5.0" value="0.20"></label>
+      <button onclick="updateAlpha()" style="padding:10px 22px;background:var(--accent);color:#000;border:none;border-radius:8px;font-weight:700;cursor:pointer;font-size:14px;">Apply α</button>
+      <button onclick="toggleEnabled()" id="toggle-btn" style="padding:10px 22px;background:var(--bg-elevated);color:var(--text-primary);border:1px solid var(--border);border-radius:8px;font-weight:700;cursor:pointer;font-size:14px;">Enable</button>
+    </div>
+    <div style="margin-top:14px;font-size:12px;color:var(--text-muted);font-family:var(--font-mono);">α controls the Beta(α, α) distribution that λ is drawn from. α=0.2 → mostly λ near 0 or 1 (light mix). α=1.0 → uniform λ (heavy mix).</div>
+  </div>
+
+  <div class="card">
+    <div class="card-header"><div class="card-title">📚 How mixup works</div></div>
+    <div style="font-size:13px;color:var(--text-secondary);line-height:1.7;">
+      Standard SGD trains on observed examples (x, y). Mixup (Zhang et al. 2018) generates additional synthetic examples by linearly interpolating between pairs:
+      <code style="display:block;background:var(--bg-elevated);padding:10px;margin:8px 0;border-radius:6px;">x_mix = λ × x_a + (1-λ) × x_b<br>y_mix = λ × y_a + (1-λ) × y_b<br>where λ ~ Beta(α, α)</code>
+      <strong>Effect:</strong> the model is forced to learn linear interpolations between data points. This regularizes toward smoother decision boundaries — the prediction at a point halfway between two training examples should be roughly halfway between their predictions. Empirically this:
+      <ul style="margin:8px 0 8px 24px;">
+        <li>Reduces overfitting on small datasets</li>
+        <li>Improves robustness to small input perturbations (catches the same kind of brittleness Counterfactual Replay measures)</li>
+        <li>Improves calibration (synthetic intermediate labels train the model to output intermediate probabilities)</li>
+      </ul>
+      Pipeline: after the main training pass on resolved examples, the continuous-learner generates K=5 synthetic mixup examples and trains on them with discounted sample weight (0.5×). Disabled by default.
+    </div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script src="js/mixup.js"></script>
+<script>
+buildNav('mixup');
+
+function render() {
+  const s = Mixup.stats();
+  document.getElementById('alpha-card').innerHTML = '<div class="alpha-card">'
+    + '<div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:1px;font-weight:700;">Current α</div>'
+    + '<div class="big" style="margin-top:8px;">' + s.alpha.toFixed(2) + '</div>'
+    + '<div style="font-size:14px;color:' + (s.enabled ? 'var(--green)' : 'var(--yellow)') + ';font-weight:700;margin-top:14px;">' + (s.enabled ? '✓ ACTIVE — generating synthetic examples' : '⚠ DISABLED — no synthetic data') + '</div>'
+    + '</div>';
+
+  document.getElementById('metrics-grid').innerHTML = ''
+    + '<div class="tile"><div class="lbl">Generated examples</div><div class="val">' + s.generatedCount + '</div></div>'
+    + '<div class="tile"><div class="lbl">Range</div><div class="val">[' + s.min + ', ' + s.max + ']</div></div>'
+    + '<div class="tile"><div class="lbl">Last generation</div><div class="val" style="font-size:16px;">' + (s.lastTs ? new Date(s.lastTs).toLocaleTimeString() : '—') + '</div></div>';
+
+  document.getElementById('alpha-input').value = s.alpha;
+  document.getElementById('toggle-btn').textContent = s.enabled ? 'Disable' : 'Enable';
+}
+
+function updateAlpha() {
+  const a = parseFloat(document.getElementById('alpha-input').value);
+  if (!isNaN(a)) { Mixup.setAlpha(a); render(); }
+}
+function toggleEnabled() {
+  Mixup.setEnabled(!Mixup.enabled());
+  render();
+}
+
+render();
+setInterval(render, 8000);
+</script>
+</body>
+</html>

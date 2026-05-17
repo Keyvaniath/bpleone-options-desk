@@ -528,6 +528,18 @@
       }
     } catch (e) {}
 
+    // MIXUP: optional synthetic training examples via feature interpolation.
+    // Disabled by default; opt-in via dashboard.
+    try {
+      if (typeof Mixup !== 'undefined' && Mixup.enabled() && newRows.length >= 2) {
+        const synthetic = Mixup.generate(newRows, Math.min(5, newRows.length));
+        for (const s of synthetic) {
+          model.train(s.features, s.label);
+        }
+        if (synthetic.length > 0) ModelStore.save(model);
+      }
+    } catch (e) {}
+
     // HINDSIGHT REPLAY: after the main training pass, replay a small batch
     // of confidently-wrong past predictions to amplify learning on those.
     try {
