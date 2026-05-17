@@ -296,6 +296,14 @@
               SymbolSkill.record(entry.sym, entry.predProb, label);
             }
           } catch (e) {}
+          // PER-SYMBOL SHARPE: track risk-adjusted return per symbol.
+          // Signed return = +ret if predicted LONG, -ret if predicted SHORT.
+          try {
+            if (typeof SymbolSharpe !== 'undefined' && entry.sym) {
+              const signedRet = predUp ? ret : -ret;
+              SymbolSharpe.record(entry.sym, signedRet);
+            }
+          } catch (e) {}
           // SYMBOL BIAS: feed per-symbol bias term so the shared model can
           // learn symbol-specific quirks on top of general features.
           try {

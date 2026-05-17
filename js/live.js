@@ -618,6 +618,15 @@ document.addEventListener('DOMContentLoaded', () => {
         s.async = false;
         document.head.appendChild(s);
       }
+      // Per-symbol Sharpe: stratifies risk-adjusted return per symbol.
+      // Shows which symbols actually MADE money (not just statistically
+      // beat the baseline).
+      if (!document.querySelector('script[src*="symbol-sharpe.js"]')) {
+        const s = document.createElement('script');
+        s.src = 'js/symbol-sharpe.js';
+        s.async = false;
+        document.head.appendChild(s);
+      }
       // Unified predictor: chains every meta-module into ONE call.
       // Loads last so all dependencies are present.
       if (!document.querySelector('script[src*="unified-predictor.js"]')) {

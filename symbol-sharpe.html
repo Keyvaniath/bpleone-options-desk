@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Per-Symbol Sharpe — bpleone / brain</title>
+<meta name="description" content="Sharpe ratio per symbol. Shows which symbols actually made money vs which were just statistically correct.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.lb-row { display:grid;grid-template-columns:50px 1fr 1.1fr 1fr 1fr 80px 1.1fr;gap:10px;padding:14px;background:var(--bg-elevated);border-radius:10px;margin-bottom:8px;align-items:center; }
+.lb-row.head { background:transparent;font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;font-weight:700;padding:8px 14px;margin-bottom:0; }
+.lb-row .pos { font-family:var(--font-mono);font-size:20px;font-weight:800;color:var(--accent); }
+.lb-row .name { font-weight:700;font-size:15px; }
+.lb-row .metric { font-family:var(--font-mono);font-size:14px;font-weight:700;text-align:right; }
+.lb-row .pill { font-family:var(--font-mono);font-size:12px;font-weight:700;padding:6px 12px;border-radius:14px;text-align:center; }
+.pill.world-class { background:rgba(167,139,250,0.18);color:#a78bfa; }
+.pill.excellent { background:rgba(16,185,129,0.18);color:var(--green); }
+.pill.good { background:rgba(0,212,255,0.18);color:var(--accent); }
+.pill.fair { background:rgba(245,158,11,0.18);color:var(--yellow); }
+.pill.weak { background:rgba(245,158,11,0.10);color:var(--yellow); }
+.pill.losing { background:rgba(239,68,68,0.18);color:var(--red); }
+.pill.idle { background:rgba(140,140,140,0.10);color:var(--text-muted); }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">📈 Per-Symbol Sharpe Ratio</div>
+      <div class="page-subtitle">Risk-adjusted return per symbol · which symbols actually made money</div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-header"><div class="card-title">🏆 Symbol Sharpe leaderboard (last 100 resolutions)</div></div>
+    <div id="leaderboard"></div>
+    <div style="margin-top:14px;padding:12px;background:var(--bg-elevated);border-radius:8px;font-size:12px;color:var(--text-muted);line-height:1.7;">
+      <strong style="color:var(--text-secondary);">Annualized Sharpe</strong> = raw Sharpe × √23,400 (252 trading days × 6.5h × 60min / 10min per resolution).<br>
+      <strong style="color:var(--text-secondary);">Tiers:</strong> losing &lt;0, weak 0–0.5, fair 0.5–1.0, good 1.0–1.5, excellent 1.5–2.5, world-class &gt;2.5.<br>
+      Symbols with &lt;10 resolutions don't have a Sharpe yet — they appear at the bottom of the list.
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-header"><div class="card-title">📚 Why this complements per-symbol BSS</div></div>
+    <div style="font-size:13px;color:var(--text-secondary);line-height:1.7;">
+      Per-symbol Brier Skill (<a href="symbol-skill.html" style="color:var(--accent);">symbol-skill.html</a>) says "did the brain learn this symbol's probability structure?" Per-symbol Sharpe says "did betting in the brain's predicted direction actually make money on this symbol?"<br><br>
+      A symbol can have high BSS but low Sharpe — the brain's probabilities are calibrated, but the moves are too small to overcome trading costs. Or high Sharpe but low BSS — the brain happens to be on the right side of big moves even though its probabilities are sloppy.<br><br>
+      <strong>The two together tell the full story.</strong> If both are high → trade it confidently. If both are low → skip. If BSS is high but Sharpe is low → use it for confidence ranking but not for sizing.
+    </div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script src="js/sharpe-tracker.js"></script>
+<script src="js/symbol-sharpe.js"></script>
+<script>
+buildNav('symbol-sharpe');
+
+function fmt(n, d) { return n != null ? n.toFixed(d != null ? d : 3) : '—'; }
+function fmtPct(p) { return p != null ? (p * 100).toFixed(3) + '%' : '—'; }
+
+function sharpePill(annSharpe) {
+  if (annSharpe == null) return '<span class="pill idle">WARMING</span>';
+  const tier = (typeof SharpeTracker !== 'undefined') ? SharpeTracker.tier(annSharpe) : 'idle';
+  return '<span class="pill ' + tier + '">' + tier.toUpperCase() + '</span>';
+}
+
+function render() {
+  const lb = SymbolSharpe.leaderboard(100);
+  const list = document.getElementById('leaderboard');
+  if (lb.length === 0) {
+    list.innerHTML = '<div style="text-align:center;padding:30px;color:var(--text-muted);font-size:14px;">No per-symbol resolutions yet. Each resolved trade tagged with its symbol adds one row.</div>';
+    return;
+  }
+  let html = '<div class="lb-row head"><div></div><div>Symbol</div><div style="text-align:right;">Ann. Sharpe</div><div style="text-align:right;">Mean return</div><div style="text-align:right;">Std</div><div style="text-align:right;">n</div><div style="text-align:center;">Tier</div></div>';
+  lb.forEach((row, i) => {
+    html += '<div class="lb-row">'
+      + '<div class="pos">#' + (i + 1) + '</div>'
+      + '<div class="name">' + row.symbol + '</div>'
+      + '<div class="metric" style="color:' + (row.annSharpe == null ? 'var(--text-muted)' : row.annSharpe >= 0 ? 'var(--green)' : 'var(--red)') + ';">' + (row.annSharpe != null ? (row.annSharpe >= 0 ? '+' : '') + row.annSharpe.toFixed(2) : '—') + '</div>'
+      + '<div class="metric">' + fmtPct(row.mean) + '</div>'
+      + '<div class="metric">' + fmtPct(row.std) + '</div>'
+      + '<div class="metric">' + row.n + '</div>'
+      + '<div>' + sharpePill(row.annSharpe) + '</div>'
+      + '</div>';
+  });
+  list.innerHTML = html;
+}
+
+render();
+setInterval(render, 8000);
+window.addEventListener('bpleone:continuous-cycle', render);
+</script>
+</body>
+</html>
