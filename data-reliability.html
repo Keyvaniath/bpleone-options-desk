@@ -64,6 +64,15 @@
   </div>
 
   <div class="card mb-24">
+    <div class="card-header"><div class="card-title">🤝 Cross-source agreement (catches silent wrong source)</div></div>
+    <div style="font-size:13px;color:var(--text-secondary);margin-bottom:12px;">
+      When two or more sources have a price for the same symbol within 60 seconds, we compute the max disagreement. If &gt; 0.5%, it's logged here. Individual ticks pass validation but ONE source might be silently wrong.
+    </div>
+    <div id="cross-source-stats"></div>
+    <div id="cross-source-disagreements" style="margin-top:14px;"></div>
+  </div>
+
+  <div class="card mb-24">
     <div class="card-header"><div class="card-title">⛔ Recent validation rejections</div></div>
     <div style="font-size:13px;color:var(--text-secondary);margin-bottom:12px;">
       Prices that failed validation and were dropped. Rules: not-finite, ≤0, &gt;30% jump from last value, out-of-order timestamp.
@@ -96,6 +105,7 @@
 <script src="js/notify.js"></script>
 <script src="js/live.js"></script>
 <script src="js/data-reliability.js"></script>
+<script src="js/cross-source-check.js"></script>
 <script>
 buildNav('data-reliability');
 
@@ -206,9 +216,57 @@ function render() {
   document.getElementById('rejections').innerHTML = html;
 }
 
-setTimeout(render, 2000);
-setInterval(render, 6000);
-window.addEventListener('bpleone:heartbeat', render);
+function renderCrossSource() {
+  if (typeof CrossSourceCheck === 'undefined') return;
+  const all = CrossSourceCheck.allAgreements();
+  const recent = CrossSourceCheck.disagreements(20);
+
+  const stats = document.getElementById('cross-source-stats');
+  if (!all || all.length === 0) {
+    stats.innerHTML = '<div style="text-align:center;padding:14px;color:var(--text-muted);font-size:12px;">Waiting for multi-source data — need 2+ sources updating same symbol within 60s window.</div>';
+  } else {
+    let html = '<div class="source-row head"><div>Symbol</div><div style="text-align:right;">Checks</div><div style="text-align:right;">Disagreements</div><div style="text-align:right;">Avg disagreement</div><div>Agreement</div></div>';
+    all.forEach(s => {
+      const color = s.agreementScore >= 0.95 ? 'var(--green)' : s.agreementScore >= 0.8 ? 'var(--yellow)' : 'var(--red)';
+      const label = s.agreementScore >= 0.95 ? '✓ HEALTHY' : s.agreementScore >= 0.8 ? '⚠ NOISY' : '✗ DIVERGENT';
+      html += '<div class="source-row">'
+        + '<div style="font-weight:800;">' + s.symbol + '</div>'
+        + '<div style="text-align:right;">' + s.checks + '</div>'
+        + '<div style="text-align:right;color:' + (s.disagreementCount > 0 ? 'var(--red)' : 'var(--text-muted)') + ';">' + s.disagreementCount + '</div>'
+        + '<div style="text-align:right;">' + (s.avgDisagreementPct ? (s.avgDisagreementPct * 100).toFixed(2) + '%' : '—') + '</div>'
+        + '<div style="color:' + color + ';font-weight:700;">' + label + '</div>'
+        + '</div>';
+    });
+    stats.innerHTML = html;
+  }
+
+  const list = document.getElementById('cross-source-disagreements');
+  if (recent.length === 0) {
+    list.innerHTML = '<div style="padding:12px;color:var(--green);font-size:13px;text-align:center;">✓ No recent disagreements — all sources agree within 0.5%.</div>';
+  } else {
+    let html = '<div style="font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px;">Recent disagreements (last 20)</div>';
+    recent.forEach(d => {
+      const sourceList = Object.entries(d.prices).map(([s, p]) => s + ' $' + p.toFixed(2)).join(' vs ');
+      html += '<div class="rej-row">'
+        + '<div style="color:var(--text-muted);">' + new Date(d.ts).toLocaleTimeString() + '</div>'
+        + '<div style="font-weight:700;">' + d.sym + '</div>'
+        + '<div style="color:var(--yellow);">' + (d.maxPct * 100).toFixed(2) + '%</div>'
+        + '<div></div>'
+        + '<div style="font-family:var(--font-mono);font-size:10px;">' + sourceList + '</div>'
+        + '</div>';
+    });
+    list.innerHTML = html;
+  }
+}
+
+function renderAll() {
+  render();
+  renderCrossSource();
+}
+
+setTimeout(renderAll, 2000);
+setInterval(renderAll, 6000);
+window.addEventListener('bpleone:heartbeat', renderAll);
 </script>
 </body>
 </html>

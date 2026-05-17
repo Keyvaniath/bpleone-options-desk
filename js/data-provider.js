@@ -121,6 +121,10 @@ const DataProvider = (function() {
       // Minimal fallback validation if reliability module hasn't loaded yet
       if (!isFinite(px) || px <= 0 || px > 1e7) return;
     }
+    // Record for cross-source agreement check
+    if (typeof window.CrossSourceCheck !== 'undefined') {
+      try { window.CrossSourceCheck.record(sym, config.provider, px); } catch (e) {}
+    }
     const q = QUOTES[sym];
     q.last = px;
     q.fresh = true;
@@ -685,6 +689,10 @@ const DataProvider = (function() {
           const v = window.DataReliability.validate(ourSym, r.close, 'stooq', Date.now());
           if (!v.ok) return; // drop invalid; DataReliability has logged it
         }
+        // Record for cross-source agreement
+        if (typeof window.CrossSourceCheck !== 'undefined') {
+          try { window.CrossSourceCheck.record(ourSym, 'stooq', r.close); } catch (e) {}
+        }
         const q = QUOTES[ourSym];
         if (q.last !== r.close) q.prevClose = q.last;  // preserve previous as prevClose
         q.last = r.close;
@@ -764,6 +772,10 @@ const DataProvider = (function() {
           if (typeof window.DataReliability !== 'undefined') {
             const v = window.DataReliability.validate(sym, price, 'coinbase', Date.now());
             if (!v.ok) return; // drop
+          }
+          // Record for cross-source agreement
+          if (typeof window.CrossSourceCheck !== 'undefined') {
+            try { window.CrossSourceCheck.record(sym, 'coinbase', price); } catch (e) {}
           }
           if (q.last !== price) q.prevClose = q.prevClose || q.last;
           q.last = price;
@@ -849,6 +861,10 @@ const DataProvider = (function() {
           const v = window.DataReliability.validate(sym, price, 'coinbase-rest', Date.now());
           window.DataReliability.recordFetch('coinbase-rest', v.ok, latency);
           if (!v.ok) continue;
+        }
+        // Record for cross-source agreement
+        if (typeof window.CrossSourceCheck !== 'undefined') {
+          try { window.CrossSourceCheck.record(sym, 'coinbase-rest', price); } catch (e) {}
         }
         const q = QUOTES[sym];
         if (q.last !== price) q.prevClose = q.prevClose || q.last;

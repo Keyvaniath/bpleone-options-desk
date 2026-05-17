@@ -357,6 +357,15 @@ document.addEventListener('DOMContentLoaded', () => {
         s.async = false;
         document.head.appendChild(s);
       }
+      // Cross-source price agreement check — logs when 2+ sources disagree
+      // on the same symbol within 60s. Catches cases where individual ticks
+      // pass validation but ONE source is silently wrong.
+      if (!document.querySelector('script[src*="cross-source-check.js"]')) {
+        const s = document.createElement('script');
+        s.src = 'js/cross-source-check.js';
+        s.async = false;
+        document.head.appendChild(s);
+      }
       // Multi-horizon ensemble MUST load before continuous-learner so the
       // learner can call MultiHorizon.* immediately on first capture.
       if (!document.querySelector('script[src*="multi-horizon.js"]')) {
