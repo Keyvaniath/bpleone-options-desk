@@ -613,7 +613,9 @@ const DataProvider = (function() {
     INDA:'inda.us', EWZ:'ewz.us', EWY:'ewy.us', EWT:'ewt.us',
     EEM:'eem.us', EFA:'efa.us', VEA:'vea.us', VWO:'vwo.us',
     SHY:'shy.us', IEF:'ief.us', TBT:'tbt.us', HYG:'hyg.us', LQD:'lqd.us', TIP:'tip.us',
-    VXX:'vxx.us', UVXY:'uvxy.us', VNQ:'vnq.us'
+    VXX:'vxx.us', UVXY:'uvxy.us', VNQ:'vnq.us',
+    // Audit pass 3: forex ETFs were in QUOTES but never live-fed.
+    UUP:'uup.us', FXE:'fxe.us', FXY:'fxy.us', FXB:'fxb.us', FXC:'fxc.us', FXA:'fxa.us', FXF:'fxf.us'
   };
   let stooqPollTimer = null;
   let stooqLastFetchOk = 0;
