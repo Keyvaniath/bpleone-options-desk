@@ -374,6 +374,20 @@ document.addEventListener('DOMContentLoaded', () => {
         s.async = false;
         document.head.appendChild(s);
       }
+      // Confidence-Scaled Kelly — sizing math for actual money-making.
+      if (!document.querySelector('script[src*="confidence-kelly.js"]')) {
+        const s = document.createElement('script');
+        s.src = 'js/confidence-kelly.js';
+        s.async = false;
+        document.head.appendChild(s);
+      }
+      // Multi-position Portfolio Allocator — diversification + correlation budget.
+      if (!document.querySelector('script[src*="portfolio-allocator.js"]')) {
+        const s = document.createElement('script');
+        s.src = 'js/portfolio-allocator.js';
+        s.async = false;
+        document.head.appendChild(s);
+      }
       // Multi-horizon ensemble MUST load before continuous-learner so the
       // learner can call MultiHorizon.* immediately on first capture.
       if (!document.querySelector('script[src*="multi-horizon.js"]')) {

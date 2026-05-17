@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Make Money — bpleone</title>
+<meta name="description" content="The actionable page. Brain's top trades right now with optimal sizing for compounding without ruin.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.config-card { padding:24px;background:var(--bg-elevated);border-radius:12px;margin-bottom:18px; }
+.config-card .row { display:flex;gap:14px;flex-wrap:wrap;align-items:end; }
+.config-card label { font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;font-weight:700;display:flex;flex-direction:column;gap:4px; }
+.config-card input { padding:10px 14px;background:var(--bg-base);border:1px solid var(--border);color:var(--text-primary);border-radius:8px;font-family:var(--font-mono);font-size:14px;font-weight:700;width:140px;text-align:right; }
+.alloc-card { padding:18px;background:var(--bg-elevated);border-radius:12px;margin-bottom:10px;border-left:4px solid var(--border); }
+.alloc-card.long { border-left-color:var(--green);background:linear-gradient(135deg,rgba(16,185,129,0.08),var(--bg-elevated)); }
+.alloc-card.short { border-left-color:var(--red);background:linear-gradient(135deg,rgba(239,68,68,0.08),var(--bg-elevated)); }
+.alloc-card.skipped { opacity:0.45; }
+.alloc-card .head { display:flex;justify-content:space-between;align-items:center;margin-bottom:10px; }
+.alloc-card .sym { font-size:24px;font-weight:800;font-family:var(--font-mono);letter-spacing:1px; }
+.alloc-card .pill { font-size:11px;font-weight:800;padding:5px 12px;border-radius:14px;text-transform:uppercase;letter-spacing:1px; }
+.alloc-card .pill.long { background:rgba(16,185,129,0.18);color:var(--green); }
+.alloc-card .pill.short { background:rgba(239,68,68,0.18);color:var(--red); }
+.alloc-card .pill.skip { background:rgba(140,140,140,0.18);color:var(--text-muted); }
+.alloc-card .metrics { display:grid;grid-template-columns:repeat(4, 1fr);gap:10px; }
+.alloc-card .metric { padding:10px;background:var(--bg-base);border-radius:8px;text-align:center; }
+.alloc-card .metric .l { font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;font-weight:700; }
+.alloc-card .metric .v { font-family:var(--font-mono);font-size:18px;font-weight:800;margin-top:4px; }
+.summary-box { padding:24px;background:linear-gradient(135deg,rgba(0,212,255,0.08),var(--bg-elevated));border:2px solid var(--accent);border-radius:14px;text-align:center; }
+.summary-box .big { font-family:var(--font-mono);font-size:48px;font-weight:900;color:var(--accent);line-height:1; }
+.banner { padding:14px 20px;background:linear-gradient(135deg,rgba(245,158,11,0.10),rgba(239,68,68,0.05));border:1px solid rgba(245,158,11,0.4);border-radius:10px;margin-bottom:18px;font-size:13px;color:var(--text-secondary); }
+.banner.green { background:linear-gradient(135deg,rgba(16,185,129,0.08),rgba(16,185,129,0.02));border-color:rgba(16,185,129,0.4); }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">💰 Make Money</div>
+      <div class="page-subtitle">Brain's top trades · confidence-scaled Kelly · multi-position allocation · all about COMPOUNDING without ruin</div>
+    </div>
+  </div>
+
+  <div id="trust-banner"></div>
+
+  <div class="config-card">
+    <div class="row">
+      <label>Account size ($)<input id="bankroll" type="number" value="10000" step="500"></label>
+      <label>Max total risk (%)<input id="max-risk" type="number" value="10" step="1" min="1" max="100"></label>
+      <label>Max per-trade (%)<input id="max-single" type="number" value="5" step="0.5" min="0.5" max="100"></label>
+      <label>Max positions<input id="max-pos" type="number" value="5" step="1" min="1" max="20"></label>
+      <label>Kelly fraction<input id="kelly-frac" type="number" value="0.25" step="0.05" min="0.05" max="1"></label>
+    </div>
+    <div style="margin-top:10px;font-size:11px;color:var(--text-muted);font-family:var(--font-mono);">
+      Kelly fraction: 0.25 = quarter-Kelly (recommended), 0.50 = half-Kelly (aggressive), 1.0 = full Kelly (high ruin risk)
+    </div>
+  </div>
+
+  <div id="summary" class="summary-box mb-24"></div>
+
+  <div id="allocations"></div>
+
+  <div class="card mt-24">
+    <div class="card-header"><div class="card-title">📚 How this works (in plain English)</div></div>
+    <div style="font-size:13px;color:var(--text-secondary);line-height:1.7;">
+      <strong>The brain produces a probability for every symbol</strong> (e.g. "NVDA: 67% likely to go up in the next hour"). Knowing the probability isn't enough — you need to know <em>how much to bet</em>.<br><br>
+      <strong>The Kelly Criterion</strong> is the math that maximizes long-term compound growth. Full Kelly = (probability × win-amount − loss-prob × loss-amount) / win-amount. The catch: full Kelly assumes your edge estimate is perfect. If your estimate is even slightly off, full Kelly can blow up your account.<br><br>
+      <strong>This page uses confidence-scaled quarter-Kelly:</strong> we take the pure Kelly fraction, multiply by 0.25 (safety margin), then multiply by additional confidence factors:
+      <ul style="margin:8px 0 8px 24px;">
+        <li><strong>Uncertainty</strong> — wider MC dropout interval = smaller position</li>
+        <li><strong>Cross-method agreement</strong> — if multi-horizon + bootstrap + k-NN disagree, smaller position</li>
+        <li><strong>Conformal halfwidth</strong> — wide rigorous-coverage intervals = smaller position</li>
+        <li><strong>BSS trust</strong> — if the brain isn't learning (BSS &lt; 0), tiny positions</li>
+        <li><strong>Source reliability</strong> — if Stooq is degraded, smaller positions</li>
+      </ul>
+      <strong>For multiple positions:</strong> when 3 A-tier signals fire at once, naive sizing would over-allocate because of correlation. The portfolio allocator estimates correlation between symbols (NVDA and AMD are 80% correlated — they move together) and scales each position so total portfolio risk stays under your cap.<br><br>
+      <strong>For options (not just stocks):</strong> see <a href="options-101.html" style="color:var(--accent);">Options 101 for Beginners</a> for how to translate "buy 50 shares of NVDA" into "buy 1 NVDA call at the right strike."<br><br>
+      <strong>Bottom line:</strong> a high-probability prediction + tight stops + conservative sizing + compounding wins = a portfolio that grows over time WITHOUT a single bad trade wiping you out.
+    </div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script src="js/confidence-kelly.js"></script>
+<script src="js/portfolio-allocator.js"></script>
+<script>
+buildNav('make-money');
+
+const UNIVERSE = ['SPY','QQQ','IWM','AAPL','NVDA','TSLA','MSFT','META','AMZN','GOOGL','AMD','PLTR','SMCI','COIN','BTC','ETH','BABA','SHOP','CRM','UBER','XLE','GLD','SLV'];
+
+function isLiveQuote(q) {
+  return q && q.priceSource && q.priceSource !== 'stale-seed' && q.priceSource !== 'mock' && q.liveAt && (Date.now() - q.liveAt) < 10 * 60 * 1000;
+}
+
+function fmtDollars(n) { return '$' + Math.round(n).toLocaleString(); }
+function fmt(n, d) { return n != null ? n.toFixed(d != null ? d : 2) : '—'; }
+
+function render() {
+  // Sync Kelly fraction config
+  const frac = parseFloat(document.getElementById('kelly-frac').value);
+  if (!isNaN(frac) && window.ConfidenceKelly) ConfidenceKelly.setFraction(frac);
+
+  const bankroll = parseFloat(document.getElementById('bankroll').value) || 10000;
+  const maxRisk = (parseFloat(document.getElementById('max-risk').value) || 10) / 100;
+  const maxSingle = (parseFloat(document.getElementById('max-single').value) || 5) / 100;
+  const maxPos = parseInt(document.getElementById('max-pos').value) || 5;
+
+  // Trust banner
+  const tb = document.getElementById('trust-banner');
+  if (window.TradeTrust && window.AutoPause) {
+    const trust = TradeTrust.score();
+    if (AutoPause.isPaused()) {
+      tb.innerHTML = '<div class="banner" style="background:rgba(239,68,68,0.10);border-color:rgba(239,68,68,0.5);"><strong style="color:var(--red);">🛑 BRAIN AUTO-PAUSED — DO NOT TRADE.</strong> Trade trust is below 40. Sizing capped at zero.</div>';
+    } else if (trust.score >= 90) {
+      tb.innerHTML = '<div class="banner green"><strong style="color:var(--green);">✓ BRAIN TRUSTED — full confidence sizing.</strong> Trust ' + trust.score + '/100 · ' + trust.tierLabel + '</div>';
+    } else if (trust.score >= 60) {
+      tb.innerHTML = '<div class="banner"><strong style="color:var(--yellow);">⚠ REDUCED TRUST — sizing scaled down.</strong> Trust ' + trust.score + '/100 · ' + trust.tierLabel + ' · ' + trust.penalties.length + ' penalties active</div>';
+    } else {
+      tb.innerHTML = '<div class="banner" style="background:rgba(239,68,68,0.10);border-color:rgba(239,68,68,0.5);"><strong style="color:var(--red);">✗ LOW TRUST — paper trade only.</strong> Trust ' + trust.score + '/100 · ' + trust.tierLabel + '</div>';
+    }
+  }
+
+  // Build candidate list from UNIVERSE using UnifiedPredictor
+  if (typeof window.UnifiedPredictor === 'undefined' || typeof window.FeatureExtractor === 'undefined') {
+    document.getElementById('allocations').innerHTML = '<div style="padding:24px;color:var(--text-muted);text-align:center;">Loading brain modules…</div>';
+    setTimeout(render, 2000);
+    return;
+  }
+
+  const candidates = [];
+  for (const sym of UNIVERSE) {
+    if (typeof QUOTES === 'undefined' || !QUOTES[sym]) continue;
+    const q = QUOTES[sym];
+    if (!isLiveQuote(q)) continue;
+    const finding = { ts: Date.now(), type: 'make-money-rank', severity: 1, meta: { sym, setup: 'rank', last: q.last, bias: q.changePct >= 0 ? 'long' : 'short' } };
+    const features = FeatureExtractor.extract(finding);
+    if (!features || features.length !== 22) continue;
+    let u;
+    try { u = UnifiedPredictor.predict(sym, features); } catch (e) { continue; }
+    if (!u || u.finalProb == null) continue;
+    if (u.conviction < 0.10) continue;
+    if ((u.components.oodScore || 0) > 0.5) continue;
+
+    const atr = (q.dayHigh && q.dayLow) ? (q.dayHigh - q.dayLow) : q.last * 0.015;
+    const side = u.direction === 'LONG' ? 'long' : 'short';
+    const entry = q.last;
+    const stop = side === 'long' ? entry - 1.5 * atr : entry + 1.5 * atr;
+    const target = side === 'long' ? entry + 3 * atr : entry - 3 * atr;
+    const riskPerShare = Math.abs(entry - stop);
+    const rewardPerShare = Math.abs(target - entry);
+
+    candidates.push({
+      sym, prob: u.finalProb, winR: rewardPerShare, lossR: riskPerShare,
+      uncertainty: u.components.uncertaintyStd, agreementTier: u.components.agreementTier,
+      conformalHw: u.components.conformalHalfwidth, sourceName: q.priceSource,
+      riskPerShare, entry, stop, target, side, conviction: u.conviction
+    });
+  }
+
+  if (candidates.length === 0) {
+    document.getElementById('summary').innerHTML = '<div class="big">—</div><div style="margin-top:14px;color:var(--text-muted);">No qualifying setups right now. Brain is sitting out.</div>';
+    document.getElementById('allocations').innerHTML = '';
+    return;
+  }
+
+  const result = PortfolioAllocator.allocate(candidates, bankroll, {
+    maxTotalRiskPct: AutoPause && AutoPause.isPaused() ? 0 : maxRisk,
+    maxSinglePct: maxSingle,
+    maxPositions: maxPos
+  });
+
+  // Summary
+  const sum = document.getElementById('summary');
+  sum.innerHTML = '<div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:1.5px;font-weight:700;">Total at risk</div>'
+    + '<div class="big">' + fmtDollars(result.totalRisk) + '</div>'
+    + '<div style="margin-top:14px;font-size:14px;color:var(--text-secondary);">' + (result.totalRiskPct * 100).toFixed(2) + '% of bankroll · ' + result.allocations.filter(a => a.included).length + '/' + result.allocations.length + ' positions taken · effective independent bets: ' + fmt(result.diversificationScore, 1) + '</div>';
+
+  // Allocations list
+  let html = '';
+  result.allocations.forEach(a => {
+    const cls = !a.included ? 'alloc-card skipped' : 'alloc-card ' + a.side;
+    const pillCls = !a.included ? 'pill skip' : 'pill ' + a.side;
+    const pillText = !a.included ? 'SKIPPED' : a.side.toUpperCase();
+    html += '<div class="' + cls + '">'
+      + '<div class="head">'
+        + '<div><span class="sym">' + a.sym + '</span> <span class="' + pillCls + '">' + pillText + '</span></div>'
+        + '<div style="text-align:right;"><div style="font-size:12px;color:var(--text-muted);font-family:var(--font-mono);">Confidence ' + (a.prob * 100).toFixed(0) + '% · R:R ' + (a.winR / a.lossR).toFixed(1) + ':1</div></div>'
+      + '</div>'
+      + '<div class="metrics">'
+        + '<div class="metric"><div class="l">Shares</div><div class="v">' + (a.shares || '—') + '</div></div>'
+        + '<div class="metric"><div class="l">$ Risk</div><div class="v">' + fmtDollars(a.dollarsRisk) + '</div></div>'
+        + '<div class="metric"><div class="l">Entry / Stop / Target</div><div class="v" style="font-size:13px;">$' + fmt(a.entry) + ' / $' + fmt(a.stop) + ' / $' + fmt(a.target) + '</div></div>'
+        + '<div class="metric"><div class="l">Weight</div><div class="v">' + (a.weightInPortfolio * 100).toFixed(0) + '%</div></div>'
+      + '</div>'
+      + '</div>';
+  });
+  document.getElementById('allocations').innerHTML = html;
+}
+
+['bankroll', 'max-risk', 'max-single', 'max-pos', 'kelly-frac'].forEach(id => document.getElementById(id).addEventListener('input', render));
+setTimeout(render, 2000);
+setInterval(render, 10000);
+window.addEventListener('bpleone:continuous-cycle', render);
+</script>
+</body>
+</html>
