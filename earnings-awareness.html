@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Earnings Awareness — bpleone</title>
+<meta name="description" content="Flags open auto-trades that cross an upcoming earnings event. IV crush can wreck directional setups.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.warn-card { padding:18px 22px;border-radius:12px;margin-bottom:10px;border-left:4px solid; }
+.warn-card.critical { background:rgba(220,38,38,0.10);border-left-color:var(--red); }
+.warn-card.high { background:rgba(245,158,11,0.10);border-left-color:var(--yellow); }
+.warn-card.medium { background:rgba(0,212,255,0.06);border-left-color:var(--accent); }
+.warn-card .head { display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:10px; }
+.warn-card .sym { font-family:var(--font-mono);font-size:18px;font-weight:900; }
+.warn-card .badge { display:inline-block;padding:3px 10px;border-radius:6px;font-size:11px;font-weight:800;letter-spacing:0.5px; }
+.warn-card.critical .badge { background:var(--red);color:#fff; }
+.warn-card.high .badge { background:var(--yellow);color:#000; }
+.warn-card.medium .badge { background:var(--accent);color:#000; }
+table.t { width:100%;border-collapse:collapse;font-size:13px;font-family:var(--font-mono); }
+table.t th { text-align:left;padding:10px 12px;border-bottom:1px solid var(--bg-elevated);color:var(--text-muted);font-size:11px;text-transform:uppercase;letter-spacing:0.5px;font-weight:700; }
+table.t td { padding:10px 12px;border-bottom:1px solid rgba(255,255,255,0.04); }
+.tile { padding:18px;background:var(--bg-elevated);border-radius:10px; }
+.tile .lbl { font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;font-weight:700; }
+.tile .val { font-family:var(--font-mono);font-size:22px;font-weight:800;margin-top:6px;color:var(--accent); }
+.tile.danger .val { color:var(--red); }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">📅 Earnings Awareness</div>
+      <div class="page-subtitle">Open auto-trades whose hold window crosses an upcoming earnings event. IV crush can wreck even correct directional setups — exit early or size down.</div>
+    </div>
+  </div>
+
+  <div class="card mb-24" style="background:linear-gradient(135deg,rgba(245,158,11,0.06),rgba(245,158,11,0.02));border-left:4px solid var(--yellow);">
+    <div style="font-size:13px;color:var(--text-secondary);line-height:1.6;">
+      <strong>Heads up:</strong> earnings dates here are pattern-estimated (calibrated to typical Q1/Q2/Q3/Q4 cycles) — not pulled from a live earnings calendar. For exact dates, set manual overrides below. Use this as a directional warning system, not a final source of truth.
+    </div>
+  </div>
+
+  <div class="grid grid-3 mb-24" id="kpi-grid"></div>
+
+  <div class="card mb-24">
+    <div class="card-header"><div class="card-title">⚠ Open trades crossing earnings</div></div>
+    <div id="warn-list"></div>
+  </div>
+
+  <div class="card mb-24">
+    <div class="card-header"><div class="card-title">📋 Estimated next earnings (all watchlist symbols)</div></div>
+    <table class="t" id="earnings-table">
+      <thead><tr><th>Symbol</th><th>Est. date</th><th>Days out</th><th>Source</th><th>Manual override</th></tr></thead>
+      <tbody id="earnings-body"></tbody>
+    </table>
+  </div>
+
+  <div class="card mb-24">
+    <div class="card-header"><div class="card-title">🛠 Manual override</div></div>
+    <div style="font-size:13px;color:var(--text-secondary);margin-bottom:10px;">If you know the real earnings date, set it here. Stored locally only.</div>
+    <div style="display:flex;gap:10px;flex-wrap:wrap;">
+      <input id="ov-sym" type="text" placeholder="Symbol (e.g. NVDA)" style="width:180px;background:rgba(0,0,0,0.3);border:1px solid rgba(255,255,255,0.1);border-radius:6px;padding:8px 12px;color:var(--text);font-family:var(--font-mono);text-transform:uppercase;">
+      <input id="ov-date" type="date" style="background:rgba(0,0,0,0.3);border:1px solid rgba(255,255,255,0.1);border-radius:6px;padding:8px 12px;color:var(--text);font-family:var(--font-mono);">
+      <button onclick="setOverride()" style="padding:8px 16px;background:linear-gradient(135deg,#00d4ff,#0094c7);color:#000;border:none;border-radius:6px;font-weight:700;cursor:pointer;">💾 Set</button>
+      <button onclick="clearOverride()" style="padding:8px 16px;background:rgba(220,38,38,0.18);color:var(--red);border:1px solid rgba(220,38,38,0.4);border-radius:6px;font-weight:700;cursor:pointer;">🗑 Clear</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-header"><div class="card-title">🔗 Related</div></div>
+    <div style="display:flex;gap:12px;flex-wrap:wrap;">
+      <a href="auto-trade.html" style="text-decoration:none;display:inline-block;background:linear-gradient(135deg,#f59e0b,#d97706);color:#000;padding:10px 18px;border-radius:8px;font-weight:700;">🤖 Auto-Trade</a>
+      <a href="earnings-calendar.html" style="text-decoration:none;display:inline-block;background:rgba(120,140,160,0.12);color:var(--accent);padding:10px 18px;border-radius:8px;font-weight:700;">📅 Full earnings cal</a>
+      <a href="iv-crush-tracker.html" style="text-decoration:none;display:inline-block;background:rgba(120,140,160,0.12);color:var(--accent);padding:10px 18px;border-radius:8px;font-weight:700;">📉 IV Crush</a>
+    </div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script src="js/earnings-awareness.js"></script>
+<script>buildNav('earnings-awareness');</script>
+<script>
+function setOverride() {
+  const sym = document.getElementById('ov-sym').value.toUpperCase().trim();
+  const date = document.getElementById('ov-date').value;
+  if (!sym || !date) { alert('Symbol + date required.'); return; }
+  window.EarningsAwareness.setManual(sym, date);
+  render();
+}
+function clearOverride() {
+  const sym = document.getElementById('ov-sym').value.toUpperCase().trim();
+  if (!sym) { alert('Symbol required.'); return; }
+  window.EarningsAwareness.setManual(sym, null);
+  render();
+}
+function render() {
+  if (!window.EarningsAwareness) { setTimeout(render, 500); return; }
+  const checks = window.EarningsAwareness.checkOpenTrades();
+  const warnList = document.getElementById('warn-list');
+  if (checks.length === 0) {
+    warnList.innerHTML = '<div style="text-align:center;color:var(--text-muted);padding:24px;">✅ No open trades cross an estimated earnings event. You\'re clear.</div>';
+  } else {
+    warnList.innerHTML = checks.map(c => {
+      const sev = c.severity;
+      const sevLbl = sev === 'critical' ? 'CRITICAL' : sev === 'high' ? 'HIGH' : 'MEDIUM';
+      return '<div class="warn-card ' + sev + '">' +
+        '<div class="head"><div><span class="sym">' + c.trade.sym + '</span> · <span class="badge">' + sevLbl + '</span></div><div style="font-size:11px;color:var(--text-muted);font-family:var(--font-mono);">Earnings in ' + c.earnings.daysOut.toFixed(1) + 'd · ' + c.earnings.date.toLocaleDateString() + '</div></div>' +
+        '<div style="margin-top:10px;font-size:13px;color:var(--text-secondary);line-height:1.5;">Direction: <strong>' + (c.trade.direction > 0 ? 'LONG' : 'SHORT') + '</strong> · Shares: <strong>' + c.trade.shares + '</strong> · Time-stop: <strong>' + new Date(c.trade.timeStop).toLocaleString() + '</strong></div>' +
+        '<div style="margin-top:8px;font-size:13px;color:var(--text-secondary);">⚠ Consider: tighten stop, take partial, exit pre-event, or roll past earnings.</div>' +
+      '</div>';
+    }).join('');
+  }
+  document.getElementById('kpi-grid').innerHTML =
+    '<div class="tile ' + (checks.length > 0 ? 'danger' : '') + '"><div class="lbl">Trades at risk</div><div class="val">' + checks.length + '</div></div>' +
+    '<div class="tile"><div class="lbl">Open trades total</div><div class="val">' + (window.AutoTrade ? window.AutoTrade.openTrades().length : 0) + '</div></div>' +
+    '<div class="tile"><div class="lbl">Tracked symbols</div><div class="val">' + Object.keys(window.EarningsAwareness.PATTERNS).filter(k => window.EarningsAwareness.PATTERNS[k]).length + '</div></div>';
+  // Earnings table
+  const body = document.getElementById('earnings-body');
+  const syms = Object.keys(window.EarningsAwareness.PATTERNS).filter(k => window.EarningsAwareness.PATTERNS[k]);
+  const rows = syms.map(s => {
+    const e = window.EarningsAwareness.nextEarnings(s);
+    if (!e) return null;
+    return { sym: s, ...e };
+  }).filter(Boolean).sort((a, b) => a.daysOut - b.daysOut);
+  body.innerHTML = rows.map(r => {
+    const color = r.daysOut < 7 ? 'var(--yellow)' : r.daysOut < 21 ? 'var(--accent)' : 'var(--text-secondary)';
+    return '<tr><td><strong>' + r.sym + '</strong></td><td>' + r.date.toLocaleDateString() + '</td><td style="color:' + color + ';font-weight:700;">' + r.daysOut.toFixed(1) + 'd</td><td>' + r.source + '</td><td><button onclick="useSym(\'' + r.sym + '\')" style="padding:4px 10px;background:rgba(0,212,255,0.12);color:var(--accent);border:1px solid rgba(0,212,255,0.3);border-radius:4px;font-weight:700;cursor:pointer;font-size:11px;">use ↑</button></td></tr>';
+  }).join('');
+}
+function useSym(s) { document.getElementById('ov-sym').value = s; document.getElementById('ov-sym').scrollIntoView({behavior:'smooth'}); }
+setTimeout(render, 600);
+setInterval(render, 12000);
+</script>
+</body>
+</html>

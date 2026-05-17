@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Pattern Recall — bpleone</title>
+<meta name="description" content="For each new signal, find the K nearest prior brain trades (by feature distance) and see how they actually resolved.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.alert-card { padding:18px 22px;background:var(--bg-elevated);border-radius:12px;margin-bottom:12px;border-left:4px solid var(--accent); }
+.alert-card.long { border-left-color:var(--green); }
+.alert-card.short { border-left-color:var(--red); }
+.alert-card .head { display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:10px;margin-bottom:10px; }
+.alert-card .head .sym { font-family:var(--font-mono);font-size:18px;font-weight:900; }
+.summary-row { display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:14px;font-family:var(--font-mono);font-size:12px; }
+.summary-row .cell { padding:10px;background:rgba(0,0,0,0.2);border-radius:8px; }
+.summary-row .lbl { font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;font-weight:700; }
+.summary-row .val { font-size:18px;font-weight:800;margin-top:4px; }
+.neighbors { margin-top:14px;font-family:var(--font-mono);font-size:11px;line-height:1.7;color:var(--text-secondary); }
+.neighbors .row { display:grid;grid-template-columns:60px 100px 80px 1fr;gap:8px;padding:6px 8px;background:rgba(0,0,0,0.15);border-radius:4px;margin-bottom:4px; }
+.neighbors .row .sym { color:var(--accent);font-weight:700; }
+.neighbors .row .pos { color:var(--green); }
+.neighbors .row .neg { color:var(--red); }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">🔍 Pattern Recall</div>
+      <div class="page-subtitle">For each recent high-conviction alert, find the 10 most similar prior trades and see how they actually resolved.</div>
+    </div>
+  </div>
+
+  <div class="card mb-24" style="background:linear-gradient(135deg,rgba(0,212,255,0.04),rgba(140,100,255,0.04));border-left:4px solid var(--accent);">
+    <div style="font-size:14px;color:var(--text-secondary);line-height:1.6;">
+      <strong>How it works:</strong> Each new signal is a 22-dimensional feature vector. We compute Euclidean distance to every prior <em>resolved</em> trade and pick the 10 nearest. If 8/10 historical look-alikes won, that's confirmation. If 6/10 lost, that's a red flag — even if the model is confident.
+    </div>
+  </div>
+
+  <div class="grid grid-3 mb-24" id="kpi-grid"></div>
+
+  <div id="alerts-list"></div>
+
+  <div class="card">
+    <div class="card-header"><div class="card-title">🔗 Related</div></div>
+    <div style="display:flex;gap:12px;flex-wrap:wrap;">
+      <a href="high-conviction-alerts.html" style="text-decoration:none;display:inline-block;background:linear-gradient(135deg,#a884ff,#7c3aed);color:#fff;padding:10px 18px;border-radius:8px;font-weight:700;">🔔 Alerts feed</a>
+      <a href="trade-plans.html" style="text-decoration:none;display:inline-block;background:rgba(120,140,160,0.12);color:var(--accent);padding:10px 18px;border-radius:8px;font-weight:700;">📝 Trade Plans</a>
+      <a href="brain-backtest.html" style="text-decoration:none;display:inline-block;background:rgba(120,140,160,0.12);color:var(--accent);padding:10px 18px;border-radius:8px;font-weight:700;">⏪ Backtester</a>
+    </div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script src="js/pattern-recall.js"></script>
+<script>buildNav('pattern-recall');</script>
+<script>
+const JOURNAL_KEY = 'bpleone_pred_journal_v1';
+function loadJournal() { try { return JSON.parse(localStorage.getItem(JOURNAL_KEY) || '[]'); } catch (e) { return []; } }
+function fmtAgo(t) { if (!t) return '—'; const ms = Date.now() - t; if (ms < 60000) return Math.round(ms/1000) + 's'; if (ms < 3600000) return Math.round(ms/60000) + 'm'; if (ms < 86400000) return Math.round(ms/3600000) + 'h'; return Math.round(ms/86400000) + 'd'; }
+
+function render() {
+  if (!window.PatternRecall || !window.HighConvictionAlerts) { setTimeout(render, 500); return; }
+  const feed = window.HighConvictionAlerts.feed(10);
+  const journal = loadJournal();
+
+  // For each alert, find its journal entry (by sourceJournalId) and run PatternRecall
+  const items = feed.map(a => {
+    const entry = journal.find(j => j.id === a.sourceJournalId);
+    if (!entry || !Array.isArray(entry.features)) return { alert: a, summary: null };
+    const summary = window.PatternRecall.summarize(entry, 10);
+    return { alert: a, summary, entry };
+  });
+
+  const withRecall = items.filter(i => i.summary && i.summary.count > 0).length;
+  const avgHits = items.filter(i => i.summary && i.summary.hitRate != null).reduce((s, i) => s + i.summary.hitRate, 0);
+  const avgHitsCount = items.filter(i => i.summary && i.summary.hitRate != null).length;
+  document.getElementById('kpi-grid').innerHTML =
+    '<div class="tile" style="padding:18px;background:var(--bg-elevated);border-radius:10px;"><div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;font-weight:700;">Recent alerts</div><div style="font-family:var(--font-mono);font-size:22px;font-weight:800;margin-top:6px;color:var(--accent);">' + feed.length + '</div></div>' +
+    '<div class="tile" style="padding:18px;background:var(--bg-elevated);border-radius:10px;"><div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;font-weight:700;">With pattern recall</div><div style="font-family:var(--font-mono);font-size:22px;font-weight:800;margin-top:6px;color:var(--accent);">' + withRecall + '</div></div>' +
+    '<div class="tile" style="padding:18px;background:var(--bg-elevated);border-radius:10px;"><div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;font-weight:700;">Avg historical hit rate</div><div style="font-family:var(--font-mono);font-size:22px;font-weight:800;margin-top:6px;color:var(--accent);">' + (avgHitsCount > 0 ? (avgHits / avgHitsCount * 100).toFixed(0) + '%' : '—') + '</div></div>';
+
+  const list = document.getElementById('alerts-list');
+  if (items.length === 0) {
+    list.innerHTML = '<div style="text-align:center;padding:32px;color:var(--text-muted);">No high-conviction alerts yet. Pattern Recall fires for each alert once enough resolved trades exist in the journal.</div>';
+    return;
+  }
+  list.innerHTML = items.map(item => {
+    const a = item.alert;
+    const s = item.summary;
+    const cls = a.direction === 'LONG' ? 'long' : 'short';
+    let body;
+    if (!s) {
+      body = '<div style="color:var(--text-muted);font-style:italic;font-size:12px;">No pattern data — this alert\'s journal entry is missing or has no feature vector.</div>';
+    } else if (s.count === 0) {
+      body = '<div style="color:var(--text-muted);font-style:italic;font-size:12px;">No historical neighbors — need more resolved trades in journal first.</div>';
+    } else {
+      const hitColor = s.hitRate > 0.6 ? 'var(--green)' : s.hitRate < 0.4 ? 'var(--red)' : 'var(--yellow)';
+      const retColor = s.avgRet > 0 ? 'var(--green)' : 'var(--red)';
+      const neighborRows = s.neighbors.map(n => {
+        const cls = n.realizedRet > 0 ? 'pos' : 'neg';
+        return '<div class="row"><span class="sym">' + n.neighbor.sym + '</span><span>' + fmtAgo(n.ts) + '</span><span>d=' + n.distance + '</span><span class="' + cls + '">' + ((n.realizedRet >= 0 ? '+' : '') + (n.realizedRet * 100).toFixed(2)) + '% (' + n.outcome + ')</span></div>';
+      }).join('');
+      body =
+        '<div class="summary-row">' +
+          '<div class="cell"><div class="lbl">Look-alikes found</div><div class="val">' + s.count + '</div></div>' +
+          '<div class="cell"><div class="lbl">Historical hit rate</div><div class="val" style="color:' + hitColor + ';">' + (s.hitRate != null ? (s.hitRate * 100).toFixed(0) + '%' : '—') + '</div></div>' +
+          '<div class="cell"><div class="lbl">Avg realized %</div><div class="val" style="color:' + retColor + ';">' + (s.avgRet >= 0 ? '+' : '') + (s.avgRet * 100).toFixed(2) + '%</div></div>' +
+          '<div class="cell"><div class="lbl">W / L</div><div class="val"><span style="color:var(--green);">' + s.wins + '</span> / <span style="color:var(--red);">' + s.losses + '</span></div></div>' +
+        '</div>' +
+        '<div style="margin-top:14px;font-size:11px;color:var(--text-muted);font-weight:700;text-transform:uppercase;letter-spacing:0.5px;">Top 10 nearest neighbors</div>' +
+        '<div class="neighbors">' + neighborRows + '</div>';
+    }
+    return '<div class="alert-card ' + cls + '">' +
+      '<div class="head"><div><span class="sym">' + a.sym + '</span> · <span style="font-weight:800;color:' + (a.direction === 'LONG' ? 'var(--green)' : 'var(--red)') + ';">' + a.direction + '</span> · ' + (a.conviction * 100).toFixed(0) + '%</div><div style="font-size:11px;color:var(--text-muted);font-family:var(--font-mono);">' + fmtAgo(a.ts) + ' ago</div></div>' +
+      body +
+    '</div>';
+  }).join('');
+}
+setTimeout(render, 600);
+setInterval(render, 10000);
+</script>
+</body>
+</html>

@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Mental Game — bpleone</title>
+<meta name="description" content="Current win/loss streaks, longest runs, mental-game messaging. Catch tilt before it costs you.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.mental-card { padding:40px 32px;border-radius:18px;text-align:center;margin-bottom:24px;border:3px solid var(--accent); }
+.mental-card .icon { font-size:64px;line-height:1;margin-bottom:12px; }
+.mental-card .tier { font-size:14px;color:var(--text-muted);text-transform:uppercase;letter-spacing:2px;font-weight:800;margin-bottom:6px; }
+.mental-card .msg { font-size:20px;font-weight:800;line-height:1.3; }
+.tile { padding:18px;background:var(--bg-elevated);border-radius:10px; }
+.tile .lbl { font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;font-weight:700; }
+.tile .val { font-family:var(--font-mono);font-size:24px;font-weight:800;margin-top:6px;color:var(--accent); }
+.tile.gain .val { color:var(--green); }
+.tile.loss .val { color:var(--red); }
+#trend-chart { width:100%;height:200px; }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">🎯 Mental Game</div>
+      <div class="page-subtitle">Streaks, tilt detection, and mental-state messaging. Built from the brain's resolved trades to catch trouble early.</div>
+    </div>
+  </div>
+
+  <div id="mental-card" class="mental-card">
+    <div class="icon">⏳</div>
+    <div class="tier">Loading</div>
+    <div class="msg">Reading journal…</div>
+  </div>
+
+  <div class="grid grid-4 mb-24" id="kpi-grid"></div>
+
+  <div class="card mb-24">
+    <div class="card-header"><div class="card-title">📈 14-day rolling win rate</div></div>
+    <canvas id="trend-chart"></canvas>
+  </div>
+
+  <div class="card mb-24">
+    <div class="card-header"><div class="card-title">📋 Streak details</div></div>
+    <div id="details-list" style="font-family:var(--font-mono);font-size:13px;line-height:2;color:var(--text-secondary);"></div>
+  </div>
+
+  <div class="card">
+    <div class="card-header"><div class="card-title">🔗 Related</div></div>
+    <div style="display:flex;gap:12px;flex-wrap:wrap;">
+      <a href="money-made.html" style="text-decoration:none;display:inline-block;background:linear-gradient(135deg,#10b981,#059669);color:#fff;padding:10px 18px;border-radius:8px;font-weight:700;">💵 Money Made</a>
+      <a href="auto-trade.html" style="text-decoration:none;display:inline-block;background:rgba(120,140,160,0.12);color:var(--accent);padding:10px 18px;border-radius:8px;font-weight:700;">🤖 Auto-Trade</a>
+      <a href="how-to-make-money.html" style="text-decoration:none;display:inline-block;background:rgba(120,140,160,0.12);color:var(--accent);padding:10px 18px;border-radius:8px;font-weight:700;">📖 Guide</a>
+      <a href="pnl-calendar.html" style="text-decoration:none;display:inline-block;background:rgba(120,140,160,0.12);color:var(--accent);padding:10px 18px;border-radius:8px;font-weight:700;">📆 Calendar</a>
+    </div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/charts.js"></script>
+<script src="js/live.js"></script>
+<script src="js/streak-tracker.js"></script>
+<script>buildNav('mental-game');</script>
+<script>
+let trendChart = null;
+function fmt$(v) { if (!isFinite(v)) return '$0'; const s = v < 0 ? '-' : ''; return s + '$' + Math.abs(v).toLocaleString(undefined, { maximumFractionDigits: 2 }); }
+function fmtDays(d) { if (d == null) return '—'; if (d < 1) return (d * 24).toFixed(1) + 'h'; return d.toFixed(1) + 'd'; }
+
+function render() {
+  if (!window.StreakTracker) { setTimeout(render, 500); return; }
+  const snap = window.StreakTracker.snapshot();
+  const mental = window.StreakTracker.mentalState(snap);
+  const card = document.getElementById('mental-card');
+  card.style.borderColor = mental.color;
+  card.style.background = 'linear-gradient(135deg,' + mental.color + '20,' + mental.color + '08)';
+  let icon = '🎯';
+  if (mental.tier === 'hot') icon = '🔥';
+  else if (mental.tier === 'cold-deep') icon = '🧊';
+  else if (mental.tier === 'cold') icon = '⚠';
+  else if (mental.tier === 'warm' || mental.tier === 'mild-up') icon = '🌟';
+  else if (mental.tier === 'mild-down') icon = '🛑';
+  else if (mental.tier === 'idle') icon = '⏳';
+  card.innerHTML = '<div class="icon">' + icon + '</div><div class="tier" style="color:' + mental.color + ';">' + mental.tier + '</div><div class="msg" style="color:' + mental.color + ';">' + mental.message + '</div>';
+  if (snap.empty) {
+    document.getElementById('kpi-grid').innerHTML = '<div class="tile" style="grid-column:1/-1;text-align:center;color:var(--text-muted);">No resolved trades yet. Stats will appear after the brain captures + resolves predictions.</div>';
+    return;
+  }
+  document.getElementById('kpi-grid').innerHTML =
+    '<div class="tile ' + (snap.currentStreak > 0 ? 'gain' : snap.currentStreak < 0 ? 'loss' : '') + '"><div class="lbl">Current streak</div><div class="val">' + (snap.currentStreak > 0 ? '+' : '') + snap.currentStreak + '</div></div>' +
+    '<div class="tile gain"><div class="lbl">Longest win streak</div><div class="val">' + snap.longestWin + '</div></div>' +
+    '<div class="tile loss"><div class="lbl">Longest loss streak</div><div class="val">' + snap.longestLoss + '</div></div>' +
+    '<div class="tile"><div class="lbl">Days since last loss</div><div class="val">' + fmtDays(snap.daysSinceLoss) + '</div></div>';
+  const details = [];
+  if (snap.biggestWin) details.push('🏆 <strong>Biggest win</strong>: ' + snap.biggestWin.sym + ' <span style="color:var(--green);">' + fmt$(snap.biggestWin.pnl) + '</span> on ' + new Date(snap.biggestWin.ts).toLocaleDateString());
+  if (snap.biggestLoss) details.push('💀 <strong>Biggest loss</strong>: ' + snap.biggestLoss.sym + ' <span style="color:var(--red);">' + fmt$(snap.biggestLoss.pnl) + '</span> on ' + new Date(snap.biggestLoss.ts).toLocaleDateString());
+  if (snap.recoveryHours != null) details.push('💪 <strong>Recovery from biggest loss</strong>: ' + (snap.recoveryHours / 24).toFixed(1) + ' days back to even');
+  if (snap.lastWinTs) details.push('Last <strong>win</strong> ' + fmtDays((Date.now() - snap.lastWinTs) / 86400000) + ' ago');
+  if (snap.lastLossTs) details.push('Last <strong>loss</strong> ' + fmtDays((Date.now() - snap.lastLossTs) / 86400000) + ' ago');
+  details.push('Total resolved trades: ' + snap.tradeCount);
+  document.getElementById('details-list').innerHTML = details.map(d => '<div>' + d + '</div>').join('');
+  const trend = window.StreakTracker.trend(14);
+  const ctx = document.getElementById('trend-chart');
+  if (ctx && typeof Chart !== 'undefined') {
+    const labels = trend.map(t => t.date.slice(5));
+    const data = trend.map(t => t.winRate != null ? +(t.winRate * 100).toFixed(1) : null);
+    if (trendChart) trendChart.destroy();
+    trendChart = new Chart(ctx, {
+      type: 'line',
+      data: { labels, datasets: [{ label: 'Win rate %', data, borderColor: '#00d4ff', backgroundColor: 'rgba(0,212,255,0.12)', fill: true, tension: 0.3, borderWidth: 2.5, pointRadius: 3, pointBackgroundColor: data.map(d => d == null ? '#6b7280' : d >= 50 ? '#10b981' : '#dc2626'), spanGaps: true }] },
+      options: { responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { display: false }, tooltip: { callbacks: { label: c => c.parsed.y == null ? 'no trades' : c.parsed.y + '%' } } },
+        scales: { x: { ticks: { color: 'rgba(255,255,255,0.5)' } }, y: { min: 0, max: 100, ticks: { color: 'rgba(255,255,255,0.5)', callback: v => v + '%' }, grid: { color: 'rgba(255,255,255,0.05)' } } } }
+    });
+  }
+}
+setTimeout(render, 600);
+setInterval(render, 10000);
+</script>
+</body>
+</html>
