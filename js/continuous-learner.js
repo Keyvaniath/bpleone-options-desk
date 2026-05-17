@@ -642,25 +642,35 @@
     };
   }
 
-  // -------- Run cycle every minute (after first 15s delay) --------
+  // -------- Run cycle every 30 seconds (faster ticks = live feel) --------
   function runCycle() {
     try {
       const captured = captureRound();
       const resolved = resolveRound();
-      if (captured > 0 || resolved > 0) {
-        try {
-          window.dispatchEvent(new CustomEvent('bpleone:continuous-cycle', { detail: { captured, resolved } }));
-        } catch (e) {}
-      }
+      // Always fire the cycle event so dashboards refresh — even if no captures
+      // or resolutions occurred this tick. Subscribers can decide what to do.
+      try {
+        window.dispatchEvent(new CustomEvent('bpleone:continuous-cycle', {
+          detail: { captured, resolved, ts: Date.now() }
+        }));
+      } catch (e) {}
     } catch (e) {}
   }
 
   if (typeof document !== 'undefined') {
     document.addEventListener('DOMContentLoaded', () => {
-      // First cycle after 15s (gives Stooq/Coinbase time to populate real prices)
-      setTimeout(runCycle, 15000);
-      // Then every 60 seconds
-      setInterval(runCycle, 60000);
+      // First cycle after 5s (was 15s — faster perceived load)
+      setTimeout(runCycle, 5000);
+      // Then every 30 seconds (was 60s — more visible ticking)
+      setInterval(runCycle, 30000);
+      // Also fire a lightweight 'heartbeat' every 3s for live indicators
+      setInterval(() => {
+        try {
+          window.dispatchEvent(new CustomEvent('bpleone:heartbeat', {
+            detail: { ts: Date.now() }
+          }));
+        } catch (e) {}
+      }, 3000);
     });
   }
 

@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Connect Live Data — bpleone</title>
+<meta name="description" content="One-click: paste a Finnhub or Polygon key and the brain starts learning on REAL market data instead of mock.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.big-card { padding:32px;border-radius:16px;text-align:center;background:linear-gradient(135deg,rgba(16,185,129,0.06),var(--bg-elevated));border:2px solid var(--green); }
+.big-card.disconnected { background:linear-gradient(135deg,rgba(245,158,11,0.06),var(--bg-elevated));border-color:var(--yellow); }
+.big-card.error { background:linear-gradient(135deg,rgba(239,68,68,0.06),var(--bg-elevated));border-color:var(--red); }
+.big-card .icon { font-size:64px; }
+.big-card .status { font-size:24px;font-weight:800;margin-top:14px;letter-spacing:1px; }
+.big-card .sub { font-size:13px;color:var(--text-secondary);margin-top:8px;font-family:var(--font-mono); }
+.action-card { padding:24px;background:var(--bg-elevated);border-radius:12px;border:1px solid var(--border);margin-bottom:14px; }
+.action-card h3 { font-size:16px;margin:0 0 8px;color:var(--accent); }
+.input-row { display:flex;gap:10px;margin:14px 0;flex-wrap:wrap; }
+.input-row select, .input-row input { padding:12px 14px;background:var(--bg-base);border:1px solid var(--border);color:var(--text-primary);border-radius:8px;font-family:var(--font-mono);font-size:13px;font-weight:600; }
+.input-row input { flex:1;min-width:220px; }
+.btn { padding:12px 22px;border:none;border-radius:8px;font-weight:700;cursor:pointer;font-size:14px;letter-spacing:0.3px; }
+.btn-go { background:linear-gradient(135deg,#00d4ff,#0094c7);color:#000; }
+.btn-stop { background:rgba(239,68,68,0.18);color:var(--red);border:1px solid rgba(239,68,68,0.5); }
+.feed-row { display:grid;grid-template-columns:60px 1fr 1fr 1fr;gap:10px;padding:8px 12px;background:var(--bg-elevated);border-radius:6px;margin-bottom:4px;font-family:var(--font-mono);font-size:12px;align-items:center; }
+.feed-row.head { background:transparent;font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;font-weight:700; }
+.feed-row .sym { font-weight:700; }
+.feed-row .px { text-align:right; }
+.feed-row .chg.pos { color:var(--green); }
+.feed-row .chg.neg { color:var(--red); }
+.feed-row .src { font-size:10px;color:var(--text-muted);text-transform:uppercase; }
+.tile { padding:14px;background:var(--bg-elevated);border-radius:8px; }
+.tile .lbl { font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;font-weight:700; }
+.tile .val { font-family:var(--font-mono);font-size:18px;font-weight:800;margin-top:4px;color:var(--accent); }
+.helper-link { color:var(--accent);font-weight:700;text-decoration:none;border-bottom:1px solid rgba(0,212,255,0.3); }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">📡 Connect Live Data</div>
+      <div class="page-subtitle">One paste, one click — brain starts learning on REAL market prices instead of mock</div>
+    </div>
+  </div>
+
+  <div id="status-card" class="big-card mb-24"></div>
+
+  <div class="grid grid-4 mb-24" id="status-grid"></div>
+
+  <div class="action-card">
+    <h3>🔑 Configure & connect</h3>
+    <div style="font-size:13px;color:var(--text-secondary);margin-bottom:10px;">
+      Pick a provider and paste your API key. The free tier of <a href="https://finnhub.io/register" target="_blank" class="helper-link">Finnhub</a> is the fastest path (no credit card, 60 req/min). Polygon is the gold standard for full equity + options ($199/mo).
+    </div>
+    <div class="input-row">
+      <select id="provider-input">
+        <option value="finnhub">Finnhub (free, easy)</option>
+        <option value="polygon">Polygon (paid, full)</option>
+        <option value="tradier">Tradier (broker)</option>
+        <option value="alpaca">Alpaca (free IEX)</option>
+      </select>
+      <input id="key-input" type="password" placeholder="Paste API key…">
+      <input id="secret-input" type="password" placeholder="Secret (Alpaca/Tradier only)" style="max-width:200px;">
+    </div>
+    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+      <button onclick="connect()" class="btn btn-go">⚡ Connect &amp; start streaming</button>
+      <button onclick="disconnect()" class="btn btn-stop">⏹ Disconnect</button>
+      <span id="connect-msg" style="font-size:12px;color:var(--text-muted);font-family:var(--font-mono);"></span>
+    </div>
+    <div style="margin-top:14px;font-size:11px;color:var(--text-muted);font-family:var(--font-mono);">
+      🔒 Your key never leaves your browser. Stored in localStorage only.
+    </div>
+  </div>
+
+  <div class="action-card">
+    <h3>📊 Live quote feed</h3>
+    <div style="font-size:13px;color:var(--text-secondary);margin-bottom:10px;">Real-time ticks for the symbols the brain tracks. Updates as data flows in.</div>
+    <div id="feed"></div>
+  </div>
+
+  <div class="action-card">
+    <h3>📚 Need help getting a key?</h3>
+    <div style="font-size:13px;color:var(--text-secondary);line-height:1.7;">
+      <strong>Finnhub (fastest, free):</strong> go to <a href="https://finnhub.io/register" target="_blank" class="helper-link">finnhub.io/register</a>, sign up with email, the API key is on your dashboard immediately. Free tier = 60 calls/min, plenty for the brain.<br><br>
+      <strong>Polygon (best quality, paid):</strong> <a href="https://polygon.io/dashboard/signup" target="_blank" class="helper-link">polygon.io/dashboard/signup</a>. The Starter plan ($29/mo) includes real-time stocks + 5y of historical bars. Indices plan ($49/mo) adds VIX/SPX.<br><br>
+      <strong>Alpaca (free, IEX-only):</strong> <a href="https://alpaca.markets" target="_blank" class="helper-link">alpaca.markets</a>. Sign up for a paper trading account → API Keys → Generate. Free real-time IEX feed (not full SIP).<br><br>
+      <strong>See more options:</strong> <a href="live-data-setup.html" class="helper-link">live-data-setup.html</a> has detailed walkthroughs for each provider.
+    </div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script>
+buildNav('connect-live-data');
+
+function render() {
+  const status = DataProvider.getStatus();
+  const card = document.getElementById('status-card');
+  const grid = document.getElementById('status-grid');
+
+  let cardClass = 'big-card';
+  let icon, msg, sub;
+  if (status.status === 'connected') {
+    cardClass += '';
+    icon = '🟢'; msg = 'LIVE DATA STREAMING'; sub = 'Connected to ' + status.provider + ' · ' + (status.messagesReceived || 0) + ' messages';
+  } else if (status.status === 'connecting') {
+    cardClass += ' disconnected';
+    icon = '🟡'; msg = 'CONNECTING…'; sub = 'Connecting to ' + status.provider;
+  } else if (status.status === 'error') {
+    cardClass += ' error';
+    icon = '🔴'; msg = 'CONNECTION ERROR'; sub = status.lastError || 'Unknown error';
+  } else if (status.enabled === false || status.provider === 'mock') {
+    cardClass += ' disconnected';
+    icon = '⚠'; msg = 'USING MOCK DATA'; sub = 'Brain is learning on synthetic OU walks — configure a real provider above';
+  } else {
+    cardClass += ' disconnected';
+    icon = '⚫'; msg = 'DISCONNECTED'; sub = 'No provider connected';
+  }
+  card.className = cardClass;
+  card.innerHTML = '<div class="icon">' + icon + '</div>'
+    + '<div class="status">' + msg + '</div>'
+    + '<div class="sub">' + sub + '</div>';
+
+  grid.innerHTML = ''
+    + '<div class="tile"><div class="lbl">Provider</div><div class="val">' + (status.provider || '—') + '</div></div>'
+    + '<div class="tile"><div class="lbl">Messages</div><div class="val">' + (status.messagesReceived || 0) + '</div></div>'
+    + '<div class="tile"><div class="lbl">Bytes</div><div class="val">' + ((status.bytesReceived || 0) / 1024).toFixed(1) + 'k</div></div>'
+    + '<div class="tile"><div class="lbl">Last msg</div><div class="val" style="font-size:14px;">' + (status.lastMessageAt ? new Date(status.lastMessageAt).toLocaleTimeString() : '—') + '</div></div>';
+
+  // Feed
+  const symbols = typeof QUOTES !== 'undefined' ? Object.keys(QUOTES).slice(0, 12) : [];
+  let html = '<div class="feed-row head"><div>Sym</div><div style="text-align:right;">Last</div><div style="text-align:right;">Change</div><div>Source</div></div>';
+  for (const s of symbols) {
+    const q = QUOTES[s];
+    if (!q) continue;
+    const isLive = q.priceSource && q.priceSource !== 'stale-seed' && q.priceSource !== 'mock';
+    html += '<div class="feed-row">'
+      + '<div class="sym">' + s + '</div>'
+      + '<div class="px">$' + (q.last != null ? q.last.toFixed(2) : '—') + '</div>'
+      + '<div class="chg ' + ((q.changePct || 0) >= 0 ? 'pos' : 'neg') + '">' + ((q.changePct || 0) >= 0 ? '+' : '') + (q.changePct || 0).toFixed(2) + '%</div>'
+      + '<div class="src" style="color:' + (isLive ? 'var(--green)' : 'var(--yellow)') + ';">' + (q.priceSource || '—') + '</div>'
+      + '</div>';
+  }
+  document.getElementById('feed').innerHTML = html || '<div style="color:var(--text-muted);padding:14px;text-align:center;">No quotes yet — connect a provider above.</div>';
+}
+
+function connect() {
+  const provider = document.getElementById('provider-input').value;
+  const apiKey = document.getElementById('key-input').value.trim();
+  const apiSecret = document.getElementById('secret-input').value.trim();
+  if (!apiKey) {
+    document.getElementById('connect-msg').textContent = '✗ Paste an API key first';
+    return;
+  }
+  try {
+    DataProvider.saveConfig({ provider, apiKey, apiSecret, enabled: true, subscribeAll: true });
+    DataProvider.connect();
+    document.getElementById('connect-msg').textContent = '✓ Configuration saved — connecting to ' + provider + '…';
+    document.getElementById('connect-msg').style.color = 'var(--green)';
+    setTimeout(render, 1000);
+    setTimeout(render, 5000);
+  } catch (e) {
+    document.getElementById('connect-msg').textContent = '✗ Error: ' + e.message;
+    document.getElementById('connect-msg').style.color = 'var(--red)';
+  }
+}
+
+function disconnect() {
+  try {
+    DataProvider.disconnect();
+    DataProvider.saveConfig({ enabled: false });
+    document.getElementById('connect-msg').textContent = '⏹ Disconnected';
+    document.getElementById('connect-msg').style.color = 'var(--text-muted)';
+    setTimeout(render, 500);
+  } catch (e) {}
+}
+
+// Subscribe to status changes
+if (DataProvider.onStatus) DataProvider.onStatus(render);
+
+// Pre-fill from saved config
+try {
+  const status = DataProvider.getStatus();
+  if (status.provider) document.getElementById('provider-input').value = status.provider;
+} catch (e) {}
+
+render();
+setInterval(render, 3000);
+window.addEventListener('bpleone:heartbeat', render);
+</script>
+</body>
+</html>

@@ -108,7 +108,7 @@ function buildNav(activePage) {
   // Markets group
   const marketsGrp = ['macro','market-internals','breadth-pro','market-map','heatmap','cross-asset-pulse','cross-asset-correlations','correlations-live','sectors','global-markets','yield-curve','economic-events','economic-clock','halt-tracker','moc-imbalance','risk-radar','vix-pulse','smart-rotation','sector-rotation','sector-flow','sector-snapshot','heat-clock','sentiment-heat','news','news-pulse','news-impact','smart-money'];
   // Tools group — calculators, risk, journal, settings, alerts, crypto, education
-  const toolsGrp = ['risk','risk-dashboard','risk-attribution','risk-parity','risk-of-ruin','fundamentals','backtester','multi-backtest','potd-backtest','journal','trade-journal-pro','alerts','alerts-builder','alerts-feed','alerts-dashboard','crypto','crypto-derivatives','crypto-basis','crypto-commodities','portfolio-builder','position-sizing','kelly-sizer','pdt-dashboard','margin-calc','pnl-projector','execution','liquidity-health','strategies','setup-combos','api','seasonality','settings','mindset','changelog','replay','hypothetical','account','performance-attribution','all-tools','pwa-install','watchlist-share','desk-split','time-of-day-pnl','live-pnl-heatmap','day-pnl-calendar','squarespace-preview','site-diagnostics'];
+  const toolsGrp = ['risk','risk-dashboard','risk-attribution','risk-parity','risk-of-ruin','fundamentals','backtester','multi-backtest','potd-backtest','journal','trade-journal-pro','alerts','alerts-builder','alerts-feed','alerts-dashboard','crypto','crypto-derivatives','crypto-basis','crypto-commodities','portfolio-builder','position-sizing','kelly-sizer','pdt-dashboard','margin-calc','pnl-projector','execution','liquidity-health','strategies','setup-combos','api','seasonality','settings','mindset','changelog','replay','hypothetical','account','performance-attribution','all-tools','pwa-install','watchlist-share','desk-split','time-of-day-pnl','live-pnl-heatmap','day-pnl-calendar','squarespace-preview','site-diagnostics','connect-live-data'];
   const isTrade = tradeGrp.indexOf(activePage) !== -1;
   const isPlays = playsGrp.indexOf(activePage) !== -1 || dailyGrp.indexOf(activePage) !== -1;
   const isBrain = brainGrp.indexOf(activePage) !== -1;
@@ -145,6 +145,7 @@ function buildNav(activePage) {
     + '<a href="index.html" class="logo"><div class="logo-mark">BP</div>'
     + '<span>bpleone <span style="color:var(--accent);font-weight:400">/ trade</span></span></a>'
     + '<a href="https://bpleone.com" target="_blank" rel="noopener" style="display:inline-flex;align-items:center;gap:6px;padding:6px 12px;margin-left:14px;background:var(--bg-elevated);border:1px solid var(--border);border-radius:14px;color:var(--text-secondary);font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;text-decoration:none;transition:all 0.15s;" onmouseover="this.style.borderColor=\'var(--accent)\';this.style.color=\'var(--accent)\';" onmouseout="this.style.borderColor=\'var(--border)\';this.style.color=\'var(--text-secondary)\';" title="Back to the bpleone.com hub">← Hub</a>'
+    + '<div id="nav-live-pulse" style="display:inline-flex;align-items:center;gap:6px;padding:6px 12px;margin-left:10px;background:rgba(16,185,129,0.12);border:1px solid rgba(16,185,129,0.4);border-radius:14px;color:#10b981;font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:0.5px;" title="Brain is alive and ticking"><span id="nav-pulse-dot" style="width:7px;height:7px;border-radius:50%;background:#10b981;box-shadow:0 0 8px #10b981;animation:bpleonePulse 1.5s ease-in-out infinite;"></span><span id="nav-pulse-text">LIVE</span></div>'
     + '<ul class="nav-links">'
     + '<li><a href="dashboard.html" class="' + (activePage==='dashboard'?'active':'') + '">Dashboard</a></li>'
     + '<li class="nav-dd"><a href="#" class="' + (isPlays?'active':'') + '">Daily ▾</a>'
@@ -473,6 +474,7 @@ function buildNav(activePage) {
     + '<a href="all-tools.html">🗂 All Tools (visual index)</a>'
     + '<a href="squarespace-preview.html">🏠 Squarespace Hub Tile <span class="feat-badge feat-new" style="font-size:8px;padding:0 5px;background:#00d4ff;color:#000;">DEPLOY</span></a>'
     + '<a href="site-diagnostics.html">🩺 Site Diagnostics <span class="feat-badge feat-new" style="font-size:8px;padding:0 5px;background:#ef4444;color:#fff;">DEBUG</span></a>'
+    + '<a href="connect-live-data.html">📡 Connect Live Data <span class="feat-badge feat-new" style="font-size:8px;padding:0 5px;background:#10b981;color:#000;">LIVE</span></a>'
     + '<a href="risk-dashboard.html">⚖️ Risk Dashboard</a>'
     + '<a href="risk-attribution.html">🎯 Risk Attribution</a>'
     + '<a href="risk-parity.html">⚖ Risk Parity</a>'
@@ -1061,6 +1063,78 @@ function initBrainStatusBar() {
   setInterval(refresh, 30000);
 }
 
+// Heartbeat handler: visible nav-pulse tick + text updates on every cycle
+function initLivePulseTicker() {
+  if (typeof window === 'undefined') return;
+  let lastCycle = Date.now();
+  let cycleCount = 0;
+  let liveDataConnected = false;
+
+  // Subscribe to brain cycle events to update pill text
+  window.addEventListener('bpleone:continuous-cycle', (e) => {
+    cycleCount++;
+    lastCycle = Date.now();
+    const text = document.getElementById('nav-pulse-text');
+    const dot = document.getElementById('nav-pulse-dot');
+    if (text) {
+      const d = e.detail || {};
+      if (d.captured > 0 || d.resolved > 0) {
+        text.textContent = '+' + (d.captured || 0) + 'p ' + (d.resolved || 0) + 'r';
+        setTimeout(() => { if (text) text.textContent = 'LIVE'; }, 4000);
+      }
+    }
+    if (dot) {
+      dot.style.animation = 'none';
+      // Force reflow so animation restarts
+      void dot.offsetWidth;
+      dot.style.animation = 'bpleoneTick 0.6s ease-out, bpleonePulse 1.5s ease-in-out infinite 0.6s';
+    }
+  });
+
+  // Heartbeat ticker — colors the dot brighter on each tick
+  window.addEventListener('bpleone:heartbeat', () => {
+    const dot = document.getElementById('nav-pulse-dot');
+    if (dot && !dot.style.animation.includes('bpleoneTick')) {
+      // Brief flash if not already animating
+      dot.style.transition = 'transform 0.2s';
+      dot.style.transform = 'scale(1.4)';
+      setTimeout(() => { if (dot) dot.style.transform = 'scale(1)'; }, 200);
+    }
+  });
+
+  // Watchdog: if no cycle for 90s, show STALE
+  setInterval(() => {
+    const ageMs = Date.now() - lastCycle;
+    const text = document.getElementById('nav-pulse-text');
+    const dot = document.getElementById('nav-pulse-dot');
+    const pill = document.getElementById('nav-live-pulse');
+    if (!text || !dot || !pill) return;
+    if (ageMs > 90 * 1000) {
+      text.textContent = 'STALE';
+      dot.style.background = 'var(--red)';
+      dot.style.boxShadow = '0 0 8px var(--red)';
+      pill.style.background = 'rgba(239,68,68,0.12)';
+      pill.style.borderColor = 'rgba(239,68,68,0.4)';
+      pill.style.color = 'var(--red)';
+    }
+  }, 15000);
+}
+
+// Force live-data attempt on every page load
+function tryAutoConnectLiveData() {
+  if (typeof window === 'undefined' || !window.DataProvider) return;
+  try {
+    const status = window.DataProvider.getStatus && window.DataProvider.getStatus();
+    if (status && status.enabled && status.provider !== 'mock') {
+      // Already configured — kick a reconnect
+      if (window.DataProvider.reconnect) window.DataProvider.reconnect();
+    } else {
+      // Init even with mock so QUOTES update reliably
+      if (window.DataProvider.init) window.DataProvider.init();
+    }
+  } catch (e) {}
+}
+
 document.addEventListener('DOMContentLoaded', () => {
   buildFooter();
   startMarketClock();
@@ -1069,6 +1143,10 @@ document.addEventListener('DOMContentLoaded', () => {
   initFilters();
   initSort();
   initSearch();
+  initLivePulseTicker();
+  // Try live data immediately on load + every 5 min thereafter
+  setTimeout(tryAutoConnectLiveData, 1500);
+  setInterval(tryAutoConnectLiveData, 5 * 60 * 1000);
   // Give BrainCoach time to load (lazy-loaded by live.js) before showing bar
   setTimeout(initBrainStatusBar, 4000);
 });
