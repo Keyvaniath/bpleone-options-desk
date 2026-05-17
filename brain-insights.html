@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Brain Insights — bpleone</title>
+<meta name="description" content="Auto-generated coaching takeaways: where the brain is winning, where it's struggling, what to adjust.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.insight { padding:18px 22px;border-radius:12px;margin-bottom:10px;border-left:4px solid var(--accent);background:var(--bg-elevated); }
+.insight.win { border-left-color:var(--green);background:rgba(16,185,129,0.05); }
+.insight.warn { border-left-color:var(--yellow);background:rgba(245,158,11,0.05); }
+.insight.danger { border-left-color:var(--red);background:rgba(220,38,38,0.05); }
+.insight.info { border-left-color:var(--accent); }
+.insight .icon { font-size:24px;float:left;margin-right:14px;line-height:1; }
+.insight .head { font-size:14px;font-weight:800;margin-bottom:6px; }
+.insight.win .head { color:var(--green); }
+.insight.warn .head { color:var(--yellow); }
+.insight.danger .head { color:var(--red); }
+.insight.info .head { color:var(--accent); }
+.insight .body { font-size:13px;line-height:1.6;color:var(--text-secondary); }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">💡 Brain Insights</div>
+      <div class="page-subtitle">Auto-generated coaching takeaways from your brain's recent activity. Refreshes every 15s.</div>
+    </div>
+  </div>
+
+  <div id="insights-list"></div>
+
+  <div class="card mt-24">
+    <div class="card-header"><div class="card-title">🔗 Related</div></div>
+    <div style="display:flex;gap:12px;flex-wrap:wrap;">
+      <a href="brain-health-pro.html" style="text-decoration:none;display:inline-block;background:linear-gradient(135deg,#00d4ff,#0094c7);color:#000;padding:10px 18px;border-radius:8px;font-weight:700;">❤️ Brain Health</a>
+      <a href="trade-quality.html" style="text-decoration:none;display:inline-block;background:rgba(120,140,160,0.12);color:var(--accent);padding:10px 18px;border-radius:8px;font-weight:700;">⭐ Trade Quality</a>
+      <a href="calibration-view.html" style="text-decoration:none;display:inline-block;background:rgba(120,140,160,0.12);color:var(--accent);padding:10px 18px;border-radius:8px;font-weight:700;">📐 Calibration</a>
+      <a href="mental-game.html" style="text-decoration:none;display:inline-block;background:rgba(120,140,160,0.12);color:var(--accent);padding:10px 18px;border-radius:8px;font-weight:700;">🎯 Mental Game</a>
+    </div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script>buildNav('brain-insights');</script>
+<script>
+function gatherInsights() {
+  const insights = [];
+  // From MoneyTracker
+  if (window.MoneyTracker) {
+    const s = window.MoneyTracker.summary();
+    if (!s.empty && s.windows) {
+      const d7 = s.windows.d7;
+      const d30 = s.windows.d30;
+      if (d7 && d7.totalPnL > 0) insights.push({ tier: 'win', icon: '💵', head: 'Brain is making money', body: '+$' + d7.totalPnL.toFixed(0) + ' over last 7 days. ' + d7.totalTrades + ' trades, ' + ((d7.winRate || 0) * 100).toFixed(0) + '% win rate. Keep doing what works.' });
+      else if (d7 && d7.totalPnL < 0) insights.push({ tier: 'warn', icon: '⚠', head: 'Brain in drawdown', body: '$' + d7.totalPnL.toFixed(0) + ' over last 7 days. Review the high-conviction signals that lost — was the conviction calibrated or was it noise?' });
+      if (d30 && d7 && d7.totalPnL > 0 && (d7.totalPnL / 7) > (d30.totalPnL / 30) * 1.5) insights.push({ tier: 'win', icon: '🚀', head: 'Acceleration', body: 'Last 7 days are running faster than the 30-day pace. Don\'t up-size out of excitement — let the math compound.' });
+      if (d30 && d30.maxDrawdown > 0 && d30.totalPnL < d30.maxDrawdown) insights.push({ tier: 'warn', icon: '📉', head: 'Drawdown > profits', body: 'Max DD ($' + d30.maxDrawdown.toFixed(0) + ') exceeds month P&L ($' + d30.totalPnL.toFixed(0) + '). Consider tighter risk per trade.' });
+    }
+  }
+  // From AutoTrade
+  if (window.AutoTrade) {
+    const st = window.AutoTrade.stats();
+    if (st.totalTrades > 5) {
+      if (st.winRate != null && st.winRate >= 0.6) insights.push({ tier: 'win', icon: '🎯', head: 'Auto-Trade is calibrated', body: 'Auto-Trade win rate ' + (st.winRate * 100).toFixed(0) + '% over ' + st.totalTrades + ' closed. Process is dialed in.' });
+      if (st.winRate != null && st.winRate < 0.40) insights.push({ tier: 'danger', icon: '🔴', head: 'Auto-Trade win rate is low', body: 'Only ' + (st.winRate * 100).toFixed(0) + '% wins. Raise minConviction or tighten stops.' });
+    }
+  }
+  // Mental game
+  if (window.StreakTracker) {
+    const snap = window.StreakTracker.snapshot();
+    if (!snap.empty) {
+      const m = window.StreakTracker.mentalState(snap);
+      if (snap.currentStreak <= -3) insights.push({ tier: 'danger', icon: '🧊', head: 'Loss streak active', body: m.message });
+      else if (snap.currentStreak >= 5) insights.push({ tier: 'warn', icon: '🔥', head: 'Hot streak', body: 'You\'re ' + snap.currentStreak + ' wins in a row. Statistically, mean reversion is coming. Don\'t up-size.' });
+    }
+  }
+  // Calibration
+  if (window.CalibrationView) {
+    const ece = window.CalibrationView.ece();
+    if (ece != null && ece > 0.10) insights.push({ tier: 'warn', icon: '📐', head: 'Calibration is off', body: 'ECE ' + (ece * 100).toFixed(1) + '%. When brain says X% it\'s not winning X% of the time. Either filter higher or retrain.' });
+    else if (ece != null && ece < 0.05) insights.push({ tier: 'win', icon: '✓', head: 'Brain is well-calibrated', body: 'ECE only ' + (ece * 100).toFixed(1) + '%. When brain says 70% it actually wins ~70% — trust the numbers.' });
+  }
+  // Position correlation
+  if (window.PositionCorrelation) {
+    const c = window.PositionCorrelation.snapshot();
+    if (c.positions.length >= 3 && c.score != null && c.score < 0.5) {
+      insights.push({ tier: 'warn', icon: '🔗', head: 'Positions too correlated', body: c.positions.length + ' positions but only N_eff=' + c.n_eff + ' independent. You\'re betting on fewer themes than you think.' });
+    }
+  }
+  // Equity protector
+  if (window.EquityProtector) {
+    const ep = window.EquityProtector.status();
+    if (ep.triggered) insights.push({ tier: 'danger', icon: '🛑', head: 'Equity protector triggered', body: 'Auto-Trade paused after ' + (ep.drawdownPct * 100).toFixed(1) + '% drawdown. Wait for recovery before re-enabling.' });
+  }
+  // Trade Quality
+  if (window.TradeQuality) {
+    const tq = window.TradeQuality.summary();
+    if (!tq.empty && tq.avgStars < 3) insights.push({ tier: 'warn', icon: '⭐', head: 'Trade quality is low', body: 'Avg ' + tq.avgStars + '/5 stars. Sloppy entries. Review pre-trade checklist before each entry.' });
+    else if (!tq.empty && tq.avgStars >= 4) insights.push({ tier: 'win', icon: '⭐', head: 'Process is sharp', body: 'Avg ' + tq.avgStars + '/5 stars on quality. Trust the process even when individual outcomes hurt.' });
+  }
+  // Hot symbols
+  if (window.HighConvictionAlerts) {
+    const feed = window.HighConvictionAlerts.feed(50);
+    if (feed.length >= 20) insights.push({ tier: 'info', icon: '🔔', head: 'High alert volume', body: feed.length + ' alerts in feed. Brain is finding lots of setups — but also more noise. Consider raising minConviction to filter.' });
+  }
+  if (insights.length === 0) {
+    insights.push({ tier: 'info', icon: '⏳', head: 'Need more data', body: 'Insights generate as the brain collects trades. Check back after 10+ resolved trades.' });
+  }
+  return insights;
+}
+
+function render() {
+  const insights = gatherInsights();
+  const list = document.getElementById('insights-list');
+  list.innerHTML = insights.map(i =>
+    '<div class="insight ' + i.tier + '"><div class="icon">' + i.icon + '</div><div class="head">' + i.head + '</div><div class="body">' + i.body + '</div></div>'
+  ).join('');
+}
+setTimeout(render, 600);
+setInterval(render, 15000);
+</script>
+</body>
+</html>

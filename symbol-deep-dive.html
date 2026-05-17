@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Symbol Deep Dive — bpleone</title>
+<meta name="description" content="Per-symbol breakdown: every brain signal, outcome, hit rate, P&L. Pick a symbol, see the whole story.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.tile { padding:18px;background:var(--bg-elevated);border-radius:10px; }
+.tile .lbl { font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;font-weight:700; }
+.tile .val { font-family:var(--font-mono);font-size:22px;font-weight:800;margin-top:6px;color:var(--accent); }
+.tile.good .val { color:var(--green); }
+.tile.bad .val { color:var(--red); }
+table.t { width:100%;border-collapse:collapse;font-size:13px;font-family:var(--font-mono); }
+table.t th { text-align:left;padding:8px 10px;border-bottom:1px solid var(--bg-elevated);color:var(--text-muted);font-size:10px;text-transform:uppercase;letter-spacing:0.5px;font-weight:700; }
+table.t td { padding:8px 10px;border-bottom:1px solid rgba(255,255,255,0.04); }
+.pill { padding:2px 8px;border-radius:5px;font-size:10px;font-weight:800; }
+.pill-long { background:rgba(16,185,129,0.18);color:var(--green); }
+.pill-short { background:rgba(220,38,38,0.18);color:var(--red); }
+.pill-win { background:rgba(16,185,129,0.18);color:var(--green); }
+.pill-loss { background:rgba(220,38,38,0.18);color:var(--red); }
+.search { display:flex;gap:10px;align-items:center;margin-bottom:20px; }
+.search input { flex:1;background:rgba(0,0,0,0.3);border:1px solid rgba(255,255,255,0.1);border-radius:6px;padding:12px 18px;color:var(--text);font-family:var(--font-mono);font-size:18px;text-transform:uppercase; }
+.search select { background:rgba(0,0,0,0.3);border:1px solid rgba(255,255,255,0.1);border-radius:6px;padding:12px 18px;color:var(--text);font-family:var(--font-mono);font-size:16px; }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">🔬 Symbol Deep Dive</div>
+      <div class="page-subtitle">Pick a symbol. See every brain signal, every outcome, every dollar P&L.</div>
+    </div>
+  </div>
+
+  <div class="search">
+    <input id="sym-input" type="text" placeholder="Enter symbol (NVDA, SPY, BTC...)" value="NVDA">
+    <select id="sym-quick"><option value="">Quick pick…</option></select>
+    <button onclick="renderAll()" style="padding:12px 22px;background:linear-gradient(135deg,#00d4ff,#0094c7);color:#000;border:none;border-radius:6px;font-weight:700;cursor:pointer;">🔍 Search</button>
+  </div>
+
+  <div id="results"></div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script>buildNav('symbol-deep-dive');</script>
+<script>
+function fmt$(v) { if (!isFinite(v)) return '$0'; const s = v < 0 ? '-' : ''; return s + '$' + Math.abs(v).toLocaleString(undefined, { maximumFractionDigits: 2 }); }
+function fmtAgo(t) { if (!t) return '—'; const ms = Date.now() - t; if (ms < 3600000) return Math.round(ms/60000) + 'm'; if (ms < 86400000) return Math.round(ms/3600000) + 'h'; return Math.round(ms/86400000) + 'd'; }
+
+function loadResolved(sym) {
+  try { const j = JSON.parse(localStorage.getItem('bpleone_pred_journal_v1') || '[]'); return j.filter(e => e.sym === sym && e.resolved && (e.resolved === true || (e.resolved.short && e.resolved.short !== 'flat'))); } catch (e) { return []; }
+}
+
+function renderAll() {
+  const sym = document.getElementById('sym-input').value.toUpperCase().trim();
+  if (!sym) return;
+  const out = document.getElementById('results');
+  // Live quote
+  const q = window.QUOTES && window.QUOTES[sym];
+  // HC alerts for this symbol
+  let alerts = [];
+  if (window.HighConvictionAlerts) alerts = window.HighConvictionAlerts.feed(500).filter(a => a.sym === sym);
+  // AutoTrade history for this symbol
+  let openTrades = [], closedTrades = [];
+  if (window.AutoTrade) {
+    openTrades = window.AutoTrade.openTrades().filter(t => t.sym === sym);
+    closedTrades = window.AutoTrade.closedTrades().filter(t => t.sym === sym);
+  }
+  // Resolved journal
+  const resolved = loadResolved(sym);
+  const wins = resolved.filter(e => e.outcome === 'correct').length;
+  const losses = resolved.filter(e => e.outcome === 'wrong').length;
+  // Earnings
+  const earnings = window.EarningsAwareness ? window.EarningsAwareness.nextEarnings(sym) : null;
+  // Source quality for this symbol
+  let srcInfo = '—';
+  if (window.SourcePreference && q) {
+    const src = q.priceSource || q.source;
+    if (src) {
+      const r = window.SourcePreference.rank(src);
+      srcInfo = src + ' (' + Math.round(r * 100) + '%)';
+    }
+  }
+  let html = '';
+  if (!q && resolved.length === 0 && alerts.length === 0) {
+    html = '<div style="text-align:center;color:var(--text-muted);padding:32px;">No data for ' + sym + '. Try another symbol from the quick pick.</div>';
+    out.innerHTML = html;
+    return;
+  }
+  // Live snapshot
+  if (q) {
+    html += '<div class="card mb-24"><div class="card-header"><div class="card-title">📊 Live snapshot — ' + sym + '</div></div>' +
+      '<div class="grid grid-4">' +
+        '<div class="tile"><div class="lbl">Last</div><div class="val">$' + (q.last || 0).toFixed(2) + '</div></div>' +
+        '<div class="tile" style="background:' + ((q.changePct || 0) >= 0 ? 'rgba(16,185,129,0.06)' : 'rgba(220,38,38,0.06)') + ';"><div class="lbl">Change %</div><div class="val" style="color:' + ((q.changePct || 0) >= 0 ? 'var(--green)' : 'var(--red)') + ';">' + ((q.changePct || 0) >= 0 ? '+' : '') + (q.changePct || 0).toFixed(2) + '%</div></div>' +
+        '<div class="tile"><div class="lbl">Source</div><div class="val" style="font-size:13px;">' + srcInfo + '</div></div>' +
+        '<div class="tile"><div class="lbl">Live age</div><div class="val">' + (q.liveAt ? fmtAgo(q.liveAt) : 'never') + '</div></div>' +
+      '</div></div>';
+  }
+  // Brain stats
+  const total = wins + losses;
+  const hitRate = total > 0 ? (wins / total) : null;
+  html += '<div class="card mb-24"><div class="card-header"><div class="card-title">🧠 Brain performance — ' + sym + '</div></div>' +
+    '<div class="grid grid-4">' +
+      '<div class="tile"><div class="lbl">HC alerts</div><div class="val">' + alerts.length + '</div></div>' +
+      '<div class="tile"><div class="lbl">Resolved trades</div><div class="val">' + total + '</div></div>' +
+      '<div class="tile ' + (hitRate != null && hitRate >= 0.55 ? 'good' : hitRate != null && hitRate < 0.45 ? 'bad' : '') + '"><div class="lbl">Hit rate</div><div class="val">' + (hitRate != null ? (hitRate * 100).toFixed(0) + '%' : '—') + '</div></div>' +
+      '<div class="tile"><div class="lbl">Open auto-trades</div><div class="val">' + openTrades.length + '</div></div>' +
+    '</div></div>';
+  // Earnings
+  if (earnings) {
+    html += '<div class="card mb-24" style="background:linear-gradient(135deg,rgba(245,158,11,0.06),rgba(245,158,11,0.02));border-left:4px solid var(--yellow);">' +
+      '<div style="font-size:14px;color:var(--text-secondary);"><strong>📅 Next earnings (estimated):</strong> ' + earnings.date.toLocaleDateString() + ' (' + earnings.daysOut.toFixed(1) + ' days out, source: ' + earnings.source + ')</div></div>';
+  }
+  // Recent alerts table
+  if (alerts.length > 0) {
+    html += '<div class="card mb-24"><div class="card-header"><div class="card-title">🔔 Recent HC alerts</div></div>' +
+      '<table class="t"><thead><tr><th>When</th><th>Direction</th><th>Conv</th><th>Entry</th><th>Risk $</th></tr></thead><tbody>' +
+      alerts.slice(0, 20).map(a => '<tr><td>' + fmtAgo(a.ts) + ' ago</td><td><span class="pill pill-' + a.direction.toLowerCase() + '">' + a.direction + '</span></td><td>' + Math.round((a.conviction || 0) * 100) + '%</td><td>$' + (a.entryPx || 0).toFixed(2) + '</td><td>$' + (a.riskDollars || 0) + '</td></tr>').join('') +
+      '</tbody></table></div>';
+  }
+  // Closed auto-trades
+  if (closedTrades.length > 0) {
+    html += '<div class="card mb-24"><div class="card-header"><div class="card-title">📋 Closed auto-trades</div></div>' +
+      '<table class="t"><thead><tr><th>Closed</th><th>Side</th><th>Outcome</th><th>R</th><th>P&L</th></tr></thead><tbody>' +
+      closedTrades.slice(-20).reverse().map(t => '<tr><td>' + fmtAgo(t.closedAt) + ' ago</td><td><span class="pill pill-' + (t.direction > 0 ? 'long' : 'short') + '">' + (t.direction > 0 ? 'LONG' : 'SHORT') + '</span></td><td><span class="pill pill-' + (t.realizedPnL >= 0 ? 'win' : 'loss') + '">' + t.outcome.toUpperCase() + '</span></td><td>' + (t.rMultiple >= 0 ? '+' : '') + t.rMultiple + 'R</td><td style="color:' + (t.realizedPnL >= 0 ? 'var(--green)' : 'var(--red)') + ';font-weight:700;">' + (t.realizedPnL >= 0 ? '+' : '') + fmt$(t.realizedPnL) + '</td></tr>').join('') +
+      '</tbody></table></div>';
+  }
+  out.innerHTML = html;
+}
+
+function populateQuickPick() {
+  const sel = document.getElementById('sym-quick');
+  if (typeof QUOTES === 'undefined') return;
+  const syms = Object.keys(QUOTES).sort();
+  sel.innerHTML = '<option value="">Quick pick…</option>' + syms.map(s => '<option value="' + s + '">' + s + '</option>').join('');
+  sel.addEventListener('change', e => {
+    if (e.target.value) {
+      document.getElementById('sym-input').value = e.target.value;
+      renderAll();
+    }
+  });
+}
+
+document.getElementById('sym-input').addEventListener('keydown', e => { if (e.key === 'Enter') renderAll(); });
+setTimeout(() => { populateQuickPick(); renderAll(); }, 500);
+</script>
+</body>
+</html>

@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Trade Quality — bpleone</title>
+<meta name="description" content="1-5 star quality rating for every closed trade, independent of outcome. Separate good process from good luck.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.tile { padding:18px;background:var(--bg-elevated);border-radius:10px; }
+.tile .lbl { font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;font-weight:700; }
+.tile .val { font-family:var(--font-mono);font-size:22px;font-weight:800;margin-top:6px;color:var(--accent); }
+.lesson { padding:14px 18px;border-radius:10px;background:rgba(140,100,255,0.06);border-left:4px solid #a884ff;margin-bottom:8px;font-size:13px;color:var(--text-secondary);line-height:1.5; }
+.trade-card { padding:14px 18px;background:var(--bg-elevated);border-radius:10px;margin-bottom:6px;display:flex;align-items:center;gap:14px;flex-wrap:wrap; }
+.trade-card.win { border-left:4px solid var(--green); }
+.trade-card.loss { border-left:4px solid var(--red); }
+.trade-card .stars { font-size:18px;letter-spacing:2px;min-width:90px; }
+.trade-card .sym { font-family:var(--font-mono);font-size:16px;font-weight:900;min-width:60px; }
+.trade-card .meta { font-size:11px;color:var(--text-muted);flex:1;font-family:var(--font-mono); }
+.trade-card .pnl { font-family:var(--font-mono);font-weight:800;font-size:14px; }
+.crit { display:inline-block;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:700;margin-right:4px; }
+.crit.pass { background:rgba(16,185,129,0.18);color:var(--green); }
+.crit.fail { background:rgba(220,38,38,0.18);color:var(--red); }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">⭐ Trade Quality Scorer</div>
+      <div class="page-subtitle">Rate every closed trade 1-5 stars based on process quality, independent of outcome. Separate good process from good luck.</div>
+    </div>
+  </div>
+
+  <div class="card mb-24" style="background:linear-gradient(135deg,rgba(0,212,255,0.04),rgba(140,100,255,0.04));border-left:4px solid var(--accent);">
+    <div style="font-size:14px;color:var(--text-secondary);line-height:1.6;">
+      <strong>Criteria (1 star each):</strong> conviction ≥ 65%, source quality good, pattern recall favorable, no earnings cross, position size within Kelly bounds. A losing trade with 5 stars = stick with the process. A winning trade with 1-2 stars = lucky outcome you shouldn't chase.
+    </div>
+  </div>
+
+  <div class="grid grid-3 mb-24" id="kpi-grid"></div>
+
+  <div class="card mb-24">
+    <div class="card-header"><div class="card-title">💡 Lessons</div></div>
+    <div id="lesson-list"></div>
+  </div>
+
+  <div class="card mb-24">
+    <div class="card-header"><div class="card-title">📜 Recent trades (most recent first)</div></div>
+    <div id="trades-list"></div>
+  </div>
+
+  <div class="card">
+    <div class="card-header"><div class="card-title">🔗 Related</div></div>
+    <div style="display:flex;gap:12px;flex-wrap:wrap;">
+      <a href="auto-trade.html" style="text-decoration:none;display:inline-block;background:linear-gradient(135deg,#f59e0b,#d97706);color:#000;padding:10px 18px;border-radius:8px;font-weight:700;">🤖 Auto-Trade</a>
+      <a href="pre-trade-checklist.html" style="text-decoration:none;display:inline-block;background:rgba(120,140,160,0.12);color:var(--accent);padding:10px 18px;border-radius:8px;font-weight:700;">✅ Pre-Trade Checklist</a>
+      <a href="post-trade-debrief.html" style="text-decoration:none;display:inline-block;background:rgba(120,140,160,0.12);color:var(--accent);padding:10px 18px;border-radius:8px;font-weight:700;">🔎 Debrief</a>
+    </div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script src="js/trade-quality-scorer.js"></script>
+<script>buildNav('trade-quality');</script>
+<script>
+function fmt$(v) { if (!isFinite(v)) return '$0'; const s = v < 0 ? '-' : ''; return s + '$' + Math.abs(v).toLocaleString(undefined, { maximumFractionDigits: 2 }); }
+function fmtAgo(t) { if (!t) return '—'; const ms = Date.now() - t; if (ms < 3600000) return Math.round(ms/60000) + 'm'; if (ms < 86400000) return Math.round(ms/3600000) + 'h'; return Math.round(ms/86400000) + 'd'; }
+function starsBar(stars) { return '<span style="color:#f59e0b;">' + '★'.repeat(stars) + '</span><span style="color:rgba(120,140,160,0.4);">' + '☆'.repeat(5 - stars) + '</span>'; }
+
+function render() {
+  if (!window.TradeQuality) { setTimeout(render, 500); return; }
+  const all = window.TradeQuality.allScores();
+  const sum = window.TradeQuality.summary();
+  document.getElementById('kpi-grid').innerHTML =
+    '<div class="tile"><div class="lbl">Trades scored</div><div class="val">' + (sum.empty ? 0 : sum.total) + '</div></div>' +
+    '<div class="tile"><div class="lbl">Avg quality</div><div class="val">' + (sum.empty ? '—' : sum.avgStars + '/5 ' + starsBar(Math.round(sum.avgStars))) + '</div></div>' +
+    '<div class="tile" style="background:rgba(16,185,129,0.06);"><div class="lbl">High-quality win rate</div><div class="val" style="color:var(--green);">' + (sum.empty || sum.hqWinRate == null ? '—' : (sum.hqWinRate * 100).toFixed(0) + '%') + '</div></div>';
+  // Lessons
+  const ll = document.getElementById('lesson-list');
+  if (sum.empty || !sum.lessons || sum.lessons.length === 0) {
+    ll.innerHTML = '<div style="color:var(--text-muted);text-align:center;padding:14px;">Need more closed trades for lessons.</div>';
+  } else {
+    ll.innerHTML = sum.lessons.map(l => '<div class="lesson">' + l + '</div>').join('');
+  }
+  // Trades
+  const list = document.getElementById('trades-list');
+  if (all.length === 0) {
+    list.innerHTML = '<div style="color:var(--text-muted);text-align:center;padding:18px;">No closed trades yet. Enable Auto-Trade to start collecting.</div>';
+    return;
+  }
+  const recent = all.slice().reverse().slice(0, 30);
+  list.innerHTML = recent.map(({ trade, score }) => {
+    const win = trade.realizedPnL >= 0;
+    const cls = win ? 'win' : 'loss';
+    const crits = Object.entries(score.criteria).map(([k, v]) => '<span class="crit ' + (v ? 'pass' : 'fail') + '">' + k + '</span>').join('');
+    return '<div class="trade-card ' + cls + '">' +
+      '<div class="stars">' + starsBar(score.stars) + '</div>' +
+      '<div class="sym">' + trade.sym + '</div>' +
+      '<div class="meta">' + (trade.direction > 0 ? 'L' : 'S') + ' ' + trade.shares + 'sh · ' + trade.outcome + ' · ' + fmtAgo(trade.closedAt) + ' ago<br>' + crits + '</div>' +
+      '<div class="pnl" style="color:' + (win ? 'var(--green)' : 'var(--red)') + ';">' + (win ? '+' : '') + fmt$(trade.realizedPnL) + '</div>' +
+    '</div>';
+  }).join('');
+}
+setTimeout(render, 600);
+setInterval(render, 8000);
+</script>
+</body>
+</html>

@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Outcome Distribution — bpleone</title>
+<meta name="description" content="Distribution of R-multiples and dollar outcomes. See the fat tails and the typical trade.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.tile { padding:18px;background:var(--bg-elevated);border-radius:10px; }
+.tile .lbl { font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;font-weight:700; }
+.tile .val { font-family:var(--font-mono);font-size:22px;font-weight:800;margin-top:6px;color:var(--accent); }
+#chart { width:100%;height:280px; }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">📈 Outcome Distribution</div>
+      <div class="page-subtitle">R-multiple histogram for every closed trade. See the fat tails. Understand the shape of your edge.</div>
+    </div>
+  </div>
+
+  <div class="grid grid-4 mb-24" id="kpi-grid"></div>
+
+  <div class="card mb-24">
+    <div class="card-header"><div class="card-title">📊 R-multiple histogram</div></div>
+    <canvas id="chart"></canvas>
+  </div>
+
+  <div class="card mb-24">
+    <div class="card-header"><div class="card-title">📋 Percentile table</div></div>
+    <div id="pct-table" style="font-family:var(--font-mono);font-size:13px;line-height:2;"></div>
+  </div>
+
+  <div class="card">
+    <div class="card-header"><div class="card-title">🔗 Related</div></div>
+    <div style="display:flex;gap:12px;flex-wrap:wrap;">
+      <a href="trade-quality.html" style="text-decoration:none;display:inline-block;background:linear-gradient(135deg,#00d4ff,#0094c7);color:#000;padding:10px 18px;border-radius:8px;font-weight:700;">⭐ Quality</a>
+      <a href="risk-simulator.html" style="text-decoration:none;display:inline-block;background:rgba(120,140,160,0.12);color:var(--accent);padding:10px 18px;border-radius:8px;font-weight:700;">🎲 Risk Sim</a>
+      <a href="money-made.html" style="text-decoration:none;display:inline-block;background:rgba(120,140,160,0.12);color:var(--accent);padding:10px 18px;border-radius:8px;font-weight:700;">💵 Money Made</a>
+    </div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/charts.js"></script>
+<script src="js/live.js"></script>
+<script>buildNav('outcome-distribution');</script>
+<script>
+let chart = null;
+
+function getRs() {
+  const out = [];
+  if (window.MoneyTracker) {
+    const s = window.MoneyTracker.summary();
+    if (!s.empty && s.windows && s.windows.lifetime) {
+      const cfg = window.MoneyTracker.getConfig();
+      for (const t of (s.windows.lifetime.trades || [])) {
+        if (!t.rMultiple) continue;
+        out.push(t.rMultiple);
+      }
+    }
+  }
+  if (window.AutoTrade) {
+    for (const t of window.AutoTrade.closedTrades()) {
+      if (typeof t.rMultiple === 'number') out.push(t.rMultiple);
+    }
+  }
+  return out;
+}
+
+function render() {
+  const rs = getRs();
+  // KPIs
+  if (rs.length === 0) {
+    document.getElementById('kpi-grid').innerHTML = '<div class="tile" style="grid-column:1/-1;text-align:center;color:var(--text-muted);">No resolved trades yet. Stats appear after first closures.</div>';
+    if (chart) { chart.destroy(); chart = null; }
+    document.getElementById('pct-table').innerHTML = '';
+    return;
+  }
+  const mean = rs.reduce((s, v) => s + v, 0) / rs.length;
+  const sorted = rs.slice().sort((a, b) => a - b);
+  const median = sorted[Math.floor(sorted.length * 0.5)];
+  const p5 = sorted[Math.floor(sorted.length * 0.05)];
+  const p95 = sorted[Math.floor(sorted.length * 0.95)];
+  const wins = rs.filter(r => r > 0).length;
+  const losses = rs.filter(r => r < 0).length;
+  document.getElementById('kpi-grid').innerHTML =
+    '<div class="tile"><div class="lbl">Trades</div><div class="val">' + rs.length + '</div></div>' +
+    '<div class="tile"><div class="lbl">Mean R</div><div class="val" style="color:' + (mean >= 0 ? 'var(--green)' : 'var(--red)') + ';">' + (mean >= 0 ? '+' : '') + mean.toFixed(2) + 'R</div></div>' +
+    '<div class="tile"><div class="lbl">Median R</div><div class="val">' + (median >= 0 ? '+' : '') + median.toFixed(2) + 'R</div></div>' +
+    '<div class="tile"><div class="lbl">Win rate</div><div class="val">' + (((wins / (wins + losses)) * 100) || 0).toFixed(0) + '%</div></div>';
+  // Histogram bins from -2 to +6R in 0.5R steps
+  const bins = [];
+  const start = -2, end = 6, step = 0.5;
+  for (let v = start; v < end; v += step) bins.push({ low: v, high: v + step, mid: v + step / 2, count: 0 });
+  for (const r of rs) {
+    const idx = Math.max(0, Math.min(bins.length - 1, Math.floor((r - start) / step)));
+    bins[idx].count++;
+  }
+  const labels = bins.map(b => b.low.toFixed(1) + 'R');
+  const data = bins.map(b => b.count);
+  const colors = bins.map(b => b.mid >= 0 ? 'rgba(16,185,129,0.7)' : 'rgba(220,38,38,0.7)');
+  if (chart) chart.destroy();
+  const ctx = document.getElementById('chart');
+  if (ctx && typeof Chart !== 'undefined') {
+    chart = new Chart(ctx, {
+      type: 'bar',
+      data: { labels, datasets: [{ data, backgroundColor: colors }] },
+      options: { responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { display: false }, tooltip: { callbacks: { label: c => c.parsed.y + ' trades in ' + bins[c.dataIndex].low.toFixed(1) + ' to ' + bins[c.dataIndex].high.toFixed(1) + 'R' } } },
+        scales: { x: { ticks: { color: 'rgba(255,255,255,0.5)' }, title: { display: true, text: 'R-multiple bucket', color: 'rgba(255,255,255,0.6)' } }, y: { ticks: { color: 'rgba(255,255,255,0.5)' }, title: { display: true, text: 'Trade count', color: 'rgba(255,255,255,0.6)' } } } }
+    });
+  }
+  // Percentile table
+  document.getElementById('pct-table').innerHTML =
+    '<div><strong>p5</strong> (worst 5%): ' + p5.toFixed(2) + 'R</div>' +
+    '<div><strong>p25</strong>: ' + sorted[Math.floor(sorted.length * 0.25)].toFixed(2) + 'R</div>' +
+    '<div><strong>p50</strong> median: ' + median.toFixed(2) + 'R</div>' +
+    '<div><strong>p75</strong>: ' + sorted[Math.floor(sorted.length * 0.75)].toFixed(2) + 'R</div>' +
+    '<div><strong>p95</strong> (best 5%): ' + p95.toFixed(2) + 'R</div>' +
+    '<div style="border-top:1px solid var(--bg-elevated);padding-top:8px;margin-top:8px;"><strong>Best single</strong>: ' + sorted[sorted.length - 1].toFixed(2) + 'R</div>' +
+    '<div style="color:var(--red);"><strong>Worst single</strong>: ' + sorted[0].toFixed(2) + 'R</div>';
+}
+setTimeout(render, 500);
+setInterval(render, 12000);
+</script>
+</body>
+</html>
