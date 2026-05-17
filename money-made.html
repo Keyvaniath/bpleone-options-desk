@@ -52,6 +52,21 @@ table.t td { padding:10px 12px;border-bottom:1px solid rgba(255,255,255,0.04);fo
     </div>
   </div>
 
+  <div id="market-banner" style="padding:12px 18px;border-radius:10px;margin-bottom:14px;display:none;font-size:13px;line-height:1.5;"></div>
+
+  <div id="empty-state-banner" style="padding:18px 22px;border-radius:12px;background:linear-gradient(135deg,rgba(140,100,255,0.10),rgba(140,100,255,0.02));border:2px dashed #a884ff;margin-bottom:18px;display:none;">
+    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:14px;">
+      <div style="flex:1;min-width:280px;">
+        <div style="font-weight:800;font-size:15px;color:#a884ff;margin-bottom:4px;">📭 No resolved trades yet</div>
+        <div style="font-size:13px;color:var(--text-secondary);line-height:1.5;">The brain needs ~24h to capture + resolve enough predictions to populate these pages. Click <strong>Generate demo data</strong> to fill in 50 realistic synthetic trades so you can see what the page looks like when populated. Clear them any time — your real data is preserved separately.</div>
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;">
+        <button onclick="genDemo()" style="padding:12px 22px;background:linear-gradient(135deg,#a884ff,#7c3aed);color:#fff;border:none;border-radius:8px;font-weight:800;cursor:pointer;font-size:14px;">⚡ Generate demo data</button>
+        <button onclick="clearDemo()" id="clear-demo-btn" style="padding:12px 18px;background:rgba(220,38,38,0.18);color:var(--red);border:1px solid rgba(220,38,38,0.4);border-radius:8px;font-weight:700;cursor:pointer;font-size:13px;display:none;">🗑 Clear demo</button>
+      </div>
+    </div>
+  </div>
+
   <div class="cfg-row">
     <label>Bankroll $<input id="cfg-bankroll" type="number" value="10000" min="100" step="100"></label>
     <label>Risk/trade %<input id="cfg-risk" type="number" value="2" min="0.1" max="10" step="0.1"></label>
@@ -118,6 +133,9 @@ table.t td { padding:10px 12px;border-bottom:1px solid rgba(255,255,255,0.04);fo
 <script src="js/notify.js"></script>
 <script src="js/charts.js"></script>
 <script src="js/live.js"></script>
+<!-- Direct loads so render() doesn't wait on lazy-load timer -->
+<script src="js/money-tracker.js"></script>
+<script src="js/demo-data.js"></script>
 <script>buildNav('money-made');</script>
 <script>
 let currentWindow = 'd7';
@@ -167,6 +185,70 @@ function resetConfig() {
   window.MoneyTracker.reset();
   loadCfgIntoInputs();
   render();
+}
+
+function genDemo() {
+  if (!window.DemoData) { alert('DemoData module not loaded — hard-reload the page.'); return; }
+  const r = window.DemoData.generate({ days: 30, count: 50 });
+  alert('✅ Generated ' + r.journal + ' journal entries, ' + r.alerts + ' alerts, ' + r.autoTrades + ' closed auto-trades. Pages will populate immediately.');
+  render();
+  renderMarketBanner();
+}
+function clearDemo() {
+  if (!window.DemoData) return;
+  if (!confirm('Clear all demo data? Real data is preserved.')) return;
+  const r = window.DemoData.clear();
+  alert('🗑 Removed ' + r.removed + ' demo entries. Real data preserved.');
+  render();
+  renderMarketBanner();
+}
+
+function isMarketOpen() {
+  const now = new Date();
+  const day = now.getDay();   // 0=Sun, 6=Sat
+  if (day === 0 || day === 6) return false;
+  // ET hours: 9:30-16:00. Page runs in user timezone, so use UTC offset hack
+  const utcH = now.getUTCHours();
+  const utcM = now.getUTCMinutes();
+  const minutesUTC = utcH * 60 + utcM;
+  // Market: 13:30 - 20:00 UTC (winter) or 14:30 - 21:00 UTC (summer/DST)
+  // Use a wider window to be safe (13:00 - 21:00 UTC = approx)
+  return minutesUTC >= 13 * 60 && minutesUTC <= 21 * 60;
+}
+
+function renderMarketBanner() {
+  const banner = document.getElementById('market-banner');
+  const empty = document.getElementById('empty-state-banner');
+  const open = isMarketOpen();
+  const hasJournal = (() => { try { return JSON.parse(localStorage.getItem('bpleone_pred_journal_v1') || '[]').length > 0; } catch (e) { return false; } })();
+  const hasDemo = window.DemoData && window.DemoData.hasDemoData();
+  // Market status banner
+  if (open) {
+    banner.style.display = 'block';
+    banner.style.background = 'rgba(16,185,129,0.10)';
+    banner.style.borderLeft = '4px solid var(--green)';
+    banner.innerHTML = '🟢 <strong>Market is OPEN</strong> — prices ticking live. Brain capturing predictions.';
+  } else {
+    banner.style.display = 'block';
+    banner.style.background = 'rgba(245,158,11,0.08)';
+    banner.style.borderLeft = '4px solid var(--yellow)';
+    const d = new Date();
+    const day = d.getDay();
+    const isWeekend = day === 0 || day === 6;
+    banner.innerHTML = isWeekend
+      ? '🟡 <strong>Market CLOSED — weekend.</strong> Ticker shows last Friday close. Brain pauses live capture but historical data + simulated P&L still works.'
+      : '🟡 <strong>Market CLOSED — after hours.</strong> Ticker shows last close. Brain captures resume at 9:30 AM ET.';
+  }
+  // Empty state banner — show if no real data AND no demo data
+  if (!hasJournal) {
+    empty.style.display = 'block';
+    document.getElementById('clear-demo-btn').style.display = 'none';
+  } else if (hasDemo) {
+    empty.style.display = 'none';
+    document.getElementById('clear-demo-btn').style.display = 'inline-block';
+  } else {
+    empty.style.display = 'none';
+  }
 }
 
 function render() {
@@ -270,8 +352,8 @@ document.querySelectorAll('#window-tabs button').forEach(b => {
   });
 });
 
-setTimeout(() => { loadCfgIntoInputs(); render(); }, 500);
-setInterval(render, 8000);
+setTimeout(() => { loadCfgIntoInputs(); render(); renderMarketBanner(); }, 500);
+setInterval(() => { render(); renderMarketBanner(); }, 8000);
 </script>
 </body>
 </html>

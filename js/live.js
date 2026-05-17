@@ -404,6 +404,21 @@ document.addEventListener('DOMContentLoaded', () => {
         s.async = false;
         document.head.appendChild(s);
       }
+      // Demo Data Generator — lets users populate empty pages with synthetic
+      // resolved trades so the brain UI doesn't read empty for 24+ hours.
+      if (!document.querySelector('script[src*="demo-data.js"]')) {
+        const s = document.createElement('script');
+        s.src = 'js/demo-data.js';
+        s.async = false;
+        document.head.appendChild(s);
+      }
+      // Demo FAB — floating "Generate demo data" button on every page when journal empty.
+      if (!document.querySelector('script[src*="demo-fab.js"]')) {
+        const s = document.createElement('script');
+        s.src = 'js/demo-fab.js';
+        s.async = true;
+        document.head.appendChild(s);
+      }
       // Auto-Trade closed loop — opens paper trades on high-conviction brain signals.
       // Off by default; user must enable on auto-trade.html. Auto-loads here so
       // the 15s polling can run from any page once the user has flipped the toggle.

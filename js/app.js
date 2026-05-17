@@ -1124,6 +1124,50 @@ function initLivePulseTicker() {
       pill.style.color = 'var(--red)';
     }
   }, 15000);
+
+  // Session-aware label: change "LIVE" to "AFTER" / "PRE" / "CLOSED" outside RTH
+  // so the pill doesn't lie about market state on weekends/nights.
+  setInterval(() => {
+    const text = document.getElementById('nav-pulse-text');
+    const dot = document.getElementById('nav-pulse-dot');
+    const pill = document.getElementById('nav-live-pulse');
+    if (!text || !dot || !pill) return;
+    if (text.textContent === 'STALE' || text.textContent.indexOf('+') === 0) return; // don't override STALE or in-flight cycle counters
+    const sess = (typeof detectSession === 'function') ? detectSession() : 'open';
+    if (sess === 'open') {
+      text.textContent = 'LIVE';
+      dot.style.background = '#10b981';
+      dot.style.boxShadow = '0 0 8px #10b981';
+      pill.style.background = 'rgba(16,185,129,0.12)';
+      pill.style.borderColor = 'rgba(16,185,129,0.4)';
+      pill.style.color = '#10b981';
+      pill.title = 'Market open — brain capturing live';
+    } else if (sess === 'pre-market') {
+      text.textContent = 'PRE';
+      dot.style.background = 'var(--yellow)';
+      dot.style.boxShadow = '0 0 8px var(--yellow)';
+      pill.style.background = 'rgba(245,158,11,0.12)';
+      pill.style.borderColor = 'rgba(245,158,11,0.4)';
+      pill.style.color = 'var(--yellow)';
+      pill.title = 'Pre-market session — ticker may be thin';
+    } else if (sess === 'after-hours') {
+      text.textContent = 'AFTER';
+      dot.style.background = 'var(--yellow)';
+      dot.style.boxShadow = '0 0 8px var(--yellow)';
+      pill.style.background = 'rgba(245,158,11,0.12)';
+      pill.style.borderColor = 'rgba(245,158,11,0.4)';
+      pill.style.color = 'var(--yellow)';
+      pill.title = 'After-hours — ticker shows session close';
+    } else {
+      text.textContent = 'CLOSED';
+      dot.style.background = 'var(--text-muted)';
+      dot.style.boxShadow = '0 0 6px var(--text-muted)';
+      pill.style.background = 'rgba(120,140,160,0.10)';
+      pill.style.borderColor = 'rgba(120,140,160,0.3)';
+      pill.style.color = 'var(--text-muted)';
+      pill.title = 'Market closed — ticker shows last close';
+    }
+  }, 8000);
 }
 
 // Force live-data attempt on every page load. Stooq + Coinbase free polling
