@@ -508,6 +508,17 @@
     model.n_trained = (model.n_trained || 0) + newRows.length;
     ModelStore.save(model);
 
+    // SELF-DISTILLATION: optional extra training step pulling toward
+    // SWA teacher's predictions. Disabled by default; opt-in via dashboard.
+    try {
+      if (typeof SelfDistillation !== 'undefined' && SelfDistillation.enabled()) {
+        for (const r of newRows) {
+          SelfDistillation.distillStep(model, r.features, r.label);
+        }
+        ModelStore.save(model);
+      }
+    } catch (e) {}
+
     // HINDSIGHT REPLAY: after the main training pass, replay a small batch
     // of confidently-wrong past predictions to amplify learning on those.
     try {

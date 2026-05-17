@@ -470,6 +470,15 @@ document.addEventListener('DOMContentLoaded', () => {
         s.async = false;
         document.head.appendChild(s);
       }
+      // Self-Distillation: optional opt-in knowledge distillation using SWA
+      // as the teacher. After each training step, do one extra step toward
+      // (α × teacher_prediction + (1-α) × hard_label). Regularizer.
+      if (!document.querySelector('script[src*="self-distillation.js"]')) {
+        const s = document.createElement('script');
+        s.src = 'js/self-distillation.js';
+        s.async = false;
+        document.head.appendChild(s);
+      }
       // Regime-Stratified Calibrator: separate Platt scalers per market
       // regime (bull/bear/chop/high-vol/mixed) so calibration adapts to
       // current conditions instead of averaging across regimes.

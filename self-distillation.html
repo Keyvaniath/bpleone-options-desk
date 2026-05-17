@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Self-Distillation — bpleone / brain</title>
+<meta name="description" content="Knowledge distillation regularizer. Uses SWA-averaged weights as teacher; pulls live model toward stable teacher predictions.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.alpha-card { padding:32px;border-radius:16px;text-align:center;background:linear-gradient(135deg,rgba(167,139,250,0.10),rgba(167,139,250,0.02));border:2px solid rgba(167,139,250,0.4); }
+.alpha-card .big { font-family:var(--font-mono);font-size:64px;font-weight:900;line-height:1;color:#a78bfa; }
+.tile { padding:18px;background:var(--bg-elevated);border-radius:10px; }
+.tile .lbl { font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;font-weight:700; }
+.tile .val { font-family:var(--font-mono);font-size:22px;font-weight:800;margin-top:6px;color:var(--accent); }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">🧙 Self-Distillation</div>
+      <div class="page-subtitle">Knowledge distillation regularizer · SWA teacher pulls live model toward stable predictions</div>
+    </div>
+  </div>
+
+  <div id="alpha-card" class="mb-24"></div>
+
+  <div class="grid grid-3 mb-24" id="metrics-grid"></div>
+
+  <div class="card mb-24">
+    <div class="card-header"><div class="card-title">⚙ Configuration</div></div>
+    <div style="font-size:13px;color:var(--text-secondary);margin-bottom:14px;">
+      <strong>Disabled by default</strong> because it doubles training compute per resolution. Enable when:
+      <ul style="margin:8px 0 8px 24px;">
+        <li>BSS is positive but plateaued and you want smoother convergence</li>
+        <li>SWA divergence (see swa-tracker) is consistently >0.5 — student is drifting too far from teacher</li>
+        <li>Calibration is poor and you want soft labels in addition to hard ones</li>
+      </ul>
+    </div>
+    <div style="display:flex;gap:14px;flex-wrap:wrap;align-items:end;">
+      <label style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;font-weight:700;display:flex;flex-direction:column;gap:4px;">Alpha (α)<input id="alpha-input" type="number" style="width:100px;padding:8px 12px;background:var(--bg-elevated);border:1px solid var(--border);color:var(--text-primary);border-radius:6px;font-family:var(--font-mono);font-size:14px;font-weight:700;text-align:right;" step="0.05" min="0" max="0.7" value="0.30"></label>
+      <button onclick="updateAlpha()" style="padding:10px 22px;background:var(--accent);color:#000;border:none;border-radius:8px;font-weight:700;cursor:pointer;font-size:14px;">Apply α</button>
+      <button onclick="toggleEnabled()" id="toggle-btn" style="padding:10px 22px;background:var(--bg-elevated);color:var(--text-primary);border:1px solid var(--border);border-radius:8px;font-weight:700;cursor:pointer;font-size:14px;">Enable</button>
+    </div>
+    <div style="margin-top:14px;font-size:12px;color:var(--text-muted);font-family:var(--font-mono);">α ∈ [0, 0.7]. Higher α = more teacher influence. Recommended: 0.3.</div>
+  </div>
+
+  <div class="card">
+    <div class="card-header"><div class="card-title">📚 How distillation works here</div></div>
+    <div style="font-size:13px;color:var(--text-secondary);line-height:1.7;">
+      <strong>Standard hard-label training:</strong> When a trade resolves with y=1 (win), the model gradient pulls toward predicting 1.0 on those features. The model's prediction loss is <code>CE(p, 1)</code> = <code>-log(p)</code>. It keeps pushing toward saturation.<br><br>
+      <strong>Knowledge distillation (Hinton 2015):</strong> Use a TEACHER model to provide a soft target. The teacher knows that even winning examples carry uncertainty — instead of saying "y=1.0," it says "y ≈ 0.78 based on the features." This is more information than the hard label.<br><br>
+      <strong>What's the teacher here?</strong> SWA-averaged weights. SWA sits in a flatter loss minimum than the live model, so its predictions are smoother + better calibrated. <a href="swa-tracker.html" style="color:var(--accent);">See SWA tracker.</a><br><br>
+      <strong>The distillation step:</strong> After the main training step on hard label y, do one extra step:
+      <code style="display:block;background:var(--bg-elevated);padding:10px;margin:8px 0;border-radius:6px;">soft_target = α × teacher.predict(features) + (1 − α) × y<br>model.train(features, soft_target)</code>
+      With α=0.3 the model is gently pulled toward consistency with the SWA teacher while still primarily learning from hard labels. This regularizes against drifting too far from the stable averaged version.<br><br>
+      <strong>Trade-off:</strong> doubles the training compute per resolution (one main step + one distill step). For a brain running on a single browser tab this is fine, but it's why we keep it opt-in by default.
+    </div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script src="js/self-distillation.js"></script>
+<script>
+buildNav('self-distillation');
+
+function render() {
+  const s = SelfDistillation.stats();
+  document.getElementById('alpha-card').innerHTML = '<div class="alpha-card">'
+    + '<div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:1px;font-weight:700;">Current α</div>'
+    + '<div class="big" style="margin-top:8px;">' + s.alpha.toFixed(2) + '</div>'
+    + '<div style="font-size:14px;color:' + (s.enabled ? 'var(--green)' : 'var(--yellow)') + ';font-weight:700;margin-top:14px;">' + (s.enabled ? '✓ ACTIVE — distilling on every training step' : '⚠ DISABLED — no effect on training') + '</div>'
+    + '</div>';
+
+  document.getElementById('metrics-grid').innerHTML = ''
+    + '<div class="tile"><div class="lbl">Distill steps</div><div class="val">' + s.stepCount + '</div></div>'
+    + '<div class="tile"><div class="lbl">Range</div><div class="val">[' + s.min + ', ' + s.max + ']</div></div>'
+    + '<div class="tile"><div class="lbl">Last step</div><div class="val" style="font-size:16px;">' + (s.lastTs ? new Date(s.lastTs).toLocaleTimeString() : '—') + '</div></div>';
+
+  document.getElementById('alpha-input').value = s.alpha;
+  document.getElementById('toggle-btn').textContent = s.enabled ? 'Disable' : 'Enable';
+}
+
+function updateAlpha() {
+  const a = parseFloat(document.getElementById('alpha-input').value);
+  if (!isNaN(a)) { SelfDistillation.setAlpha(a); render(); }
+}
+function toggleEnabled() {
+  SelfDistillation.setEnabled(!SelfDistillation.enabled());
+  render();
+}
+
+render();
+setInterval(render, 8000);
+</script>
+</body>
+</html>
