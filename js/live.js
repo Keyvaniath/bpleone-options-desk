@@ -748,6 +748,16 @@ document.addEventListener('DOMContentLoaded', () => {
         s.async = true;
         document.head.appendChild(s);
       }
+      // Historical Bootstrap: pulls 60 days of Stooq bars on first visit
+      // and pre-trains the model + calibrators + BSS + Sharpe so the brain
+      // doesn't start at zero. Auto-triggers 8s after load if not yet run.
+      // Loaded LAST so all brain modules are present when it runs.
+      if (!document.querySelector('script[src*="historical-bootstrap.js"]')) {
+        const s = document.createElement('script');
+        s.src = 'js/historical-bootstrap.js';
+        s.async = true;
+        document.head.appendChild(s);
+      }
     } catch (e) {}
   }, 5000);
 });

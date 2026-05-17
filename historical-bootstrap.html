@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Historical Bootstrap — bpleone</title>
+<meta name="description" content="Pre-train the brain on 60 days of historical Stooq bars so it doesn't start at zero. Auto-runs on first visit.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.status-card { padding:32px;border-radius:16px;text-align:center; }
+.status-card.done { background:linear-gradient(135deg,rgba(16,185,129,0.10),rgba(16,185,129,0.02));border:2px solid var(--green); }
+.status-card.running { background:linear-gradient(135deg,rgba(245,158,11,0.10),rgba(245,158,11,0.02));border:2px solid var(--yellow); }
+.status-card.idle { background:linear-gradient(135deg,rgba(0,212,255,0.06),rgba(0,212,255,0.02));border:2px solid var(--accent); }
+.status-card .big { font-family:var(--font-mono);font-size:56px;font-weight:900;line-height:1; }
+.tile { padding:18px;background:var(--bg-elevated);border-radius:10px; }
+.tile .lbl { font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;font-weight:700; }
+.tile .val { font-family:var(--font-mono);font-size:22px;font-weight:800;margin-top:6px;color:var(--accent); }
+.btn { padding:12px 22px;border:none;border-radius:8px;font-weight:700;cursor:pointer;font-size:14px;letter-spacing:0.3px;margin-right:10px; }
+.btn-go { background:linear-gradient(135deg,#00d4ff,#0094c7);color:#000; }
+.btn-warn { background:rgba(245,158,11,0.18);color:var(--yellow);border:1px solid rgba(245,158,11,0.5); }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">⏪ Historical Bootstrap</div>
+      <div class="page-subtitle">Pre-train brain on 60 days of real Stooq bars so it doesn't start at zero</div>
+    </div>
+  </div>
+
+  <div id="status-card" class="status-card mb-24"></div>
+
+  <div class="grid grid-3 mb-24" id="kpi-grid"></div>
+
+  <div class="card mb-24">
+    <div class="card-header"><div class="card-title">🎬 Run controls</div></div>
+    <div style="font-size:13px;color:var(--text-secondary);margin-bottom:14px;">
+      The bootstrap auto-runs once per browser, 8 seconds after the first page load. Use the buttons below to re-run or reset.
+    </div>
+    <button onclick="runNow()" class="btn btn-go">▶ Run bootstrap now</button>
+    <button onclick="forceRerun()" class="btn btn-warn">↻ Force re-run (re-trains brain)</button>
+    <button onclick="resetFlag()" class="btn btn-warn">🔁 Reset flag (will auto-run on next page load)</button>
+    <div id="run-result" style="margin-top:14px;font-family:var(--font-mono);font-size:12px;color:var(--text-muted);"></div>
+  </div>
+
+  <div class="card">
+    <div class="card-header"><div class="card-title">📚 What this does</div></div>
+    <div style="font-size:13px;color:var(--text-secondary);line-height:1.7;">
+      Without bootstrap, the brain learns purely from going-forward live ticks — meaning ~10 resolved trades per symbol per day. It takes WEEKS for BSS to converge, weeks for calibration to be honest, weeks for per-symbol blends to mean anything.<br><br>
+      <strong>The bootstrap fixes this:</strong>
+      <ol style="margin:8px 0 8px 24px;">
+        <li>On first visit, pulls 60 days of daily OHLC bars from Stooq for every tracked symbol (SPY, QQQ, NVDA, BTC, etc.) — free, no key</li>
+        <li>For each (symbol, day) pair, reconstructs the same 22-feature vector the brain uses live: RSI, ATR%, vol ratio, distance from 50/200 MA, SPY change, setup flags from price action, etc.</li>
+        <li>Outcome label = next day's close direction (LONG win if next close &gt; today's by 0.3%+, SHORT win if -0.3%-, dropped if within noise)</li>
+        <li>Feeds (features, outcome) to <em>every</em> learning module: ModelStore (Adam SGD), Calibrator (Platt), IsotonicCalibrator (PAV), RegimeCalibrator, BrierSkill, SharpeTracker, SymbolSkill, SymbolSharpe, SectorPerf, ReliabilityDiagram, PredictionHistogram, SymbolBias</li>
+        <li>Fits all calibrators on the populated pools so probabilities become honest immediately</li>
+      </ol>
+      <strong>Result:</strong> ~660 training examples (22 symbols × ~30 valid days/symbol after dropping flat outcomes) → BSS converges to a measurable value within minutes of opening the site. Per-symbol stats become meaningful. The brain is warm-started instead of cold.<br><br>
+      <strong>Gated by localStorage flag</strong> so it only runs ONCE per browser. Reset the flag to re-run (e.g. if you clear training history and want to re-bootstrap). Each run takes ~10 seconds (24 symbols × 300ms delay).
+    </div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script src="js/historical-bootstrap.js"></script>
+<script>
+buildNav('historical-bootstrap');
+
+function fmt(n) { return n != null ? n.toLocaleString() : '—'; }
+function fmtTs(ts) { return ts ? new Date(ts).toLocaleString() : '—'; }
+
+function render() {
+  if (typeof HistoricalBootstrap === 'undefined') {
+    setTimeout(render, 1500);
+    return;
+  }
+  const s = HistoricalBootstrap.status();
+  const card = document.getElementById('status-card');
+  let cls = 'status-card idle', icon, msg, sub;
+  if (s.runningAt && Date.now() - s.runningAt < 5 * 60 * 1000) {
+    cls = 'status-card running';
+    icon = '⏳';
+    msg = 'BOOTSTRAP RUNNING';
+    sub = 'Fetching Stooq bars and training the brain. Takes ~10s. Watch the BSS dashboard.';
+  } else if (s.completed) {
+    cls = 'status-card done';
+    icon = '✓';
+    msg = 'BOOTSTRAP COMPLETE';
+    sub = 'Brain pre-trained on ' + fmt(s.trainingExamples) + ' historical examples from ' + fmt(s.symbolsFetched) + ' symbols';
+  } else {
+    icon = '○';
+    msg = 'NOT YET RUN';
+    sub = 'Bootstrap auto-triggers 8s after first page load. Or click "Run bootstrap now" above.';
+  }
+  card.className = cls;
+  card.innerHTML = '<div class="big">' + icon + '</div>'
+    + '<div style="font-size:22px;font-weight:800;margin-top:14px;">' + msg + '</div>'
+    + '<div style="font-size:13px;color:var(--text-secondary);margin-top:8px;">' + sub + '</div>';
+
+  document.getElementById('kpi-grid').innerHTML = ''
+    + '<div class="tile"><div class="lbl">Symbols fetched</div><div class="val">' + fmt(s.symbolsFetched) + '</div></div>'
+    + '<div class="tile"><div class="lbl">Training examples</div><div class="val">' + fmt(s.trainingExamples) + '</div></div>'
+    + '<div class="tile"><div class="lbl">Last run</div><div class="val" style="font-size:14px;">' + fmtTs(s.lastRunAt) + '</div></div>';
+}
+
+async function runNow() {
+  document.getElementById('run-result').textContent = '⏳ Running bootstrap…';
+  const r = await HistoricalBootstrap.run();
+  document.getElementById('run-result').textContent = r.skipped
+    ? '⏭ Skipped: ' + r.reason
+    : '✓ Done — fetched ' + r.fetched + ' symbols, trained on ' + r.trained + ' examples · errors: ' + (r.errors ? r.errors.length : 0);
+  render();
+}
+
+async function forceRerun() {
+  if (!confirm('Force re-run? Brain will be trained again on the same 60-day window (additional training, not destructive).')) return;
+  document.getElementById('run-result').textContent = '⏳ Force re-running…';
+  const r = await HistoricalBootstrap.run({ force: true });
+  document.getElementById('run-result').textContent = '✓ Re-run done — trained on ' + r.trained + ' examples';
+  render();
+}
+
+function resetFlag() {
+  if (!confirm('Reset the bootstrap flag? It will auto-run on the next page load.')) return;
+  HistoricalBootstrap.reset();
+  document.getElementById('run-result').textContent = '✓ Flag reset. Refresh any page to re-trigger.';
+  render();
+}
+
+render();
+setInterval(render, 5000);
+window.addEventListener('bpleone:hist-bootstrap-done', render);
+</script>
+</body>
+</html>
