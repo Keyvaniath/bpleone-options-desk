@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Source Quality — bpleone</title>
+<meta name="description" content="Smart Source Preference: when multiple sources have the same symbol, the highest-quality one wins. View live source rankings.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.tile { padding:18px;background:var(--bg-elevated);border-radius:10px; }
+.tile .lbl { font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;font-weight:700; }
+.tile .val { font-family:var(--font-mono);font-size:22px;font-weight:800;margin-top:6px;color:var(--accent); }
+table.rank { width:100%;border-collapse:collapse;font-size:13px; }
+table.rank th { text-align:left;padding:10px 12px;border-bottom:1px solid var(--bg-elevated);color:var(--text-muted);font-size:11px;text-transform:uppercase;letter-spacing:0.5px;font-weight:700; }
+table.rank td { padding:10px 12px;border-bottom:1px solid rgba(255,255,255,0.04);font-family:var(--font-mono); }
+.rank-bar { height:8px;background:rgba(255,255,255,0.06);border-radius:4px;overflow:hidden;width:160px;display:inline-block;vertical-align:middle; }
+.rank-bar > span { display:block;height:100%;background:linear-gradient(90deg,#00d4ff,#10b981);border-radius:4px; }
+.pill { display:inline-block;padding:3px 9px;border-radius:6px;font-size:11px;font-weight:700; }
+.pill-best { background:rgba(16,185,129,0.18);color:var(--green); }
+.pill-mid { background:rgba(245,158,11,0.18);color:var(--yellow); }
+.pill-bad { background:rgba(220,38,38,0.18);color:var(--red); }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">⚖️ Smart Source Preference</div>
+      <div class="page-subtitle">When 2+ data sources have a fresh price for the same symbol, the higher-quality source wins. Lower-quality ticks become "shadow" prices for cross-check, not canonical.</div>
+    </div>
+  </div>
+
+  <div class="card mb-24" style="background:linear-gradient(135deg,rgba(0,212,255,0.05),rgba(140,100,255,0.05));border-left:4px solid var(--accent);">
+    <div style="font-size:14px;color:var(--text-secondary);line-height:1.6;">
+      <strong>Why this exists:</strong> the prior behavior was that <em>every</em> tick from <em>every</em> source overwrote the canonical price. So a 12-second Stooq poll could overwrite a 1-second Coinbase WebSocket realtime price with stale data. Now: each source gets a composite quality score from <strong>built-in priority</strong> (WS > REST > refresh), <strong>recent reliability</strong> (success rate), <strong>cross-source agreement</strong>, and <strong>latency</strong>. Only ticks from the equal-or-better source replace canonical.
+    </div>
+  </div>
+
+  <div class="grid grid-3 mb-24" id="kpi-grid"></div>
+
+  <div class="card mb-24">
+    <div class="card-header"><div class="card-title">🏆 Source quality ranking (best → worst)</div></div>
+    <table class="rank" id="rank-table">
+      <thead>
+        <tr><th>Source</th><th>Score</th><th>Priority</th><th>Reliability</th><th>Agreement</th><th>Latency</th></tr>
+      </thead>
+      <tbody id="rank-body"><tr><td colspan="6" style="color:var(--text-muted);text-align:center;padding:18px;">Waiting for first ticks... reload in 30s if empty.</td></tr></tbody>
+    </table>
+  </div>
+
+  <div class="card mb-24">
+    <div class="card-header"><div class="card-title">🪞 Shadow prices (rejected as canonical, kept for cross-check)</div></div>
+    <div style="font-size:12px;color:var(--text-muted);margin-bottom:10px;">When a lower-quality source ticks for a symbol that already has a higher-quality canonical, the new price is logged as shadow. Big gap = potential source bug.</div>
+    <table class="rank" id="shadow-table">
+      <thead>
+        <tr><th>Symbol</th><th>Canonical price</th><th>Canonical source</th><th>Shadow price</th><th>Shadow source</th><th>Gap %</th></tr>
+      </thead>
+      <tbody id="shadow-body"><tr><td colspan="6" style="color:var(--text-muted);text-align:center;padding:18px;">No shadow prices yet. Need at least 2 sources fresh on same symbol.</td></tr></tbody>
+    </table>
+  </div>
+
+  <div class="card">
+    <div class="card-header"><div class="card-title">🔗 Related</div></div>
+    <div style="display:flex;gap:12px;flex-wrap:wrap;">
+      <a href="data-reliability.html" class="btn" style="text-decoration:none;display:inline-block;background:linear-gradient(135deg,#00d4ff,#0094c7);color:#000;padding:10px 18px;border-radius:8px;font-weight:700;">📊 Data Reliability</a>
+      <a href="weekly-refresh.html" class="btn" style="text-decoration:none;display:inline-block;background:rgba(120,140,160,0.12);color:var(--accent);padding:10px 18px;border-radius:8px;font-weight:700;">📅 Weekly Refresh</a>
+      <a href="historical-bootstrap.html" class="btn" style="text-decoration:none;display:inline-block;background:rgba(120,140,160,0.12);color:var(--accent);padding:10px 18px;border-radius:8px;font-weight:700;">⏪ Historical Bootstrap</a>
+      <a href="make-money.html" class="btn" style="text-decoration:none;display:inline-block;background:rgba(120,140,160,0.12);color:var(--accent);padding:10px 18px;border-radius:8px;font-weight:700;">💰 Make Money</a>
+    </div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script>buildNav('source-quality');</script>
+<script>
+function pct(v) { return (v * 100).toFixed(1) + '%'; }
+function pill(score) {
+  if (score >= 0.7) return '<span class="pill pill-best">' + pct(score) + '</span>';
+  if (score >= 0.4) return '<span class="pill pill-mid">' + pct(score) + '</span>';
+  return '<span class="pill pill-bad">' + pct(score) + '</span>';
+}
+function bar(score) {
+  return '<div class="rank-bar"><span style="width:' + (score * 100).toFixed(0) + '%;"></span></div>';
+}
+function render() {
+  if (!window.SourcePreference || !window.DataReliability) {
+    return;
+  }
+  const ranks = window.SourcePreference.allRanks();
+  // KPIs
+  const totalSources = ranks.length;
+  const bestSource = ranks[0] || null;
+  const avgScore = ranks.length ? (ranks.reduce((s, r) => s + r.score, 0) / ranks.length) : 0;
+  document.getElementById('kpi-grid').innerHTML =
+    '<div class="tile"><div class="lbl">Active sources</div><div class="val">' + totalSources + '</div></div>' +
+    '<div class="tile"><div class="lbl">Best source</div><div class="val" style="font-size:16px;">' + (bestSource ? bestSource.source : '—') + '</div></div>' +
+    '<div class="tile"><div class="lbl">Avg quality score</div><div class="val">' + pct(avgScore) + '</div></div>';
+  // Rank table
+  const body = document.getElementById('rank-body');
+  if (ranks.length === 0) {
+    body.innerHTML = '<tr><td colspan="6" style="color:var(--text-muted);text-align:center;padding:18px;">Waiting for first ticks... reload in 30s if empty.</td></tr>';
+  } else {
+    body.innerHTML = ranks.map(r =>
+      '<tr>' +
+        '<td><strong>' + r.source + '</strong></td>' +
+        '<td>' + bar(r.score) + ' ' + pct(r.score) + '</td>' +
+        '<td>' + (r.components.priority * 100 / 30).toFixed(0) + '%</td>' +
+        '<td>' + pill(r.components.reliability) + '</td>' +
+        '<td>' + pill(r.components.agreement) + '</td>' +
+        '<td>' + pill(r.components.latency) + '</td>' +
+      '</tr>'
+    ).join('');
+  }
+  // Shadow prices
+  const shadowBody = document.getElementById('shadow-body');
+  const shadows = [];
+  if (window.QUOTES) {
+    for (const sym in window.QUOTES) {
+      const q = window.QUOTES[sym];
+      if (q.shadowPrice && q.shadowAt && Date.now() - q.shadowAt < 5 * 60 * 1000) {
+        const gap = q.last > 0 ? Math.abs(q.shadowPrice - q.last) / q.last : 0;
+        shadows.push({ sym, q, gap });
+      }
+    }
+  }
+  shadows.sort((a, b) => b.gap - a.gap);
+  if (shadows.length === 0) {
+    shadowBody.innerHTML = '<tr><td colspan="6" style="color:var(--text-muted);text-align:center;padding:18px;">No shadow prices recently. Either only one source is active, or all sources agree.</td></tr>';
+  } else {
+    shadowBody.innerHTML = shadows.slice(0, 20).map(s =>
+      '<tr>' +
+        '<td><strong>' + s.sym + '</strong></td>' +
+        '<td>$' + s.q.last.toFixed(2) + '</td>' +
+        '<td>' + (s.q.priceSource || '—') + '</td>' +
+        '<td>$' + s.q.shadowPrice.toFixed(2) + '</td>' +
+        '<td>' + (s.q.shadowSource || '—') + '</td>' +
+        '<td>' + (s.gap > 0.005 ? '<span style="color:var(--red);font-weight:700;">' + (s.gap * 100).toFixed(2) + '%</span>' : (s.gap * 100).toFixed(2) + '%') + '</td>' +
+      '</tr>'
+    ).join('');
+  }
+}
+setTimeout(render, 500);
+setInterval(render, 4000);
+</script>
+</body>
+</html>

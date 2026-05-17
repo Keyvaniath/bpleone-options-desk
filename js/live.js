@@ -366,6 +366,15 @@ document.addEventListener('DOMContentLoaded', () => {
         s.async = false;
         document.head.appendChild(s);
       }
+      // Smart Source Preference — when multiple sources have a fresh price for
+      // the same symbol, pick the highest-quality one as canonical. Must load
+      // before stale-refresh so that module's writes also consult it.
+      if (!document.querySelector('script[src*="source-preference.js"]')) {
+        const s = document.createElement('script');
+        s.src = 'js/source-preference.js';
+        s.async = false;
+        document.head.appendChild(s);
+      }
       // Stale-symbol auto-refresh — proactively fetches when DataReliability
       // flags a symbol as stale. Closes the gap between 12s poll cycles.
       if (!document.querySelector('script[src*="stale-refresh.js"]')) {
@@ -786,6 +795,15 @@ document.addEventListener('DOMContentLoaded', () => {
       if (!document.querySelector('script[src*="historical-bootstrap.js"]')) {
         const s = document.createElement('script');
         s.src = 'js/historical-bootstrap.js';
+        s.async = true;
+        document.head.appendChild(s);
+      }
+      // Weekly refresh — re-runs the historical bootstrap once per 7 days
+      // so the model is always training on the most recent 60 days of bars.
+      // Loaded after historical-bootstrap so the dependency exists.
+      if (!document.querySelector('script[src*="weekly-refresh.js"]')) {
+        const s = document.createElement('script');
+        s.src = 'js/weekly-refresh.js';
         s.async = true;
         document.head.appendChild(s);
       }

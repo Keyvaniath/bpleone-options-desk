@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Weekly Refresh — bpleone</title>
+<meta name="description" content="Weekly auto-refresh of the historical bootstrap so the brain trains on the most recent 60 days of price action.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.status-card { padding:32px;border-radius:16px; }
+.status-card.due { background:linear-gradient(135deg,rgba(245,158,11,0.12),rgba(245,158,11,0.02));border:2px solid var(--yellow); }
+.status-card.fresh { background:linear-gradient(135deg,rgba(16,185,129,0.12),rgba(16,185,129,0.02));border:2px solid var(--green); }
+.status-card.never { background:linear-gradient(135deg,rgba(220,38,38,0.10),rgba(220,38,38,0.02));border:2px solid var(--red); }
+.big { font-family:var(--font-mono);font-size:48px;font-weight:900;line-height:1; }
+.tile { padding:16px;background:var(--bg-elevated);border-radius:10px; }
+.tile .lbl { font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;font-weight:700; }
+.tile .val { font-family:var(--font-mono);font-size:22px;font-weight:800;margin-top:6px;color:var(--accent); }
+.btn { padding:12px 22px;border:none;border-radius:8px;font-weight:700;cursor:pointer;font-size:14px;letter-spacing:0.3px;margin-right:10px; }
+.btn-go { background:linear-gradient(135deg,#00d4ff,#0094c7);color:#000; }
+.btn-warn { background:rgba(245,158,11,0.18);color:var(--yellow);border:1px solid rgba(245,158,11,0.5); }
+.btn-mute { background:rgba(120,140,160,0.12);color:var(--text-muted);border:1px solid rgba(120,140,160,0.3); }
+table.hist { width:100%;border-collapse:collapse;font-size:12px; }
+table.hist th { text-align:left;padding:8px 10px;border-bottom:1px solid var(--bg-elevated);color:var(--text-muted);font-size:11px;text-transform:uppercase;letter-spacing:0.5px;font-weight:700; }
+table.hist td { padding:8px 10px;border-bottom:1px solid rgba(255,255,255,0.04);font-family:var(--font-mono); }
+.pill { display:inline-block;padding:2px 8px;border-radius:6px;font-size:11px;font-weight:700; }
+.pill-ok { background:rgba(16,185,129,0.18);color:var(--green); }
+.pill-err { background:rgba(220,38,38,0.18);color:var(--red); }
+.pill-auto { background:rgba(0,212,255,0.18);color:var(--accent); }
+.pill-manual { background:rgba(140,100,255,0.18);color:#a884ff; }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">📅 Weekly Bootstrap Refresh</div>
+      <div class="page-subtitle">Every 7 days, the historical bootstrap re-runs automatically so the brain trains on the most recent 60 days — no manual click required.</div>
+    </div>
+  </div>
+
+  <div class="card mb-24" style="background:linear-gradient(135deg,rgba(0,212,255,0.05),rgba(140,100,255,0.05));border-left:4px solid var(--accent);">
+    <div style="font-size:14px;color:var(--text-secondary);line-height:1.6;">
+      <strong>Why this exists:</strong> the original Historical Bootstrap only ran <em>once per browser</em> when you first visited. Without refresh, the brain keeps training on the same 60-day window forever and never sees this week's price action. This module fixes that — every 7 days, the bootstrap automatically re-pulls fresh 60-day bars for all 24 symbols from Stooq and re-trains the model, calibrators, BSS, Sharpe tracker, and every other learning module.
+    </div>
+  </div>
+
+  <div id="status-card" class="status-card mb-24"></div>
+
+  <div class="grid grid-4 mb-24" id="kpi-grid"></div>
+
+  <div class="card mb-24">
+    <div class="card-header"><div class="card-title">🎬 Manual controls</div></div>
+    <div style="font-size:13px;color:var(--text-secondary);margin-bottom:14px;">
+      Refresh runs automatically every 7 days. Use these to force a refresh now, or reset the timer so the next refresh waits a full week from now.
+    </div>
+    <button onclick="forceNow()" class="btn btn-go">↻ Force refresh now</button>
+    <button onclick="resetState()" class="btn btn-mute">🔁 Reset refresh state</button>
+    <div id="run-result" style="margin-top:14px;font-family:var(--font-mono);font-size:12px;color:var(--text-muted);min-height:18px;"></div>
+  </div>
+
+  <div class="card mb-24">
+    <div class="card-header"><div class="card-title">📋 Recent refresh history</div></div>
+    <table class="hist" id="history-table">
+      <thead>
+        <tr><th>When</th><th>Result</th><th>Trigger</th><th>Symbols</th><th>Examples</th><th>Errors</th><th>Duration</th></tr>
+      </thead>
+      <tbody id="history-body"><tr><td colspan="7" style="color:var(--text-muted);text-align:center;padding:18px;">No refresh history yet — first auto-refresh will run ~30s after page load.</td></tr></tbody>
+    </table>
+  </div>
+
+  <div class="card">
+    <div class="card-header"><div class="card-title">🔗 Related</div></div>
+    <div style="display:flex;gap:12px;flex-wrap:wrap;">
+      <a href="historical-bootstrap.html" class="btn btn-go" style="text-decoration:none;display:inline-block;">⏪ Historical Bootstrap</a>
+      <a href="data-reliability.html" class="btn btn-mute" style="text-decoration:none;display:inline-block;color:var(--accent);">📊 Data Reliability</a>
+      <a href="brain-coach-live.html" class="btn btn-mute" style="text-decoration:none;display:inline-block;color:var(--accent);">🎙️ Brain Coach Live</a>
+      <a href="make-money.html" class="btn btn-mute" style="text-decoration:none;display:inline-block;color:var(--accent);">💰 Make Money</a>
+    </div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script>buildNav('weekly-refresh');</script>
+<script>
+function fmtTs(t) {
+  if (!t) return '—';
+  const d = new Date(t);
+  return d.toLocaleString();
+}
+function fmtAgo(t) {
+  if (!t) return 'never';
+  const ms = Date.now() - t;
+  const d = ms / (24 * 60 * 60 * 1000);
+  if (d < 1) return (ms / (60 * 60 * 1000)).toFixed(1) + 'h ago';
+  return d.toFixed(1) + 'd ago';
+}
+function fmtUntil(t) {
+  if (!t) return '—';
+  const ms = t - Date.now();
+  if (ms <= 0) return 'NOW (overdue)';
+  const d = ms / (24 * 60 * 60 * 1000);
+  if (d < 1) return 'in ' + (ms / (60 * 60 * 1000)).toFixed(1) + 'h';
+  return 'in ' + d.toFixed(1) + 'd';
+}
+function fmtDuration(ms) {
+  if (!ms) return '—';
+  if (ms < 1000) return ms + 'ms';
+  return (ms / 1000).toFixed(1) + 's';
+}
+function render() {
+  if (!window.WeeklyRefresh) {
+    document.getElementById('status-card').className = 'status-card never';
+    document.getElementById('status-card').innerHTML = '<div style="text-align:center;color:var(--text-muted);">Weekly Refresh module not yet loaded. Reload the page in a few seconds.</div>';
+    return;
+  }
+  const s = window.WeeklyRefresh.status();
+  // Status card
+  const card = document.getElementById('status-card');
+  if (!s.lastSuccessAt) {
+    card.className = 'status-card never';
+    card.innerHTML = '<div style="display:flex;align-items:center;gap:24px;flex-wrap:wrap;"><div class="big" style="color:var(--red);">NEVER</div><div><div style="font-size:18px;font-weight:800;margin-bottom:4px;">Bootstrap has never auto-refreshed</div><div style="font-size:13px;color:var(--text-muted);">First auto-refresh fires 30 seconds after page load. Force one now using the button below.</div></div></div>';
+  } else if (s.due) {
+    card.className = 'status-card due';
+    card.innerHTML = '<div style="display:flex;align-items:center;gap:24px;flex-wrap:wrap;"><div class="big" style="color:var(--yellow);">DUE</div><div><div style="font-size:18px;font-weight:800;margin-bottom:4px;">Refresh overdue — last ran ' + fmtAgo(s.lastSuccessAt) + '</div><div style="font-size:13px;color:var(--text-muted);">Next auto-attempt within 6 hours. Force one now with the button below.</div></div></div>';
+  } else {
+    card.className = 'status-card fresh';
+    card.innerHTML = '<div style="display:flex;align-items:center;gap:24px;flex-wrap:wrap;"><div class="big" style="color:var(--green);">FRESH</div><div><div style="font-size:18px;font-weight:800;margin-bottom:4px;">Last refreshed ' + fmtAgo(s.lastSuccessAt) + '</div><div style="font-size:13px;color:var(--text-muted);">Next refresh ' + fmtUntil(s.nextRefreshDue) + '. Brain is training on the most recent 60 days.</div></div></div>';
+  }
+  // KPIs
+  document.getElementById('kpi-grid').innerHTML =
+    '<div class="tile"><div class="lbl">Total refreshes</div><div class="val">' + s.totalRefreshes + '</div></div>' +
+    '<div class="tile"><div class="lbl">Total attempts</div><div class="val">' + s.totalAttempts + '</div></div>' +
+    '<div class="tile"><div class="lbl">Days since success</div><div class="val">' + (s.daysSinceLastSuccess !== null ? s.daysSinceLastSuccess.toFixed(1) : 'n/a') + '</div></div>' +
+    '<div class="tile"><div class="lbl">Next refresh</div><div class="val" style="font-size:14px;">' + fmtUntil(s.nextRefreshDue) + '</div></div>';
+  // History
+  const body = document.getElementById('history-body');
+  if (!s.recent || s.recent.length === 0) {
+    body.innerHTML = '<tr><td colspan="7" style="color:var(--text-muted);text-align:center;padding:18px;">No refresh history yet.</td></tr>';
+  } else {
+    body.innerHTML = s.recent.map(h =>
+      '<tr>' +
+        '<td>' + fmtTs(h.ts) + '<div style="color:var(--text-muted);font-size:11px;">' + fmtAgo(h.ts) + '</div></td>' +
+        '<td>' + (h.ok ? '<span class="pill pill-ok">SUCCESS</span>' : '<span class="pill pill-err">FAILED</span>' + (h.error ? '<div style="color:var(--red);font-size:11px;margin-top:4px;">' + (h.error + '').slice(0, 80) + '</div>' : '')) + '</td>' +
+        '<td>' + (h.trigger === 'manual' ? '<span class="pill pill-manual">MANUAL</span>' : '<span class="pill pill-auto">AUTO</span>') + '</td>' +
+        '<td>' + (h.symbolsFetched || 0) + '</td>' +
+        '<td>' + (h.trainingExamples || 0) + '</td>' +
+        '<td>' + (h.errorCount || 0) + '</td>' +
+        '<td>' + fmtDuration(h.durationMs) + '</td>' +
+      '</tr>'
+    ).join('');
+  }
+}
+async function forceNow() {
+  const r = document.getElementById('run-result');
+  r.textContent = 'Running force-refresh... this fetches 60 days x 24 symbols, takes ~30-60s.';
+  try {
+    const out = await window.WeeklyRefresh.forceNow();
+    r.textContent = out && out.ok ? 'Done. ' + (out.result && out.result.trainingExamples || 0) + ' training examples in ' + (out.durationMs / 1000).toFixed(1) + 's.' : ('Refresh failed: ' + JSON.stringify(out));
+  } catch (e) {
+    r.textContent = 'Error: ' + (e && e.message || e);
+  }
+  render();
+}
+function resetState() {
+  if (!confirm('Reset weekly refresh state? Next page load will trigger an auto-refresh.')) return;
+  window.WeeklyRefresh.reset();
+  render();
+  document.getElementById('run-result').textContent = 'State reset. Next auto-refresh will run on the next page load.';
+}
+setTimeout(render, 200);
+setInterval(render, 5000);
+</script>
+</body>
+</html>

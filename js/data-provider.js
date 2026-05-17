@@ -126,12 +126,26 @@ const DataProvider = (function() {
       try { window.CrossSourceCheck.record(sym, config.provider, px); } catch (e) {}
     }
     const q = QUOTES[sym];
-    q.last = px;
+    // SMART SOURCE PREFERENCE — if a higher-quality source already has a
+    // fresh price for this symbol, don't let a lower-quality tick overwrite.
+    // Falls open (accepts the tick) if SourcePreference isn't loaded yet.
+    let acceptCanonical = true;
+    if (typeof window.SourcePreference !== 'undefined') {
+      try { acceptCanonical = window.SourcePreference.shouldOverwrite(sym, config.provider); } catch (e) { acceptCanonical = true; }
+    }
+    if (acceptCanonical) {
+      q.last = px;
+      q.priceSource = config.provider;
+      q.liveAt = Date.now();
+    } else {
+      // Track shadow price so dashboards can still surface the disagreement,
+      // but don't promote it to canonical .last.
+      q.shadowPrice = px;
+      q.shadowSource = config.provider;
+      q.shadowAt = Date.now();
+    }
     q.fresh = true;
     q.source = q.source || config.provider;
-    // Mark as REAL data — TOTD and price displays trust this flag.
-    q.priceSource = config.provider;
-    q.liveAt = Date.now();
     q.lastTickAt = Date.now();
     if (size && size > 0) q.volume = (q.volume || 0) + size;
     if (typeof computeDerived === 'function') computeDerived(q);
@@ -694,20 +708,34 @@ const DataProvider = (function() {
           try { window.CrossSourceCheck.record(ourSym, 'stooq', r.close); } catch (e) {}
         }
         const q = QUOTES[ourSym];
-        if (q.last !== r.close) q.prevClose = q.last;  // preserve previous as prevClose
-        q.last = r.close;
-        q.change = q.last - q.prevClose;
-        q.changePct = q.prevClose > 0 ? (q.change / q.prevClose) * 100 : 0;
-        q.bid = +(q.last - 0.01).toFixed(2);
-        q.ask = +(q.last + 0.01).toFixed(2);
-        q.volume = r.volume || q.volume;
-        q.dayHigh = r.high;
-        q.dayLow = r.low;
-        // Mark this quote as REAL — UI and TOTD scoring trust this flag.
-        q.source = 'stooq';
-        q.priceSource = 'stooq';
-        q.liveAt = Date.now();
-        q.ts = Date.now();
+        // SMART SOURCE PREFERENCE — if a realtime WS (Coinbase, Finnhub etc.)
+        // already has a fresher higher-quality price, don't let Stooq overwrite.
+        let acceptCanonical = true;
+        if (typeof window.SourcePreference !== 'undefined') {
+          try { acceptCanonical = window.SourcePreference.shouldOverwrite(ourSym, 'stooq'); } catch (e) { acceptCanonical = true; }
+        }
+        if (acceptCanonical) {
+          if (q.last !== r.close) q.prevClose = q.last;  // preserve previous as prevClose
+          q.last = r.close;
+          q.change = q.last - q.prevClose;
+          q.changePct = q.prevClose > 0 ? (q.change / q.prevClose) * 100 : 0;
+          q.bid = +(q.last - 0.01).toFixed(2);
+          q.ask = +(q.last + 0.01).toFixed(2);
+          q.volume = r.volume || q.volume;
+          q.dayHigh = r.high;
+          q.dayLow = r.low;
+          // Mark this quote as REAL — UI and TOTD scoring trust this flag.
+          q.source = 'stooq';
+          q.priceSource = 'stooq';
+          q.liveAt = Date.now();
+          q.ts = Date.now();
+        } else {
+          // Higher-quality source has canonical. Keep Stooq value as shadow
+          // for cross-check + dashboard but don't promote.
+          q.shadowPrice = r.close;
+          q.shadowSource = 'stooq';
+          q.shadowAt = Date.now();
+        }
         try { if (typeof Feed !== 'undefined') Feed.publish(ourSym, q); } catch (e) {}
         totalUpdated++;
       });
