@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Volume + Latency — bpleone / brain</title>
+<meta name="description" content="Is the brain actually running? Predictions per hour + resolution latency tracker.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.health-card { padding:32px;border-radius:16px;text-align:center; }
+.health-card.good { background:linear-gradient(135deg,rgba(16,185,129,0.10),rgba(16,185,129,0.02));border:2px solid rgba(16,185,129,0.4); }
+.health-card.warn { background:linear-gradient(135deg,rgba(245,158,11,0.10),rgba(245,158,11,0.02));border:2px solid rgba(245,158,11,0.4); }
+.health-card.bad { background:linear-gradient(135deg,rgba(239,68,68,0.10),rgba(239,68,68,0.02));border:2px solid rgba(239,68,68,0.4); }
+.health-card .big { font-family:var(--font-mono);font-size:72px;font-weight:900;line-height:1; }
+.tile { padding:18px;background:var(--bg-elevated);border-radius:10px; }
+.tile .lbl { font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;font-weight:700; }
+.tile .val { font-family:var(--font-mono);font-size:22px;font-weight:800;margin-top:6px;color:var(--accent); }
+.tile .sub { font-size:11px;color:var(--text-muted);font-family:var(--font-mono);margin-top:4px; }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">📊 Volume + Latency</div>
+      <div class="page-subtitle">Is the brain actually running? · predictions/hour · resolution latency distribution</div>
+    </div>
+  </div>
+
+  <div id="health-card" class="mb-24"></div>
+
+  <div class="grid grid-3 mb-24" id="metrics-grid"></div>
+
+  <div class="card">
+    <div class="card-header"><div class="card-title">📚 What to look for</div></div>
+    <div style="font-size:13px;color:var(--text-secondary);line-height:1.7;">
+      <strong>Predictions / hour:</strong>
+      <ul style="margin:8px 0 8px 24px;">
+        <li><strong>0:</strong> continuous-learner has stopped. Refresh the page.</li>
+        <li><strong>1-3:</strong> normal during slow markets (one tick per symbol per 5min)</li>
+        <li><strong>20+:</strong> all systems firing</li>
+      </ul>
+      <strong>Avg latency:</strong>
+      <ul style="margin:8px 0 8px 24px;">
+        <li><strong>~10 min:</strong> normal for short-horizon resolutions</li>
+        <li><strong>&gt; 30 min:</strong> resolution loop is slow or skipping some predictions</li>
+        <li><strong>P95 &gt; 60 min:</strong> long tail of stale predictions — check the data feed</li>
+      </ul>
+      <strong>Unresolved &gt;24h:</strong> any number above 5-10 means predictions are getting stuck. Each one ties up a journal entry that won't ever feed the learning loop. Use the brain-truth dashboard to spot which module is failing.
+    </div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script src="js/volume-tracker.js"></script>
+<script>
+buildNav('volume-tracker');
+
+function fmt(n, d) { return n != null ? n.toFixed(d != null ? d : 1) : '—'; }
+
+function render() {
+  const s = VolumeTracker.stats();
+  const card = document.getElementById('health-card');
+
+  let healthClass, healthEmoji, headline, color;
+  if (!s.ready) {
+    healthClass = 'warn';
+    healthEmoji = '⏳';
+    headline = 'Brain warming up — no predictions yet';
+    color = 'var(--yellow)';
+  } else if (s.predictionsLastHour === 0) {
+    healthClass = 'bad';
+    healthEmoji = '🛑';
+    headline = 'Brain has stopped — no predictions in last hour';
+    color = 'var(--red)';
+  } else if (s.unresolvedOlderThan24h > 10) {
+    healthClass = 'warn';
+    healthEmoji = '⚠';
+    headline = s.unresolvedOlderThan24h + ' stale unresolved predictions (>24h)';
+    color = 'var(--yellow)';
+  } else if (s.avgLatencyMin != null && s.avgLatencyMin > 30) {
+    healthClass = 'warn';
+    healthEmoji = '🐢';
+    headline = 'Resolution latency is slow (' + fmt(s.avgLatencyMin) + 'min avg)';
+    color = 'var(--yellow)';
+  } else {
+    healthClass = 'good';
+    healthEmoji = '✓';
+    headline = 'Brain is running — predictions flowing normally';
+    color = 'var(--green)';
+  }
+
+  card.innerHTML = '<div class="health-card ' + healthClass + '">'
+    + '<div class="big" style="color:' + color + ';">' + healthEmoji + '</div>'
+    + '<div style="font-size:20px;font-weight:800;margin-top:14px;color:' + color + ';">' + headline + '</div>'
+    + '</div>';
+
+  document.getElementById('metrics-grid').innerHTML = ''
+    + '<div class="tile"><div class="lbl">Predictions / hour</div><div class="val">' + s.predictionsLastHour + '</div><div class="sub">last 60 minutes</div></div>'
+    + '<div class="tile"><div class="lbl">Resolutions / hour</div><div class="val">' + s.resolutionsLastHour + '</div><div class="sub">last 60 minutes</div></div>'
+    + '<div class="tile"><div class="lbl">Avg resolution latency</div><div class="val">' + (s.avgLatencyMin != null ? fmt(s.avgLatencyMin) + 'm' : '—') + '</div><div class="sub">p95: ' + (s.p95LatencyMin != null ? fmt(s.p95LatencyMin) + 'm' : '—') + '</div></div>'
+    + '<div class="tile"><div class="lbl">Total predictions</div><div class="val">' + s.totalPredictions + '</div><div class="sub">all time</div></div>'
+    + '<div class="tile"><div class="lbl">Total resolutions</div><div class="val">' + s.totalResolutions + '</div><div class="sub">all time</div></div>'
+    + '<div class="tile"><div class="lbl">Unresolved &gt; 24h</div><div class="val" style="color:' + (s.unresolvedOlderThan24h > 10 ? 'var(--red)' : s.unresolvedOlderThan24h > 0 ? 'var(--yellow)' : 'var(--green)') + ';">' + s.unresolvedOlderThan24h + '</div><div class="sub">stale predictions</div></div>';
+}
+
+render();
+setInterval(render, 15000);
+window.addEventListener('bpleone:continuous-cycle', render);
+</script>
+</body>
+</html>

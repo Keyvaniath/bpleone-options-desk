@@ -158,6 +158,8 @@
           }
         } catch (e) {}
         journal.push(journalEntry);
+        // VOLUME TRACKER: count this prediction for diagnostic purposes.
+        try { if (typeof VolumeTracker !== 'undefined') VolumeTracker.recordPrediction(journalEntry.ts); } catch (e) {}
         state.lastCaptureBySym[sym] = Date.now();
         // Active-learning: mark uncertain if main prob in [0.40, 0.60]
         if (!state.uncertainSyms) state.uncertainSyms = {};
@@ -317,6 +319,12 @@
           try {
             if (typeof ReliabilityDiagram !== 'undefined') {
               ReliabilityDiagram.recordPair(entry.predProb, label);
+            }
+          } catch (e) {}
+          // VOLUME TRACKER: record latency between prediction and resolution.
+          try {
+            if (typeof VolumeTracker !== 'undefined' && entry.ts) {
+              VolumeTracker.recordResolution(entry.ts, Date.now());
             }
           } catch (e) {}
           // SYMBOL BIAS: feed per-symbol bias term so the shared model can

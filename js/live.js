@@ -651,6 +651,14 @@ document.addEventListener('DOMContentLoaded', () => {
         s.async = false;
         document.head.appendChild(s);
       }
+      // Volume + latency tracker: 'is the brain actually running?' diagnostic.
+      // Counts predictions/hour and tracks resolution latency distribution.
+      if (!document.querySelector('script[src*="volume-tracker.js"]')) {
+        const s = document.createElement('script');
+        s.src = 'js/volume-tracker.js';
+        s.async = false;
+        document.head.appendChild(s);
+      }
       // Unified predictor: chains every meta-module into ONE call.
       // Loads last so all dependencies are present.
       if (!document.querySelector('script[src*="unified-predictor.js"]')) {
