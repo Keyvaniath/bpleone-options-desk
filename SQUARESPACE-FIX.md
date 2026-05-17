@@ -1,14 +1,17 @@
 # 🔧 Fix the bpleone.com dashboard tile
 
+> **⚡ FAST PATH:** open **`/squarespace-preview.html`** in your browser, click "Copy to clipboard," and paste into a Squarespace **Code Block** on the bpleone.com hub. That's the whole job. The page below explains every option in detail if you'd rather edit an existing tile manually.
+
 ## Status check first
 
 The trading desk **IS live** — go test it yourself:
 - https://options.bpleone.com ✓ returns 200 OK
 - https://options.bpleone.com/morning-brief.html ✓ daily brief
 - https://options.bpleone.com/conviction-stack.html ✓ brain setups
-- https://options.bpleone.com/all-tools.html ✓ visual catalog of 195 pages
+- https://options.bpleone.com/all-tools.html ✓ visual catalog of 320+ pages
+- https://options.bpleone.com/brain-truth.html ✓ live status of all 26 self-learning modules
 
-**If those URLs all work** → the only thing broken is the dashboard tile on your Squarespace hub site.
+**If those URLs all work** → the only thing broken is the dashboard tile on your Squarespace hub site. Use Path 4 below (preferred — drops a full-design tile).
 **If those URLs don't work** → DNS issue on the subdomain (rare, since cert is approved); see "Nuclear option" below.
 
 ---
@@ -49,6 +52,20 @@ The trading desk **IS live** — go test it yourself:
 3. Edit → change the URL field to: **`https://options.bpleone.com/morning-brief.html`**
 4. Make it visible (uncheck "Hidden")
 5. **Save**
+
+### Path 5 (RECOMMENDED): Drop in a complete pre-designed tile
+
+If your existing tile is awkward to edit, replace it with a **Code Block** containing a polished tile. This is the path the team uses now.
+
+1. Open `options.bpleone.com/squarespace-preview.html` in your browser
+2. Click the variant you want (Card / Banner / Text link)
+3. Click **📋 Copy to clipboard**
+4. In Squarespace: **+ Add Block → Code**, paste, save
+5. Move the new Code Block to the correct spot in the layout, delete the old broken tile
+
+The Card variant matches the Pokemon desk style. The Banner is more compact. The Text link is just an inline href.
+
+**Source file** (if you want to view it directly without rendering): `SQUARESPACE-TILE.html` in the repo root contains all three variants with inline copy comments.
 
 ---
 

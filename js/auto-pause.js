@@ -29,6 +29,8 @@
   const PAUSE_THRESHOLD = 40;
   const RESUME_THRESHOLD = 60;
   const POLL_MS = 60 * 1000;
+  const CONSECUTIVE_BELOW_TO_PAUSE = 3; // require 3 polls in a row below threshold to actually pause
+  const MIN_RESOLUTIONS_BEFORE_PAUSE = 20; // never pause until we have real data
 
   function load() {
     if (typeof localStorage === 'undefined') return defaultState();
@@ -58,15 +60,42 @@
     let score;
     try { score = window.TradeTrust.score().score; } catch (e) { return load().state; }
     const state = load();
+    if (!state.belowCount) state.belowCount = 0;
+
+    // SAFETY GATE: never pause until we have enough resolutions
+    // (avoids pausing on cold start when modules have no data yet).
+    let totalResolutions = 0;
+    try {
+      const bs = window.BrierSkill && window.BrierSkill.score();
+      if (bs && bs.n) totalResolutions = bs.n;
+    } catch (e) {}
+    const hasEnoughData = totalResolutions >= MIN_RESOLUTIONS_BEFORE_PAUSE;
+
     const prev = state.state;
     let next = prev;
     if (prev === 'ACTIVE') {
-      if (score < PAUSE_THRESHOLD) next = 'PAUSED';
+      if (score < PAUSE_THRESHOLD && hasEnoughData) {
+        state.belowCount++;
+        if (state.belowCount >= CONSECUTIVE_BELOW_TO_PAUSE) {
+          next = 'PAUSED';
+          state.belowCount = 0;
+        }
+      } else {
+        state.belowCount = 0;
+      }
     } else if (prev === 'PAUSED') {
       if (score >= PAUSE_THRESHOLD) next = 'COOLDOWN';
     } else if (prev === 'COOLDOWN') {
       if (score >= RESUME_THRESHOLD) next = 'ACTIVE';
-      else if (score < PAUSE_THRESHOLD) next = 'PAUSED';
+      else if (score < PAUSE_THRESHOLD && hasEnoughData) {
+        state.belowCount++;
+        if (state.belowCount >= CONSECUTIVE_BELOW_TO_PAUSE) {
+          next = 'PAUSED';
+          state.belowCount = 0;
+        }
+      } else {
+        state.belowCount = 0;
+      }
     }
     state.lastCheckTs = Date.now();
     if (next !== prev) {
@@ -74,9 +103,11 @@
       if (state.history.length > 100) state.history = state.history.slice(-100);
       state.state = next;
       save(state);
-      // Fire notification on transition
+      // Fire notification on transition — only if permission is granted
+      // (never auto-request permission; never throw if blocked).
       try {
-        if (typeof Notify !== 'undefined' && typeof Notify.fire === 'function') {
+        const canNotify = typeof Notification !== 'undefined' && Notification.permission === 'granted';
+        if (canNotify && typeof Notify !== 'undefined' && typeof Notify.fire === 'function') {
           const msg = next === 'PAUSED' ? '🛑 Brain auto-paused — trust score below 40'
             : next === 'COOLDOWN' ? '⚠ Brain in cooldown — trust recovering'
             : '✓ Brain resumed — trust restored';

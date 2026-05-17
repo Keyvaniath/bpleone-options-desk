@@ -108,7 +108,7 @@ function buildNav(activePage) {
   // Markets group
   const marketsGrp = ['macro','market-internals','breadth-pro','market-map','heatmap','cross-asset-pulse','cross-asset-correlations','correlations-live','sectors','global-markets','yield-curve','economic-events','economic-clock','halt-tracker','moc-imbalance','risk-radar','vix-pulse','smart-rotation','sector-rotation','sector-flow','sector-snapshot','heat-clock','sentiment-heat','news','news-pulse','news-impact','smart-money'];
   // Tools group — calculators, risk, journal, settings, alerts, crypto, education
-  const toolsGrp = ['risk','risk-dashboard','risk-attribution','risk-parity','risk-of-ruin','fundamentals','backtester','multi-backtest','potd-backtest','journal','trade-journal-pro','alerts','alerts-builder','alerts-feed','alerts-dashboard','crypto','crypto-derivatives','crypto-basis','crypto-commodities','portfolio-builder','position-sizing','kelly-sizer','pdt-dashboard','margin-calc','pnl-projector','execution','liquidity-health','strategies','setup-combos','api','seasonality','settings','mindset','changelog','replay','hypothetical','account','performance-attribution','all-tools','pwa-install','watchlist-share','desk-split','time-of-day-pnl','live-pnl-heatmap','day-pnl-calendar'];
+  const toolsGrp = ['risk','risk-dashboard','risk-attribution','risk-parity','risk-of-ruin','fundamentals','backtester','multi-backtest','potd-backtest','journal','trade-journal-pro','alerts','alerts-builder','alerts-feed','alerts-dashboard','crypto','crypto-derivatives','crypto-basis','crypto-commodities','portfolio-builder','position-sizing','kelly-sizer','pdt-dashboard','margin-calc','pnl-projector','execution','liquidity-health','strategies','setup-combos','api','seasonality','settings','mindset','changelog','replay','hypothetical','account','performance-attribution','all-tools','pwa-install','watchlist-share','desk-split','time-of-day-pnl','live-pnl-heatmap','day-pnl-calendar','squarespace-preview'];
   const isTrade = tradeGrp.indexOf(activePage) !== -1;
   const isPlays = playsGrp.indexOf(activePage) !== -1 || dailyGrp.indexOf(activePage) !== -1;
   const isBrain = brainGrp.indexOf(activePage) !== -1;
@@ -144,6 +144,7 @@ function buildNav(activePage) {
     + '<nav class="navbar"><div class="nav-container">'
     + '<a href="index.html" class="logo"><div class="logo-mark">BP</div>'
     + '<span>bpleone <span style="color:var(--accent);font-weight:400">/ trade</span></span></a>'
+    + '<a href="https://bpleone.com" target="_blank" rel="noopener" style="display:inline-flex;align-items:center;gap:6px;padding:6px 12px;margin-left:14px;background:var(--bg-elevated);border:1px solid var(--border);border-radius:14px;color:var(--text-secondary);font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;text-decoration:none;transition:all 0.15s;" onmouseover="this.style.borderColor=\'var(--accent)\';this.style.color=\'var(--accent)\';" onmouseout="this.style.borderColor=\'var(--border)\';this.style.color=\'var(--text-secondary)\';" title="Back to the bpleone.com hub">← Hub</a>'
     + '<ul class="nav-links">'
     + '<li><a href="dashboard.html" class="' + (activePage==='dashboard'?'active':'') + '">Dashboard</a></li>'
     + '<li class="nav-dd"><a href="#" class="' + (isPlays?'active':'') + '">Daily ▾</a>'
@@ -458,6 +459,7 @@ function buildNav(activePage) {
     + '<li class="nav-dd"><a href="#" class="' + (isTools?'active':'') + '">🛠 Tools ▾</a>'
     + '<div class="nav-dropdown">'
     + '<a href="all-tools.html">🗂 All Tools (visual index)</a>'
+    + '<a href="squarespace-preview.html">🏠 Squarespace Hub Tile <span class="feat-badge feat-new" style="font-size:8px;padding:0 5px;background:#00d4ff;color:#000;">DEPLOY</span></a>'
     + '<a href="risk-dashboard.html">⚖️ Risk Dashboard</a>'
     + '<a href="risk-attribution.html">🎯 Risk Attribution</a>'
     + '<a href="risk-parity.html">⚖ Risk Parity</a>'
