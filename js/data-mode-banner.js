@@ -37,9 +37,17 @@ const DataModeBanner = (function () {
     const isLive = s.connected || (s.hasKey && s.enabled);
     if (needs === 'live') {
       if (isLive) {
-        return { mode: 'live', color: 'var(--green)', bg: 'rgba(16,185,129,0.08)', border: 'rgba(16,185,129,0.3)', icon: '✓', text: 'LIVE · Finnhub WebSocket connected — every tick is real market data.' };
+        // Audit pass 12: be HONEST about the actual provider — Stooq is delayed,
+        // Finnhub/Polygon/Alpaca/Tradier are real-time. Don't claim "WebSocket"
+        // unless we actually have one.
+        const provName = s.provider || 'unknown';
+        const isRealTime = /finnhub|polygon|alpaca|tradier/i.test(provName);
+        const txt = isRealTime
+          ? 'LIVE · ' + provName + ' real-time — every tick is current market data.'
+          : 'LIVE (delayed ~15 min) · ' + provName + ' free tier feeding real prices. <a href="live-status.html" style="color:var(--accent);text-decoration:underline;">Upgrade to real-time →</a>';
+        return { mode: 'live', color: 'var(--green)', bg: 'rgba(16,185,129,0.08)', border: 'rgba(16,185,129,0.3)', icon: '✓', text: txt };
       } else {
-        return { mode: 'mock', color: 'var(--yellow)', bg: 'rgba(245,158,11,0.10)', border: 'rgba(245,158,11,0.35)', icon: '⚠', text: 'MOCK / DEMO data — no Finnhub key configured. <a href="settings.html" style="color:var(--accent);text-decoration:underline;">Set up Finnhub in Settings →</a>' };
+        return { mode: 'mock', color: 'var(--yellow)', bg: 'rgba(245,158,11,0.10)', border: 'rgba(245,158,11,0.35)', icon: '⚠', text: 'No live feed connected. <a href="connect-live-data.html" style="color:var(--accent);text-decoration:underline;">Connect data →</a>' };
       }
     }
     if (needs === 'chain') {
