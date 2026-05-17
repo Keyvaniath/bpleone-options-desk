@@ -87,9 +87,11 @@
     breakdown.fraction = fraction;
 
     // 1. Uncertainty multiplier (MC dropout std / bootstrap divergence)
+    // Audit pass 9: clamp to [0.3, 1.0] — was missing upper clamp, so a
+    // negative uncertaintyStd (shouldn't happen but defensive) could over-size.
     let uncMult = 1.0;
     if (typeof input.uncertaintyStd === 'number' && isFinite(input.uncertaintyStd)) {
-      uncMult = Math.max(0.3, 1 - input.uncertaintyStd * 4);  // std=0.15 → 0.4x
+      uncMult = Math.max(0.3, Math.min(1.0, 1 - input.uncertaintyStd * 4));  // std=0.15 -> 0.4x
     }
     breakdown.uncertaintyMult = uncMult;
 
