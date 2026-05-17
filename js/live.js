@@ -404,6 +404,23 @@ document.addEventListener('DOMContentLoaded', () => {
         s.async = false;
         document.head.appendChild(s);
       }
+      // Auto-Trade closed loop — opens paper trades on high-conviction brain signals.
+      // Off by default; user must enable on auto-trade.html. Auto-loads here so
+      // the 15s polling can run from any page once the user has flipped the toggle.
+      if (!document.querySelector('script[src*="auto-trade.js"]')) {
+        const s = document.createElement('script');
+        s.src = 'js/auto-trade.js';
+        s.async = false;
+        document.head.appendChild(s);
+      }
+      // High-Conviction Alerts — fires browser push notification + logs to feed
+      // when brain crosses ≥75% conviction. Default ON. User mutes via the page.
+      if (!document.querySelector('script[src*="high-conviction-alerts.js"]')) {
+        const s = document.createElement('script');
+        s.src = 'js/high-conviction-alerts.js';
+        s.async = false;
+        document.head.appendChild(s);
+      }
       // Multi-horizon ensemble MUST load before continuous-learner so the
       // learner can call MultiHorizon.* immediately on first capture.
       if (!document.querySelector('script[src*="multi-horizon.js"]')) {

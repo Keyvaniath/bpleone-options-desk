@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Source-Attributed Performance — bpleone</title>
+<meta name="description" content="Brain P&L broken down by which data source provided the entry price. Validates whether the Smart Source Preference is actually helping.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.tile { padding:18px;background:var(--bg-elevated);border-radius:10px; }
+.tile .lbl { font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;font-weight:700; }
+.tile .val { font-family:var(--font-mono);font-size:22px;font-weight:800;margin-top:6px;color:var(--accent); }
+.tab-row { display:flex;gap:4px;margin-bottom:18px;border-bottom:2px solid var(--bg-elevated); }
+.tab-row button { background:none;border:none;color:var(--text-muted);padding:10px 18px;font-weight:700;cursor:pointer;font-size:13px;border-bottom:2px solid transparent;margin-bottom:-2px; }
+.tab-row button.active { color:var(--accent);border-bottom-color:var(--accent); }
+table.t { width:100%;border-collapse:collapse;font-size:13px; }
+table.t th { text-align:left;padding:10px 12px;border-bottom:1px solid var(--bg-elevated);color:var(--text-muted);font-size:11px;text-transform:uppercase;letter-spacing:0.5px;font-weight:700; }
+table.t td { padding:10px 12px;border-bottom:1px solid rgba(255,255,255,0.04);font-family:var(--font-mono); }
+.bar { display:inline-block;height:8px;background:rgba(255,255,255,0.06);border-radius:4px;overflow:hidden;width:120px;vertical-align:middle; }
+.bar > span { display:block;height:100%; }
+.pnl-pos { color:var(--green);font-weight:700; }
+.pnl-neg { color:var(--red);font-weight:700; }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">📡 Source-Attributed Performance</div>
+      <div class="page-subtitle">Brain P&amp;L broken down by data source. Does Stooq beat Coinbase WS? Does Finnhub justify a paid tier? Real answers from real trades.</div>
+    </div>
+  </div>
+
+  <div class="card mb-24" style="background:linear-gradient(135deg,rgba(0,212,255,0.04),rgba(140,100,255,0.04));border-left:4px solid var(--accent);">
+    <div style="font-size:14px;color:var(--text-secondary);line-height:1.6;">
+      <strong>How it works:</strong> every brain prediction is captured with the <code>priceSource</code> that delivered the entry price (Stooq, Coinbase WS, Finnhub, etc.). When the trade resolves, its realized P&amp;L is attributed back to that source. If one source produces consistently worse trades, the Smart Source Preference module penalizes its quality score — and over time it stops being canonical.
+    </div>
+  </div>
+
+  <div class="tab-row" id="window-tabs">
+    <button data-w="7" class="active">Last 7 days</button>
+    <button data-w="30">Last 30 days</button>
+    <button data-w="90">Last 90 days</button>
+    <button data-w="">Lifetime</button>
+  </div>
+
+  <div class="grid grid-3 mb-24" id="kpi-grid"></div>
+
+  <div class="card mb-24">
+    <div class="card-header"><div class="card-title">🏆 P&amp;L per data source</div></div>
+    <table class="t" id="src-table">
+      <thead><tr><th>Source</th><th>Trades</th><th>Win rate</th><th>Avg R</th><th>Total $ P&amp;L</th><th>Share</th></tr></thead>
+      <tbody id="src-body"><tr><td colspan="6" style="color:var(--text-muted);text-align:center;padding:18px;">Waiting for resolved trades…</td></tr></tbody>
+    </table>
+  </div>
+
+  <div class="card mb-24">
+    <div class="card-header"><div class="card-title">📋 Recent trades w/ source attribution</div></div>
+    <table class="t" id="trades-table">
+      <thead><tr><th>Symbol</th><th>Source</th><th>Direction</th><th>R-Mult</th><th>P&amp;L</th><th>Closed</th></tr></thead>
+      <tbody id="trades-body"><tr><td colspan="6" style="color:var(--text-muted);text-align:center;padding:18px;">No trades yet.</td></tr></tbody>
+    </table>
+  </div>
+
+  <div class="card">
+    <div class="card-header"><div class="card-title">🔗 Related</div></div>
+    <div style="display:flex;gap:12px;flex-wrap:wrap;">
+      <a href="source-quality.html" style="text-decoration:none;display:inline-block;background:linear-gradient(135deg,#00d4ff,#0094c7);color:#000;padding:10px 18px;border-radius:8px;font-weight:700;">⚖️ Source Quality (live ranking)</a>
+      <a href="money-made.html" style="text-decoration:none;display:inline-block;background:rgba(120,140,160,0.12);color:var(--accent);padding:10px 18px;border-radius:8px;font-weight:700;">💵 Money Made</a>
+      <a href="data-reliability.html" style="text-decoration:none;display:inline-block;background:rgba(120,140,160,0.12);color:var(--accent);padding:10px 18px;border-radius:8px;font-weight:700;">📊 Data Reliability</a>
+    </div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script>buildNav('source-performance');</script>
+<script>
+const JOURNAL_KEY = 'bpleone_pred_journal_v1';
+let currentDays = 7;
+
+function fmt$(v) {
+  if (!isFinite(v)) return '$0';
+  const sign = v < 0 ? '-' : '';
+  return sign + '$' + Math.abs(v).toLocaleString(undefined, { maximumFractionDigits: 2, minimumFractionDigits: 2 });
+}
+function pct(v) { return v == null ? '—' : (v * 100).toFixed(1) + '%'; }
+function fmtAgo(t) { if (!t) return '—'; const ms = Date.now() - t; if (ms < 3600000) return Math.round(ms/60000) + 'm'; if (ms < 86400000) return Math.round(ms/3600000) + 'h'; return Math.round(ms/86400000) + 'd'; }
+
+function loadJournal() {
+  try { return JSON.parse(localStorage.getItem(JOURNAL_KEY) || '[]'); } catch (e) { return []; }
+}
+
+function compute() {
+  if (!window.MoneyTracker) return null;
+  const cfg = window.MoneyTracker.getConfig();
+  const journal = loadJournal();
+  const cutoff = currentDays ? Date.now() - currentDays * 24 * 60 * 60 * 1000 : 0;
+  const resolved = journal.filter(e => {
+    if (!e || !e.ts || e.ts < cutoff) return false;
+    const r = e.resolved;
+    return r && (r === true || (r.short && r.short !== false && r.short !== 'flat'));
+  });
+  // Group by priceSource
+  const bySource = {};
+  const trades = [];
+  resolved.forEach(e => {
+    const src = e.priceSource || 'unknown';
+    if (!bySource[src]) bySource[src] = { source: src, count: 0, wins: 0, losses: 0, totalPnL: 0, totalR: 0 };
+    // Simulate P&L like MoneyTracker
+    const conf = Math.max(e.predProb, 1 - e.predProb);
+    if (conf < cfg.minConvictionToTrade && (1 - conf) < cfg.minConvictionToTrade) return;
+    const direction = e.predProb >= 0.5 ? +1 : -1;
+    const confMult = Math.max(0.2, Math.abs(e.predProb - 0.5) * 2);
+    const riskDollars = cfg.bankroll * cfg.riskPct * confMult;
+    const rRaw = (e.realizedRet * direction) / cfg.stopRetAssumption;
+    const r = Math.max(-1, Math.min(cfg.maxRMultiple, rRaw));
+    const pnl = riskDollars * r;
+    bySource[src].count++;
+    bySource[src].totalPnL += pnl;
+    bySource[src].totalR += r;
+    if (pnl > 0) bySource[src].wins++;
+    else if (pnl < 0) bySource[src].losses++;
+    trades.push({ sym: e.sym, src, direction, r: +r.toFixed(2), pnl: +pnl.toFixed(2), ts: e.ts });
+  });
+  // Compute totals
+  let totalAbsPnL = 0;
+  for (const s in bySource) { totalAbsPnL += Math.abs(bySource[s].totalPnL); }
+  const sourceArr = Object.values(bySource).sort((a, b) => b.totalPnL - a.totalPnL);
+  sourceArr.forEach(s => {
+    s.winRate = s.wins + s.losses > 0 ? s.wins / (s.wins + s.losses) : null;
+    s.avgR = s.count > 0 ? s.totalR / s.count : 0;
+    s.share = totalAbsPnL > 0 ? Math.abs(s.totalPnL) / totalAbsPnL : 0;
+  });
+  return { sources: sourceArr, trades: trades.sort((a, b) => b.ts - a.ts).slice(0, 50), totalPnL: sourceArr.reduce((s, x) => s + x.totalPnL, 0), totalTrades: sourceArr.reduce((s, x) => s + x.count, 0) };
+}
+
+function render() {
+  const data = compute();
+  if (!data || data.sources.length === 0) {
+    document.getElementById('kpi-grid').innerHTML = '<div class="tile"><div class="lbl">Sources</div><div class="val">0</div></div><div class="tile"><div class="lbl">Trades</div><div class="val">0</div></div><div class="tile"><div class="lbl">Total P&L</div><div class="val">—</div></div>';
+    document.getElementById('src-body').innerHTML = '<tr><td colspan="6" style="color:var(--text-muted);text-align:center;padding:18px;">No resolved trades in this window yet.</td></tr>';
+    document.getElementById('trades-body').innerHTML = '<tr><td colspan="6" style="color:var(--text-muted);text-align:center;padding:18px;">No trades yet.</td></tr>';
+    return;
+  }
+  document.getElementById('kpi-grid').innerHTML =
+    '<div class="tile"><div class="lbl">Active sources</div><div class="val">' + data.sources.length + '</div></div>' +
+    '<div class="tile"><div class="lbl">Total trades</div><div class="val">' + data.totalTrades + '</div></div>' +
+    '<div class="tile"><div class="lbl">Total P&L</div><div class="val" style="color:' + (data.totalPnL >= 0 ? 'var(--green)' : 'var(--red)') + ';">' + (data.totalPnL >= 0 ? '+' : '') + fmt$(data.totalPnL) + '</div></div>';
+
+  document.getElementById('src-body').innerHTML = data.sources.map(s => {
+    const pnlColor = s.totalPnL >= 0 ? 'var(--green)' : 'var(--red)';
+    const barColor = s.totalPnL >= 0 ? '#10b981' : '#dc2626';
+    return '<tr>' +
+      '<td><strong>' + s.source + '</strong></td>' +
+      '<td>' + s.count + '</td>' +
+      '<td>' + pct(s.winRate) + '</td>' +
+      '<td>' + (s.avgR >= 0 ? '+' : '') + s.avgR.toFixed(2) + 'R</td>' +
+      '<td style="color:' + pnlColor + ';font-weight:700;">' + (s.totalPnL >= 0 ? '+' : '') + fmt$(s.totalPnL) + '</td>' +
+      '<td><div class="bar"><span style="width:' + (s.share * 100).toFixed(0) + '%;background:' + barColor + ';"></span></div> ' + (s.share * 100).toFixed(0) + '%</td>' +
+    '</tr>';
+  }).join('');
+
+  document.getElementById('trades-body').innerHTML = data.trades.map(t => {
+    const cls = t.pnl >= 0 ? 'pnl-pos' : 'pnl-neg';
+    return '<tr>' +
+      '<td><strong>' + t.sym + '</strong></td>' +
+      '<td>' + t.src + '</td>' +
+      '<td>' + (t.direction > 0 ? 'LONG' : 'SHORT') + '</td>' +
+      '<td>' + (t.r >= 0 ? '+' : '') + t.r + 'R</td>' +
+      '<td class="' + cls + '">' + (t.pnl >= 0 ? '+' : '') + fmt$(t.pnl) + '</td>' +
+      '<td>' + fmtAgo(t.ts) + ' ago</td>' +
+    '</tr>';
+  }).join('');
+}
+
+document.querySelectorAll('#window-tabs button').forEach(b => {
+  b.addEventListener('click', () => {
+    document.querySelectorAll('#window-tabs button').forEach(x => x.classList.remove('active'));
+    b.classList.add('active');
+    const w = b.getAttribute('data-w');
+    currentDays = w ? parseInt(w) : null;
+    render();
+  });
+});
+setTimeout(render, 500);
+setInterval(render, 8000);
+</script>
+</body>
+</html>

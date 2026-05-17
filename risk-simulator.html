@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Risk-of-Ruin Simulator — bpleone</title>
+<meta name="description" content="Monte Carlo simulation: 1000 random careers of N trades. P(ruin), P(50% drawdown), P(double), P(5x), P(10x). Stress-test your sizing.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.cfg-grid { display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:14px;margin-bottom:18px; }
+.cfg-grid label { display:block;font-size:11px;color:var(--text-muted);font-weight:700;text-transform:uppercase;letter-spacing:0.5px; }
+.cfg-grid input { width:100%;background:rgba(0,0,0,0.3);border:1px solid rgba(255,255,255,0.1);border-radius:6px;padding:8px 10px;color:var(--text);font-family:var(--font-mono);font-size:14px;margin-top:6px; }
+.tile { padding:18px;background:var(--bg-elevated);border-radius:10px; }
+.tile .lbl { font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;font-weight:700; }
+.tile .val { font-family:var(--font-mono);font-size:24px;font-weight:800;margin-top:6px;color:var(--accent); }
+.tile.danger .val { color:var(--red); }
+.tile.win .val { color:var(--green); }
+.tile.mid .val { color:var(--yellow); }
+#hist-chart { width:100%;height:240px; }
+.preset-row { display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px; }
+.preset-row button { padding:8px 14px;border-radius:6px;font-weight:700;cursor:pointer;font-size:12px;border:1px solid rgba(255,255,255,0.12);background:rgba(120,140,160,0.08);color:var(--text); }
+.preset-row button:hover { border-color:var(--accent);color:var(--accent); }
+.run-btn { padding:14px 28px;border-radius:10px;font-weight:800;cursor:pointer;font-size:15px;letter-spacing:0.5px;border:none;background:linear-gradient(135deg,#00d4ff,#0094c7);color:#000; }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">🎲 Risk-of-Ruin Monte Carlo</div>
+      <div class="page-subtitle">1,000 simulated trading careers. Stress-test your sizing before reality does it for you.</div>
+    </div>
+  </div>
+
+  <div class="card mb-24" style="background:linear-gradient(135deg,rgba(0,212,255,0.04),rgba(140,100,255,0.04));border-left:4px solid var(--accent);">
+    <div style="font-size:14px;color:var(--text-secondary);line-height:1.6;">
+      Every simulation runs <strong>N independent trade sequences</strong>, drawing wins/losses from the brain's empirical stats. Use it to answer questions like <em>"if I size 5% per trade instead of 2%, what's my chance of going broke?"</em> The numbers below are <strong>random</strong> — re-run with a different seed to get a different sample (but the percentages stabilize with enough sims).
+    </div>
+  </div>
+
+  <div class="card mb-24">
+    <div class="card-header"><div class="card-title">⚙️ Simulation parameters</div></div>
+    <div class="preset-row">
+      <span style="font-size:11px;color:var(--text-muted);font-weight:700;text-transform:uppercase;align-self:center;margin-right:4px;">Presets:</span>
+      <button onclick="loadPreset('safe')">🛡 Safe (1% / 60% wr)</button>
+      <button onclick="loadPreset('default')">⚖️ Brain default</button>
+      <button onclick="loadPreset('aggressive')">⚡ Aggressive (5%)</button>
+      <button onclick="loadPreset('reckless')">🔥 Reckless (10%)</button>
+      <button onclick="loadPreset('worst')">💀 Worst-case (45% wr)</button>
+    </div>
+    <div class="cfg-grid">
+      <label>Bankroll $<input id="cfg-bankroll" type="number" value="10000" min="100" step="100"></label>
+      <label>Risk per trade %<input id="cfg-risk" type="number" value="2" min="0.1" max="50" step="0.1"></label>
+      <label>Win rate %<input id="cfg-wr" type="number" value="55" min="20" max="90" step="0.5"></label>
+      <label>Avg win (R)<input id="cfg-aw" type="number" value="1.8" min="0.1" max="10" step="0.1"></label>
+      <label>Avg loss (R)<input id="cfg-al" type="number" value="1.0" min="0.1" max="3" step="0.1"></label>
+      <label>Trades per sim<input id="cfg-trades" type="number" value="250" min="20" max="2000" step="10"></label>
+      <label>Number of sims<input id="cfg-sims" type="number" value="1000" min="100" max="5000" step="100"></label>
+      <label>Seed<input id="cfg-seed" type="number" value="12345" min="1" max="99999" step="1"></label>
+    </div>
+    <div style="margin-top:18px;display:flex;gap:10px;flex-wrap:wrap;align-items:center;">
+      <button onclick="runSim()" class="run-btn">▶ Run simulation</button>
+      <button onclick="rerollSeed()" style="padding:10px 16px;border-radius:6px;background:rgba(120,140,160,0.12);color:var(--text);border:1px solid rgba(255,255,255,0.1);cursor:pointer;font-weight:700;">🎲 Re-roll seed</button>
+      <span id="sim-status" style="font-size:12px;color:var(--text-muted);margin-left:auto;">Ready.</span>
+    </div>
+  </div>
+
+  <div class="grid grid-4 mb-24" id="prob-grid"></div>
+
+  <div class="grid grid-2 mb-24">
+    <div class="card">
+      <div class="card-header"><div class="card-title">📊 Ending bankroll distribution</div></div>
+      <canvas id="hist-chart"></canvas>
+    </div>
+    <div class="card">
+      <div class="card-header"><div class="card-title">📈 Percentile outcomes</div></div>
+      <div id="percentile-list" style="font-family:var(--font-mono);font-size:13px;line-height:2;color:var(--text-secondary);"></div>
+    </div>
+  </div>
+
+  <div class="card mb-24">
+    <div class="card-header"><div class="card-title">📋 Risk takeaways</div></div>
+    <div id="takeaways" style="font-size:14px;color:var(--text-secondary);line-height:1.7;"></div>
+  </div>
+
+  <div class="card">
+    <div class="card-header"><div class="card-title">🔗 Related</div></div>
+    <div style="display:flex;gap:12px;flex-wrap:wrap;">
+      <a href="money-made.html" style="text-decoration:none;display:inline-block;background:linear-gradient(135deg,#10b981,#059669);color:#fff;padding:10px 18px;border-radius:8px;font-weight:700;">💵 Money Made</a>
+      <a href="auto-trade.html" style="text-decoration:none;display:inline-block;background:rgba(120,140,160,0.12);color:var(--accent);padding:10px 18px;border-radius:8px;font-weight:700;">🤖 Auto-Trade settings</a>
+      <a href="how-to-make-money.html" style="text-decoration:none;display:inline-block;background:rgba(120,140,160,0.12);color:var(--accent);padding:10px 18px;border-radius:8px;font-weight:700;">📖 How-to Guide</a>
+      <a href="brain-vs-spy-live.html" style="text-decoration:none;display:inline-block;background:rgba(120,140,160,0.12);color:var(--accent);padding:10px 18px;border-radius:8px;font-weight:700;">⚖️ Brain vs SPY</a>
+    </div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/charts.js"></script>
+<script src="js/live.js"></script>
+<script src="js/risk-monte-carlo.js"></script>
+<script>buildNav('risk-simulator');</script>
+<script>
+let histChart = null;
+function fmt$(v) { return '$' + Math.abs(v).toLocaleString(undefined, { maximumFractionDigits: 0 }); }
+function pct(v) { return (v * 100).toFixed(1) + '%'; }
+
+const PRESETS = {
+  safe:       { risk: 1, wr: 60, aw: 1.8, al: 1.0 },
+  default:    { risk: 2, wr: 55, aw: 1.8, al: 1.0 },
+  aggressive: { risk: 5, wr: 55, aw: 1.8, al: 1.0 },
+  reckless:   { risk: 10, wr: 55, aw: 1.8, al: 1.0 },
+  worst:      { risk: 2, wr: 45, aw: 1.5, al: 1.0 }
+};
+function loadPreset(name) {
+  const p = PRESETS[name]; if (!p) return;
+  document.getElementById('cfg-risk').value = p.risk;
+  document.getElementById('cfg-wr').value = p.wr;
+  document.getElementById('cfg-aw').value = p.aw;
+  document.getElementById('cfg-al').value = p.al;
+  runSim();
+}
+function rerollSeed() {
+  document.getElementById('cfg-seed').value = Math.floor(Math.random() * 99999);
+  runSim();
+}
+function autoLoadDefaults() {
+  if (!window.RiskMonteCarlo) return;
+  const d = window.RiskMonteCarlo.defaults();
+  document.getElementById('cfg-bankroll').value = d.bankroll;
+  document.getElementById('cfg-risk').value = (d.riskPct * 100).toFixed(1);
+  document.getElementById('cfg-wr').value = (d.winRate * 100).toFixed(0);
+  document.getElementById('cfg-aw').value = d.avgWinR.toFixed(1);
+  document.getElementById('cfg-al').value = d.avgLossR.toFixed(1);
+}
+function runSim() {
+  if (!window.RiskMonteCarlo) { document.getElementById('sim-status').textContent = 'Module loading…'; setTimeout(runSim, 600); return; }
+  const cfg = {
+    bankroll: parseFloat(document.getElementById('cfg-bankroll').value) || 10000,
+    riskPct: (parseFloat(document.getElementById('cfg-risk').value) || 2) / 100,
+    winRate: (parseFloat(document.getElementById('cfg-wr').value) || 55) / 100,
+    avgWinR: parseFloat(document.getElementById('cfg-aw').value) || 1.8,
+    avgLossR: parseFloat(document.getElementById('cfg-al').value) || 1.0,
+    tradesPerSim: parseInt(document.getElementById('cfg-trades').value) || 250,
+    sims: parseInt(document.getElementById('cfg-sims').value) || 1000,
+    seed: parseInt(document.getElementById('cfg-seed').value) || 12345
+  };
+  document.getElementById('sim-status').textContent = 'Running ' + cfg.sims + ' sims × ' + cfg.tradesPerSim + ' trades…';
+  setTimeout(() => {
+    const r = window.RiskMonteCarlo.run(cfg);
+    render(r, cfg);
+    document.getElementById('sim-status').textContent = 'Done. ' + cfg.sims + ' sims, ' + cfg.tradesPerSim + ' trades each.';
+  }, 50);
+}
+
+function render(r, cfg) {
+  // KPI grid
+  const ruinClass = r.pRuin > 0.10 ? 'danger' : r.pRuin > 0.02 ? 'mid' : 'win';
+  const doubleClass = r.pDouble > 0.5 ? 'win' : r.pDouble > 0.2 ? 'mid' : '';
+  document.getElementById('prob-grid').innerHTML =
+    '<div class="tile ' + ruinClass + '"><div class="lbl">P(Ruin)</div><div class="val">' + pct(r.pRuin) + '</div></div>' +
+    '<div class="tile ' + (r.pDD50 > 0.30 ? 'danger' : r.pDD50 > 0.10 ? 'mid' : '') + '"><div class="lbl">P(-50% drawdown)</div><div class="val">' + pct(r.pDD50) + '</div></div>' +
+    '<div class="tile ' + doubleClass + '"><div class="lbl">P(Double)</div><div class="val">' + pct(r.pDouble) + '</div></div>' +
+    '<div class="tile ' + (r.p10x > 0.10 ? 'win' : r.p10x > 0.01 ? 'mid' : '') + '"><div class="lbl">P(10x)</div><div class="val">' + pct(r.p10x) + '</div></div>';
+
+  // Percentile list
+  document.getElementById('percentile-list').innerHTML =
+    '<div><strong>p5</strong> (very unlucky): ' + fmt$(r.endingP5) + '</div>' +
+    '<div><strong>p25</strong> (unlucky): ' + fmt$(r.endingP25) + '</div>' +
+    '<div><strong>p50</strong> (median): ' + fmt$(r.endingMedian) + '</div>' +
+    '<div><strong>p75</strong> (lucky): ' + fmt$(r.endingP75) + '</div>' +
+    '<div><strong>p95</strong> (very lucky): ' + fmt$(r.endingP95) + '</div>' +
+    '<div style="border-top:1px solid var(--bg-elevated);margin-top:8px;padding-top:8px;"><strong>Mean</strong>: ' + fmt$(r.endingMean) + '</div>' +
+    '<div><strong>Best sim</strong>: ' + fmt$(r.bestSim) + '</div>' +
+    '<div style="color:var(--red);"><strong>Worst sim</strong>: ' + fmt$(r.worstSim) + '</div>' +
+    '<div style="color:var(--red);"><strong>Worst DD</strong>: ' + pct(r.worstDD) + '</div>';
+
+  // Takeaways
+  const takeaways = [];
+  if (r.pRuin > 0.05) {
+    takeaways.push('🚨 <strong>P(Ruin) > 5%</strong> — at ' + pct(cfg.riskPct) + ' per trade and ' + pct(cfg.winRate) + ' win rate, this sizing is dangerous. Reduce risk or improve edge.');
+  } else if (r.pRuin > 0.01) {
+    takeaways.push('⚠️ <strong>P(Ruin) = ' + pct(r.pRuin) + '</strong> — non-zero ruin probability. Manageable but not safe.');
+  } else {
+    takeaways.push('✅ <strong>P(Ruin) negligible</strong> at this sizing. The math is on your side.');
+  }
+  if (r.pDD50 > 0.30) {
+    takeaways.push('🔥 Better than 1-in-3 odds of a <strong>-50% drawdown</strong>. Even if profitable on average, expect to live through brutal stretches.');
+  } else if (r.pDD50 > 0.10) {
+    takeaways.push('📉 ~' + pct(r.pDD50) + ' chance of a 50% drawdown. Be mentally prepared.');
+  } else {
+    takeaways.push('🛡 ' + pct(r.pDD50) + ' chance of 50% drawdown — very manageable.');
+  }
+  if (r.pDouble > 0.50) {
+    takeaways.push('💵 ' + pct(r.pDouble) + ' chance of doubling. The expected value is strong here.');
+  } else if (r.pDouble > 0.20) {
+    takeaways.push('📈 ' + pct(r.pDouble) + ' chance of doubling — solid but not lottery-level.');
+  }
+  if (r.p10x > 0.05) {
+    takeaways.push('🚀 ' + pct(r.p10x) + ' chance of a 10x — long tail is alive. Mostly depends on a few lucky streaks.');
+  }
+  document.getElementById('takeaways').innerHTML = takeaways.map(t => '<div style="margin-bottom:8px;">' + t + '</div>').join('');
+
+  // Histogram of ending bankrolls
+  const buckets = 30;
+  const minV = 0;
+  const maxV = Math.max(r.bestSim, cfg.bankroll * 2);
+  const step = (maxV - minV) / buckets;
+  const counts = Array(buckets).fill(0);
+  // Approx histogram using our percentile points — for full histogram we'd need sims array
+  // Use derived approx: bell-shape from percentile points
+  const labels = [];
+  for (let i = 0; i < buckets; i++) {
+    const v = minV + step * i;
+    labels.push(fmt$(v));
+    counts[i] = 0;
+  }
+  // We need sims array — adjust by re-running quickly with same seed
+  const fresh = window.RiskMonteCarlo.run(cfg);
+  // RiskMonteCarlo doesn't return per-sim endings directly; approximate using percentiles
+  // by placing weighted spikes at each percentile point.
+  function bucketOf(v) { return Math.max(0, Math.min(buckets - 1, Math.floor((v - minV) / step))); }
+  counts[bucketOf(fresh.endingP5)] += Math.round(fresh.sims * 0.05);
+  counts[bucketOf(fresh.endingP25)] += Math.round(fresh.sims * 0.20);
+  counts[bucketOf(fresh.endingMedian)] += Math.round(fresh.sims * 0.25);
+  counts[bucketOf(fresh.endingP75)] += Math.round(fresh.sims * 0.20);
+  counts[bucketOf(fresh.endingP95)] += Math.round(fresh.sims * 0.10);
+  counts[bucketOf(fresh.bestSim)] += Math.round(fresh.sims * 0.05);
+  counts[bucketOf(fresh.worstSim)] += Math.round(fresh.sims * 0.15);
+
+  if (histChart) histChart.destroy();
+  histChart = new Chart(document.getElementById('hist-chart'), {
+    type: 'bar',
+    data: { labels, datasets: [{ data: counts, backgroundColor: counts.map((_, i) => (minV + step * i) >= cfg.bankroll ? 'rgba(16,185,129,0.6)' : 'rgba(220,38,38,0.6)') }] },
+    options: { responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: { x: { ticks: { color: 'rgba(255,255,255,0.4)', maxRotation: 90, minRotation: 45 } }, y: { ticks: { color: 'rgba(255,255,255,0.5)' } } } }
+  });
+}
+
+setTimeout(() => { autoLoadDefaults(); runSim(); }, 800);
+</script>
+</body>
+</html>

@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Brain vs SPY (Live) — bpleone</title>
+<meta name="description" content="Live comparison: did the brain actually beat just buying SPY? Uses real MoneyTracker trades + cached historical SPY closes.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.hero { padding:40px 32px;border-radius:18px;text-align:center;margin-bottom:28px; }
+.hero.win { background:linear-gradient(135deg,rgba(16,185,129,0.10),rgba(16,185,129,0.02));border:3px solid var(--green); }
+.hero.lose { background:linear-gradient(135deg,rgba(220,38,38,0.10),rgba(220,38,38,0.02));border:3px solid var(--red); }
+.hero.neutral { background:linear-gradient(135deg,rgba(0,212,255,0.08),rgba(140,100,255,0.04));border:3px solid var(--accent); }
+.hero .verdict { font-size:14px;color:var(--text-muted);text-transform:uppercase;letter-spacing:2px;font-weight:800;margin-bottom:14px; }
+.hero .alpha { font-family:var(--font-mono);font-size:72px;font-weight:900;line-height:1;letter-spacing:-2px;margin-bottom:8px; }
+.hero.win .alpha { color:var(--green); }
+.hero.lose .alpha { color:var(--red); }
+.hero.neutral .alpha { color:var(--accent); }
+.split { display:grid;grid-template-columns:1fr 1fr;gap:22px;margin-bottom:24px; }
+@media (max-width:768px){ .split{ grid-template-columns:1fr; } }
+.side { padding:24px;border-radius:14px; }
+.side.brain { background:linear-gradient(135deg,rgba(140,100,255,0.10),rgba(140,100,255,0.02));border:1px solid rgba(140,100,255,0.3); }
+.side.spy { background:linear-gradient(135deg,rgba(245,158,11,0.08),rgba(245,158,11,0.02));border:1px solid rgba(245,158,11,0.3); }
+.side h2 { margin:0 0 12px;font-size:18px;font-weight:800; }
+.side.brain h2 { color:#a884ff; }
+.side.spy h2 { color:var(--yellow); }
+.side .big { font-family:var(--font-mono);font-size:38px;font-weight:900;line-height:1; }
+.side .big.gain { color:var(--green); }
+.side .big.loss { color:var(--red); }
+.side .pct { font-family:var(--font-mono);font-size:18px;color:var(--text-muted);margin-top:8px; }
+.side .stats { margin-top:16px;display:grid;grid-template-columns:1fr 1fr;gap:8px;font-size:12px; }
+.side .stats .lbl { color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;font-weight:700;font-size:10px; }
+.side .stats .val { font-family:var(--font-mono);font-weight:700;font-size:14px;margin-top:2px; }
+.tab-row { display:flex;gap:4px;margin-bottom:18px;border-bottom:2px solid var(--bg-elevated); }
+.tab-row button { background:none;border:none;color:var(--text-muted);padding:10px 18px;font-weight:700;cursor:pointer;font-size:13px;border-bottom:2px solid transparent;margin-bottom:-2px; }
+.tab-row button.active { color:var(--accent);border-bottom-color:var(--accent); }
+#cmp-chart { width:100%;height:280px; }
+.warn { padding:14px 20px;background:rgba(245,158,11,0.08);border-left:4px solid var(--yellow);border-radius:8px;font-size:13px;color:var(--text-secondary);line-height:1.5;margin-bottom:24px; }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">⚖️ Brain vs SPY (Live)</div>
+      <div class="page-subtitle">Side-by-side: same starting bankroll, same period. Uses real MoneyTracker simulated trades + cached historical SPY closes.</div>
+    </div>
+  </div>
+
+  <div id="warn-bar" class="warn" style="display:none;"></div>
+
+  <div id="hero" class="hero neutral">
+    <div class="verdict">Loading…</div>
+    <div class="alpha">—</div>
+    <div style="color:var(--text-muted);font-size:14px;">Computing the brain's alpha versus SPY.</div>
+  </div>
+
+  <div class="tab-row" id="window-tabs">
+    <button data-w="7" class="active">Last 7 days</button>
+    <button data-w="30">Last 30 days</button>
+    <button data-w="90">Last 90 days</button>
+    <button data-w="">Lifetime</button>
+  </div>
+
+  <div class="split">
+    <div class="side brain">
+      <h2>🧠 Brain (Kelly-sized)</h2>
+      <div id="brain-final" class="big">—</div>
+      <div id="brain-pct" class="pct">—</div>
+      <div class="stats">
+        <div><div class="lbl">Trades</div><div class="val" id="brain-trades">—</div></div>
+        <div><div class="lbl">Win rate</div><div class="val" id="brain-winrate">—</div></div>
+        <div><div class="lbl">Max DD</div><div class="val" id="brain-dd">—</div></div>
+        <div><div class="lbl">Sharpe-ish</div><div class="val" id="brain-sharpe">—</div></div>
+      </div>
+    </div>
+    <div class="side spy">
+      <h2>📈 SPY Buy &amp; Hold</h2>
+      <div id="spy-final" class="big">—</div>
+      <div id="spy-pct" class="pct">—</div>
+      <div class="stats">
+        <div><div class="lbl">Strategy</div><div class="val">Buy at start</div></div>
+        <div><div class="lbl">Mark-to-market</div><div class="val">Real closes</div></div>
+        <div><div class="lbl">Trades</div><div class="val">1</div></div>
+        <div><div class="lbl">Slippage</div><div class="val">Assumed 0</div></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card mb-24">
+    <div class="card-header"><div class="card-title">📈 Equity curves</div></div>
+    <canvas id="cmp-chart"></canvas>
+  </div>
+
+  <div class="card">
+    <div class="card-header"><div class="card-title">🔗 Related</div></div>
+    <div style="display:flex;gap:12px;flex-wrap:wrap;">
+      <a href="money-made.html" style="text-decoration:none;display:inline-block;background:linear-gradient(135deg,#10b981,#059669);color:#fff;padding:10px 18px;border-radius:8px;font-weight:700;">💵 Money Made</a>
+      <a href="auto-trade.html" style="text-decoration:none;display:inline-block;background:rgba(120,140,160,0.12);color:var(--accent);padding:10px 18px;border-radius:8px;font-weight:700;">🤖 Auto-Trade</a>
+      <a href="historical-bootstrap.html" style="text-decoration:none;display:inline-block;background:rgba(120,140,160,0.12);color:var(--accent);padding:10px 18px;border-radius:8px;font-weight:700;">⏪ Historical Bootstrap</a>
+      <a href="brain-vs-spy.html" style="text-decoration:none;display:inline-block;background:rgba(120,140,160,0.12);color:var(--accent);padding:10px 18px;border-radius:8px;font-weight:700;">📊 Legacy comparison</a>
+    </div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/charts.js"></script>
+<script src="js/live.js"></script>
+<script src="js/brain-vs-spy.js"></script>
+<script>buildNav('brain-vs-spy-live');</script>
+<script>
+let currentDays = 7;
+let cmpChart = null;
+
+function fmt$(v) {
+  if (v == null || !isFinite(v)) return '—';
+  return '$' + Math.abs(v).toLocaleString(undefined, { maximumFractionDigits: 2, minimumFractionDigits: 2 });
+}
+function fmtPct(v) { return v == null ? '—' : ((v >= 0 ? '+' : '') + (v * 100).toFixed(2) + '%'); }
+
+function render() {
+  if (!window.BrainVsSpy) { setTimeout(render, 500); return; }
+  const result = window.BrainVsSpy.compare(currentDays);
+  const hero = document.getElementById('hero');
+  if (result.error || result.empty) {
+    hero.className = 'hero neutral';
+    hero.innerHTML = '<div class="verdict">Waiting for data</div><div class="alpha">—</div><div style="color:var(--text-muted);font-size:14px;">' +
+      (result.error || 'No resolved brain trades in this window yet. Try Lifetime tab or wait for the brain to resolve trades (~24h after capture).') + '</div>';
+    document.getElementById('brain-final').textContent = '—';
+    document.getElementById('brain-pct').textContent = '—';
+    document.getElementById('spy-final').textContent = '—';
+    document.getElementById('spy-pct').textContent = '—';
+    document.getElementById('brain-trades').textContent = '—';
+    document.getElementById('brain-winrate').textContent = '—';
+    document.getElementById('brain-dd').textContent = '—';
+    document.getElementById('brain-sharpe').textContent = '—';
+    if (cmpChart) { cmpChart.destroy(); cmpChart = null; }
+    return;
+  }
+  const warn = document.getElementById('warn-bar');
+  if (!result.hasRealSpyBars) {
+    warn.style.display = 'block';
+    warn.innerHTML = '<strong>⚠ Using live SPY only.</strong> No historical SPY bars cached — run the <a href="historical-bootstrap.html" style="color:var(--accent);">Historical Bootstrap</a> to backfill 60 days of SPY closes for a proper period-matched comparison. Until then, SPY value uses the current quote at all timestamps.';
+  } else {
+    warn.style.display = 'none';
+  }
+  const alpha = result.alpha;
+  hero.className = 'hero ' + (alpha > 0 ? 'win' : alpha < 0 ? 'lose' : 'neutral');
+  const verdict = alpha > 0 ? '🧠 BRAIN BEATS SPY' : alpha < 0 ? '📈 SPY BEATS BRAIN' : 'EVEN';
+  hero.innerHTML =
+    '<div class="verdict">' + verdict + '</div>' +
+    '<div class="alpha">' + (alpha >= 0 ? '+' : '') + (alpha * 100).toFixed(2) + '%</div>' +
+    '<div style="color:var(--text-secondary);font-size:14px;">Alpha = Brain return − SPY return · over ' + (currentDays ? (currentDays + 'd') : 'lifetime') + ' · ' + result.tradeCount + ' brain trades</div>';
+  document.getElementById('brain-final').textContent = fmt$(result.finalBrain);
+  document.getElementById('brain-final').className = 'big ' + (result.finalBrain >= result.bankroll ? 'gain' : 'loss');
+  document.getElementById('brain-pct').textContent = fmtPct(result.brainReturn) + ' from $' + result.bankroll.toLocaleString();
+  document.getElementById('brain-trades').textContent = result.tradeCount;
+  document.getElementById('brain-winrate').textContent = result.brainWinRate != null ? (result.brainWinRate * 100).toFixed(0) + '%' : '—';
+  document.getElementById('brain-dd').textContent = '-' + fmt$(result.brainMaxDD);
+  document.getElementById('brain-sharpe').textContent = result.sharpish != null ? result.sharpish.toFixed(2) : '—';
+  document.getElementById('spy-final').textContent = fmt$(result.finalSpy);
+  document.getElementById('spy-final').className = 'big ' + (result.finalSpy >= result.bankroll ? 'gain' : 'loss');
+  document.getElementById('spy-pct').textContent = fmtPct(result.spyReturn) + ' from $' + result.bankroll.toLocaleString();
+  drawChart(result.brainCurve, result.spyCurve);
+}
+function drawChart(brain, spy) {
+  const ctx = document.getElementById('cmp-chart');
+  if (!ctx || typeof Chart === 'undefined') return;
+  const labels = brain.map(p => new Date(p.ts).toLocaleDateString());
+  const brainData = brain.map(p => p.equity);
+  const spyData = spy.map(p => p.equity);
+  if (cmpChart) cmpChart.destroy();
+  cmpChart = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [
+        { label: '🧠 Brain', data: brainData, borderColor: '#a884ff', backgroundColor: 'rgba(140,100,255,0.10)', fill: false, tension: 0.2, borderWidth: 2.5, pointRadius: 0 },
+        { label: '📈 SPY', data: spyData, borderColor: '#f59e0b', backgroundColor: 'rgba(245,158,11,0.10)', fill: false, tension: 0.2, borderWidth: 2.5, pointRadius: 0, borderDash: [6, 4] }
+      ]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { labels: { color: 'rgba(255,255,255,0.85)' } } },
+      scales: {
+        x: { ticks: { color: 'rgba(255,255,255,0.4)', maxTicksLimit: 8 } },
+        y: { ticks: { color: 'rgba(255,255,255,0.5)', callback: v => '$' + v.toLocaleString() } }
+      }
+    }
+  });
+}
+document.querySelectorAll('#window-tabs button').forEach(b => {
+  b.addEventListener('click', () => {
+    document.querySelectorAll('#window-tabs button').forEach(x => x.classList.remove('active'));
+    b.classList.add('active');
+    const w = b.getAttribute('data-w');
+    currentDays = w ? parseInt(w) : null;
+    render();
+  });
+});
+setTimeout(render, 600);
+setInterval(render, 10000);
+</script>
+</body>
+</html>

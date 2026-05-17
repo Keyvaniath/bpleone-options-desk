@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>High-Conviction Alerts — bpleone</title>
+<meta name="description" content="Browser push notifications + live feed for high-conviction brain signals (≥75%). Never miss a setup when away from the screen.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.banner { padding:20px 26px;border-radius:14px;margin-bottom:24px; }
+.banner.granted { background:linear-gradient(135deg,rgba(16,185,129,0.10),rgba(16,185,129,0.02));border:2px solid var(--green); }
+.banner.denied { background:linear-gradient(135deg,rgba(220,38,38,0.10),rgba(220,38,38,0.02));border:2px solid var(--red); }
+.banner.default { background:linear-gradient(135deg,rgba(245,158,11,0.10),rgba(245,158,11,0.02));border:2px solid var(--yellow); }
+.banner h3 { margin:0 0 6px;font-size:18px;font-weight:800; }
+.banner .actions { margin-top:14px;display:flex;gap:10px;flex-wrap:wrap; }
+.banner button { padding:10px 18px;border-radius:6px;font-weight:700;cursor:pointer;font-size:13px;border:none; }
+.cfg-grid { display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:14px; }
+.cfg-grid label { display:block;font-size:11px;color:var(--text-muted);font-weight:700;text-transform:uppercase;letter-spacing:0.5px; }
+.cfg-grid input { width:100%;background:rgba(0,0,0,0.3);border:1px solid rgba(255,255,255,0.1);border-radius:6px;padding:8px 10px;color:var(--text);font-family:var(--font-mono);font-size:14px;margin-top:6px; }
+.alert-card { padding:14px 18px;background:var(--bg-elevated);border-radius:10px;border-left:4px solid var(--accent);display:flex;gap:18px;align-items:center;margin-bottom:8px;flex-wrap:wrap; }
+.alert-card.long { border-left-color:var(--green); }
+.alert-card.short { border-left-color:var(--red); }
+.alert-card .sym { font-family:var(--font-mono);font-size:20px;font-weight:900;min-width:80px; }
+.alert-card .meta { font-family:var(--font-mono);font-size:12px;color:var(--text-muted); }
+.alert-card .meta strong { color:var(--accent); }
+.pill { display:inline-block;padding:3px 10px;border-radius:6px;font-size:11px;font-weight:800;letter-spacing:0.5px; }
+.pill-long { background:rgba(16,185,129,0.18);color:var(--green); }
+.pill-short { background:rgba(220,38,38,0.18);color:var(--red); }
+.tile { padding:18px;background:var(--bg-elevated);border-radius:10px; }
+.tile .lbl { font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;font-weight:700; }
+.tile .val { font-family:var(--font-mono);font-size:22px;font-weight:800;margin-top:6px;color:var(--accent); }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">🔔 High-Conviction Alerts</div>
+      <div class="page-subtitle">Browser push notification + live feed for every brain signal ≥75% conviction. Phone or laptop — never miss a setup.</div>
+    </div>
+  </div>
+
+  <div id="perm-banner" class="banner default">
+    <h3 id="perm-title">Checking notification permission…</h3>
+    <div id="perm-body" style="font-size:13px;color:var(--text-secondary);line-height:1.5;">…</div>
+    <div class="actions" id="perm-actions"></div>
+  </div>
+
+  <div class="card mb-24">
+    <div class="card-header"><div class="card-title">⚙️ Settings</div></div>
+    <div class="cfg-grid">
+      <label>Min conviction<input id="cfg-conv" type="number" value="0.75" min="0.5" max="0.99" step="0.01"></label>
+      <label>Cooldown (min)<input id="cfg-cooldown" type="number" value="10" min="1" max="120" step="1"></label>
+      <label>Bankroll $<input id="cfg-bankroll" type="number" value="10000" min="100" step="100"></label>
+    </div>
+    <div style="margin-top:14px;display:flex;gap:10px;flex-wrap:wrap;align-items:center;">
+      <button onclick="saveCfg()" style="padding:10px 20px;background:linear-gradient(135deg,#00d4ff,#0094c7);color:#000;border:none;border-radius:6px;font-weight:700;cursor:pointer;">💾 Save</button>
+      <button onclick="toggleEnabled()" id="enable-btn" style="padding:10px 20px;background:linear-gradient(135deg,#10b981,#059669);color:#fff;border:none;border-radius:6px;font-weight:700;cursor:pointer;">⏸ Disable feed</button>
+      <button onclick="testFire()" style="padding:10px 20px;background:rgba(140,100,255,0.18);color:#a884ff;border:1px solid rgba(140,100,255,0.4);border-radius:6px;font-weight:700;cursor:pointer;">🔔 Test notification</button>
+      <button onclick="clearFeed()" style="padding:10px 20px;background:rgba(120,140,160,0.12);color:var(--text-muted);border:1px solid rgba(120,140,160,0.3);border-radius:6px;font-weight:700;cursor:pointer;">🗑 Clear feed</button>
+    </div>
+  </div>
+
+  <div class="grid grid-3 mb-24" id="kpi-grid"></div>
+
+  <div class="card mb-24">
+    <div class="card-header"><div class="card-title">📡 Live alert feed (most recent first)</div></div>
+    <div id="feed-list"></div>
+  </div>
+
+  <div class="card">
+    <div class="card-header"><div class="card-title">🔗 Related</div></div>
+    <div style="display:flex;gap:12px;flex-wrap:wrap;">
+      <a href="auto-trade.html" style="text-decoration:none;display:inline-block;background:linear-gradient(135deg,#10b981,#059669);color:#fff;padding:10px 18px;border-radius:8px;font-weight:700;">🤖 Auto-Trade</a>
+      <a href="make-money.html" style="text-decoration:none;display:inline-block;background:linear-gradient(135deg,#00d4ff,#0094c7);color:#000;padding:10px 18px;border-radius:8px;font-weight:700;">💰 Make Money</a>
+      <a href="money-made.html" style="text-decoration:none;display:inline-block;background:rgba(120,140,160,0.12);color:var(--accent);padding:10px 18px;border-radius:8px;font-weight:700;">💵 Money Made</a>
+      <a href="brain-bet.html" style="text-decoration:none;display:inline-block;background:rgba(120,140,160,0.12);color:var(--accent);padding:10px 18px;border-radius:8px;font-weight:700;">🧠 Brain Bet</a>
+    </div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script>buildNav('high-conviction-alerts');</script>
+<script>
+function fmtAgo(t) { if (!t) return '—'; const ms = Date.now() - t; if (ms < 60000) return Math.round(ms/1000) + 's ago'; if (ms < 3600000) return Math.round(ms/60000) + 'm ago'; if (ms < 86400000) return Math.round(ms/3600000) + 'h ago'; return Math.round(ms/86400000) + 'd ago'; }
+
+function renderPermBanner() {
+  const banner = document.getElementById('perm-banner');
+  const title = document.getElementById('perm-title');
+  const body = document.getElementById('perm-body');
+  const actions = document.getElementById('perm-actions');
+  if (!window.Notify) { banner.className = 'banner default'; title.textContent = 'Loading…'; return; }
+  const perm = window.Notify.permission();
+  if (perm === 'granted') {
+    banner.className = 'banner granted';
+    title.textContent = '✅ Notifications enabled — you\'ll hear it ping when the brain fires';
+    body.innerHTML = 'You\'re set. When the brain crosses ≥' + ((window.HighConvictionAlerts ? window.HighConvictionAlerts.getConfig().minConviction : 0.75) * 100).toFixed(0) + '% conviction on a symbol, you\'ll get a desktop / mobile push within 20 seconds. Tap the notification to jump straight to Auto-Trade.';
+    actions.innerHTML = '<button onclick="testFire()" style="background:rgba(16,185,129,0.18);color:var(--green);border:1px solid rgba(16,185,129,0.4);">🔔 Send a test ping now</button>';
+  } else if (perm === 'denied') {
+    banner.className = 'banner denied';
+    title.textContent = '🚫 Notifications blocked';
+    body.innerHTML = 'You denied notification permission for this site. To re-enable: click the lock icon next to the URL → Permissions → Notifications → Allow → reload this page.';
+    actions.innerHTML = '';
+  } else {
+    banner.className = 'banner default';
+    title.textContent = '⚠ Notifications not yet enabled';
+    body.innerHTML = 'Without this, the in-page feed will still update but you won\'t hear it when you\'re on another tab or phone is locked. One click to enable.';
+    actions.innerHTML = '<button onclick="askPerm()" style="background:linear-gradient(135deg,#00d4ff,#0094c7);color:#000;">🔔 Enable browser notifications</button>';
+  }
+}
+async function askPerm() {
+  if (!window.Notify) return;
+  await window.Notify.request();
+  renderPermBanner();
+}
+function loadCfg() {
+  if (!window.HighConvictionAlerts) return;
+  const c = window.HighConvictionAlerts.getConfig();
+  document.getElementById('cfg-conv').value = c.minConviction;
+  document.getElementById('cfg-cooldown').value = c.cooldownMinutes;
+  document.getElementById('cfg-bankroll').value = c.bankroll;
+  const btn = document.getElementById('enable-btn');
+  if (c.enabled) {
+    btn.textContent = '⏸ Disable feed';
+    btn.style.background = 'linear-gradient(135deg,#dc2626,#991b1b)';
+  } else {
+    btn.textContent = '▶ Enable feed';
+    btn.style.background = 'linear-gradient(135deg,#10b981,#059669)';
+  }
+}
+function saveCfg() {
+  if (!window.HighConvictionAlerts) return;
+  window.HighConvictionAlerts.config({
+    minConviction: parseFloat(document.getElementById('cfg-conv').value) || 0.75,
+    cooldownMinutes: parseFloat(document.getElementById('cfg-cooldown').value) || 10,
+    bankroll: parseFloat(document.getElementById('cfg-bankroll').value) || 10000
+  });
+  loadCfg();
+  render();
+}
+function toggleEnabled() {
+  if (!window.HighConvictionAlerts) return;
+  if (window.HighConvictionAlerts.isEnabled()) window.HighConvictionAlerts.disable();
+  else window.HighConvictionAlerts.enable();
+  loadCfg();
+}
+function testFire() {
+  if (!window.HighConvictionAlerts) return;
+  window.HighConvictionAlerts.testFire();
+  render();
+}
+function clearFeed() {
+  if (!confirm('Clear all alerts from the feed?')) return;
+  if (!window.HighConvictionAlerts) return;
+  window.HighConvictionAlerts.clear();
+  render();
+}
+function render() {
+  if (!window.HighConvictionAlerts) { setTimeout(render, 600); return; }
+  const feed = window.HighConvictionAlerts.feed(50);
+  const cfg = window.HighConvictionAlerts.getConfig();
+  // KPIs
+  const last24 = feed.filter(a => Date.now() - a.ts < 24*60*60*1000);
+  document.getElementById('kpi-grid').innerHTML =
+    '<div class="tile"><div class="lbl">Alerts last 24h</div><div class="val">' + last24.length + '</div></div>' +
+    '<div class="tile"><div class="lbl">Feed total</div><div class="val">' + feed.length + '</div></div>' +
+    '<div class="tile"><div class="lbl">Min conviction</div><div class="val">' + (cfg.minConviction * 100).toFixed(0) + '%</div></div>';
+  // Feed list
+  const list = document.getElementById('feed-list');
+  if (feed.length === 0) {
+    list.innerHTML = '<div style="color:var(--text-muted);text-align:center;padding:24px;">No alerts yet. When the brain crosses ' + (cfg.minConviction * 100).toFixed(0) + '% conviction on a symbol with all gates passing, you\'ll see it here.</div>';
+  } else {
+    list.innerHTML = feed.map(a =>
+      '<div class="alert-card ' + (a.direction === 'LONG' ? 'long' : 'short') + '">' +
+        '<div class="sym">' + a.sym + '</div>' +
+        '<div><span class="pill ' + (a.direction === 'LONG' ? 'pill-long' : 'pill-short') + '">' + a.direction + ' ' + (a.conviction * 100).toFixed(0) + '%</span></div>' +
+        '<div class="meta">@ <strong>$' + (a.entryPx || 0).toFixed(2) + '</strong> · suggested risk <strong>$' + (a.riskDollars || 0) + '</strong></div>' +
+        '<div class="meta" style="margin-left:auto;">' + (a.regime || '—') + ' · ' + fmtAgo(a.ts) + '</div>' +
+      '</div>'
+    ).join('');
+  }
+}
+setTimeout(() => { loadCfg(); renderPermBanner(); render(); }, 500);
+setInterval(() => { render(); }, 5000);
+setInterval(() => { renderPermBanner(); }, 10000);
+</script>
+</body>
+</html>

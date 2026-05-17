@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Auto-Trade Loop — bpleone</title>
+<meta name="description" content="Auto-open paper trades when the brain fires high-conviction signals. Closed-loop autonomous money-making sandbox.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.master-card { padding:32px;border-radius:18px;text-align:center;margin-bottom:28px; }
+.master-card.on { background:linear-gradient(135deg,rgba(16,185,129,0.12),rgba(16,185,129,0.02));border:3px solid var(--green); }
+.master-card.off { background:linear-gradient(135deg,rgba(120,140,160,0.10),rgba(120,140,160,0.02));border:3px solid rgba(120,140,160,0.4); }
+.master-card .state { font-family:var(--font-mono);font-size:56px;font-weight:900;line-height:1;letter-spacing:-1px; }
+.master-card.on .state { color:var(--green); }
+.master-card.off .state { color:var(--text-muted); }
+.master-card .desc { color:var(--text-secondary);font-size:14px;margin:10px 0 18px; }
+.toggle-btn { padding:14px 32px;border-radius:10px;border:none;font-weight:800;cursor:pointer;font-size:16px;letter-spacing:0.5px; }
+.toggle-btn.go { background:linear-gradient(135deg,#10b981,#059669);color:#fff; }
+.toggle-btn.stop { background:linear-gradient(135deg,#dc2626,#991b1b);color:#fff; }
+.cfg-grid { display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:14px; }
+.cfg-grid label { display:block;font-size:11px;color:var(--text-muted);font-weight:700;text-transform:uppercase;letter-spacing:0.5px; }
+.cfg-grid input { width:100%;background:rgba(0,0,0,0.3);border:1px solid rgba(255,255,255,0.1);border-radius:6px;padding:8px 10px;color:var(--text);font-family:var(--font-mono);font-size:14px;margin-top:6px; }
+.tile { padding:16px;background:var(--bg-elevated);border-radius:10px; }
+.tile .lbl { font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;font-weight:700; }
+.tile .val { font-family:var(--font-mono);font-size:22px;font-weight:800;margin-top:6px;color:var(--accent); }
+.tile.gain .val { color:var(--green); }
+.tile.loss .val { color:var(--red); }
+table.t { width:100%;border-collapse:collapse;font-size:12px; }
+table.t th { text-align:left;padding:8px 10px;border-bottom:1px solid var(--bg-elevated);color:var(--text-muted);font-size:10px;text-transform:uppercase;letter-spacing:0.5px;font-weight:700; }
+table.t td { padding:8px 10px;border-bottom:1px solid rgba(255,255,255,0.04);font-family:var(--font-mono); }
+.pill { display:inline-block;padding:2px 8px;border-radius:6px;font-size:10px;font-weight:700; }
+.pill-long { background:rgba(16,185,129,0.18);color:var(--green); }
+.pill-short { background:rgba(220,38,38,0.18);color:var(--red); }
+.pill-target { background:rgba(16,185,129,0.20);color:var(--green); }
+.pill-stop { background:rgba(220,38,38,0.20);color:var(--red); }
+.pill-time { background:rgba(245,158,11,0.20);color:var(--yellow); }
+.danger-banner { padding:14px 20px;background:rgba(245,158,11,0.10);border-left:4px solid var(--yellow);border-radius:8px;margin-bottom:24px;font-size:13px;color:var(--text-secondary);line-height:1.6; }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">🤖 Auto-Trade Closed Loop</div>
+      <div class="page-subtitle">When the brain fires ≥75% conviction signals with all gates passing, auto-open paper trades with Kelly sizing. Watch the money happen.</div>
+    </div>
+  </div>
+
+  <div class="danger-banner">
+    <strong>⚠ Paper-trade only.</strong> This loop opens <em>simulated</em> positions in localStorage — nothing connects to your broker. Use it to validate the brain's edge before risking real capital. Toggle off any time.
+  </div>
+
+  <div id="master-card" class="master-card off">
+    <div id="master-state" class="state">OFF</div>
+    <div id="master-desc" class="desc">Auto-trade is off. When enabled, the brain's high-conviction signals will auto-open paper positions every 15 seconds.</div>
+    <button id="master-toggle" class="toggle-btn go" onclick="toggleMaster()">▶ Enable Auto-Trade</button>
+  </div>
+
+  <div class="card mb-24">
+    <div class="card-header"><div class="card-title">⚙️ Settings</div></div>
+    <div class="cfg-grid">
+      <label>Bankroll $<input id="cfg-bankroll" type="number" value="10000" min="100" step="100"></label>
+      <label>Min conviction<input id="cfg-conv" type="number" value="0.75" min="0.5" max="0.99" step="0.01"></label>
+      <label>Stop %<input id="cfg-stop" type="number" value="1.0" min="0.1" max="10" step="0.1"></label>
+      <label>Target %<input id="cfg-target" type="number" value="2.5" min="0.1" max="20" step="0.1"></label>
+      <label>Hold (h)<input id="cfg-hold" type="number" value="24" min="1" max="240" step="1"></label>
+      <label>Max open<input id="cfg-maxopen" type="number" value="5" min="1" max="20" step="1"></label>
+      <label>Max risk %<input id="cfg-maxrisk" type="number" value="10" min="1" max="50" step="1"></label>
+      <label>Kelly fraction<input id="cfg-kelly" type="number" value="0.25" min="0.05" max="1.0" step="0.05"></label>
+    </div>
+    <div style="margin-top:14px;display:flex;gap:10px;flex-wrap:wrap;">
+      <button onclick="saveCfg()" style="padding:10px 20px;background:linear-gradient(135deg,#00d4ff,#0094c7);color:#000;border:none;border-radius:6px;font-weight:700;cursor:pointer;">💾 Save</button>
+      <button onclick="resetState()" style="padding:10px 20px;background:rgba(120,140,160,0.12);color:var(--text-muted);border:1px solid rgba(120,140,160,0.3);border-radius:6px;font-weight:700;cursor:pointer;">🔁 Reset state (clears all open + closed trades)</button>
+      <span style="font-size:12px;color:var(--text-muted);margin-left:auto;align-self:center;">Polls every 15 seconds while enabled.</span>
+    </div>
+  </div>
+
+  <div class="grid grid-4 mb-24" id="stats-grid"></div>
+
+  <div class="card mb-24">
+    <div class="card-header"><div class="card-title">📋 Currently open auto-trades</div></div>
+    <table class="t" id="open-table">
+      <thead><tr><th>Symbol</th><th>Side</th><th>Shares</th><th>Entry</th><th>Now</th><th>Stop</th><th>Target</th><th>Live P&amp;L</th><th>Conv</th><th>Time left</th></tr></thead>
+      <tbody id="open-body"><tr><td colspan="10" style="color:var(--text-muted);text-align:center;padding:18px;">No open trades. Enable auto-trade and wait for the brain to fire a high-conviction signal.</td></tr></tbody>
+    </table>
+  </div>
+
+  <div class="card mb-24">
+    <div class="card-header"><div class="card-title">📜 Recent closed auto-trades (last 30)</div></div>
+    <table class="t" id="closed-table">
+      <thead><tr><th>Closed</th><th>Symbol</th><th>Side</th><th>Outcome</th><th>Entry → Exit</th><th>R-mult</th><th>P&amp;L</th><th>Held</th><th>Conv</th></tr></thead>
+      <tbody id="closed-body"><tr><td colspan="9" style="color:var(--text-muted);text-align:center;padding:18px;">No closed trades yet.</td></tr></tbody>
+    </table>
+  </div>
+
+  <div class="card">
+    <div class="card-header"><div class="card-title">🔗 Related</div></div>
+    <div style="display:flex;gap:12px;flex-wrap:wrap;">
+      <a href="money-made.html" style="text-decoration:none;display:inline-block;background:linear-gradient(135deg,#10b981,#059669);color:#fff;padding:10px 18px;border-radius:8px;font-weight:700;">💵 Money Made</a>
+      <a href="make-money.html" style="text-decoration:none;display:inline-block;background:linear-gradient(135deg,#00d4ff,#0094c7);color:#000;padding:10px 18px;border-radius:8px;font-weight:700;">💰 Make Money Dashboard</a>
+      <a href="how-to-make-money.html" style="text-decoration:none;display:inline-block;background:rgba(120,140,160,0.12);color:var(--accent);padding:10px 18px;border-radius:8px;font-weight:700;">📖 How-to Guide</a>
+      <a href="brain-bet.html" style="text-decoration:none;display:inline-block;background:rgba(120,140,160,0.12);color:var(--accent);padding:10px 18px;border-radius:8px;font-weight:700;">🧠 Brain Bet</a>
+    </div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script>buildNav('auto-trade');</script>
+<script>
+function fmt$(v) {
+  if (v == null || !isFinite(v)) return '—';
+  const sign = v < 0 ? '-' : '';
+  const abs = Math.abs(v);
+  return sign + '$' + abs.toLocaleString(undefined, { maximumFractionDigits: 2, minimumFractionDigits: 2 });
+}
+function pct(v) { if (v == null) return '—'; return (v * 100).toFixed(1) + '%'; }
+function fmtAgo(t) { if (!t) return '—'; const ms = Date.now() - t; if (ms < 60000) return Math.round(ms/1000) + 's'; if (ms < 3600000) return Math.round(ms/60000) + 'm'; if (ms < 86400000) return Math.round(ms/3600000) + 'h'; return Math.round(ms/86400000) + 'd'; }
+function fmtUntil(t) { if (!t) return '—'; const ms = t - Date.now(); if (ms <= 0) return 'overdue'; if (ms < 60000) return Math.round(ms/1000) + 's'; if (ms < 3600000) return Math.round(ms/60000) + 'm'; if (ms < 86400000) return Math.round(ms/3600000) + 'h'; return Math.round(ms/86400000) + 'd'; }
+
+function loadCfgIntoInputs() {
+  if (!window.AutoTrade) return;
+  const c = window.AutoTrade.getConfig();
+  document.getElementById('cfg-bankroll').value = c.bankroll;
+  document.getElementById('cfg-conv').value = c.minConviction;
+  document.getElementById('cfg-stop').value = (c.stopPct * 100).toFixed(1);
+  document.getElementById('cfg-target').value = (c.targetPct * 100).toFixed(1);
+  document.getElementById('cfg-hold').value = c.holdHours;
+  document.getElementById('cfg-maxopen').value = c.maxOpenPositions;
+  document.getElementById('cfg-maxrisk').value = (c.maxTotalRiskPct * 100).toFixed(0);
+  document.getElementById('cfg-kelly').value = c.kellyFraction;
+}
+function saveCfg() {
+  if (!window.AutoTrade) return;
+  window.AutoTrade.config({
+    bankroll: parseFloat(document.getElementById('cfg-bankroll').value) || 10000,
+    minConviction: parseFloat(document.getElementById('cfg-conv').value) || 0.75,
+    stopPct: (parseFloat(document.getElementById('cfg-stop').value) || 1.0) / 100,
+    targetPct: (parseFloat(document.getElementById('cfg-target').value) || 2.5) / 100,
+    holdHours: parseFloat(document.getElementById('cfg-hold').value) || 24,
+    maxOpenPositions: parseInt(document.getElementById('cfg-maxopen').value) || 5,
+    maxTotalRiskPct: (parseFloat(document.getElementById('cfg-maxrisk').value) || 10) / 100,
+    kellyFraction: parseFloat(document.getElementById('cfg-kelly').value) || 0.25
+  });
+  render();
+}
+function toggleMaster() {
+  if (!window.AutoTrade) return;
+  if (window.AutoTrade.isEnabled()) window.AutoTrade.disable();
+  else window.AutoTrade.enable();
+  render();
+}
+function resetState() {
+  if (!confirm('Reset auto-trade state? All open + closed trades will be cleared. Settings preserved.')) return;
+  if (!window.AutoTrade) return;
+  const c = window.AutoTrade.getConfig();
+  window.AutoTrade.reset();
+  window.AutoTrade.config(c);
+  render();
+}
+function render() {
+  if (!window.AutoTrade || typeof window.QUOTES === 'undefined') {
+    setTimeout(render, 800);
+    return;
+  }
+  const enabled = window.AutoTrade.isEnabled();
+  const cfg = window.AutoTrade.getConfig();
+  const open = window.AutoTrade.openTrades();
+  const closedAll = window.AutoTrade.closedTrades();
+  const st = window.AutoTrade.stats();
+  // Master
+  const mc = document.getElementById('master-card');
+  mc.className = 'master-card ' + (enabled ? 'on' : 'off');
+  document.getElementById('master-state').textContent = enabled ? 'ON' : 'OFF';
+  document.getElementById('master-desc').textContent = enabled
+    ? 'Live: auto-opening Kelly-sized paper trades on ≥' + (cfg.minConviction * 100).toFixed(0) + '% conviction signals. ' + open.length + ' open · ' + closedAll.length + ' closed lifetime.'
+    : 'Auto-trade is off. When enabled, the brain\'s high-conviction signals will auto-open paper positions every 15 seconds.';
+  const tog = document.getElementById('master-toggle');
+  tog.className = 'toggle-btn ' + (enabled ? 'stop' : 'go');
+  tog.textContent = enabled ? '⏹ Disable Auto-Trade' : '▶ Enable Auto-Trade';
+  // Stats
+  document.getElementById('stats-grid').innerHTML =
+    '<div class="tile ' + (st.totalPnL > 0 ? 'gain' : st.totalPnL < 0 ? 'loss' : '') + '"><div class="lbl">Lifetime P&L</div><div class="val">' + (st.totalPnL >= 0 ? '+' : '') + fmt$(st.totalPnL) + '</div></div>' +
+    '<div class="tile"><div class="lbl">Closed trades</div><div class="val">' + st.totalTrades + '</div></div>' +
+    '<div class="tile"><div class="lbl">Win rate</div><div class="val">' + pct(st.winRate) + '</div></div>' +
+    '<div class="tile"><div class="lbl">Open positions</div><div class="val">' + st.openCount + '</div></div>';
+  // Open table
+  const openBody = document.getElementById('open-body');
+  if (open.length === 0) {
+    openBody.innerHTML = '<tr><td colspan="10" style="color:var(--text-muted);text-align:center;padding:18px;">No open trades. ' + (enabled ? 'Waiting for next high-conviction signal.' : 'Enable auto-trade and wait for signal.') + '</td></tr>';
+  } else {
+    openBody.innerHTML = open.map(t => {
+      const q = window.QUOTES[t.sym] || {};
+      const livePx = q.last || t.entryPx;
+      const livePnL = (livePx - t.entryPx) * t.direction * t.shares;
+      const cls = livePnL >= 0 ? 'pnl-pos' : 'pnl-neg';
+      return '<tr>' +
+        '<td><strong>' + t.sym + '</strong></td>' +
+        '<td><span class="pill ' + (t.direction > 0 ? 'pill-long' : 'pill-short') + '">' + (t.direction > 0 ? 'LONG' : 'SHORT') + '</span></td>' +
+        '<td>' + t.shares + '</td>' +
+        '<td>$' + t.entryPx.toFixed(2) + '</td>' +
+        '<td>$' + livePx.toFixed(2) + '</td>' +
+        '<td>$' + t.stop.toFixed(2) + '</td>' +
+        '<td>$' + t.target.toFixed(2) + '</td>' +
+        '<td class="' + cls + '" style="font-weight:700;color:' + (livePnL >= 0 ? 'var(--green)' : 'var(--red)') + '">' + (livePnL >= 0 ? '+' : '') + fmt$(livePnL) + '</td>' +
+        '<td>' + (t.conviction * 100).toFixed(0) + '%</td>' +
+        '<td>' + fmtUntil(t.timeStop) + '</td>' +
+      '</tr>';
+    }).join('');
+  }
+  // Closed table
+  const closed = closedAll.slice(-30).reverse();
+  const closedBody = document.getElementById('closed-body');
+  if (closed.length === 0) {
+    closedBody.innerHTML = '<tr><td colspan="9" style="color:var(--text-muted);text-align:center;padding:18px;">No closed trades yet.</td></tr>';
+  } else {
+    closedBody.innerHTML = closed.map(t => {
+      const pillCls = t.outcome === 'target' ? 'pill-target' : (t.outcome === 'stop' ? 'pill-stop' : 'pill-time');
+      const color = t.realizedPnL >= 0 ? 'var(--green)' : 'var(--red)';
+      return '<tr>' +
+        '<td>' + fmtAgo(t.closedAt) + ' ago</td>' +
+        '<td><strong>' + t.sym + '</strong></td>' +
+        '<td><span class="pill ' + (t.direction > 0 ? 'pill-long' : 'pill-short') + '">' + (t.direction > 0 ? 'LONG' : 'SHORT') + '</span></td>' +
+        '<td><span class="pill ' + pillCls + '">' + t.outcome.toUpperCase() + '</span></td>' +
+        '<td>$' + t.entryPx.toFixed(2) + ' → $' + (t.exitPx || 0).toFixed(2) + '</td>' +
+        '<td>' + (t.rMultiple >= 0 ? '+' : '') + t.rMultiple + 'R</td>' +
+        '<td style="font-weight:700;color:' + color + '">' + (t.realizedPnL >= 0 ? '+' : '') + fmt$(t.realizedPnL) + '</td>' +
+        '<td>' + t.holdHours.toFixed(1) + 'h</td>' +
+        '<td>' + (t.conviction * 100).toFixed(0) + '%</td>' +
+      '</tr>';
+    }).join('');
+  }
+}
+setTimeout(() => { loadCfgIntoInputs(); render(); }, 500);
+setInterval(render, 4000);
+</script>
+</body>
+</html>

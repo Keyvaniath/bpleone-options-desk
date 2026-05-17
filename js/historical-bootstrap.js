@@ -221,6 +221,15 @@
     const spyBars = await fetchHistorical(STOOQ_MAP.SPY);
     await new Promise(r => setTimeout(r, FETCH_DELAY_MS));
 
+    // Persist SPY bars for the Brain-vs-SPY benchmark module. Lightweight
+    // (60 bars × {ts, close}) so it fits comfortably in localStorage.
+    try {
+      if (spyBars && spyBars.length > 0) {
+        const compact = spyBars.map(b => ({ ts: b.ts || (b.date ? new Date(b.date).getTime() : Date.now()), close: b.close }));
+        localStorage.setItem('bpleone_spy_history_v1', JSON.stringify(compact));
+      }
+    } catch (e) {}
+
     let symbolsFetched = 0, trainingExamples = 0, errors = [];
 
     for (const [sym, stooqSym] of Object.entries(STOOQ_MAP)) {
