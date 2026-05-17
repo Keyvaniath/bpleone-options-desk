@@ -717,7 +717,12 @@ const DataProvider = (function() {
           try { acceptCanonical = window.SourcePreference.shouldOverwrite(ourSym, 'stooq'); } catch (e) { acceptCanonical = true; }
         }
         if (acceptCanonical) {
-          if (q.last !== r.close) q.prevClose = q.last;  // preserve previous as prevClose
+          // Audit pass 14: don't overwrite prevClose on every poll — the seed
+          // value represents yesterday's close. Stooq's CSV doesn't return
+          // prev-close as a separate field. By preserving the seed, ticker
+          // change% shows true day-over-day move, not last-12-seconds noise.
+          // (prevClose is only updated by an external session-rollover handler
+          // if/when we add one.)
           q.last = r.close;
           q.change = q.last - q.prevClose;
           q.changePct = q.prevClose > 0 ? (q.change / q.prevClose) * 100 : 0;
@@ -807,7 +812,7 @@ const DataProvider = (function() {
           if (typeof window.CrossSourceCheck !== 'undefined') {
             try { window.CrossSourceCheck.record(sym, 'coinbase', price); } catch (e) {}
           }
-          if (q.last !== price) q.prevClose = q.prevClose || q.last;
+          // Audit pass 14: preserve seed prevClose (yesterday's close).
           q.last = price;
           q.bid = parseFloat(m.best_bid) || +(price - 0.5).toFixed(2);
           q.ask = parseFloat(m.best_ask) || +(price + 0.5).toFixed(2);
@@ -897,7 +902,7 @@ const DataProvider = (function() {
           try { window.CrossSourceCheck.record(sym, 'coinbase-rest', price); } catch (e) {}
         }
         const q = QUOTES[sym];
-        if (q.last !== price) q.prevClose = q.prevClose || q.last;
+        // Audit pass 14: preserve seed prevClose (yesterday's close).
         q.last = price;
         q.bid = +(price - 0.5).toFixed(2);
         q.ask = +(price + 0.5).toFixed(2);

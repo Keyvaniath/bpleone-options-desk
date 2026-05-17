@@ -76,7 +76,7 @@
       }
       if (typeof window.QUOTES !== 'undefined' && window.QUOTES[symbol]) {
         const q = window.QUOTES[symbol];
-        if (q.last !== close) q.prevClose = q.last;
+        // Audit pass 14: preserve seed prevClose (yesterday's close).
         q.last = close;
         if (q.prevClose > 0) {
           q.change = q.last - q.prevClose;
@@ -119,7 +119,7 @@
       }
       if (typeof window.QUOTES !== 'undefined' && window.QUOTES[symbol]) {
         const q = window.QUOTES[symbol];
-        if (q.last !== price) q.prevClose = q.prevClose || q.last;
+        // Audit pass 14: preserve seed prevClose (yesterday's close).
         q.last = price;
         if (q.prevClose > 0) {
           q.change = q.last - q.prevClose;
