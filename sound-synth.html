@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Sound Synth — bpleone</title>
+<meta name="description" content="Web Audio synthesized alerts: rising tone for LONG, falling for SHORT, alarm for critical signals.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.master-card { padding:32px;border-radius:18px;text-align:center;margin-bottom:24px; }
+.master-card.on { background:linear-gradient(135deg,rgba(140,100,255,0.12),rgba(140,100,255,0.02));border:3px solid #a884ff; }
+.master-card.off { background:linear-gradient(135deg,rgba(120,140,160,0.10),rgba(120,140,160,0.02));border:3px solid rgba(120,140,160,0.4); }
+.master-card .state { font-family:var(--font-mono);font-size:48px;font-weight:900;line-height:1; }
+.master-card.on .state { color:#a884ff; }
+.master-card.off .state { color:var(--text-muted); }
+.toggle-btn { padding:14px 32px;border-radius:10px;border:none;font-weight:800;cursor:pointer;font-size:16px;letter-spacing:0.5px; }
+.toggle-btn.go { background:linear-gradient(135deg,#a884ff,#7c3aed);color:#fff; }
+.toggle-btn.stop { background:linear-gradient(135deg,#dc2626,#991b1b);color:#fff; }
+.test-btn { padding:14px 22px;border-radius:10px;border:none;font-weight:800;cursor:pointer;font-size:14px;margin:6px;background:rgba(120,140,160,0.12);color:var(--text);border:1px solid rgba(255,255,255,0.1); }
+.test-btn.long { background:rgba(16,185,129,0.18);color:var(--green);border-color:rgba(16,185,129,0.4); }
+.test-btn.short { background:rgba(220,38,38,0.18);color:var(--red);border-color:rgba(220,38,38,0.4); }
+.test-btn.crit { background:rgba(245,158,11,0.18);color:var(--yellow);border-color:rgba(245,158,11,0.4); }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">🔊 Sound Synth</div>
+      <div class="page-subtitle">Web Audio synthesized alerts. Rising tone for LONG, falling for SHORT, alarm for >85% conviction.</div>
+    </div>
+  </div>
+
+  <div id="master-card" class="master-card off">
+    <div id="master-state" class="state">OFF</div>
+    <div style="color:var(--text-secondary);font-size:14px;margin:8px 0 18px;" id="master-desc">Sound is silent.</div>
+    <button id="master-toggle" class="toggle-btn go" onclick="toggleMaster()">▶ Enable sound</button>
+  </div>
+
+  <div class="card mb-24">
+    <div class="card-header"><div class="card-title">⚙️ Settings</div></div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:14px;">
+      <label style="font-size:11px;color:var(--text-muted);font-weight:700;text-transform:uppercase;">Volume<input id="cfg-vol" type="range" min="0" max="1" step="0.05" value="0.25" style="width:100%;margin-top:8px;"></label>
+      <label style="font-size:11px;color:var(--text-muted);font-weight:700;text-transform:uppercase;">Critical threshold<input id="cfg-crit" type="number" value="0.85" min="0.5" max="0.99" step="0.01" style="width:100%;background:rgba(0,0,0,0.3);border:1px solid rgba(255,255,255,0.1);border-radius:6px;padding:8px 10px;color:var(--text);font-family:var(--font-mono);font-size:14px;margin-top:6px;"></label>
+      <label style="font-size:11px;color:var(--text-muted);font-weight:700;text-transform:uppercase;">Rate limit (ms)<input id="cfg-rate" type="number" value="2000" min="500" max="10000" step="100" style="width:100%;background:rgba(0,0,0,0.3);border:1px solid rgba(255,255,255,0.1);border-radius:6px;padding:8px 10px;color:var(--text);font-family:var(--font-mono);font-size:14px;margin-top:6px;"></label>
+    </div>
+    <div style="margin-top:14px;">
+      <button onclick="saveCfg()" style="padding:10px 22px;background:linear-gradient(135deg,#00d4ff,#0094c7);color:#000;border:none;border-radius:6px;font-weight:700;cursor:pointer;">💾 Save</button>
+    </div>
+  </div>
+
+  <div class="card mb-24">
+    <div class="card-header"><div class="card-title">🎵 Test sounds</div></div>
+    <div style="text-align:center;padding:14px 0;">
+      <button onclick="testLong()" class="test-btn long">📈 LONG (rising)</button>
+      <button onclick="testShort()" class="test-btn short">📉 SHORT (falling)</button>
+      <button onclick="testCritical()" class="test-btn crit">🚨 CRITICAL (alarm + tone)</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-header"><div class="card-title">🔗 Related</div></div>
+    <div style="display:flex;gap:12px;flex-wrap:wrap;">
+      <a href="voice-coach.html" style="text-decoration:none;display:inline-block;background:linear-gradient(135deg,#a884ff,#7c3aed);color:#fff;padding:10px 18px;border-radius:8px;font-weight:700;">🎙️ Voice Coach</a>
+      <a href="high-conviction-alerts.html" style="text-decoration:none;display:inline-block;background:rgba(120,140,160,0.12);color:var(--accent);padding:10px 18px;border-radius:8px;font-weight:700;">🔔 Alerts</a>
+      <a href="webhook-bridge.html" style="text-decoration:none;display:inline-block;background:rgba(120,140,160,0.12);color:var(--accent);padding:10px 18px;border-radius:8px;font-weight:700;">🌐 Webhook</a>
+    </div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script src="js/sound-synth.js"></script>
+<script>buildNav('sound-synth');</script>
+<script>
+function loadCfg() {
+  if (!window.SoundSynth) return;
+  const c = window.SoundSynth.getConfig();
+  document.getElementById('cfg-vol').value = c.volume;
+  document.getElementById('cfg-crit').value = c.criticalThreshold;
+  document.getElementById('cfg-rate').value = c.rateLimitMs;
+}
+function saveCfg() {
+  window.SoundSynth.config({
+    volume: parseFloat(document.getElementById('cfg-vol').value) || 0.25,
+    criticalThreshold: parseFloat(document.getElementById('cfg-crit').value) || 0.85,
+    rateLimitMs: parseInt(document.getElementById('cfg-rate').value) || 2000
+  });
+}
+function toggleMaster() {
+  if (window.SoundSynth.isEnabled()) window.SoundSynth.disable();
+  else window.SoundSynth.enable();
+  render();
+}
+function testLong() { if (!window.SoundSynth.isEnabled()) window.SoundSynth.enable(); window.SoundSynth.playLong(); render(); }
+function testShort() { if (!window.SoundSynth.isEnabled()) window.SoundSynth.enable(); window.SoundSynth.playShort(); render(); }
+function testCritical() { if (!window.SoundSynth.isEnabled()) window.SoundSynth.enable(); window.SoundSynth.playCritical(); render(); }
+function render() {
+  if (!window.SoundSynth) return;
+  const enabled = window.SoundSynth.isEnabled();
+  const mc = document.getElementById('master-card');
+  mc.className = 'master-card ' + (enabled ? 'on' : 'off');
+  document.getElementById('master-state').textContent = enabled ? '🔊 ON' : 'OFF';
+  document.getElementById('master-desc').textContent = enabled ? 'Sound will play when high-conviction alerts arrive.' : 'Sound is silent.';
+  const tog = document.getElementById('master-toggle');
+  tog.className = 'toggle-btn ' + (enabled ? 'stop' : 'go');
+  tog.textContent = enabled ? '⏹ Disable sound' : '▶ Enable sound';
+}
+setTimeout(() => { loadCfg(); render(); }, 600);
+</script>
+</body>
+</html>

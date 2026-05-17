@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AI Market Pulse — bpleone</title>
+<meta name="description" content="Claude AI summarizes the current market state in 3 sentences based on live QUOTES + brain stats. Refresh on demand.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.pulse-card { padding:36px;border-radius:18px;background:linear-gradient(135deg,rgba(140,100,255,0.10),rgba(140,100,255,0.02));border:2px solid #a884ff;margin-bottom:18px; }
+.pulse-card h3 { margin:0 0 14px;font-size:14px;font-weight:800;color:#a884ff;text-transform:uppercase;letter-spacing:1.5px; }
+.pulse-card .body { font-size:18px;line-height:1.6;color:var(--text);font-weight:500; }
+.pulse-card .meta { margin-top:18px;font-size:11px;color:var(--text-muted);font-family:var(--font-mono);display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px; }
+.run-btn { padding:14px 32px;border-radius:10px;border:none;font-weight:800;cursor:pointer;font-size:15px;background:linear-gradient(135deg,#a884ff,#7c3aed);color:#fff;letter-spacing:0.5px; }
+.warn { padding:14px 20px;background:rgba(245,158,11,0.10);border-left:4px solid var(--yellow);border-radius:8px;font-size:13px;color:var(--text-secondary);line-height:1.6;margin-bottom:18px; }
+.tile { padding:18px;background:var(--bg-elevated);border-radius:10px; }
+.tile .lbl { font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;font-weight:700; }
+.tile .val { font-family:var(--font-mono);font-size:22px;font-weight:800;margin-top:6px;color:var(--accent); }
+.history-row { padding:12px 16px;background:var(--bg-elevated);border-radius:8px;margin-bottom:6px;font-size:13px;color:var(--text-secondary);line-height:1.5; }
+.history-row .ts { font-size:10px;color:var(--text-muted);font-family:var(--font-mono);margin-bottom:4px; }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">🌍 AI Market Pulse</div>
+      <div class="page-subtitle">Claude AI reads the live tape + brain stats and writes a 3-sentence summary of what's happening right now.</div>
+    </div>
+  </div>
+
+  <div id="warn-bar" class="warn" style="display:none;"></div>
+
+  <div id="pulse-card" class="pulse-card">
+    <h3>📡 Latest pulse</h3>
+    <div class="body" id="pulse-body">Click "Generate pulse" to ask Claude to summarize the current market state.</div>
+    <div class="meta" id="pulse-meta"></div>
+  </div>
+
+  <div style="text-align:center;margin-bottom:24px;">
+    <button onclick="generate()" id="gen-btn" class="run-btn">🌍 Generate pulse</button>
+  </div>
+
+  <div class="grid grid-3 mb-24" id="snap-grid"></div>
+
+  <div class="card mb-24">
+    <div class="card-header"><div class="card-title">📜 Recent pulses</div></div>
+    <div id="history-list"></div>
+  </div>
+
+  <div class="card">
+    <div class="card-header"><div class="card-title">🔗 Related</div></div>
+    <div style="display:flex;gap:12px;flex-wrap:wrap;">
+      <a href="settings.html" style="text-decoration:none;display:inline-block;background:linear-gradient(135deg,#00d4ff,#0094c7);color:#000;padding:10px 18px;border-radius:8px;font-weight:700;">⚙ Wire Claude API</a>
+      <a href="trade-plans.html" style="text-decoration:none;display:inline-block;background:rgba(120,140,160,0.12);color:var(--accent);padding:10px 18px;border-radius:8px;font-weight:700;">📝 Trade Plans</a>
+      <a href="assistant.html" style="text-decoration:none;display:inline-block;background:rgba(120,140,160,0.12);color:var(--accent);padding:10px 18px;border-radius:8px;font-weight:700;">💬 Assistant</a>
+    </div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script>buildNav('ai-market-pulse');</script>
+<script>
+const KEY = 'bpleone_ai_pulse_history_v1';
+function loadHistory() { try { return JSON.parse(localStorage.getItem(KEY) || '[]'); } catch (e) { return []; } }
+function saveHistory(h) { try { localStorage.setItem(KEY, JSON.stringify(h.slice(-50))); } catch (e) {} }
+function fmtAgo(t) { if (!t) return '—'; const ms = Date.now() - t; if (ms < 60000) return Math.round(ms/1000) + 's ago'; if (ms < 3600000) return Math.round(ms/60000) + 'm ago'; if (ms < 86400000) return Math.round(ms/3600000) + 'h ago'; return Math.round(ms/86400000) + 'd ago'; }
+
+function checkWarn() {
+  const warn = document.getElementById('warn-bar');
+  const aiReady = window.AIClient && typeof window.AIClient.isReady === 'function' && window.AIClient.isReady();
+  if (!aiReady) {
+    warn.style.display = 'block';
+    warn.innerHTML = '<strong>⚠ Claude API not configured.</strong> Pulse will use a deterministic template instead. <a href="settings.html" style="color:var(--accent);">Add your Anthropic key in Settings →</a> to get AI summaries.';
+    return false;
+  }
+  warn.style.display = 'none';
+  return true;
+}
+
+function buildPrompt() {
+  if (typeof QUOTES === 'undefined') return null;
+  const syms = ['SPY', 'QQQ', 'IWM', 'NVDA', 'AAPL', 'MSFT', 'TSLA', 'BTC'];
+  const snaps = syms.map(s => {
+    const q = QUOTES[s];
+    if (!q) return null;
+    return s + ' $' + (q.last || 0).toFixed(2) + ' (' + (q.changePct >= 0 ? '+' : '') + (q.changePct || 0).toFixed(2) + '%)';
+  }).filter(Boolean).join(', ');
+  let alertCount = 0, brainPnL = 0;
+  if (window.HighConvictionAlerts) alertCount = window.HighConvictionAlerts.feed(50).filter(a => Date.now() - a.ts < 24 * 60 * 60 * 1000).length;
+  if (window.MoneyTracker) {
+    const s = window.MoneyTracker.summary();
+    if (!s.empty && s.windows && s.windows.d7) brainPnL = s.windows.d7.totalPnL;
+  }
+  return 'You are a concise market analyst. Read these snapshots and write a 3-sentence summary of the market state right now. No fluff. No disclaimer. Just the read.\n\n' +
+    'Live: ' + snaps + '\n' +
+    'High-conviction brain signals last 24h: ' + alertCount + '\n' +
+    'Brain simulated P&L last 7 days: $' + brainPnL.toFixed(0) + '\n\n' +
+    'Format: 3 sentences. Sentence 1 = broad market read. Sentence 2 = standout names/moves. Sentence 3 = what the brain is doing.';
+}
+
+function templateFallback() {
+  if (typeof QUOTES === 'undefined') return 'No live data available.';
+  const spy = QUOTES.SPY ? (QUOTES.SPY.changePct || 0) : 0;
+  const dir = spy > 0.3 ? 'risk-on' : spy < -0.3 ? 'risk-off' : 'mixed';
+  return 'Market is ' + dir + ' with SPY ' + (spy >= 0 ? '+' : '') + spy.toFixed(2) + '%. Top movers visible on the live ticker. Brain is in selective mode — waiting for high-conviction setups.';
+}
+
+async function generate() {
+  const btn = document.getElementById('gen-btn');
+  btn.disabled = true;
+  btn.textContent = '⏳ Asking Claude...';
+  const aiReady = checkWarn();
+  const prompt = buildPrompt();
+  let text = null, source = 'template';
+  if (prompt && aiReady) {
+    try {
+      const res = await window.AIClient.chat([{ role: 'user', content: prompt }], { maxTokens: 200 });
+      if (res && res.text) { text = res.text.trim(); source = 'ai'; }
+    } catch (e) {}
+  }
+  if (!text) text = templateFallback();
+  const entry = { ts: Date.now(), text, source };
+  const h = loadHistory();
+  h.push(entry);
+  saveHistory(h);
+  btn.disabled = false;
+  btn.textContent = '🌍 Generate pulse';
+  render();
+}
+
+function render() {
+  checkWarn();
+  const h = loadHistory();
+  const latest = h[h.length - 1];
+  if (latest) {
+    document.getElementById('pulse-body').textContent = latest.text;
+    document.getElementById('pulse-meta').innerHTML = '<span>📅 ' + fmtAgo(latest.ts) + '</span><span>source: <strong>' + latest.source + '</strong></span>';
+  }
+  // Snapshot tiles
+  if (typeof QUOTES !== 'undefined') {
+    const spy = QUOTES.SPY || {};
+    const qqq = QUOTES.QQQ || {};
+    const btc = QUOTES.BTC || {};
+    document.getElementById('snap-grid').innerHTML =
+      '<div class="tile"><div class="lbl">SPY</div><div class="val" style="color:' + ((spy.changePct || 0) >= 0 ? 'var(--green)' : 'var(--red)') + ';">' + ((spy.changePct || 0) >= 0 ? '+' : '') + (spy.changePct || 0).toFixed(2) + '%</div></div>' +
+      '<div class="tile"><div class="lbl">QQQ</div><div class="val" style="color:' + ((qqq.changePct || 0) >= 0 ? 'var(--green)' : 'var(--red)') + ';">' + ((qqq.changePct || 0) >= 0 ? '+' : '') + (qqq.changePct || 0).toFixed(2) + '%</div></div>' +
+      '<div class="tile"><div class="lbl">BTC</div><div class="val" style="color:' + ((btc.changePct || 0) >= 0 ? 'var(--green)' : 'var(--red)') + ';">' + ((btc.changePct || 0) >= 0 ? '+' : '') + (btc.changePct || 0).toFixed(2) + '%</div></div>';
+  }
+  // History
+  const histList = document.getElementById('history-list');
+  const prev = h.slice(-10).reverse().slice(1);
+  if (prev.length === 0) {
+    histList.innerHTML = '<div style="color:var(--text-muted);text-align:center;padding:18px;">No previous pulses.</div>';
+  } else {
+    histList.innerHTML = prev.map(e => '<div class="history-row"><div class="ts">' + fmtAgo(e.ts) + ' · ' + e.source + '</div>' + e.text + '</div>').join('');
+  }
+}
+setTimeout(render, 500);
+setInterval(render, 10000);
+</script>
+</body>
+</html>

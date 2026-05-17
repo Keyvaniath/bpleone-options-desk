@@ -457,6 +457,13 @@ document.addEventListener('DOMContentLoaded', () => {
         s.async = false;
         document.head.appendChild(s);
       }
+      // Sound Synth — Web Audio beeps for alerts. Off by default.
+      if (!document.querySelector('script[src*="sound-synth.js"]')) {
+        const s = document.createElement('script');
+        s.src = 'js/sound-synth.js';
+        s.async = true;
+        document.head.appendChild(s);
+      }
       // Multi-horizon ensemble MUST load before continuous-learner so the
       // learner can call MultiHorizon.* immediately on first capture.
       if (!document.querySelector('script[src*="multi-horizon.js"]')) {
