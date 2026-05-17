@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Brain Backtester — bpleone</title>
+<meta name="description" content="Sweep parameter grids over the brain's resolved trades. Find which sizing + filter combo was best in hindsight.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.tile { padding:18px;background:var(--bg-elevated);border-radius:10px; }
+.tile .lbl { font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;font-weight:700; }
+.tile .val { font-family:var(--font-mono);font-size:22px;font-weight:800;margin-top:6px;color:var(--accent); }
+.tile.gain .val { color:var(--green); }
+.tile.loss .val { color:var(--red); }
+table.grid { width:100%;border-collapse:collapse;font-size:12px;font-family:var(--font-mono); }
+table.grid th { text-align:left;padding:8px 10px;border-bottom:1px solid var(--bg-elevated);color:var(--text-muted);font-size:10px;text-transform:uppercase;letter-spacing:0.5px;font-weight:700; }
+table.grid td { padding:7px 10px;border-bottom:1px solid rgba(255,255,255,0.04); }
+table.grid tr:hover { background:rgba(0,212,255,0.03); }
+table.grid tr.best { background:rgba(16,185,129,0.08);border-left:3px solid var(--green); }
+.pnl-pos { color:var(--green);font-weight:700; }
+.pnl-neg { color:var(--red);font-weight:700; }
+#equity-chart { width:100%;height:220px; }
+.run-btn { padding:14px 28px;border-radius:10px;font-weight:800;cursor:pointer;font-size:15px;letter-spacing:0.5px;border:none;background:linear-gradient(135deg,#00d4ff,#0094c7);color:#000; }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">⏪ Brain Backtester</div>
+      <div class="page-subtitle">Sweep sizing + filter parameters across the brain's full history. Find which strategy was best in hindsight, validate forward sizing.</div>
+    </div>
+  </div>
+
+  <div class="card mb-24" style="background:linear-gradient(135deg,rgba(0,212,255,0.04),rgba(140,100,255,0.04));border-left:4px solid var(--accent);">
+    <div style="font-size:14px;color:var(--text-secondary);line-height:1.6;">
+      <strong>How it works:</strong> uses the same resolved-trades data MoneyTracker uses (<code>bpleone_pred_journal_v1</code>) but lets you sweep <em>risk %</em>, <em>min conviction</em>, and <em>direction filter</em> in a grid. The leaderboard shows total P&amp;L, win rate, max drawdown, and Sharpe-ish per parameter combo. Best by total $ is highlighted green. Use this to pick or validate your AutoTrade settings.
+    </div>
+  </div>
+
+  <div class="card mb-24">
+    <div class="card-header"><div class="card-title">⚙️ Single-strategy run</div></div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:14px;">
+      <label style="font-size:11px;color:var(--text-muted);font-weight:700;text-transform:uppercase;">Bankroll $<input id="cfg-bankroll" type="number" value="10000" min="100" step="100" style="width:100%;background:rgba(0,0,0,0.3);border:1px solid rgba(255,255,255,0.1);border-radius:6px;padding:8px 10px;color:var(--text);font-family:var(--font-mono);font-size:14px;margin-top:6px;"></label>
+      <label style="font-size:11px;color:var(--text-muted);font-weight:700;text-transform:uppercase;">Risk %<input id="cfg-risk" type="number" value="2" min="0.1" max="20" step="0.1" style="width:100%;background:rgba(0,0,0,0.3);border:1px solid rgba(255,255,255,0.1);border-radius:6px;padding:8px 10px;color:var(--text);font-family:var(--font-mono);font-size:14px;margin-top:6px;"></label>
+      <label style="font-size:11px;color:var(--text-muted);font-weight:700;text-transform:uppercase;">Min conv<input id="cfg-conv" type="number" value="0.55" min="0.5" max="0.99" step="0.01" style="width:100%;background:rgba(0,0,0,0.3);border:1px solid rgba(255,255,255,0.1);border-radius:6px;padding:8px 10px;color:var(--text);font-family:var(--font-mono);font-size:14px;margin-top:6px;"></label>
+      <label style="font-size:11px;color:var(--text-muted);font-weight:700;text-transform:uppercase;">Direction<select id="cfg-dir" style="width:100%;background:rgba(0,0,0,0.3);border:1px solid rgba(255,255,255,0.1);border-radius:6px;padding:8px 10px;color:var(--text);font-family:var(--font-mono);font-size:14px;margin-top:6px;"><option value="both">Both</option><option value="long">Long only</option><option value="short">Short only</option></select></label>
+      <label style="font-size:11px;color:var(--text-muted);font-weight:700;text-transform:uppercase;">Window<select id="cfg-win" style="width:100%;background:rgba(0,0,0,0.3);border:1px solid rgba(255,255,255,0.1);border-radius:6px;padding:8px 10px;color:var(--text);font-family:var(--font-mono);font-size:14px;margin-top:6px;"><option value="7">Last 7d</option><option value="30">Last 30d</option><option value="90" selected>Last 90d</option><option value="">Lifetime</option></select></label>
+    </div>
+    <div style="margin-top:18px;">
+      <button onclick="runOne()" class="run-btn">▶ Run single strategy</button>
+      <button onclick="runGrid()" style="padding:14px 22px;border-radius:10px;border:none;font-weight:800;cursor:pointer;font-size:15px;background:linear-gradient(135deg,#a884ff,#7c3aed);color:#fff;margin-left:8px;">🔀 Run full parameter grid</button>
+    </div>
+  </div>
+
+  <div class="grid grid-4 mb-24" id="single-stats"></div>
+
+  <div class="card mb-24">
+    <div class="card-header"><div class="card-title">📈 Equity curve (single strategy)</div></div>
+    <canvas id="equity-chart"></canvas>
+  </div>
+
+  <div class="card mb-24">
+    <div class="card-header"><div class="card-title">🏆 Parameter grid leaderboard (sorted by P&amp;L)</div></div>
+    <table class="grid" id="grid-table">
+      <thead><tr><th>Rank</th><th>Risk %</th><th>Min Conv</th><th>Direction</th><th>Trades</th><th>Win %</th><th>P&amp;L</th><th>Max DD</th><th>Sharpe-ish</th></tr></thead>
+      <tbody id="grid-body"><tr><td colspan="9" style="color:var(--text-muted);text-align:center;padding:18px;">Click "Run full parameter grid" to evaluate 12 combinations (4 risk × 3 conviction × 1 direction).</td></tr></tbody>
+    </table>
+  </div>
+
+  <div class="card">
+    <div class="card-header"><div class="card-title">🔗 Related</div></div>
+    <div style="display:flex;gap:12px;flex-wrap:wrap;">
+      <a href="auto-trade.html" style="text-decoration:none;display:inline-block;background:linear-gradient(135deg,#f59e0b,#d97706);color:#000;padding:10px 18px;border-radius:8px;font-weight:700;">🤖 Apply to Auto-Trade</a>
+      <a href="money-made.html" style="text-decoration:none;display:inline-block;background:rgba(120,140,160,0.12);color:var(--accent);padding:10px 18px;border-radius:8px;font-weight:700;">💵 Money Made</a>
+      <a href="risk-simulator.html" style="text-decoration:none;display:inline-block;background:rgba(120,140,160,0.12);color:var(--accent);padding:10px 18px;border-radius:8px;font-weight:700;">🎲 Risk Sim</a>
+    </div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/charts.js"></script>
+<script src="js/live.js"></script>
+<script src="js/brain-backtest.js"></script>
+<script>buildNav('brain-backtest');</script>
+<script>
+let eqChart = null;
+function fmt$(v) { if (!isFinite(v)) return '$0'; const s = v < 0 ? '-' : ''; const a = Math.abs(v); return s + '$' + a.toLocaleString(undefined, { maximumFractionDigits: 2 }); }
+
+function readCfg() {
+  return {
+    bankroll: parseFloat(document.getElementById('cfg-bankroll').value) || 10000,
+    riskPct: (parseFloat(document.getElementById('cfg-risk').value) || 2) / 100,
+    minConvictionToTrade: parseFloat(document.getElementById('cfg-conv').value) || 0.55,
+    directionFilter: document.getElementById('cfg-dir').value,
+    windowDays: document.getElementById('cfg-win').value ? parseInt(document.getElementById('cfg-win').value) : null
+  };
+}
+function runOne() {
+  if (!window.BrainBacktest) { setTimeout(runOne, 500); return; }
+  const s = readCfg();
+  const r = window.BrainBacktest.run(s);
+  document.getElementById('single-stats').innerHTML =
+    '<div class="tile ' + (r.totalPnL >= 0 ? 'gain' : 'loss') + '"><div class="lbl">Total P&L</div><div class="val">' + (r.totalPnL >= 0 ? '+' : '') + fmt$(r.totalPnL) + '</div></div>' +
+    '<div class="tile"><div class="lbl">Trades</div><div class="val">' + r.totalTrades + '</div></div>' +
+    '<div class="tile"><div class="lbl">Win rate</div><div class="val">' + (r.winRate != null ? (r.winRate * 100).toFixed(0) + '%' : '—') + '</div></div>' +
+    '<div class="tile loss"><div class="lbl">Max DD</div><div class="val">-' + fmt$(r.maxDrawdown) + '</div></div>';
+  // Equity curve
+  const ctx = document.getElementById('equity-chart');
+  if (!ctx || typeof Chart === 'undefined') return;
+  if (eqChart) eqChart.destroy();
+  const labels = r.trades.map(t => new Date(t.ts).toLocaleDateString());
+  const data = r.trades.map(t => +(s.bankroll + t.cum).toFixed(2));
+  eqChart = new Chart(ctx, {
+    type: 'line',
+    data: { labels, datasets: [{ data, borderColor: r.totalPnL >= 0 ? '#10b981' : '#dc2626', backgroundColor: r.totalPnL >= 0 ? 'rgba(16,185,129,0.12)' : 'rgba(220,38,38,0.12)', fill: true, tension: 0.2, borderWidth: 2, pointRadius: 0 }] },
+    options: { responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: { x: { display: false }, y: { ticks: { color: 'rgba(255,255,255,0.5)', callback: v => '$' + v.toLocaleString() } } } }
+  });
+}
+function runGrid() {
+  if (!window.BrainBacktest) { setTimeout(runGrid, 500); return; }
+  const cfg = readCfg();
+  const results = window.BrainBacktest.grid({
+    baseStrategy: { bankroll: cfg.bankroll, windowDays: cfg.windowDays },
+    riskPcts: [0.01, 0.02, 0.03, 0.05],
+    minConvictions: [0.55, 0.65, 0.75],
+    directionFilters: [cfg.directionFilter]
+  });
+  results.sort((a, b) => b.result.totalPnL - a.result.totalPnL);
+  const best = results[0];
+  document.getElementById('grid-body').innerHTML = results.map((it, i) => {
+    const r = it.result;
+    const s = it.strategy;
+    const cls = i === 0 ? 'best' : '';
+    return '<tr class="' + cls + '">' +
+      '<td>#' + (i + 1) + '</td>' +
+      '<td>' + (s.riskPct * 100).toFixed(1) + '%</td>' +
+      '<td>' + (s.minConvictionToTrade * 100).toFixed(0) + '%</td>' +
+      '<td>' + s.directionFilter + '</td>' +
+      '<td>' + r.totalTrades + '</td>' +
+      '<td>' + (r.winRate != null ? (r.winRate * 100).toFixed(0) + '%' : '—') + '</td>' +
+      '<td class="' + (r.totalPnL >= 0 ? 'pnl-pos' : 'pnl-neg') + '">' + (r.totalPnL >= 0 ? '+' : '') + fmt$(r.totalPnL) + '</td>' +
+      '<td>-' + fmt$(r.maxDrawdown) + '</td>' +
+      '<td>' + (r.sharpish != null ? r.sharpish.toFixed(2) : '—') + '</td>' +
+    '</tr>';
+  }).join('');
+}
+setTimeout(runOne, 700);
+</script>
+</body>
+</html>

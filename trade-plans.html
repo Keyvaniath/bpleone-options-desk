@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Trade Plans — bpleone</title>
+<meta name="description" content="Auto-generated trade plans for every high-conviction signal. Entry, stop, target, thesis, risks. AI-powered when Claude is wired.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.plan-card { padding:18px 22px;background:var(--bg-elevated);border-radius:12px;margin-bottom:12px;border-left:4px solid var(--accent);position:relative; }
+.plan-card.long { border-left-color:var(--green); }
+.plan-card.short { border-left-color:var(--red); }
+.plan-card .head { display:flex;justify-content:space-between;align-items:flex-start;gap:14px;margin-bottom:10px;flex-wrap:wrap; }
+.plan-card .sym { font-family:var(--font-mono);font-size:20px;font-weight:900; }
+.plan-card .meta { font-size:11px;color:var(--text-muted);font-family:var(--font-mono); }
+.plan-card .source { display:inline-block;padding:2px 8px;border-radius:6px;font-size:10px;font-weight:800; }
+.plan-card .source.ai { background:rgba(140,100,255,0.18);color:#a884ff; }
+.plan-card .source.template { background:rgba(120,140,160,0.12);color:var(--text-muted); }
+.plan-card pre.body { white-space:pre-wrap;font-family:'Inter',sans-serif;font-size:13px;line-height:1.6;color:var(--text-secondary);margin:0; }
+.tile { padding:18px;background:var(--bg-elevated);border-radius:10px; }
+.tile .lbl { font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;font-weight:700; }
+.tile .val { font-family:var(--font-mono);font-size:22px;font-weight:800;margin-top:6px;color:var(--accent); }
+.empty { text-align:center;padding:32px;color:var(--text-muted); }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">📝 Auto-Generated Trade Plans</div>
+      <div class="page-subtitle">For each high-conviction alert: a structured plan with entry, stop, target, thesis, risks. AI-powered when Claude is wired (settings.html).</div>
+    </div>
+  </div>
+
+  <div id="ai-status" class="card mb-24" style="background:rgba(140,100,255,0.05);border-left:4px solid #a884ff;display:none;">
+    <div style="font-size:14px;color:var(--text-secondary);"></div>
+  </div>
+
+  <div class="grid grid-3 mb-24" id="kpi-grid"></div>
+
+  <div class="card mb-24">
+    <div class="card-header">
+      <div class="card-title">📋 Recent plans (most recent first)</div>
+      <button onclick="generateMissing()" style="padding:8px 14px;background:linear-gradient(135deg,#00d4ff,#0094c7);color:#000;border:none;border-radius:6px;font-weight:700;cursor:pointer;font-size:12px;">⚡ Generate missing</button>
+    </div>
+    <div id="plans-list"></div>
+  </div>
+
+  <div class="card">
+    <div class="card-header"><div class="card-title">🔗 Related</div></div>
+    <div style="display:flex;gap:12px;flex-wrap:wrap;">
+      <a href="high-conviction-alerts.html" style="text-decoration:none;display:inline-block;background:linear-gradient(135deg,#a884ff,#7c3aed);color:#fff;padding:10px 18px;border-radius:8px;font-weight:700;">🔔 Alerts feed</a>
+      <a href="auto-trade.html" style="text-decoration:none;display:inline-block;background:rgba(120,140,160,0.12);color:var(--accent);padding:10px 18px;border-radius:8px;font-weight:700;">🤖 Auto-Trade</a>
+      <a href="settings.html" style="text-decoration:none;display:inline-block;background:rgba(120,140,160,0.12);color:var(--accent);padding:10px 18px;border-radius:8px;font-weight:700;">⚙ Wire Claude API</a>
+    </div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script src="js/trade-plan-gen.js"></script>
+<script>buildNav('trade-plans');</script>
+<script>
+function fmtAgo(t) { if (!t) return '—'; const ms = Date.now() - t; if (ms < 60000) return Math.round(ms/1000) + 's ago'; if (ms < 3600000) return Math.round(ms/60000) + 'm ago'; if (ms < 86400000) return Math.round(ms/3600000) + 'h ago'; return Math.round(ms/86400000) + 'd ago'; }
+function escapeHtml(s) { return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
+
+async function generateMissing() {
+  if (!window.HighConvictionAlerts || !window.TradePlanGen) return;
+  const feed = window.HighConvictionAlerts.feed(50);
+  document.getElementById('ai-status').style.display = 'block';
+  document.getElementById('ai-status').firstElementChild.innerHTML = '⏳ Generating plans for ' + feed.length + ' alerts...';
+  let generated = 0;
+  for (const a of feed) {
+    const id = a.sourceJournalId || (a.sym + '-' + a.ts);
+    if (window.TradePlanGen.cached(id)) continue;
+    try { await window.TradePlanGen.generateAlert(a); generated++; render(); } catch (e) {}
+  }
+  document.getElementById('ai-status').firstElementChild.innerHTML = '✅ Generated ' + generated + ' new plans.';
+  setTimeout(() => { document.getElementById('ai-status').style.display = 'none'; }, 3500);
+  render();
+}
+
+function render() {
+  if (!window.HighConvictionAlerts || !window.TradePlanGen) {
+    setTimeout(render, 500);
+    return;
+  }
+  // AI status banner
+  const aiReady = window.AIClient && typeof window.AIClient.isReady === 'function' && window.AIClient.isReady();
+  const banner = document.getElementById('ai-status');
+  if (!banner.dataset.userTriggered) {
+    if (aiReady) {
+      banner.style.display = 'block';
+      banner.firstElementChild.innerHTML = '🧠 <strong>Claude API wired</strong> — trade plans use AI thesis generation. <a href="settings.html" style="color:var(--accent);">Settings →</a>';
+      banner.style.background = 'rgba(140,100,255,0.05)';
+      banner.style.borderLeftColor = '#a884ff';
+    } else {
+      banner.style.display = 'block';
+      banner.firstElementChild.innerHTML = '⚠ <strong>Claude API not configured</strong> — plans use deterministic templates. <a href="settings.html" style="color:var(--accent);">Add your Anthropic key in Settings →</a> to enable AI thesis.';
+      banner.style.background = 'rgba(245,158,11,0.05)';
+      banner.style.borderLeftColor = 'var(--yellow)';
+    }
+  }
+
+  const feed = window.HighConvictionAlerts.feed(30);
+  const plans = feed.map(a => {
+    const id = a.sourceJournalId || (a.sym + '-' + a.ts);
+    const cached = window.TradePlanGen.cached(id);
+    return { alert: a, plan: cached };
+  });
+  const withPlans = plans.filter(p => p.plan).length;
+  const aiCount = plans.filter(p => p.plan && p.plan.source === 'ai').length;
+  document.getElementById('kpi-grid').innerHTML =
+    '<div class="tile"><div class="lbl">Alerts</div><div class="val">' + feed.length + '</div></div>' +
+    '<div class="tile"><div class="lbl">Plans cached</div><div class="val">' + withPlans + '</div></div>' +
+    '<div class="tile"><div class="lbl">AI-generated</div><div class="val" style="color:#a884ff;">' + aiCount + '</div></div>';
+  const list = document.getElementById('plans-list');
+  if (plans.length === 0) {
+    list.innerHTML = '<div class="empty">No high-conviction alerts yet. Plans auto-generate when alerts fire — or click "Generate missing" once you have some.</div>';
+    return;
+  }
+  list.innerHTML = plans.map(p => {
+    const a = p.alert;
+    const planText = p.plan ? p.plan.plan : '(no plan yet — click "Generate missing" above)';
+    const srcBadge = p.plan ? '<span class="source ' + p.plan.source + '">' + p.plan.source + '</span>' : '<span class="source template" style="background:rgba(220,38,38,0.18);color:var(--red);">missing</span>';
+    return '<div class="plan-card ' + (a.direction === 'LONG' ? 'long' : 'short') + '">' +
+      '<div class="head"><div><span class="sym">' + a.sym + '</span> · <span style="font-weight:800;color:' + (a.direction === 'LONG' ? 'var(--green)' : 'var(--red)') + ';">' + a.direction + '</span> · ' + (a.conviction * 100).toFixed(0) + '%</div><div><span class="meta">' + fmtAgo(a.ts) + '</span> ' + srcBadge + '</div></div>' +
+      '<pre class="body">' + escapeHtml(planText) + '</pre>' +
+    '</div>';
+  }).join('');
+}
+setTimeout(render, 600);
+setInterval(render, 8000);
+</script>
+</body>
+</html>

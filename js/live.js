@@ -421,6 +421,14 @@ document.addEventListener('DOMContentLoaded', () => {
         s.async = false;
         document.head.appendChild(s);
       }
+      // Voice Coach — speaks high-conviction signals via Web Speech API.
+      // Off by default (autoplay rules); user opts in on voice-coach.html.
+      if (!document.querySelector('script[src*="voice-coach.js"]')) {
+        const s = document.createElement('script');
+        s.src = 'js/voice-coach.js';
+        s.async = false;
+        document.head.appendChild(s);
+      }
       // Multi-horizon ensemble MUST load before continuous-learner so the
       // learner can call MultiHorizon.* immediately on first capture.
       if (!document.querySelector('script[src*="multi-horizon.js"]')) {
