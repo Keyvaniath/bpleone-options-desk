@@ -659,6 +659,14 @@ document.addEventListener('DOMContentLoaded', () => {
         s.async = false;
         document.head.appendChild(s);
       }
+      // Prediction histogram: distribution of predicted probabilities.
+      // Diagnostic for 'is the brain differentiating between trades?'
+      if (!document.querySelector('script[src*="prediction-histogram.js"]')) {
+        const s = document.createElement('script');
+        s.src = 'js/prediction-histogram.js';
+        s.async = false;
+        document.head.appendChild(s);
+      }
       // Unified predictor: chains every meta-module into ONE call.
       // Loads last so all dependencies are present.
       if (!document.querySelector('script[src*="unified-predictor.js"]')) {

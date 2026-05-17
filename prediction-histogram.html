@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Prediction Histogram — bpleone / brain</title>
+<meta name="description" content="Distribution of recent predicted probabilities. Diagnostic for whether the brain is differentiating between trades.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.tile { padding:18px;background:var(--bg-elevated);border-radius:10px; }
+.tile .lbl { font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;font-weight:700; }
+.tile .val { font-family:var(--font-mono);font-size:22px;font-weight:800;margin-top:6px;color:var(--accent); }
+.tile .sub { font-size:11px;color:var(--text-muted);font-family:var(--font-mono);margin-top:4px; }
+.diagram { padding:24px;background:var(--bg-elevated);border-radius:12px; }
+.bar-row { display:grid;grid-template-columns:80px 1fr 60px;gap:10px;padding:6px 0;align-items:center; }
+.bar-bg { position:relative;height:22px;background:var(--bg-base);border-radius:6px;overflow:hidden; }
+.bar-fill { position:absolute;left:0;top:0;height:100%;background:linear-gradient(90deg,var(--accent),#0094c7);transition:width 0.3s; }
+.bar-row .name { font-family:var(--font-mono);font-size:12px;font-weight:700;color:var(--text-secondary); }
+.bar-row .count { font-family:var(--font-mono);font-size:12px;font-weight:700;text-align:right;color:var(--accent); }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">📊 Prediction Histogram</div>
+      <div class="page-subtitle">Distribution of recent predicted probabilities · is the brain differentiating</div>
+    </div>
+  </div>
+
+  <div class="grid grid-4 mb-24" id="metrics-grid"></div>
+
+  <div class="card mb-24">
+    <div class="card-header"><div class="card-title">📈 Probability distribution (last 1000 predictions)</div></div>
+    <div class="diagram" id="diagram"></div>
+  </div>
+
+  <div class="card">
+    <div class="card-header"><div class="card-title">📚 What healthy looks like</div></div>
+    <div style="font-size:13px;color:var(--text-secondary);line-height:1.7;">
+      <strong>Healthy distribution:</strong>
+      <ul style="margin:8px 0 8px 24px;">
+        <li>Spread across [0.20, 0.80] with some predictions in both confident tails</li>
+        <li>Mean near 0.50 (no strong systemic long/short bias)</li>
+        <li>Std around 0.10-0.20 (the brain is differentiating)</li>
+        <li>Confident% &gt; 20% (model has some strong opinions)</li>
+        <li>Muddy% &lt; 30% (not just outputting 50% for everything)</li>
+      </ul>
+      <strong>Unhealthy patterns:</strong>
+      <ul style="margin:8px 0 8px 24px;">
+        <li><strong>All in [0.45, 0.55]:</strong> the brain is uncertain about everything. Probably under-trained or the features are too weak.</li>
+        <li><strong>All at one end (e.g. 0.70+):</strong> the brain is biased — probably wrong calibration or symbol bias overshoot.</li>
+        <li><strong>Bimodal at 0.0 and 1.0:</strong> overconfident model. Calibration is needed (or label smoothing should be turned up).</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script src="js/prediction-histogram.js"></script>
+<script>
+buildNav('prediction-histogram');
+
+function fmt(n, d) { return n != null ? n.toFixed(d != null ? d : 3) : '—'; }
+function fmtPct(p) { return p != null ? (p * 100).toFixed(1) + '%' : '—'; }
+
+function render() {
+  const s = PredictionHistogram.stats();
+
+  document.getElementById('metrics-grid').innerHTML = ''
+    + '<div class="tile"><div class="lbl">Total predictions</div><div class="val">' + s.n + '</div></div>'
+    + '<div class="tile"><div class="lbl">Mean prob</div><div class="val">' + fmt(s.meanProb) + '</div><div class="sub">target ~0.50</div></div>'
+    + '<div class="tile"><div class="lbl">Std deviation</div><div class="val">' + fmt(s.stdProb) + '</div><div class="sub">target 0.10-0.20</div></div>'
+    + '<div class="tile"><div class="lbl">Confident</div><div class="val">' + fmtPct(s.confidentPct) + '</div><div class="sub">|p-0.5|&gt;0.25</div></div>'
+    + '<div class="tile"><div class="lbl">Muddy</div><div class="val">' + fmtPct(s.muddyPct) + '</div><div class="sub">p in [0.45, 0.55]</div></div>'
+    + '<div class="tile"><div class="lbl">Long bias</div><div class="val" style="color:var(--green);">' + fmtPct(s.longPct) + '</div><div class="sub">p&gt;0.55</div></div>'
+    + '<div class="tile"><div class="lbl">Short bias</div><div class="val" style="color:var(--red);">' + fmtPct(s.shortPct) + '</div><div class="sub">p&lt;0.45</div></div>';
+
+  const dia = document.getElementById('diagram');
+  if (!s.ready) {
+    dia.innerHTML = '<div style="text-align:center;color:var(--text-muted);font-size:13px;padding:24px;">No predictions yet.</div>';
+    return;
+  }
+  const bins = s.distribution;
+  const maxCount = Math.max(...bins.map(b => b.count), 1);
+  let html = '';
+  for (const b of bins) {
+    const widthPct = (b.count / maxCount * 100).toFixed(1);
+    html += '<div class="bar-row">'
+      + '<div class="name">' + (b.binStart * 100).toFixed(0) + '-' + (b.binEnd * 100).toFixed(0) + '%</div>'
+      + '<div class="bar-bg">' + (b.count > 0 ? '<div class="bar-fill" style="width:' + widthPct + '%;"></div>' : '') + '</div>'
+      + '<div class="count">' + b.count + '</div>'
+      + '</div>';
+  }
+  dia.innerHTML = html;
+}
+
+render();
+setInterval(render, 10000);
+window.addEventListener('bpleone:continuous-cycle', render);
+</script>
+</body>
+</html>

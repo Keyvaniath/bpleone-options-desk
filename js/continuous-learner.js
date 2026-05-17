@@ -160,6 +160,8 @@
         journal.push(journalEntry);
         // VOLUME TRACKER: count this prediction for diagnostic purposes.
         try { if (typeof VolumeTracker !== 'undefined') VolumeTracker.recordPrediction(journalEntry.ts); } catch (e) {}
+        // PREDICTION HISTOGRAM: track the distribution of probabilities.
+        try { if (typeof PredictionHistogram !== 'undefined') PredictionHistogram.record(pred.prob); } catch (e) {}
         state.lastCaptureBySym[sym] = Date.now();
         // Active-learning: mark uncertain if main prob in [0.40, 0.60]
         if (!state.uncertainSyms) state.uncertainSyms = {};
