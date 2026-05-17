@@ -109,8 +109,20 @@ const DataProvider = (function() {
 
   function applyTrade(sym, price, size) {
     if (typeof QUOTES === 'undefined' || !QUOTES[sym]) return;
+    const px = +price;
+    // VALIDATE via DataReliability layer — rejects NaN, ≤0, jumps >30%, out-of-order ts
+    if (typeof window.DataReliability !== 'undefined') {
+      const v = window.DataReliability.validate(sym, px, config.provider, Date.now());
+      if (!v.ok) {
+        // Silently drop bad data; DataReliability has already logged it
+        return;
+      }
+    } else {
+      // Minimal fallback validation if reliability module hasn't loaded yet
+      if (!isFinite(px) || px <= 0 || px > 1e7) return;
+    }
     const q = QUOTES[sym];
-    q.last = +price;
+    q.last = px;
     q.fresh = true;
     q.source = q.source || config.provider;
     // Mark as REAL data — TOTD and price displays trust this flag.
@@ -588,16 +600,41 @@ const DataProvider = (function() {
   let stooqPollTimer = null;
   let stooqLastFetchOk = 0;
 
+  // Try multiple Stooq TLDs (.com, .pl) for redundancy. If both fail, return null
+  // and the caller can fall back to Coinbase (for crypto) or wait for next cycle.
+  const STOOQ_HOSTS = ['stooq.com', 'stooq.pl'];
+
   async function _stooqFetchChunk(stooqSymsCsv) {
-    const url = 'https://stooq.com/q/l/?s=' + encodeURIComponent(stooqSymsCsv) + '&f=sd2t2ohlcv&h&e=csv';
-    try {
-      const res = await fetch(url, { method:'GET', cache:'no-cache' });
-      if (!res.ok) throw new Error('HTTP ' + res.status);
-      const text = await res.text();
-      return parseStooqCsv(text);
-    } catch (e) {
-      return null;  // CORS or network failure
+    for (const host of STOOQ_HOSTS) {
+      const url = 'https://' + host + '/q/l/?s=' + encodeURIComponent(stooqSymsCsv) + '&f=sd2t2ohlcv&h&e=csv';
+      const startTs = Date.now();
+      // 8-second timeout so a hung Stooq request can't lock the poll loop forever
+      const controller = (typeof AbortController !== 'undefined') ? new AbortController() : null;
+      const timeoutId = controller ? setTimeout(() => controller.abort(), 8000) : null;
+      try {
+        const res = await fetch(url, { method:'GET', cache:'no-cache', signal: controller ? controller.signal : undefined });
+        if (timeoutId) clearTimeout(timeoutId);
+        const latency = Date.now() - startTs;
+        if (!res.ok) {
+          if (typeof window.DataReliability !== 'undefined') window.DataReliability.recordFetch('stooq-' + host, false, latency);
+          continue; // try next host
+        }
+        const text = await res.text();
+        const rows = parseStooqCsv(text);
+        if (typeof window.DataReliability !== 'undefined') {
+          window.DataReliability.recordFetch('stooq-' + host, rows.length > 0, latency);
+          window.DataReliability.recordFetch('stooq', rows.length > 0, latency); // aggregate
+        }
+        if (rows.length > 0) return rows; // success
+      } catch (e) {
+        if (timeoutId) clearTimeout(timeoutId);
+        if (typeof window.DataReliability !== 'undefined') window.DataReliability.recordFetch('stooq-' + host, false, Date.now() - startTs);
+        // try next host
+      }
     }
+    // All Stooq hosts failed — record aggregate failure
+    if (typeof window.DataReliability !== 'undefined') window.DataReliability.recordFetch('stooq', false, 0);
+    return null;
   }
 
   function parseStooqCsv(text) {
@@ -643,6 +680,11 @@ const DataProvider = (function() {
         // Map back to our internal symbol
         const ourSym = ourSyms.find(s => (STOOQ_MAP[s] || '').toLowerCase() === r.sym.toLowerCase());
         if (!ourSym || !QUOTES[ourSym]) return;
+        // Validate price before accepting
+        if (typeof window.DataReliability !== 'undefined') {
+          const v = window.DataReliability.validate(ourSym, r.close, 'stooq', Date.now());
+          if (!v.ok) return; // drop invalid; DataReliability has logged it
+        }
         const q = QUOTES[ourSym];
         if (q.last !== r.close) q.prevClose = q.last;  // preserve previous as prevClose
         q.last = r.close;
@@ -687,6 +729,8 @@ const DataProvider = (function() {
     stooqPollTimer = setInterval(stooqPollOnce, 12000);
     // Also start Coinbase realtime crypto feed — free, CORS, no key.
     startCoinbaseCrypto();
+    // Belt-and-suspenders: Coinbase REST poll as fallback if WS drops.
+    startCoinbaseRestPoll();
   }
 
   // ---------- Coinbase realtime crypto fallback (BTC/ETH) ----------
@@ -716,6 +760,11 @@ const DataProvider = (function() {
           const q = QUOTES[sym];
           const price = parseFloat(m.price);
           if (!isFinite(price) || price <= 0) return;
+          // Validate via DataReliability — catches glitchy ticks
+          if (typeof window.DataReliability !== 'undefined') {
+            const v = window.DataReliability.validate(sym, price, 'coinbase', Date.now());
+            if (!v.ok) return; // drop
+          }
           if (q.last !== price) q.prevClose = q.prevClose || q.last;
           q.last = price;
           q.bid = parseFloat(m.best_bid) || +(price - 0.5).toFixed(2);
@@ -744,9 +793,19 @@ const DataProvider = (function() {
       };
       ws.onclose = () => {
         coinbaseSocket = null;
+        if (typeof window.DataReliability !== 'undefined') window.DataReliability.recordFetch('coinbase', false, 0);
         if (!coinbaseReconnect) coinbaseReconnect = setTimeout(() => { coinbaseReconnect = null; startCoinbaseCrypto(); }, 5000);
       };
-      ws.onerror = () => { try { ws.close(); } catch (e) {} };
+      ws.onerror = () => {
+        if (typeof window.DataReliability !== 'undefined') window.DataReliability.recordFetch('coinbase', false, 0);
+        try { ws.close(); } catch (e) {}
+      };
+      // Mark coinbase success on each accepted message — done implicitly when DataReliability.validate succeeds
+      const origOnMessage = ws.onmessage;
+      ws.onmessage = function (evt) {
+        if (origOnMessage) origOnMessage.call(this, evt);
+        if (typeof window.DataReliability !== 'undefined') window.DataReliability.recordFetch('coinbase', true, 0);
+      };
     } catch (e) {}
   }
   function stopCoinbaseCrypto() {
@@ -756,6 +815,68 @@ const DataProvider = (function() {
   }
   function stopStooqFallback() {
     if (stooqPollTimer) { clearInterval(stooqPollTimer); stooqPollTimer = null; }
+  }
+
+  // ---------- Coinbase REST poll backup ----------
+  // If WebSocket disconnects (firewall, network drop), this REST poll keeps
+  // crypto prices flowing. Runs every 30s in the background as belt-and-suspenders.
+  let coinbasePollTimer = null;
+  const COINBASE_PAIRS = { BTC: 'BTC-USD', ETH: 'ETH-USD' };
+
+  async function _coinbasePollOnce() {
+    if (typeof QUOTES === 'undefined') return;
+    for (const [sym, pair] of Object.entries(COINBASE_PAIRS)) {
+      if (!QUOTES[sym]) continue;
+      const startTs = Date.now();
+      try {
+        const controller = (typeof AbortController !== 'undefined') ? new AbortController() : null;
+        const timeoutId = controller ? setTimeout(() => controller.abort(), 5000) : null;
+        const res = await fetch('https://api.exchange.coinbase.com/products/' + pair + '/ticker', {
+          method: 'GET',
+          signal: controller ? controller.signal : undefined
+        });
+        if (timeoutId) clearTimeout(timeoutId);
+        const latency = Date.now() - startTs;
+        if (!res.ok) {
+          if (typeof window.DataReliability !== 'undefined') window.DataReliability.recordFetch('coinbase-rest', false, latency);
+          continue;
+        }
+        const data = await res.json();
+        const price = parseFloat(data.price);
+        if (!isFinite(price) || price <= 0) continue;
+        // Validate via DataReliability before accepting
+        if (typeof window.DataReliability !== 'undefined') {
+          const v = window.DataReliability.validate(sym, price, 'coinbase-rest', Date.now());
+          window.DataReliability.recordFetch('coinbase-rest', v.ok, latency);
+          if (!v.ok) continue;
+        }
+        const q = QUOTES[sym];
+        if (q.last !== price) q.prevClose = q.prevClose || q.last;
+        q.last = price;
+        q.bid = +(price - 0.5).toFixed(2);
+        q.ask = +(price + 0.5).toFixed(2);
+        if (q.prevClose > 0) {
+          q.change = q.last - q.prevClose;
+          q.changePct = (q.change / q.prevClose) * 100;
+        }
+        // Only mark source as coinbase-rest if WebSocket is NOT the active source
+        if (!coinbaseSocket || coinbaseSocket.readyState !== WebSocket.OPEN) {
+          q.source = 'coinbase-rest';
+          q.priceSource = 'coinbase-rest';
+        }
+        q.liveAt = Date.now();
+        q.ts = Date.now();
+        try { if (typeof Feed !== 'undefined') Feed.publish(sym, q); } catch (e) {}
+      } catch (e) {
+        if (typeof window.DataReliability !== 'undefined') window.DataReliability.recordFetch('coinbase-rest', false, Date.now() - startTs);
+      }
+    }
+  }
+
+  function startCoinbaseRestPoll() {
+    if (coinbasePollTimer) return;
+    _coinbasePollOnce();
+    coinbasePollTimer = setInterval(_coinbasePollOnce, 30000);
   }
 
   // ---------- Init ----------

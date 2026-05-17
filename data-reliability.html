@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Data Reliability — bpleone</title>
+<meta name="description" content="Per-symbol freshness, per-source uptime, validation rejection log. Confirms data is reliable and accurate before the brain learns from it.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.summary-card { padding:24px;border-radius:14px;text-align:center;background:linear-gradient(135deg,rgba(16,185,129,0.06),var(--bg-elevated));border:2px solid var(--green); }
+.summary-card.warn { background:linear-gradient(135deg,rgba(245,158,11,0.06),var(--bg-elevated));border-color:var(--yellow); }
+.summary-card.bad { background:linear-gradient(135deg,rgba(239,68,68,0.06),var(--bg-elevated));border-color:var(--red); }
+.summary-card .big { font-family:var(--font-mono);font-size:48px;font-weight:900;line-height:1; }
+.tile { padding:14px;background:var(--bg-elevated);border-radius:10px; }
+.tile .lbl { font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;font-weight:700; }
+.tile .val { font-family:var(--font-mono);font-size:20px;font-weight:800;margin-top:6px;color:var(--accent); }
+.row { display:grid;grid-template-columns:90px 90px 90px 80px 110px 1fr;gap:10px;padding:10px 14px;background:var(--bg-elevated);border-radius:8px;margin-bottom:4px;font-family:var(--font-mono);font-size:12px;align-items:center; }
+.row.head { background:transparent;font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;font-weight:700; }
+.row.stale { border-left:3px solid var(--red); }
+.row.warn { border-left:3px solid var(--yellow); }
+.row.fresh { border-left:3px solid var(--green); }
+.row .sym { font-weight:800; }
+.row .px { text-align:right;font-weight:700; }
+.row .age.fresh { color:var(--green); }
+.row .age.warn { color:var(--yellow); }
+.row .age.stale { color:var(--red); }
+.source-row { display:grid;grid-template-columns:110px 100px 110px 110px 1fr;gap:10px;padding:10px 14px;background:var(--bg-elevated);border-radius:8px;margin-bottom:4px;font-family:var(--font-mono);font-size:12px;align-items:center; }
+.source-row.head { background:transparent;font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;font-weight:700; }
+.rej-row { display:grid;grid-template-columns:80px 70px 110px 110px 1fr;gap:8px;padding:6px 12px;background:var(--bg-elevated);border-radius:6px;margin-bottom:2px;font-family:var(--font-mono);font-size:11px;align-items:center; }
+.rej-row.head { background:transparent;font-size:9px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;font-weight:700; }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">🛡 Data Reliability</div>
+      <div class="page-subtitle">Per-symbol freshness · per-source uptime · validation rejection log · brain only learns from validated data</div>
+    </div>
+  </div>
+
+  <div id="summary-card" class="summary-card mb-24"></div>
+
+  <div class="grid grid-4 mb-24" id="kpi-grid"></div>
+
+  <div class="card mb-24">
+    <div class="card-header"><div class="card-title">📡 Per-source health</div></div>
+    <div id="sources"></div>
+  </div>
+
+  <div class="card mb-24">
+    <div class="card-header"><div class="card-title">📊 Per-symbol freshness</div></div>
+    <div style="font-size:13px;color:var(--text-secondary);margin-bottom:12px;">
+      During RTH (9:30-16:00 ET): equities stale at &gt; 5 min. Crypto stale at &gt; 2 min always.<br>
+      Outside RTH: equities stale at &gt; 1 hour (no fresh prints expected after close).
+    </div>
+    <div id="symbols"></div>
+  </div>
+
+  <div class="card mb-24">
+    <div class="card-header"><div class="card-title">⛔ Recent validation rejections</div></div>
+    <div style="font-size:13px;color:var(--text-secondary);margin-bottom:12px;">
+      Prices that failed validation and were dropped. Rules: not-finite, ≤0, &gt;30% jump from last value, out-of-order timestamp.
+    </div>
+    <div id="rejections"></div>
+  </div>
+
+  <div class="card">
+    <div class="card-header"><div class="card-title">📚 What this protects against</div></div>
+    <div style="font-size:13px;color:var(--text-secondary);line-height:1.7;">
+      Without validation, a single glitch from any source (Stooq returning $0, Coinbase WS sending a partial JSON, a network blip causing a 50%-off price) would feed garbage into the brain's training data. Once garbage is in the model, BSS plummets and recovery requires manual reset.<br><br>
+      <strong>Every price tick</strong> from every source (Stooq, Coinbase, Finnhub WS, Polygon WS, Alpaca, Tradier) now passes through <code>DataReliability.validate()</code> before reaching <code>QUOTES</code>. If it fails any rule, it's silently dropped and logged here.<br><br>
+      <strong>Rules:</strong>
+      <ul style="margin:8px 0 8px 24px;">
+        <li>Price must be finite, positive, and &lt; $10M (sanity)</li>
+        <li>Price jump from last accepted value must be &lt; 30% (catches glitches + fat-fingers)</li>
+        <li>New timestamp must be &gt;= last accepted timestamp (with 1s clock-skew tolerance)</li>
+      </ul>
+      <strong>Source-level tracking:</strong> 100-sample fetch success rate + average latency per source. A source with &lt;70% success rate is flagged as DEGRADED.<br><br>
+      <strong>Stale detection:</strong> if a symbol hasn't updated for more than its max-age (5min equity / 2min crypto during RTH; 1hr equity off-hours), it's flagged STALE and the brain will not train on predictions made from that price.
+    </div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script src="js/data-reliability.js"></script>
+<script>
+buildNav('data-reliability');
+
+function fmt(n, d) { return n != null ? n.toFixed(d != null ? d : 2) : '—'; }
+function fmtPct(p) { return p != null ? (p * 100).toFixed(1) + '%' : '—'; }
+function fmtAge(sec) {
+  if (sec == null) return '—';
+  if (sec < 60) return sec + 's';
+  if (sec < 3600) return Math.floor(sec / 60) + 'm';
+  return Math.floor(sec / 3600) + 'h';
+}
+
+function ageClass(h) {
+  if (!h.hasData) return 'fresh';
+  if (h.stale) return 'stale';
+  if (h.ageSec > h.maxStaleMs / 2000) return 'warn';
+  return 'fresh';
+}
+
+function render() {
+  if (typeof DataReliability === 'undefined') return;
+  const all = DataReliability.allHealth();
+  const sum = all.summary;
+
+  // Summary card
+  const sumCard = document.getElementById('summary-card');
+  let cls = 'summary-card', icon, msg, sub;
+  if (sum.staleSymbols === 0 && sum.degradedSources === 0) {
+    icon = '✓'; msg = 'ALL DATA HEALTHY'; sub = 'No stale symbols · no degraded sources · ' + sum.totalSymbols + ' symbols tracked · ' + sum.totalSources + ' sources online';
+  } else if (sum.degradedSources > 0) {
+    cls += ' bad';
+    icon = '✗'; msg = sum.degradedSources + ' SOURCE(S) DEGRADED'; sub = 'See per-source health below — fetch success rate < 70% or last success > 5min ago';
+  } else if (sum.staleSymbols > 0) {
+    cls += ' warn';
+    icon = '⚠'; msg = sum.staleSymbols + ' SYMBOL(S) STALE'; sub = 'Some symbols have not updated within their max-age. Brain won\'t train on stale predictions.';
+  } else {
+    icon = '○'; msg = 'INITIALIZING'; sub = 'Validation pool warming up';
+  }
+  sumCard.className = cls;
+  sumCard.innerHTML = '<div class="big">' + icon + '</div>'
+    + '<div style="font-size:20px;font-weight:800;margin-top:14px;">' + msg + '</div>'
+    + '<div style="font-size:13px;color:var(--text-secondary);margin-top:8px;font-family:var(--font-mono);">' + sub + '</div>';
+
+  // KPI tiles
+  document.getElementById('kpi-grid').innerHTML = ''
+    + '<div class="tile"><div class="lbl">Symbols tracked</div><div class="val">' + sum.totalSymbols + '</div></div>'
+    + '<div class="tile"><div class="lbl">Stale symbols</div><div class="val" style="color:' + (sum.staleSymbols > 0 ? 'var(--red)' : 'var(--green)') + ';">' + sum.staleSymbols + '</div></div>'
+    + '<div class="tile"><div class="lbl">Sources online</div><div class="val">' + sum.totalSources + '</div></div>'
+    + '<div class="tile"><div class="lbl">Rejections (5min)</div><div class="val" style="color:' + (sum.recentRejections > 10 ? 'var(--red)' : sum.recentRejections > 0 ? 'var(--yellow)' : 'var(--green)') + ';">' + sum.recentRejections + '</div></div>';
+
+  // Sources
+  let html = '<div class="source-row head"><div>Source</div><div style="text-align:right;">Recent success</div><div style="text-align:right;">Avg latency</div><div style="text-align:right;">Last success</div><div>Health</div></div>';
+  const sources = Object.values(all.perSource);
+  if (sources.length === 0) {
+    html += '<div style="padding:14px;color:var(--text-muted);font-size:12px;text-align:center;">No source health data yet — make a request to one of the providers (or wait 12s for Stooq).</div>';
+  } else {
+    sources.forEach(s => {
+      const healthLabel = s.degraded ? '⚠ DEGRADED' : '✓ HEALTHY';
+      const healthColor = s.degraded ? 'var(--red)' : 'var(--green)';
+      html += '<div class="source-row">'
+        + '<div style="font-weight:800;">' + s.source + '</div>'
+        + '<div style="text-align:right;color:' + (s.recentSuccessRate >= 0.9 ? 'var(--green)' : s.recentSuccessRate >= 0.7 ? 'var(--yellow)' : 'var(--red)') + ';">' + fmtPct(s.recentSuccessRate) + '</div>'
+        + '<div style="text-align:right;">' + fmt(s.avgLatencyMs, 0) + 'ms</div>'
+        + '<div style="text-align:right;color:var(--text-muted);">' + (s.lastSuccessAt ? fmtAge(Math.floor((Date.now() - s.lastSuccessAt) / 1000)) + ' ago' : '—') + '</div>'
+        + '<div style="color:' + healthColor + ';font-weight:700;">' + healthLabel + '</div>'
+        + '</div>';
+    });
+  }
+  document.getElementById('sources').innerHTML = html;
+
+  // Symbols
+  html = '<div class="row head"><div>Symbol</div><div style="text-align:right;">Last px</div><div style="text-align:right;">Age</div><div style="text-align:right;">Accepted</div><div style="text-align:right;">Rejected</div><div>Source · status</div></div>';
+  const syms = Object.values(all.perSymbol).sort((a, b) => a.symbol.localeCompare(b.symbol));
+  if (syms.length === 0) {
+    html += '<div style="padding:14px;color:var(--text-muted);font-size:12px;text-align:center;">No symbol validation data yet.</div>';
+  } else {
+    syms.forEach(s => {
+      const cls = ageClass(s);
+      const statusLabel = s.stale ? '⚠ STALE' : (s.duringRTH ? 'RTH' : 'OFF-HRS');
+      html += '<div class="row ' + cls + '">'
+        + '<div class="sym">' + s.symbol + (s.isCrypto ? ' 🪙' : '') + '</div>'
+        + '<div class="px">$' + fmt(s.lastPrice) + '</div>'
+        + '<div class="age ' + cls + '" style="text-align:right;">' + fmtAge(s.ageSec) + '</div>'
+        + '<div style="text-align:right;color:var(--green);">' + s.acceptedCount + '</div>'
+        + '<div style="text-align:right;color:' + (s.rejectedCount > 0 ? 'var(--red)' : 'var(--text-muted)') + ';">' + s.rejectedCount + '</div>'
+        + '<div>' + (s.lastSource || '—') + ' · ' + statusLabel + '</div>'
+        + '</div>';
+    });
+  }
+  document.getElementById('symbols').innerHTML = html;
+
+  // Recent rejections
+  const rejections = DataReliability.recentValidations(50).filter(v => !v.ok);
+  html = '<div class="rej-row head"><div>Time</div><div>Sym</div><div>Price</div><div>Source</div><div>Reason</div></div>';
+  if (rejections.length === 0) {
+    html += '<div style="padding:14px;color:var(--green);font-size:13px;text-align:center;">✓ No rejections in recent history — all incoming data has passed validation.</div>';
+  } else {
+    rejections.forEach(r => {
+      html += '<div class="rej-row">'
+        + '<div style="color:var(--text-muted);">' + new Date(r.ts).toLocaleTimeString() + '</div>'
+        + '<div style="font-weight:700;">' + r.sym + '</div>'
+        + '<div>$' + fmt(r.price) + '</div>'
+        + '<div>' + (r.source || '—') + '</div>'
+        + '<div style="color:var(--red);">' + r.reason + '</div>'
+        + '</div>';
+    });
+  }
+  document.getElementById('rejections').innerHTML = html;
+}
+
+setTimeout(render, 2000);
+setInterval(render, 6000);
+window.addEventListener('bpleone:heartbeat', render);
+</script>
+</body>
+</html>

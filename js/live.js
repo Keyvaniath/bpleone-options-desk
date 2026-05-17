@@ -349,6 +349,14 @@ function setDataMode(mode) {
 document.addEventListener('DOMContentLoaded', () => {
   setTimeout(() => {
     try {
+      // Data Reliability MUST load FIRST — it validates every price tick before
+      // it reaches QUOTES. Without it, applyTrade silently allows garbage data.
+      if (!document.querySelector('script[src*="data-reliability.js"]')) {
+        const s = document.createElement('script');
+        s.src = 'js/data-reliability.js';
+        s.async = false;
+        document.head.appendChild(s);
+      }
       // Multi-horizon ensemble MUST load before continuous-learner so the
       // learner can call MultiHorizon.* immediately on first capture.
       if (!document.querySelector('script[src*="multi-horizon.js"]')) {
