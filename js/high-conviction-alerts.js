@@ -128,7 +128,11 @@
     if (typeof window === 'undefined' || !window.QUOTES || !window.QUOTES[entry.sym]) return false;
     const q = window.QUOTES[entry.sym];
     if (!q.last || q.last <= 0) return false;
-    if (q.liveAt && Date.now() - q.liveAt > 5 * 60 * 1000) return false;
+    // Audit pass 11: reject seed-only quotes (no liveAt = never live-fed) +
+    // stale ones (>5min old). Previously the !q.liveAt path silently passed,
+    // letting demo/seed prices fire real alerts.
+    if (!q.liveAt) return false;
+    if (Date.now() - q.liveAt > 5 * 60 * 1000) return false;
     // DataReliability stale?
     if (typeof window.DataReliability !== 'undefined') {
       try {

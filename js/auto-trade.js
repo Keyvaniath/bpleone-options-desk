@@ -164,7 +164,10 @@
     if (typeof window === 'undefined' || !window.QUOTES || !window.QUOTES[entry.sym]) return null;
     const q = window.QUOTES[entry.sym];
     if (!q.last || q.last <= 0) return null;
-    if (q.liveAt && Date.now() - q.liveAt > 5 * 60 * 1000) return null;  // 5min stale
+    // Audit pass 11: reject seed-only quotes (no liveAt) — AutoTrade should
+    // never open a position on a price that was never live-fed.
+    if (!q.liveAt) return null;
+    if (Date.now() - q.liveAt > 5 * 60 * 1000) return null;  // 5min stale
     // DataReliability: not stale?
     if (typeof window.DataReliability !== 'undefined') {
       try {

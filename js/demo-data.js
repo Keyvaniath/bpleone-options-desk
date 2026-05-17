@@ -176,6 +176,27 @@
     autoState.totalOpened = (autoState.totalOpened || 0) + addedAuto;
     autoState.totalClosed = (autoState.totalClosed || 0) + addedAuto;
 
+    // Audit pass 10: also seed SPY history so Brain-vs-SPY works with demo data.
+    // 30 daily SPY closes drifting modestly (~0.05% per day with some noise).
+    try {
+      let spyHistory = [];
+      try { spyHistory = JSON.parse(localStorage.getItem('bpleone_spy_history_v1') || '[]'); } catch (e) {}
+      if (spyHistory.length < 10) {
+        // No real bootstrap data — synthesize 30 days of SPY closes
+        const baseSpy = (window.QUOTES && window.QUOTES.SPY && window.QUOTES.SPY.last) ? window.QUOTES.SPY.last : 619.40;
+        const synth = [];
+        for (let i = 30; i >= 0; i--) {
+          const ts = Date.now() - i * 86400000;
+          // Drift back in time: each step before now is slightly lower (so SPY trended up)
+          const drift = (30 - i) * 0.001;  // 0.1% per day cumulative growth
+          const noise = (rand() - 0.5) * 0.015;  // ±0.75% daily noise
+          const close = baseSpy * (1 - drift + noise);
+          synth.push({ ts, close: +close.toFixed(2) });
+        }
+        localStorage.setItem('bpleone_spy_history_v1', JSON.stringify(synth));
+      }
+    } catch (e) {}
+
     // Persist
     // Audit pass 4: match new MAX_JOURNAL=12000 in continuous-learner.js so
     // demo data doesn't push real trades out of the journal.
