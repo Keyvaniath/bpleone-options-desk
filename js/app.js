@@ -108,7 +108,7 @@ function buildNav(activePage) {
   // Markets group
   const marketsGrp = ['macro','market-internals','breadth-pro','market-map','heatmap','cross-asset-pulse','cross-asset-correlations','correlations-live','sectors','global-markets','yield-curve','economic-events','economic-clock','halt-tracker','moc-imbalance','risk-radar','vix-pulse','smart-rotation','sector-rotation','sector-flow','sector-snapshot','heat-clock','sentiment-heat','news','news-pulse','news-impact','smart-money'];
   // Tools group — calculators, risk, journal, settings, alerts, crypto, education
-  const toolsGrp = ['risk','risk-dashboard','risk-attribution','risk-parity','risk-of-ruin','fundamentals','backtester','multi-backtest','potd-backtest','journal','trade-journal-pro','alerts','alerts-builder','alerts-feed','alerts-dashboard','crypto','crypto-derivatives','crypto-basis','crypto-commodities','portfolio-builder','position-sizing','kelly-sizer','pdt-dashboard','margin-calc','pnl-projector','execution','liquidity-health','strategies','setup-combos','api','seasonality','settings','mindset','changelog','replay','hypothetical','account','performance-attribution','all-tools','pwa-install','watchlist-share','desk-split','time-of-day-pnl','live-pnl-heatmap','day-pnl-calendar','squarespace-preview','site-diagnostics','connect-live-data','data-reliability','make-money','options-101','how-to-make-money','weekly-refresh','source-quality','money-made','brain-daily-card','auto-trade','high-conviction-alerts','brain-vs-spy-live','risk-simulator','source-performance','pnl-calendar','mobile-money','voice-coach','trade-plans','brain-backtest','pattern-recall','mental-game','earnings-awareness','position-correlation','webhook-bridge','daily-replay','state-backup','money-hotkeys','auto-watchlist','brain-health-pro','pre-trade-checklist','loss-cooloff','goal-tracker','calibration-view','ai-market-pulse','sound-synth','trade-notes','money-changelog','equity-protector','risk-gauge','bankroll-milestones','hot-symbols','brain-time-of-day','trade-quality','symbol-deep-dive','outcome-distribution','brain-insights','smart-defaults','brain-meta-monitor','money-search','money-site-map'];
+  const toolsGrp = ['risk','risk-dashboard','risk-attribution','risk-parity','risk-of-ruin','fundamentals','backtester','multi-backtest','potd-backtest','journal','trade-journal-pro','alerts','alerts-builder','alerts-feed','alerts-dashboard','crypto','crypto-derivatives','crypto-basis','crypto-commodities','portfolio-builder','position-sizing','kelly-sizer','pdt-dashboard','margin-calc','pnl-projector','execution','liquidity-health','strategies','setup-combos','api','seasonality','settings','mindset','changelog','replay','hypothetical','account','performance-attribution','all-tools','pwa-install','watchlist-share','desk-split','time-of-day-pnl','live-pnl-heatmap','day-pnl-calendar','squarespace-preview','site-diagnostics','connect-live-data','data-reliability','make-money','options-101','how-to-make-money','weekly-refresh','source-quality','money-made','brain-daily-card','auto-trade','high-conviction-alerts','brain-vs-spy-live','risk-simulator','source-performance','pnl-calendar','mobile-money','voice-coach','trade-plans','brain-backtest','pattern-recall','mental-game','earnings-awareness','position-correlation','webhook-bridge','daily-replay','state-backup','money-hotkeys','auto-watchlist','brain-health-pro','pre-trade-checklist','loss-cooloff','goal-tracker','calibration-view','ai-market-pulse','sound-synth','trade-notes','money-changelog','equity-protector','risk-gauge','bankroll-milestones','hot-symbols','brain-time-of-day','trade-quality','symbol-deep-dive','outcome-distribution','brain-insights','smart-defaults','brain-meta-monitor','money-search','money-site-map','live-status'];
   const isTrade = tradeGrp.indexOf(activePage) !== -1;
   const isPlays = playsGrp.indexOf(activePage) !== -1 || dailyGrp.indexOf(activePage) !== -1;
   const isBrain = brainGrp.indexOf(activePage) !== -1;
@@ -954,21 +954,53 @@ function initLivePulseTicker() {
 
   // Session-aware label: change "LIVE" to "AFTER" / "PRE" / "CLOSED" outside RTH
   // so the pill doesn't lie about market state on weekends/nights.
+  // Also detect whether the underlying source is realtime (Finnhub/Polygon/
+  // CoinbaseWS) or delayed (Stooq) and tell the user the truth.
   setInterval(() => {
     const text = document.getElementById('nav-pulse-text');
     const dot = document.getElementById('nav-pulse-dot');
     const pill = document.getElementById('nav-live-pulse');
     if (!text || !dot || !pill) return;
-    if (text.textContent === 'STALE' || text.textContent.indexOf('+') === 0) return; // don't override STALE or in-flight cycle counters
+    if (text.textContent === 'STALE' || text.textContent.indexOf('+') === 0) return;
     const sess = (typeof detectSession === 'function') ? detectSession() : 'open';
+    // Determine if any QUOTE has a real-time source vs delayed (Stooq)
+    let realtimeCount = 0, delayedCount = 0;
+    try {
+      if (typeof QUOTES !== 'undefined') {
+        for (const sym in QUOTES) {
+          const src = QUOTES[sym].priceSource || QUOTES[sym].source;
+          if (!src) continue;
+          const s = String(src).toLowerCase();
+          if (s.indexOf('finnhub') !== -1 || s.indexOf('polygon') !== -1 || s.indexOf('alpaca') !== -1 || s.indexOf('tradier') !== -1 || (s.indexOf('coinbase') !== -1 && s.indexOf('refresh') === -1 && s.indexOf('rest') === -1)) realtimeCount++;
+          else if (s.indexOf('stooq') !== -1 || s.indexOf('coinbase-rest') !== -1 || s.indexOf('refresh') !== -1) delayedCount++;
+        }
+      }
+    } catch (e) {}
+    const hasRT = realtimeCount > delayedCount && realtimeCount > 0;
     if (sess === 'open') {
-      text.textContent = 'LIVE';
-      dot.style.background = '#10b981';
-      dot.style.boxShadow = '0 0 8px #10b981';
-      pill.style.background = 'rgba(16,185,129,0.12)';
-      pill.style.borderColor = 'rgba(16,185,129,0.4)';
-      pill.style.color = '#10b981';
-      pill.title = 'Market open — brain capturing live';
+      if (hasRT) {
+        text.textContent = 'LIVE';
+        dot.style.background = '#10b981';
+        dot.style.boxShadow = '0 0 8px #10b981';
+        pill.style.background = 'rgba(16,185,129,0.12)';
+        pill.style.borderColor = 'rgba(16,185,129,0.4)';
+        pill.style.color = '#10b981';
+        pill.title = 'Real-time data feed — tick-level updates';
+      } else {
+        text.textContent = 'DELAYED';
+        dot.style.background = 'var(--yellow)';
+        dot.style.boxShadow = '0 0 8px var(--yellow)';
+        pill.style.background = 'rgba(245,158,11,0.12)';
+        pill.style.borderColor = 'rgba(245,158,11,0.4)';
+        pill.style.color = 'var(--yellow)';
+        pill.title = 'Stooq free tier — ~15 min delayed. Click for details / upgrade to real-time.';
+        // Make the pill click through to live-status
+        if (!pill._clickWired) {
+          pill.style.cursor = 'pointer';
+          pill.addEventListener('click', () => { window.location.href = 'live-status.html'; });
+          pill._clickWired = true;
+        }
+      }
     } else if (sess === 'pre-market') {
       text.textContent = 'PRE';
       dot.style.background = 'var(--yellow)';

@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Live Status — bpleone</title>
+<meta name="description" content="Is your data live or delayed? Per-symbol freshness, exact source, delay vs wall-clock, one-click path to real-time.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.verdict { padding:40px 32px;border-radius:18px;text-align:center;margin-bottom:24px; }
+.verdict.realtime { background:linear-gradient(135deg,rgba(16,185,129,0.12),rgba(16,185,129,0.02));border:3px solid var(--green); }
+.verdict.delayed { background:linear-gradient(135deg,rgba(245,158,11,0.12),rgba(245,158,11,0.02));border:3px solid var(--yellow); }
+.verdict.closed { background:linear-gradient(135deg,rgba(120,140,160,0.10),rgba(120,140,160,0.02));border:3px solid rgba(120,140,160,0.4); }
+.verdict.stale { background:linear-gradient(135deg,rgba(220,38,38,0.10),rgba(220,38,38,0.02));border:3px solid var(--red); }
+.verdict .big { font-family:var(--font-mono);font-size:42px;font-weight:900;line-height:1;letter-spacing:-1px; }
+.verdict.realtime .big { color:var(--green); }
+.verdict.delayed .big { color:var(--yellow); }
+.verdict.closed .big { color:var(--text-muted); }
+.verdict.stale .big { color:var(--red); }
+.verdict .sub { font-size:15px;color:var(--text-secondary);margin-top:12px;line-height:1.6; }
+.upgrade { padding:22px 26px;border-radius:14px;background:linear-gradient(135deg,rgba(0,212,255,0.06),rgba(140,100,255,0.04));border:2px solid var(--accent);margin-bottom:18px; }
+.upgrade h3 { margin:0 0 10px;font-size:18px;color:var(--accent); }
+.upgrade .step { padding:8px 0;border-bottom:1px solid rgba(255,255,255,0.04);font-size:14px;line-height:1.7; }
+.upgrade .step:last-child { border-bottom:none; }
+.upgrade a { color:var(--accent);font-weight:700;text-decoration:none; }
+.upgrade a:hover { text-decoration:underline; }
+.tile { padding:18px;background:var(--bg-elevated);border-radius:10px; }
+.tile .lbl { font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;font-weight:700; }
+.tile .val { font-family:var(--font-mono);font-size:22px;font-weight:800;margin-top:6px;color:var(--accent); }
+table.t { width:100%;border-collapse:collapse;font-size:13px;font-family:var(--font-mono); }
+table.t th { text-align:left;padding:10px 12px;border-bottom:1px solid var(--bg-elevated);color:var(--text-muted);font-size:11px;text-transform:uppercase;letter-spacing:0.5px;font-weight:700; }
+table.t td { padding:8px 10px;border-bottom:1px solid rgba(255,255,255,0.04); }
+.pill { display:inline-block;padding:2px 8px;border-radius:5px;font-size:10px;font-weight:800; }
+.pill-rt { background:rgba(16,185,129,0.18);color:var(--green); }
+.pill-delayed { background:rgba(245,158,11,0.18);color:var(--yellow); }
+.pill-stale { background:rgba(220,38,38,0.18);color:var(--red); }
+.pill-seed { background:rgba(120,140,160,0.12);color:var(--text-muted); }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">📡 Live Status</div>
+      <div class="page-subtitle">The honest answer to "is my data live?" — per-symbol freshness, source, and exact age.</div>
+    </div>
+  </div>
+
+  <div id="verdict" class="verdict closed">
+    <div class="big">⏳ Checking…</div>
+    <div class="sub">Auditing every symbol against its source and the wall clock.</div>
+  </div>
+
+  <div class="grid grid-4 mb-24" id="kpi-grid"></div>
+
+  <div id="upgrade-card" class="upgrade" style="display:none;">
+    <h3>⚡ Want true real-time? Free upgrade in 2 minutes.</h3>
+    <div class="step"><strong>What you have now:</strong> Stooq returns end-of-day or ~15-min-delayed prices for free, no key. Coinbase WebSocket returns real-time crypto. Both run by default.</div>
+    <div class="step"><strong>What real-time gets you:</strong> Tick-level US equities (no delay), so the brain sees prices the same instant your broker does. Same brain, same sizing — just fresher fuel.</div>
+    <div class="step"><strong>How to upgrade (60 seconds):</strong>
+      <ol style="margin:8px 0 0 18px;padding:0;line-height:1.7;color:var(--text-secondary);">
+        <li>Sign up at <a href="https://finnhub.io/register" target="_blank" rel="noopener">finnhub.io</a> (free tier: 60 calls/min, real-time US equities)</li>
+        <li>Copy your API key from the dashboard</li>
+        <li>Open <a href="settings.html">Settings</a> → paste key → toggle "Enable Live Feed" → Save</li>
+        <li>Reload. Ticker becomes truly live. Status here flips to GREEN.</li>
+      </ol>
+    </div>
+    <div class="step" style="font-size:12px;color:var(--text-muted);"><strong>Alternatives:</strong> Polygon (paid, deepest data) · Alpaca (free, IEX-only) · Tradier (broker tier, real-time + trading). Pick from <a href="settings.html">Settings</a>.</div>
+  </div>
+
+  <div class="card mb-24">
+    <div class="card-header"><div class="card-title">📊 Per-symbol freshness (most stale first)</div></div>
+    <table class="t" id="symbol-table">
+      <thead><tr><th>Symbol</th><th>Last $</th><th>Source</th><th>Age</th><th>Status</th></tr></thead>
+      <tbody id="symbol-body"></tbody>
+    </table>
+  </div>
+
+  <div class="card mb-24">
+    <div class="card-header"><div class="card-title">🔬 Source breakdown</div></div>
+    <div id="source-breakdown"></div>
+  </div>
+
+  <div class="card">
+    <div class="card-header"><div class="card-title">🔗 Related</div></div>
+    <div style="display:flex;gap:12px;flex-wrap:wrap;">
+      <a href="settings.html" style="text-decoration:none;display:inline-block;background:linear-gradient(135deg,#00d4ff,#0094c7);color:#000;padding:10px 18px;border-radius:8px;font-weight:700;">⚙ Wire real-time</a>
+      <a href="data-reliability.html" style="text-decoration:none;display:inline-block;background:rgba(120,140,160,0.12);color:var(--accent);padding:10px 18px;border-radius:8px;font-weight:700;">📊 Reliability</a>
+      <a href="source-quality.html" style="text-decoration:none;display:inline-block;background:rgba(120,140,160,0.12);color:var(--accent);padding:10px 18px;border-radius:8px;font-weight:700;">⚖️ Source Quality</a>
+      <a href="connect-live-data.html" style="text-decoration:none;display:inline-block;background:rgba(120,140,160,0.12);color:var(--accent);padding:10px 18px;border-radius:8px;font-weight:700;">📡 Data Manager</a>
+    </div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script>buildNav('live-status');</script>
+<script>
+const REALTIME_SOURCES = ['finnhub', 'polygon', 'alpaca', 'tradier', 'coinbase', 'coinbase-ws'];
+const DELAYED_SOURCES = ['stooq', 'stooq-refresh', 'coinbase-rest', 'coinbase-refresh', 'stale-refresh'];
+
+function classifySource(src) {
+  if (!src) return 'seed';
+  const s = String(src).toLowerCase();
+  if (REALTIME_SOURCES.some(rt => s.indexOf(rt) !== -1 && s.indexOf('refresh') === -1 && s.indexOf('rest') === -1)) return 'realtime';
+  if (DELAYED_SOURCES.some(d => s.indexOf(d) !== -1)) return 'delayed';
+  return 'unknown';
+}
+
+function fmtAge(ms) {
+  if (!ms || !isFinite(ms)) return 'never';
+  if (ms < 60000) return Math.round(ms / 1000) + 's';
+  if (ms < 3600000) return Math.round(ms / 60000) + 'm';
+  if (ms < 86400000) return Math.round(ms / 3600000) + 'h';
+  return Math.round(ms / 86400000) + 'd';
+}
+
+function detectMarketSession() {
+  if (typeof detectSession === 'function') return detectSession();
+  const d = new Date();
+  const day = d.getDay();
+  if (day === 0 || day === 6) return 'closed';
+  return 'open';
+}
+
+function render() {
+  if (typeof QUOTES === 'undefined') { setTimeout(render, 500); return; }
+  const now = Date.now();
+  const session = detectMarketSession();
+  const rows = [];
+  let realtimeCount = 0, delayedCount = 0, staleCount = 0, seedCount = 0;
+  const bySource = {};
+  for (const sym in QUOTES) {
+    const q = QUOTES[sym];
+    const src = q.priceSource || q.source || null;
+    const cls = classifySource(src);
+    const ageMs = q.liveAt ? (now - q.liveAt) : Infinity;
+    const isStale = ageMs > 5 * 60 * 1000 && session === 'open';
+    let status;
+    if (!src || cls === 'seed') { status = 'seed'; seedCount++; }
+    else if (isStale) { status = 'stale'; staleCount++; }
+    else if (cls === 'realtime') { status = 'realtime'; realtimeCount++; }
+    else if (cls === 'delayed') { status = 'delayed'; delayedCount++; }
+    else { status = 'unknown'; }
+    rows.push({ sym, last: q.last || 0, src: src || '—', ageMs, status });
+    const key = src || 'seed';
+    if (!bySource[key]) bySource[key] = { source: key, count: 0, freshest: Infinity };
+    bySource[key].count++;
+    if (ageMs < bySource[key].freshest) bySource[key].freshest = ageMs;
+  }
+  // Sort by status (worst first) then age
+  const statusOrder = { stale: 0, seed: 1, delayed: 2, realtime: 3, unknown: 1.5 };
+  rows.sort((a, b) => (statusOrder[a.status] - statusOrder[b.status]) || (b.ageMs - a.ageMs));
+
+  // Verdict
+  const total = rows.length;
+  const v = document.getElementById('verdict');
+  let cls, big, sub;
+  if (session === 'closed') {
+    cls = 'closed';
+    big = '🟡 MARKET CLOSED';
+    sub = 'It is currently outside US market hours (9:30 AM - 4:00 PM ET, M-F). Prices shown are last-close snapshots from your data source. This is correct — there is no live tape to display right now. The ticker will resume updating Monday 9:30 ET.';
+  } else if (realtimeCount > total * 0.5) {
+    cls = 'realtime';
+    big = '🟢 LIVE — REAL-TIME';
+    sub = realtimeCount + ' of ' + total + ' symbols are tracked by a real-time source (Finnhub / Polygon / Coinbase WS). Tick-level updates. No delay.';
+  } else if (delayedCount > 0) {
+    cls = 'delayed';
+    big = '🟡 DELAYED ~15 MIN';
+    sub = 'You are seeing real prices, but they are delayed by ~15 minutes (Stooq free tier) for equities. Crypto (BTC, ETH) is real-time via Coinbase WS. ' +
+          'For tick-level US equity data, wire a free Finnhub key in Settings (below).';
+  } else if (staleCount > 0) {
+    cls = 'stale';
+    big = '⚠ STALE — NO RECENT UPDATES';
+    sub = staleCount + ' symbols have not updated in 5+ minutes. Data feed may be paused or rate-limited. Check ' +
+          '<a href="data-reliability.html" style="color:var(--red);font-weight:700;">Data Reliability</a> for source health.';
+  } else {
+    cls = 'closed';
+    big = '⚪ NO DATA YET';
+    sub = 'Page just loaded — give Stooq a moment to poll. If this persists, hard-reload.';
+  }
+  v.className = 'verdict ' + cls;
+  v.innerHTML = '<div class="big">' + big + '</div><div class="sub">' + sub + '</div>';
+
+  // Show upgrade card if currently delayed-only
+  document.getElementById('upgrade-card').style.display = (realtimeCount < total * 0.3 && session !== 'closed') ? 'block' : (session === 'closed' ? 'block' : 'none');
+
+  // KPIs
+  document.getElementById('kpi-grid').innerHTML =
+    '<div class="tile" style="background:rgba(16,185,129,0.06);"><div class="lbl">Real-time</div><div class="val" style="color:var(--green);">' + realtimeCount + '</div></div>' +
+    '<div class="tile" style="background:rgba(245,158,11,0.06);"><div class="lbl">Delayed (~15min)</div><div class="val" style="color:var(--yellow);">' + delayedCount + '</div></div>' +
+    '<div class="tile" style="background:rgba(220,38,38,0.06);"><div class="lbl">Stale</div><div class="val" style="color:var(--red);">' + staleCount + '</div></div>' +
+    '<div class="tile"><div class="lbl">No source (seed only)</div><div class="val" style="color:var(--text-muted);">' + seedCount + '</div></div>';
+
+  // Symbol table
+  document.getElementById('symbol-body').innerHTML = rows.map(r => {
+    let pillCls = 'pill-seed', label = 'SEED';
+    if (r.status === 'realtime') { pillCls = 'pill-rt'; label = 'REAL-TIME'; }
+    else if (r.status === 'delayed') { pillCls = 'pill-delayed'; label = 'DELAYED'; }
+    else if (r.status === 'stale') { pillCls = 'pill-stale'; label = 'STALE'; }
+    else if (r.status === 'seed') { pillCls = 'pill-seed'; label = 'NO LIVE FEED'; }
+    return '<tr><td><strong>' + r.sym + '</strong></td><td>$' + (r.last || 0).toFixed(2) + '</td><td>' + r.src + '</td><td>' + fmtAge(r.ageMs) + '</td><td><span class="pill ' + pillCls + '">' + label + '</span></td></tr>';
+  }).join('');
+
+  // Source breakdown
+  const sourceRows = Object.values(bySource).sort((a, b) => b.count - a.count);
+  document.getElementById('source-breakdown').innerHTML = sourceRows.map(s => {
+    const cls = classifySource(s.source);
+    const label = cls === 'realtime' ? 'REAL-TIME' : cls === 'delayed' ? 'DELAYED' : 'NO FEED';
+    const pillCls = cls === 'realtime' ? 'pill-rt' : cls === 'delayed' ? 'pill-delayed' : 'pill-seed';
+    return '<div style="padding:10px 14px;background:var(--bg-elevated);border-radius:8px;margin-bottom:6px;display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;">' +
+      '<div><strong style="font-family:var(--font-mono);">' + s.source + '</strong> <span class="pill ' + pillCls + '">' + label + '</span></div>' +
+      '<div style="color:var(--text-muted);font-size:12px;font-family:var(--font-mono);">' + s.count + ' symbol' + (s.count === 1 ? '' : 's') + ' · freshest ' + fmtAge(s.freshest) + '</div>' +
+    '</div>';
+  }).join('');
+}
+setTimeout(render, 500);
+setInterval(render, 5000);
+</script>
+</body>
+</html>
