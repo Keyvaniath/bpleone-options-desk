@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Site Diagnostics — bpleone</title>
+<meta name="description" content="Self-test of every brain module + browser feature. Use this if the site looks broken or modules are missing.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.check { display:grid;grid-template-columns:40px 1fr 100px;gap:12px;padding:12px 16px;background:var(--bg-elevated);border-radius:8px;margin-bottom:6px;align-items:center;font-size:13px; }
+.check.pass { border-left:3px solid var(--green); }
+.check.fail { border-left:3px solid var(--red); }
+.check.warn { border-left:3px solid var(--yellow); }
+.check .icon { font-size:18px;text-align:center; }
+.check .name { font-weight:600; }
+.check .status { font-family:var(--font-mono);font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;text-align:right; }
+.summary { padding:24px;border-radius:14px;text-align:center;margin-bottom:24px; }
+.summary.pass { background:linear-gradient(135deg,rgba(16,185,129,0.10),rgba(16,185,129,0.02));border:2px solid rgba(16,185,129,0.4); }
+.summary.fail { background:linear-gradient(135deg,rgba(239,68,68,0.10),rgba(239,68,68,0.02));border:2px solid rgba(239,68,68,0.4); }
+.summary .big { font-family:var(--font-mono);font-size:48px;font-weight:900;line-height:1; }
+.btn-action { padding:8px 16px;background:var(--accent);color:#000;border:none;border-radius:6px;font-weight:700;cursor:pointer;font-size:12px;margin-top:8px;text-decoration:none;display:inline-block; }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">🩺 Site Diagnostics</div>
+      <div class="page-subtitle">Self-test of every brain module + browser feature · run this if the site looks broken</div>
+    </div>
+  </div>
+
+  <div id="summary" class="summary pass">
+    <div class="big" id="summary-big">⏳</div>
+    <div id="summary-text" style="font-size:18px;font-weight:700;margin-top:14px;">Running diagnostics…</div>
+  </div>
+
+  <div class="card mb-24">
+    <div class="card-header"><div class="card-title">🌐 Browser environment</div></div>
+    <div id="browser-checks"></div>
+  </div>
+
+  <div class="card mb-24">
+    <div class="card-header"><div class="card-title">📦 Core modules (must be loaded)</div></div>
+    <div id="core-checks"></div>
+  </div>
+
+  <div class="card mb-24">
+    <div class="card-header"><div class="card-title">🧠 Brain modules (lazy-loaded)</div></div>
+    <div id="brain-checks"></div>
+  </div>
+
+  <div class="card mb-24">
+    <div class="card-header"><div class="card-title">💾 LocalStorage state</div></div>
+    <div id="storage-checks"></div>
+  </div>
+
+  <div class="card">
+    <div class="card-header"><div class="card-title">🔧 If something failed</div></div>
+    <div style="font-size:13px;color:var(--text-secondary);line-height:1.7;">
+      <ul style="margin:8px 0 8px 24px;">
+        <li><strong>Browser checks failing:</strong> your browser may be blocking JS, cookies, or localStorage. Try Chrome/Edge/Safari with default settings.</li>
+        <li><strong>Core modules missing:</strong> the page didn't load fully. Try hard refresh (Ctrl+Shift+R or Cmd+Shift+R).</li>
+        <li><strong>Brain modules missing:</strong> they lazy-load via <code>js/live.js</code>. Give the page 5-10 seconds to finish loading, then re-run.</li>
+        <li><strong>LocalStorage full:</strong> use the "Clear brain state" button below. This resets all learning history but the brain re-trains in a few minutes.</li>
+        <li><strong>Notification permission denied:</strong> not a problem — alerts just won't fire. Re-enable in browser settings → Site Settings → Notifications.</li>
+      </ul>
+      <div style="margin-top:14px;">
+        <button onclick="if(confirm('Clear ALL brain learning state? Cannot be undone.')) { Object.keys(localStorage).filter(k => k.startsWith('bpleone_')).forEach(k => localStorage.removeItem(k)); location.reload(); }" style="padding:10px 18px;background:rgba(239,68,68,0.15);color:var(--red);border:1px solid rgba(239,68,68,0.5);border-radius:8px;font-weight:700;cursor:pointer;font-size:13px;">🧹 Clear all brain state (reset)</button>
+        <button onclick="location.reload()" style="margin-left:8px;padding:10px 18px;background:var(--bg-elevated);color:var(--text-primary);border:1px solid var(--border);border-radius:8px;font-weight:700;cursor:pointer;font-size:13px;">🔄 Re-run diagnostics</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script>
+buildNav('site-diagnostics');
+
+const BROWSER_CHECKS = [
+  { name: 'JavaScript enabled', test: () => true },
+  { name: 'localStorage available', test: () => { try { localStorage.setItem('_t', '1'); localStorage.removeItem('_t'); return true; } catch (e) { return false; } } },
+  { name: 'sessionStorage available', test: () => { try { sessionStorage.setItem('_t', '1'); sessionStorage.removeItem('_t'); return true; } catch (e) { return false; } } },
+  { name: 'fetch() API present', test: () => typeof fetch === 'function' },
+  { name: 'Intl.DateTimeFormat (timezone-aware)', test: () => { try { return new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York' }).format(new Date()).length > 0; } catch (e) { return false; } } },
+  { name: 'Notification API available', test: () => typeof Notification !== 'undefined' },
+  { name: 'Notification permission', test: () => typeof Notification !== 'undefined' && (Notification.permission === 'granted' || Notification.permission === 'default'), warnOnly: true }
+];
+
+const CORE = [
+  { name: 'buildNav (app.js)', test: () => typeof window.buildNav === 'function' },
+  { name: 'QUOTES (live.js)', test: () => typeof window.QUOTES === 'object' },
+  { name: 'BS pricer (live.js)', test: () => typeof window.BS === 'object' && typeof window.BS.price === 'function' },
+  { name: 'Notify (notify.js)', test: () => typeof window.Notify === 'object' },
+  { name: 'DataProvider (data-provider.js)', test: () => typeof window.DataProvider === 'object' },
+  { name: 'AIClient (ai-client.js)', test: () => typeof window.AIClient === 'object' }
+];
+
+const BRAIN = [
+  ['Model', 'ModelStore'],
+  ['MultiHorizon', 'MultiHorizon'],
+  ['BootstrapEnsemble', 'BootstrapEnsemble'],
+  ['KNNRecall', 'KNNRecall'],
+  ['SWA', 'SWA'],
+  ['MetaStacker', 'MetaStacker'],
+  ['PerSymbolMetaStacker', 'PerSymbolMetaStacker'],
+  ['Calibrator', 'Calibrator'],
+  ['RegimeCalibrator', 'RegimeCalibrator'],
+  ['IsotonicCalibrator', 'IsotonicCalibrator'],
+  ['Conformal', 'Conformal'],
+  ['BayesianDropout', 'BayesianDropout'],
+  ['EnsembleAgreement', 'EnsembleAgreement'],
+  ['SymbolBias', 'SymbolBias'],
+  ['DriftPSI', 'DriftPSI'],
+  ['AdversarialValidator', 'AdversarialValidator'],
+  ['OutlierDetector', 'OutlierDetector'],
+  ['FeatureImportance', 'FeatureImportance'],
+  ['ActiveLearning', 'ActiveLearning'],
+  ['HindsightReplay', 'HindsightReplay'],
+  ['LabelSmoothing', 'LabelSmoothing'],
+  ['ConfidencePenalty', 'ConfidencePenalty'],
+  ['SampleDecay', 'SampleDecay'],
+  ['AdaptiveLR', 'AdaptiveLR'],
+  ['SelfDistillation', 'SelfDistillation'],
+  ['DrawdownProtector', 'DrawdownProtector'],
+  ['HourlyPerf', 'HourlyPerf'],
+  ['DowPerf', 'DowPerf'],
+  ['SectorPerf', 'SectorPerf'],
+  ['SetupTracker', 'SetupTracker'],
+  ['SymbolSkill', 'SymbolSkill'],
+  ['SymbolSharpe', 'SymbolSharpe'],
+  ['ModuleAttribution', 'ModuleAttribution'],
+  ['BrierSkill', 'BrierSkill'],
+  ['SharpeTracker', 'SharpeTracker'],
+  ['ReliabilityDiagram', 'ReliabilityDiagram'],
+  ['VolumeTracker', 'VolumeTracker'],
+  ['PredictionHistogram', 'PredictionHistogram'],
+  ['TradeTrust', 'TradeTrust'],
+  ['AutoPause', 'AutoPause'],
+  ['BrainCoach', 'BrainCoach'],
+  ['UnifiedPredictor', 'UnifiedPredictor']
+];
+
+function render(checks, containerId, allowDelayed) {
+  const cont = document.getElementById(containerId);
+  let html = '';
+  let pass = 0, fail = 0, warn = 0;
+  for (const c of checks) {
+    let ok;
+    try { ok = c.test(); } catch (e) { ok = false; }
+    const cls = ok ? 'pass' : (c.warnOnly ? 'warn' : 'fail');
+    const icon = ok ? '✓' : (c.warnOnly ? '⚠' : '✗');
+    const status = ok ? 'OK' : (c.warnOnly ? 'WARN' : 'FAIL');
+    html += '<div class="check ' + cls + '"><div class="icon">' + icon + '</div><div class="name">' + c.name + '</div><div class="status">' + status + '</div></div>';
+    if (ok) pass++;
+    else if (c.warnOnly) warn++;
+    else fail++;
+  }
+  cont.innerHTML = html;
+  return { pass, fail, warn };
+}
+
+function renderBrain() {
+  const checks = BRAIN.map(([name, global]) => ({
+    name,
+    test: () => typeof window[global] !== 'undefined'
+  }));
+  return render(checks, 'brain-checks', true);
+}
+
+function renderStorage() {
+  const keys = Object.keys(localStorage).filter(k => k.startsWith('bpleone_'));
+  const totalSize = keys.reduce((sum, k) => sum + (localStorage.getItem(k) || '').length, 0);
+  const checks = [
+    { name: 'Brain state keys: ' + keys.length, test: () => keys.length >= 0 },
+    { name: 'Storage size: ' + (totalSize / 1024).toFixed(1) + ' KB', test: () => totalSize < 4 * 1024 * 1024, warnOnly: totalSize > 1024 * 1024 },
+    { name: 'localStorage write test', test: () => { try { localStorage.setItem('_diag', '1'); const v = localStorage.getItem('_diag'); localStorage.removeItem('_diag'); return v === '1'; } catch (e) { return false; } } }
+  ];
+  return render(checks, 'storage-checks');
+}
+
+function runAll() {
+  const r1 = render(BROWSER_CHECKS, 'browser-checks');
+  const r2 = render(CORE, 'core-checks');
+  const r3 = renderBrain();
+  const r4 = renderStorage();
+  const totalFail = r1.fail + r2.fail + r3.fail + r4.fail;
+  const totalPass = r1.pass + r2.pass + r3.pass + r4.pass;
+  const totalWarn = r1.warn + r2.warn + r3.warn + r4.warn;
+  const sum = document.getElementById('summary');
+  const big = document.getElementById('summary-big');
+  const text = document.getElementById('summary-text');
+  if (totalFail > 0) {
+    sum.className = 'summary fail';
+    big.textContent = '✗ ' + totalFail;
+    big.style.color = 'var(--red)';
+    text.textContent = totalFail + ' check' + (totalFail > 1 ? 's' : '') + ' failed · ' + totalPass + ' passed · ' + totalWarn + ' warnings';
+  } else {
+    sum.className = 'summary pass';
+    big.textContent = '✓ ' + totalPass;
+    big.style.color = 'var(--green)';
+    text.textContent = 'All systems operational · ' + totalPass + ' checks passed · ' + totalWarn + ' warnings';
+  }
+}
+
+// Run twice — once immediately (catches anything already loaded) and once
+// after 6s to give lazy-loaded brain modules a chance to register.
+setTimeout(runAll, 500);
+setTimeout(runAll, 6000);
+</script>
+</body>
+</html>

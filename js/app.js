@@ -108,7 +108,7 @@ function buildNav(activePage) {
   // Markets group
   const marketsGrp = ['macro','market-internals','breadth-pro','market-map','heatmap','cross-asset-pulse','cross-asset-correlations','correlations-live','sectors','global-markets','yield-curve','economic-events','economic-clock','halt-tracker','moc-imbalance','risk-radar','vix-pulse','smart-rotation','sector-rotation','sector-flow','sector-snapshot','heat-clock','sentiment-heat','news','news-pulse','news-impact','smart-money'];
   // Tools group — calculators, risk, journal, settings, alerts, crypto, education
-  const toolsGrp = ['risk','risk-dashboard','risk-attribution','risk-parity','risk-of-ruin','fundamentals','backtester','multi-backtest','potd-backtest','journal','trade-journal-pro','alerts','alerts-builder','alerts-feed','alerts-dashboard','crypto','crypto-derivatives','crypto-basis','crypto-commodities','portfolio-builder','position-sizing','kelly-sizer','pdt-dashboard','margin-calc','pnl-projector','execution','liquidity-health','strategies','setup-combos','api','seasonality','settings','mindset','changelog','replay','hypothetical','account','performance-attribution','all-tools','pwa-install','watchlist-share','desk-split','time-of-day-pnl','live-pnl-heatmap','day-pnl-calendar','squarespace-preview'];
+  const toolsGrp = ['risk','risk-dashboard','risk-attribution','risk-parity','risk-of-ruin','fundamentals','backtester','multi-backtest','potd-backtest','journal','trade-journal-pro','alerts','alerts-builder','alerts-feed','alerts-dashboard','crypto','crypto-derivatives','crypto-basis','crypto-commodities','portfolio-builder','position-sizing','kelly-sizer','pdt-dashboard','margin-calc','pnl-projector','execution','liquidity-health','strategies','setup-combos','api','seasonality','settings','mindset','changelog','replay','hypothetical','account','performance-attribution','all-tools','pwa-install','watchlist-share','desk-split','time-of-day-pnl','live-pnl-heatmap','day-pnl-calendar','squarespace-preview','site-diagnostics'];
   const isTrade = tradeGrp.indexOf(activePage) !== -1;
   const isPlays = playsGrp.indexOf(activePage) !== -1 || dailyGrp.indexOf(activePage) !== -1;
   const isBrain = brainGrp.indexOf(activePage) !== -1;
@@ -468,6 +468,7 @@ function buildNav(activePage) {
     + '<div class="nav-dropdown">'
     + '<a href="all-tools.html">🗂 All Tools (visual index)</a>'
     + '<a href="squarespace-preview.html">🏠 Squarespace Hub Tile <span class="feat-badge feat-new" style="font-size:8px;padding:0 5px;background:#00d4ff;color:#000;">DEPLOY</span></a>'
+    + '<a href="site-diagnostics.html">🩺 Site Diagnostics <span class="feat-badge feat-new" style="font-size:8px;padding:0 5px;background:#ef4444;color:#fff;">DEBUG</span></a>'
     + '<a href="risk-dashboard.html">⚖️ Risk Dashboard</a>'
     + '<a href="risk-attribution.html">🎯 Risk Attribution</a>'
     + '<a href="risk-parity.html">⚖ Risk Parity</a>'
