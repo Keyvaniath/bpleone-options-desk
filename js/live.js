@@ -487,6 +487,13 @@ document.addEventListener('DOMContentLoaded', () => {
         s.async = false;
         document.head.appendChild(s);
       }
+      // Daily auto-summary card: snapshots brain state at market close.
+      if (!document.querySelector('script[src*="daily-card.js"]')) {
+        const s = document.createElement('script');
+        s.src = 'js/daily-card.js';
+        s.async = false;
+        document.head.appendChild(s);
+      }
       // Regime-Stratified Calibrator: separate Platt scalers per market
       // regime (bull/bear/chop/high-vol/mixed) so calibration adapts to
       // current conditions instead of averaging across regimes.

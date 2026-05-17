@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Daily Cards — bpleone / brain</title>
+<meta name="description" content="Auto-generated end-of-day brain summary cards. Browseable history of brain state day by day.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.card-grid { display:grid;grid-template-columns:repeat(auto-fill, minmax(320px, 1fr));gap:14px; }
+.card-tile { padding:18px;background:var(--bg-elevated);border-radius:12px;border:1px solid var(--border); }
+.card-tile h3 { font-family:var(--font-mono);font-size:16px;font-weight:800;margin:0 0 6px;color:var(--accent); }
+.card-tile .headline { font-size:13px;font-weight:700;margin-bottom:10px; }
+.card-tile .row { display:grid;grid-template-columns:1fr 1fr;gap:8px;font-size:11px;color:var(--text-muted);font-family:var(--font-mono); }
+.card-tile .row .v { color:var(--text-primary);font-weight:700; }
+.btn { padding:10px 22px;background:var(--accent);color:#000;border:none;border-radius:8px;font-weight:700;cursor:pointer;font-size:13px; }
+.btn-secondary { background:var(--bg-elevated);color:var(--text-primary);border:1px solid var(--border); }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">📆 Daily Cards</div>
+      <div class="page-subtitle">Auto-generated end-of-day brain summaries · browseable history day by day</div>
+    </div>
+    <div style="display:flex;gap:8px;">
+      <button onclick="forceGenerate()" class="btn">📸 Snapshot now</button>
+    </div>
+  </div>
+
+  <div class="card mb-24">
+    <div class="card-header"><div class="card-title">📚 How it works</div></div>
+    <div style="font-size:13px;color:var(--text-secondary);line-height:1.7;">
+      The brain auto-generates a daily card after market close (16:00 ET) capturing:
+      <ul style="margin:8px 0 8px 24px;">
+        <li>Brain health score + headline + alert count</li>
+        <li>Brier Skill Score + sample size</li>
+        <li>Annualized Sharpe + mean return</li>
+        <li>Current streak + win rate + total trades</li>
+        <li>Best / worst hour bucket</li>
+        <li>Top setup type</li>
+        <li>Drift + covariate-shift status</li>
+        <li>Trade trust score + active penalties</li>
+      </ul>
+      Cards are kept for the last 90 days. Click "📸 Snapshot now" to write a card from current state at any time during the day.
+    </div>
+  </div>
+
+  <div class="card-grid" id="cards"></div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script src="js/daily-card.js"></script>
+<script>
+buildNav('daily-cards');
+
+function fmt(n, d) { return n != null ? n.toFixed(d != null ? d : 3) : '—'; }
+function fmtPct(p) { return p != null ? (p * 100).toFixed(1) + '%' : '—'; }
+
+function render() {
+  const cards = DailyCard.list();
+  const cont = document.getElementById('cards');
+  if (cards.length === 0) {
+    cont.innerHTML = '<div style="grid-column:1/-1;text-align:center;padding:30px;color:var(--text-muted);font-size:14px;">No cards yet. Click "📸 Snapshot now" to generate one from today\'s state, or wait until after market close.</div>';
+    return;
+  }
+  let html = '';
+  for (const c of cards) {
+    html += '<div class="card-tile">'
+      + '<h3>' + c.date + '</h3>'
+      + '<div class="headline" style="color:' + (c.alertCount > 0 ? 'var(--red)' : c.warnCount > 0 ? 'var(--yellow)' : 'var(--green)') + ';">' + (c.headline || 'No headline') + '</div>'
+      + '<div class="row">'
+      + '<div>Health: <span class="v">' + (c.healthScore || '—') + '/100</span></div>'
+      + '<div>Trust: <span class="v">' + (c.trustScore != null ? c.trustScore + '/100' : '—') + '</span></div>'
+      + '<div>BSS: <span class="v">' + (c.bss != null ? (c.bss >= 0 ? '+' : '') + fmt(c.bss) : '—') + '</span></div>'
+      + '<div>Sharpe: <span class="v">' + (c.sharpe != null ? (c.sharpe >= 0 ? '+' : '') + fmt(c.sharpe, 2) : '—') + '</span></div>'
+      + '<div>Trades: <span class="v">' + (c.totalTrades || 0) + '</span></div>'
+      + '<div>Win rate: <span class="v">' + fmtPct(c.winRate) + '</span></div>'
+      + '<div>Streak: <span class="v">' + (c.currentStreak != null ? (c.currentStreak >= 0 ? '+' : '') + c.currentStreak : '—') + '</span></div>'
+      + '<div>Alerts: <span class="v" style="color:' + (c.alertCount > 0 ? 'var(--red)' : 'var(--text-primary)') + ';">' + (c.alertCount || 0) + '</span></div>'
+      + '</div>'
+      + (c.topSetup ? '<div style="margin-top:8px;font-size:11px;color:var(--text-muted);font-family:var(--font-mono);">Top setup: ' + c.topSetup.setup + ' (' + fmtPct(c.topSetup.accuracy) + ')</div>' : '')
+      + (c.bestHour ? '<div style="font-size:11px;color:var(--text-muted);font-family:var(--font-mono);">Best hour: ' + c.bestHour.bucket + ' (+' + (c.bestHour.edge * 100).toFixed(1) + 'pp)</div>' : '')
+      + (c.activePenalties && c.activePenalties.length ? '<div style="margin-top:8px;font-size:10px;color:var(--red);">⚠ ' + c.activePenalties.join(' · ') + '</div>' : '')
+      + '<div style="margin-top:10px;font-size:10px;color:var(--text-muted);font-family:var(--font-mono);">' + (c.generatedBy === 'auto' ? '🤖 auto · ' : '✍ manual · ') + new Date(c.generatedAt).toLocaleTimeString() + '</div>'
+      + '</div>';
+  }
+  cont.innerHTML = html;
+}
+
+function forceGenerate() {
+  const c = DailyCard.generate();
+  // Mark as manual generation
+  c.generatedBy = 'manual';
+  try { localStorage.setItem('bpleone_daily_card_v1_' + c.date, JSON.stringify(c)); } catch (e) {}
+  render();
+}
+
+render();
+setInterval(render, 30000);
+window.addEventListener('bpleone:continuous-cycle', render);
+</script>
+</body>
+</html>
