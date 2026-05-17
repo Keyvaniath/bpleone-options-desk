@@ -177,7 +177,9 @@
     autoState.totalClosed = (autoState.totalClosed || 0) + addedAuto;
 
     // Persist
-    try { localStorage.setItem(JOURNAL_KEY, JSON.stringify(journal.slice(-5000))); } catch (e) {}
+    // Audit pass 4: match new MAX_JOURNAL=12000 in continuous-learner.js so
+    // demo data doesn't push real trades out of the journal.
+    try { localStorage.setItem(JOURNAL_KEY, JSON.stringify(journal.slice(-12000))); } catch (e) {}
     try { localStorage.setItem(ALERTS_KEY, JSON.stringify(alertsState)); } catch (e) {}
     try { localStorage.setItem(AUTO_KEY, JSON.stringify(autoState)); } catch (e) {}
     return { journal: addedJournal, alerts: addedAlerts, autoTrades: addedAuto };

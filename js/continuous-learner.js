@@ -33,7 +33,13 @@
   // rolling-accuracy loop, then again at MID (5d) and LONG (20d) for the
   // multi-horizon ensemble models.
   const HORIZON_HOURS = { short: 24, mid: 5 * 24, long: 20 * 24 };
-  const MAX_JOURNAL = 5000;               // cap journal size
+  // Audit pass 4 fix: was 5000 (~3 days at typical capture rate). Bumped
+  // so 30-day window in money-made.html actually retains 30 days of data.
+  // 12000 = ~25 days of captures at 48/hour during market hours. Each entry
+  // is ~400 bytes JSON so total ~5MB worst-case (fits in localStorage quota).
+  // Older entries are still trimmed by age in saveJournal() below.
+  const MAX_JOURNAL = 12000;
+  const MAX_JOURNAL_AGE_DAYS = 120;       // drop entries older than this
   const ROLLING_WINDOW = 50;              // rolling accuracy over last N labeled predictions
   const DRIFT_BASELINE = 0.50;            // baseline = random
   const DRIFT_TRIGGER = 0.45;             // below this triggers adaptation
@@ -41,7 +47,21 @@
   const CAPTURE_COOLDOWN_UNCERTAIN_MIN = 5; // boost frequency for uncertain (active-learning) symbols
 
   function loadJournal() { try { return JSON.parse(localStorage.getItem(JOURNAL_KEY) || '[]'); } catch (e) { return []; } }
-  function saveJournal(j) { try { localStorage.setItem(JOURNAL_KEY, JSON.stringify(j.slice(-MAX_JOURNAL))); } catch (e) {} }
+  function saveJournal(j) {
+    try {
+      // Trim by age first (drop entries > 120 days), then by count.
+      // This ensures lifetime/d90 windows have data while bounding storage.
+      const cutoff = Date.now() - MAX_JOURNAL_AGE_DAYS * 24 * 60 * 60 * 1000;
+      const filtered = j.filter(e => !e.ts || e.ts >= cutoff);
+      localStorage.setItem(JOURNAL_KEY, JSON.stringify(filtered.slice(-MAX_JOURNAL)));
+    } catch (e) {
+      // Quota exceeded — aggressive trim to recover
+      try {
+        const fallback = (j || []).slice(-3000);
+        localStorage.setItem(JOURNAL_KEY, JSON.stringify(fallback));
+      } catch (e2) {}
+    }
+  }
   function loadAcc() { try { return JSON.parse(localStorage.getItem(ACCURACY_KEY) || '[]'); } catch (e) { return []; } }
   function saveAcc(a) { try { localStorage.setItem(ACCURACY_KEY, JSON.stringify(a.slice(-500))); } catch (e) {} }
   function loadState() { try { return JSON.parse(localStorage.getItem(STATE_KEY) || '{}'); } catch (e) { return {}; } }
