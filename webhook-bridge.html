@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Webhook Bridge — bpleone</title>
+<meta name="description" content="Forward high-conviction brain alerts to Discord, Slack, or any webhook endpoint. Paste URL once, get pings forever.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.master-card { padding:24px;border-radius:16px;text-align:center;margin-bottom:24px; }
+.master-card.on { background:linear-gradient(135deg,rgba(16,185,129,0.10),rgba(16,185,129,0.02));border:2px solid var(--green); }
+.master-card.off { background:linear-gradient(135deg,rgba(120,140,160,0.10),rgba(120,140,160,0.02));border:2px solid rgba(120,140,160,0.4); }
+.master-card .state { font-family:var(--font-mono);font-size:36px;font-weight:900;line-height:1; }
+.master-card.on .state { color:var(--green); }
+.master-card.off .state { color:var(--text-muted); }
+.toggle-btn { padding:12px 26px;border-radius:8px;border:none;font-weight:800;cursor:pointer;font-size:14px;letter-spacing:0.5px;margin-right:8px; }
+.toggle-btn.go { background:linear-gradient(135deg,#10b981,#059669);color:#fff; }
+.toggle-btn.stop { background:linear-gradient(135deg,#dc2626,#991b1b);color:#fff; }
+.target-badge { display:inline-block;padding:4px 12px;border-radius:6px;font-size:12px;font-weight:800;letter-spacing:0.5px; }
+.target-discord { background:rgba(88,101,242,0.18);color:#5865f2; }
+.target-slack { background:rgba(74,21,75,0.18);color:#ecb22e; }
+.target-generic { background:rgba(0,212,255,0.18);color:var(--accent); }
+.target-none { background:rgba(120,140,160,0.12);color:var(--text-muted); }
+.tile { padding:18px;background:var(--bg-elevated);border-radius:10px; }
+.tile .lbl { font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;font-weight:700; }
+.tile .val { font-family:var(--font-mono);font-size:22px;font-weight:800;margin-top:6px;color:var(--accent); }
+.tile.good .val { color:var(--green); }
+.tile.bad .val { color:var(--red); }
+table.t { width:100%;border-collapse:collapse;font-size:12px;font-family:var(--font-mono); }
+table.t th { text-align:left;padding:8px 10px;border-bottom:1px solid var(--bg-elevated);color:var(--text-muted);font-size:10px;text-transform:uppercase;letter-spacing:0.5px;font-weight:700; }
+table.t td { padding:7px 10px;border-bottom:1px solid rgba(255,255,255,0.04); }
+.pill { display:inline-block;padding:2px 8px;border-radius:5px;font-size:10px;font-weight:800; }
+.pill-ok { background:rgba(16,185,129,0.18);color:var(--green); }
+.pill-err { background:rgba(220,38,38,0.18);color:var(--red); }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">🌐 Webhook Bridge</div>
+      <div class="page-subtitle">Forward every high-conviction brain alert to your Discord channel, Slack workspace, or generic webhook. Paste URL once.</div>
+    </div>
+  </div>
+
+  <div class="card mb-24" style="background:linear-gradient(135deg,rgba(0,212,255,0.04),rgba(140,100,255,0.04));border-left:4px solid var(--accent);">
+    <div style="font-size:14px;color:var(--text-secondary);line-height:1.6;">
+      <strong>Setup (30 seconds):</strong>
+      <br>• <strong>Discord:</strong> Channel Settings → Integrations → Webhooks → New Webhook → Copy URL.
+      <br>• <strong>Slack:</strong> Workspace → Apps → Incoming Webhooks → Add to Channel → Copy URL.
+      <br>• <strong>Anything else:</strong> any endpoint that accepts POST JSON works — payload schema is generic.
+    </div>
+  </div>
+
+  <div id="master-card" class="master-card off">
+    <div id="master-state" class="state">OFF</div>
+    <div id="master-desc" style="color:var(--text-secondary);font-size:14px;margin:8px 0 18px;">No webhook configured.</div>
+    <button id="master-toggle" class="toggle-btn go" onclick="toggleMaster()">▶ Enable bridge</button>
+    <button onclick="testPing()" style="padding:12px 22px;border-radius:8px;border:1px solid rgba(0,212,255,0.4);background:rgba(0,212,255,0.12);color:var(--accent);font-weight:800;cursor:pointer;font-size:14px;">🔔 Send test message</button>
+  </div>
+
+  <div class="card mb-24">
+    <div class="card-header"><div class="card-title">⚙️ Configuration</div></div>
+    <div style="display:grid;gap:14px;">
+      <div>
+        <label style="font-size:11px;color:var(--text-muted);font-weight:700;text-transform:uppercase;letter-spacing:0.5px;display:block;margin-bottom:6px;">Webhook URL</label>
+        <input id="cfg-url" type="text" placeholder="https://discord.com/api/webhooks/... or https://hooks.slack.com/services/..." style="width:100%;background:rgba(0,0,0,0.3);border:1px solid rgba(255,255,255,0.1);border-radius:6px;padding:10px 14px;color:var(--text);font-family:var(--font-mono);font-size:13px;">
+        <div style="margin-top:6px;font-size:11px;"><span id="target-detected" class="target-badge target-none">none detected</span></div>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:14px;">
+        <label style="font-size:11px;color:var(--text-muted);font-weight:700;text-transform:uppercase;">Min conviction<input id="cfg-conv" type="number" value="0.75" min="0.5" max="0.99" step="0.01" style="width:100%;background:rgba(0,0,0,0.3);border:1px solid rgba(255,255,255,0.1);border-radius:6px;padding:8px 10px;color:var(--text);font-family:var(--font-mono);font-size:14px;margin-top:6px;"></label>
+        <label style="font-size:11px;color:var(--text-muted);font-weight:700;text-transform:uppercase;">Bot name<input id="cfg-name" type="text" value="bpleone brain" style="width:100%;background:rgba(0,0,0,0.3);border:1px solid rgba(255,255,255,0.1);border-radius:6px;padding:8px 10px;color:var(--text);font-family:var(--font-mono);font-size:14px;margin-top:6px;"></label>
+        <label style="font-size:11px;color:var(--text-muted);font-weight:700;text-transform:uppercase;display:flex;align-items:flex-end;gap:8px;cursor:pointer;"><input type="checkbox" id="cfg-risk" checked> Include risk $</label>
+      </div>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;">
+        <button onclick="saveCfg()" style="padding:10px 22px;background:linear-gradient(135deg,#00d4ff,#0094c7);color:#000;border:none;border-radius:6px;font-weight:700;cursor:pointer;">💾 Save</button>
+        <button onclick="clearLogBtn()" style="padding:10px 18px;background:rgba(120,140,160,0.12);color:var(--text-muted);border:1px solid rgba(120,140,160,0.3);border-radius:6px;font-weight:700;cursor:pointer;">🗑 Clear push log</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="grid grid-3 mb-24" id="kpi-grid"></div>
+
+  <div class="card mb-24">
+    <div class="card-header"><div class="card-title">📜 Recent push log</div></div>
+    <table class="t" id="log-table">
+      <thead><tr><th>When</th><th>Symbol</th><th>Target</th><th>Status</th><th>Notes</th></tr></thead>
+      <tbody id="log-body"><tr><td colspan="5" style="color:var(--text-muted);text-align:center;padding:18px;">No pushes yet.</td></tr></tbody>
+    </table>
+  </div>
+
+  <div class="card">
+    <div class="card-header"><div class="card-title">🔗 Related</div></div>
+    <div style="display:flex;gap:12px;flex-wrap:wrap;">
+      <a href="high-conviction-alerts.html" style="text-decoration:none;display:inline-block;background:linear-gradient(135deg,#a884ff,#7c3aed);color:#fff;padding:10px 18px;border-radius:8px;font-weight:700;">🔔 Source feed</a>
+      <a href="auto-trade.html" style="text-decoration:none;display:inline-block;background:rgba(120,140,160,0.12);color:var(--accent);padding:10px 18px;border-radius:8px;font-weight:700;">🤖 Auto-Trade</a>
+      <a href="voice-coach.html" style="text-decoration:none;display:inline-block;background:rgba(120,140,160,0.12);color:var(--accent);padding:10px 18px;border-radius:8px;font-weight:700;">🎙️ Voice Coach</a>
+    </div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script src="js/webhook-bridge.js"></script>
+<script>buildNav('webhook-bridge');</script>
+<script>
+function fmtAgo(t) { if (!t) return '—'; const ms = Date.now() - t; if (ms < 60000) return Math.round(ms/1000) + 's'; if (ms < 3600000) return Math.round(ms/60000) + 'm'; if (ms < 86400000) return Math.round(ms/3600000) + 'h'; return Math.round(ms/86400000) + 'd'; }
+
+function loadCfgIntoInputs() {
+  if (!window.WebhookBridge) return;
+  const c = window.WebhookBridge.getConfig();
+  document.getElementById('cfg-url').value = c.url || '';
+  document.getElementById('cfg-conv').value = c.minConviction;
+  document.getElementById('cfg-name').value = c.botName;
+  document.getElementById('cfg-risk').checked = c.includeRisk;
+  updateTargetBadge();
+}
+function updateTargetBadge() {
+  const url = document.getElementById('cfg-url').value;
+  const t = window.WebhookBridge.detectTarget(url);
+  const el = document.getElementById('target-detected');
+  el.className = 'target-badge target-' + t;
+  el.textContent = t === 'discord' ? 'Discord detected' : t === 'slack' ? 'Slack detected' : t === 'generic' ? 'Generic JSON' : 'none detected';
+}
+document.getElementById('cfg-url') && document.getElementById('cfg-url').addEventListener('input', updateTargetBadge);
+function saveCfg() {
+  if (!window.WebhookBridge) return;
+  window.WebhookBridge.config({
+    url: document.getElementById('cfg-url').value.trim(),
+    minConviction: parseFloat(document.getElementById('cfg-conv').value) || 0.75,
+    botName: document.getElementById('cfg-name').value || 'bpleone brain',
+    includeRisk: document.getElementById('cfg-risk').checked
+  });
+  render();
+}
+function toggleMaster() {
+  if (!window.WebhookBridge) return;
+  if (window.WebhookBridge.isEnabled()) window.WebhookBridge.disable();
+  else window.WebhookBridge.enable();
+  render();
+}
+async function testPing() {
+  if (!window.WebhookBridge) return;
+  saveCfg();
+  const r = await window.WebhookBridge.testPing();
+  if (r.ok) alert('✅ Test message sent to ' + (r.target || 'webhook') + '. Check your channel!');
+  else alert('❌ Send failed: ' + (r.reason || 'status ' + r.status));
+  render();
+}
+function clearLogBtn() {
+  if (!confirm('Clear push log?')) return;
+  window.WebhookBridge.clearLog();
+  render();
+}
+function render() {
+  if (!window.WebhookBridge) { setTimeout(render, 500); return; }
+  const enabled = window.WebhookBridge.isEnabled();
+  const cfg = window.WebhookBridge.getConfig();
+  const mc = document.getElementById('master-card');
+  mc.className = 'master-card ' + (enabled ? 'on' : 'off');
+  document.getElementById('master-state').textContent = enabled ? 'ON' : 'OFF';
+  let desc = '';
+  if (!cfg.url) desc = '⚠ No webhook URL set. Paste one below.';
+  else if (enabled) desc = 'Forwarding alerts to ' + window.WebhookBridge.detectTarget(cfg.url) + ' every 30 seconds.';
+  else desc = 'URL configured but bridge is paused.';
+  document.getElementById('master-desc').textContent = desc;
+  const tog = document.getElementById('master-toggle');
+  tog.className = 'toggle-btn ' + (enabled ? 'stop' : 'go');
+  tog.textContent = enabled ? '⏹ Disable bridge' : '▶ Enable bridge';
+  // KPIs
+  const state = JSON.parse(localStorage.getItem('bpleone_webhook_bridge_v1') || '{"totalPushes":0,"totalErrors":0}');
+  document.getElementById('kpi-grid').innerHTML =
+    '<div class="tile good"><div class="lbl">Successful pushes</div><div class="val">' + (state.totalPushes || 0) + '</div></div>' +
+    '<div class="tile bad"><div class="lbl">Errors</div><div class="val">' + (state.totalErrors || 0) + '</div></div>' +
+    '<div class="tile"><div class="lbl">Target</div><div class="val" style="font-size:14px;">' + window.WebhookBridge.detectTarget(cfg.url) + '</div></div>';
+  // Log
+  const logRows = window.WebhookBridge.log(30);
+  const body = document.getElementById('log-body');
+  if (logRows.length === 0) {
+    body.innerHTML = '<tr><td colspan="5" style="color:var(--text-muted);text-align:center;padding:18px;">No pushes yet. Test or wait for next alert.</td></tr>';
+  } else {
+    body.innerHTML = logRows.map(l =>
+      '<tr><td>' + fmtAgo(l.ts) + ' ago</td><td><strong>' + l.sym + '</strong></td><td>' + l.target + '</td>' +
+      '<td>' + (l.ok ? '<span class="pill pill-ok">OK ' + (l.status || '200') + '</span>' : '<span class="pill pill-err">ERR ' + (l.status || 'x') + '</span>') + '</td>' +
+      '<td style="color:var(--text-muted);">' + (l.error || '') + '</td></tr>'
+    ).join('');
+  }
+}
+setTimeout(() => { loadCfgIntoInputs(); render(); }, 600);
+setInterval(render, 6000);
+</script>
+</body>
+</html>

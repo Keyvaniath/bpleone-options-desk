@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Daily Replay — bpleone</title>
+<meta name="description" content="EOD recap of every brain signal that fired today, with outcome. Learn from each day to size better tomorrow.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.day-selector { display:flex;justify-content:space-between;align-items:center;margin-bottom:18px; }
+.day-selector h2 { font-size:22px;font-weight:800;margin:0; }
+.day-selector button { padding:8px 16px;background:rgba(120,140,160,0.12);color:var(--text);border:1px solid rgba(255,255,255,0.1);border-radius:6px;font-weight:700;cursor:pointer; }
+.tile { padding:18px;background:var(--bg-elevated);border-radius:10px; }
+.tile .lbl { font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;font-weight:700; }
+.tile .val { font-family:var(--font-mono);font-size:24px;font-weight:800;margin-top:6px;color:var(--accent); }
+.tile.gain .val { color:var(--green); }
+.tile.loss .val { color:var(--red); }
+.event-row { padding:12px 18px;border-radius:10px;margin-bottom:6px;display:flex;align-items:center;gap:14px;flex-wrap:wrap;background:rgba(0,212,255,0.04);font-family:var(--font-mono); }
+.event-row.long { border-left:4px solid var(--green); }
+.event-row.short { border-left:4px solid var(--red); }
+.event-row.win { background:rgba(16,185,129,0.06); }
+.event-row.loss { background:rgba(220,38,38,0.06); }
+.event-row.pending { background:rgba(245,158,11,0.05);border-left-color:var(--yellow); }
+.event-row .time { font-size:11px;color:var(--text-muted);min-width:56px; }
+.event-row .sym { font-weight:900;font-size:15px;min-width:60px; }
+.event-row .dir { font-size:11px;font-weight:800;padding:2px 8px;border-radius:5px; }
+.event-row .dir.LONG { background:rgba(16,185,129,0.18);color:var(--green); }
+.event-row .dir.SHORT { background:rgba(220,38,38,0.18);color:var(--red); }
+.event-row .meta { color:var(--text-muted);font-size:11px;flex:1;min-width:200px; }
+.event-row .outcome { font-weight:800;font-size:13px;text-align:right;min-width:90px; }
+.outcome.win { color:var(--green); }
+.outcome.loss { color:var(--red); }
+.outcome.pending { color:var(--yellow); }
+.lesson { padding:18px 22px;background:linear-gradient(135deg,rgba(140,100,255,0.06),rgba(140,100,255,0.02));border-left:4px solid #a884ff;border-radius:10px;font-size:14px;color:var(--text-secondary);line-height:1.6;margin-bottom:18px; }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">📼 Daily Replay</div>
+      <div class="page-subtitle">End-of-day recap of every brain signal. What fired, what worked, what didn't, and what the takeaway is.</div>
+    </div>
+  </div>
+
+  <div class="day-selector">
+    <button onclick="changeDay(-1)">← Previous day</button>
+    <h2 id="day-title">—</h2>
+    <button onclick="changeDay(1)" id="next-btn">Next day →</button>
+  </div>
+
+  <div class="grid grid-4 mb-24" id="kpi-grid"></div>
+
+  <div id="lesson" class="lesson" style="display:none;"></div>
+
+  <div class="card mb-24">
+    <div class="card-header"><div class="card-title">⏱ Timeline (chronological)</div></div>
+    <div id="timeline"></div>
+  </div>
+
+  <div class="card">
+    <div class="card-header"><div class="card-title">🔗 Related</div></div>
+    <div style="display:flex;gap:12px;flex-wrap:wrap;">
+      <a href="brain-daily-card.html" style="text-decoration:none;display:inline-block;background:linear-gradient(135deg,#00d4ff,#0094c7);color:#000;padding:10px 18px;border-radius:8px;font-weight:700;">📰 Daily Card</a>
+      <a href="money-made.html" style="text-decoration:none;display:inline-block;background:rgba(120,140,160,0.12);color:var(--accent);padding:10px 18px;border-radius:8px;font-weight:700;">💵 Money Made</a>
+      <a href="pnl-calendar.html" style="text-decoration:none;display:inline-block;background:rgba(120,140,160,0.12);color:var(--accent);padding:10px 18px;border-radius:8px;font-weight:700;">📆 Calendar</a>
+      <a href="mental-game.html" style="text-decoration:none;display:inline-block;background:rgba(120,140,160,0.12);color:var(--accent);padding:10px 18px;border-radius:8px;font-weight:700;">🎯 Mental Game</a>
+    </div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script>buildNav('daily-replay');</script>
+<script>
+let viewDay = new Date();
+viewDay.setHours(0, 0, 0, 0);
+
+const JOURNAL_KEY = 'bpleone_pred_journal_v1';
+function loadJournal() { try { return JSON.parse(localStorage.getItem(JOURNAL_KEY) || '[]'); } catch (e) { return []; } }
+function fmt$(v) { if (!isFinite(v)) return '$0'; const s = v < 0 ? '-' : ''; return s + '$' + Math.abs(v).toLocaleString(undefined, { maximumFractionDigits: 2 }); }
+function fmtTime(t) { return new Date(t).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }); }
+
+function changeDay(d) {
+  const next = new Date(viewDay);
+  next.setDate(next.getDate() + d);
+  if (next.getTime() > Date.now()) return;
+  viewDay = next;
+  render();
+}
+
+function render() {
+  document.getElementById('day-title').textContent = viewDay.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
+  const dayStart = viewDay.getTime();
+  const dayEnd = dayStart + 86400000;
+  const isToday = (Math.floor(dayStart / 86400000) === Math.floor(Date.now() / 86400000));
+  document.getElementById('next-btn').style.opacity = isToday ? '0.3' : '1';
+  document.getElementById('next-btn').style.pointerEvents = isToday ? 'none' : 'auto';
+
+  // Pull alerts (HighConvictionAlerts feed) within this day
+  let alerts = [];
+  if (window.HighConvictionAlerts) {
+    alerts = window.HighConvictionAlerts.feed(200).filter(a => a.ts >= dayStart && a.ts < dayEnd);
+  }
+  // Pull resolved trades from MoneyTracker for the day
+  let tradesForDay = [];
+  if (window.MoneyTracker) {
+    const s = window.MoneyTracker.summary();
+    if (!s.empty && s.windows && s.windows.lifetime) {
+      tradesForDay = (s.windows.lifetime.trades || []).filter(t => t.ts >= dayStart && t.ts < dayEnd);
+    }
+  }
+  // Pull AutoTrade open + closed trades for this day
+  let autoOpened = [], autoClosed = [];
+  if (window.AutoTrade) {
+    const open = window.AutoTrade.openTrades();
+    const closed = window.AutoTrade.closedTrades();
+    autoOpened = open.filter(t => t.openedAt >= dayStart && t.openedAt < dayEnd);
+    autoClosed = closed.filter(t => (t.openedAt >= dayStart && t.openedAt < dayEnd) || (t.closedAt >= dayStart && t.closedAt < dayEnd));
+  }
+
+  // Build timeline (mix alerts + auto-trades + closed trades by ts)
+  const events = [];
+  alerts.forEach(a => events.push({ ts: a.ts, kind: 'alert', sym: a.sym, direction: a.direction, conviction: a.conviction, entryPx: a.entryPx, riskDollars: a.riskDollars }));
+  autoOpened.forEach(t => events.push({ ts: t.openedAt, kind: 'auto-open', sym: t.sym, direction: t.direction > 0 ? 'LONG' : 'SHORT', shares: t.shares, entryPx: t.entryPx }));
+  autoClosed.forEach(t => events.push({ ts: t.closedAt, kind: 'auto-close', sym: t.sym, direction: t.direction > 0 ? 'LONG' : 'SHORT', shares: t.shares, entryPx: t.entryPx, exitPx: t.exitPx, pnl: t.realizedPnL, outcome: t.outcome, rMultiple: t.rMultiple }));
+  tradesForDay.forEach(t => events.push({ ts: t.ts, kind: 'resolve', sym: t.sym, pnl: t.pnl, rMultiple: t.rMultiple }));
+  events.sort((a, b) => a.ts - b.ts);
+
+  // KPIs
+  const totalAlerts = alerts.length;
+  const dayPnL = tradesForDay.reduce((s, t) => s + t.pnl, 0) + autoClosed.reduce((s, t) => s + (t.realizedPnL || 0), 0);
+  const wins = tradesForDay.filter(t => t.pnl > 0).length + autoClosed.filter(t => t.realizedPnL > 0).length;
+  const losses = tradesForDay.filter(t => t.pnl < 0).length + autoClosed.filter(t => t.realizedPnL < 0).length;
+  document.getElementById('kpi-grid').innerHTML =
+    '<div class="tile"><div class="lbl">High-conv alerts</div><div class="val">' + totalAlerts + '</div></div>' +
+    '<div class="tile"><div class="lbl">Auto-trades opened</div><div class="val">' + autoOpened.length + '</div></div>' +
+    '<div class="tile ' + (dayPnL >= 0 ? 'gain' : 'loss') + '"><div class="lbl">Day P&L</div><div class="val">' + (dayPnL >= 0 ? '+' : '') + fmt$(dayPnL) + '</div></div>' +
+    '<div class="tile"><div class="lbl">Wins / Losses</div><div class="val">' + wins + ' / ' + losses + '</div></div>';
+
+  // Lesson
+  const lesson = document.getElementById('lesson');
+  const lessons = [];
+  if (totalAlerts === 0) lessons.push('No high-conviction signals fired today. Brain is in selective mode — that\'s a feature.');
+  else if (dayPnL > 0 && wins > losses) lessons.push('🎯 ' + wins + ' winners vs ' + losses + ' losers, +' + fmt$(dayPnL) + '. Brain selectivity paid off — keep gates tight.');
+  else if (dayPnL < 0 && losses > wins) lessons.push('⚠ More losses than wins today (' + losses + ' vs ' + wins + ', ' + fmt$(dayPnL) + '). Review the closed-trade outcomes below: was it bad luck or bad gates?');
+  if (totalAlerts > 10) lessons.push('💡 ' + totalAlerts + ' alerts is on the high side. Consider raising minConviction to filter for highest-confidence only.');
+  if (events.length > 0) {
+    lesson.style.display = 'block';
+    lesson.innerHTML = lessons.map(l => '<div style="margin-bottom:6px;">' + l + '</div>').join('');
+  } else {
+    lesson.style.display = 'none';
+  }
+
+  // Timeline
+  const tl = document.getElementById('timeline');
+  if (events.length === 0) {
+    tl.innerHTML = '<div style="color:var(--text-muted);text-align:center;padding:24px;">No brain events on this day. Try another day or wait for live activity.</div>';
+    return;
+  }
+  tl.innerHTML = events.map(e => {
+    let outcomeText = '', outcomeCls = '', rowCls = '';
+    if (e.kind === 'alert') {
+      outcomeText = (e.conviction * 100).toFixed(0) + '% @ $' + (e.entryPx || 0).toFixed(2);
+      outcomeCls = '';
+    } else if (e.kind === 'auto-open') {
+      outcomeText = 'Opened ' + e.shares + 'sh';
+      outcomeCls = 'pending';
+      rowCls = 'pending';
+    } else if (e.kind === 'auto-close') {
+      outcomeText = (e.pnl >= 0 ? '+' : '') + fmt$(e.pnl) + ' (' + e.outcome + ', ' + e.rMultiple + 'R)';
+      outcomeCls = e.pnl >= 0 ? 'win' : 'loss';
+      rowCls = e.pnl >= 0 ? 'win' : 'loss';
+    } else if (e.kind === 'resolve') {
+      outcomeText = (e.pnl >= 0 ? '+' : '') + fmt$(e.pnl);
+      outcomeCls = e.pnl >= 0 ? 'win' : 'loss';
+    }
+    const dirCls = e.direction || '';
+    return '<div class="event-row ' + (dirCls === 'LONG' ? 'long' : dirCls === 'SHORT' ? 'short' : '') + ' ' + rowCls + '">' +
+      '<div class="time">' + fmtTime(e.ts) + '</div>' +
+      '<div class="sym">' + e.sym + '</div>' +
+      (dirCls ? '<div class="dir ' + dirCls + '">' + dirCls + '</div>' : '<div style="min-width:40px;"></div>') +
+      '<div class="meta">' + e.kind.replace('-', ' ') + '</div>' +
+      '<div class="outcome ' + outcomeCls + '">' + outcomeText + '</div>' +
+    '</div>';
+  }).join('');
+}
+setTimeout(render, 500);
+setInterval(render, 10000);
+</script>
+</body>
+</html>
