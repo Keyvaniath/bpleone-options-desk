@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Counterfactual Replay — bpleone / brain</title>
+<meta name="description" content="Measures how brittle each prediction is by perturbing features. Flags knife-edge predictions that should be sized down.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.head-card { padding:32px;border-radius:16px;text-align:center; }
+.head-card.good { background:linear-gradient(135deg,rgba(16,185,129,0.10),rgba(16,185,129,0.02));border:2px solid rgba(16,185,129,0.4); }
+.head-card.warn { background:linear-gradient(135deg,rgba(245,158,11,0.10),rgba(245,158,11,0.02));border:2px solid rgba(245,158,11,0.4); }
+.head-card.bad { background:linear-gradient(135deg,rgba(239,68,68,0.10),rgba(239,68,68,0.02));border:2px solid rgba(239,68,68,0.4); }
+.head-card.idle { background:linear-gradient(135deg,rgba(140,140,140,0.10),rgba(140,140,140,0.02));border:2px solid rgba(140,140,140,0.4); }
+.head-card .big { font-family:var(--font-mono);font-size:72px;font-weight:900;line-height:1; }
+.tile { padding:18px;background:var(--bg-elevated);border-radius:10px; }
+.tile .lbl { font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;font-weight:700; }
+.tile .val { font-family:var(--font-mono);font-size:22px;font-weight:800;margin-top:6px;color:var(--accent); }
+.tile .sub { font-size:11px;color:var(--text-muted);font-family:var(--font-mono);margin-top:4px; }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">🔄 Counterfactual Replay</div>
+      <div class="page-subtitle">Feature-perturbation robustness test · catches brittle predictions on knife-edge features</div>
+    </div>
+  </div>
+
+  <div id="head-card" class="mb-24"></div>
+
+  <div class="grid grid-3 mb-24" id="metrics-grid"></div>
+
+  <div class="card">
+    <div class="card-header"><div class="card-title">📚 How it works</div></div>
+    <div style="font-size:13px;color:var(--text-secondary);line-height:1.7;">
+      For ~20% of resolutions (sampled to keep cost low), the brain runs counterfactual replay:
+      <ol style="margin:8px 0 8px 24px;">
+        <li>Take the features that produced the prediction</li>
+        <li>For each feature, perturb it by ±10% and re-predict</li>
+        <li>Measure the maximum deviation across all 2×N perturbations</li>
+        <li>Compute robustness = 1 − max_dev / 0.5 (1.0 = no change; 0.0 = predictions swing to extremes)</li>
+      </ol>
+      <strong>Robustness score interpretation:</strong>
+      <ul style="margin:8px 0 8px 24px;">
+        <li><strong>≥ 0.95</strong> — rock-solid, small feature changes don't move the prediction</li>
+        <li><strong>0.7 – 0.95</strong> — healthy</li>
+        <li><strong>0.5 – 0.7</strong> — somewhat fragile (one feature could flip it)</li>
+        <li><strong>&lt; 0.5</strong> — knife-edge, prediction would flip with normal noise</li>
+      </ul>
+      <strong>Why this matters:</strong> a 70% prediction with 0.95 robustness is much more trustworthy than a 70% prediction with 0.4 robustness. The model thinks both are equally likely to win, but one is on a knife edge. If brittlePct is consistently &gt;30%, the model is over-fitting to specific feature configurations and would benefit from MORE regularization (turn up label smoothing or confidence penalty).
+    </div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script src="js/counterfactual-replay.js"></script>
+<script>
+buildNav('counterfactual-replay');
+
+function fmt(n, d) { return n != null ? n.toFixed(d != null ? d : 3) : '—'; }
+function fmtPct(p) { return p != null ? (p * 100).toFixed(1) + '%' : '—'; }
+
+function render() {
+  const s = CounterfactualReplay.stats();
+  const card = document.getElementById('head-card');
+  if (!s.ready) {
+    card.innerHTML = '<div class="head-card idle">'
+      + '<div class="big" style="color:var(--text-muted);">—</div>'
+      + '<div style="font-size:14px;color:var(--text-secondary);margin-top:14px;">No robustness measurements yet. Each resolution has a 20% chance of running a counterfactual check.</div>'
+      + '</div>';
+  } else {
+    const cls = s.mean > 0.85 ? 'good' : s.mean > 0.65 ? 'warn' : 'bad';
+    const color = s.mean > 0.85 ? 'var(--green)' : s.mean > 0.65 ? 'var(--yellow)' : 'var(--red)';
+    card.innerHTML = '<div class="head-card ' + cls + '">'
+      + '<div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:1.5px;font-weight:700;">Mean robustness</div>'
+      + '<div class="big" style="color:' + color + ';margin-top:14px;">' + fmt(s.mean, 3) + '</div>'
+      + '<div style="font-size:13px;color:var(--text-secondary);margin-top:14px;font-family:var(--font-mono);">' + s.n + ' measurements · ' + fmtPct(s.brittlePct) + ' brittle</div>'
+      + '</div>';
+  }
+
+  document.getElementById('metrics-grid').innerHTML = ''
+    + '<div class="tile"><div class="lbl">Total measurements</div><div class="val">' + s.n + '</div></div>'
+    + '<div class="tile"><div class="lbl">25th / 75th percentile</div><div class="val" style="font-size:18px;">' + fmt(s.p25) + ' / ' + fmt(s.p75) + '</div></div>'
+    + '<div class="tile"><div class="lbl">Brittle (&lt;0.7) count</div><div class="val" style="color:' + (s.brittleCount > 0 ? 'var(--red)' : 'var(--green)') + ';">' + (s.brittleCount || 0) + '</div></div>';
+}
+
+render();
+setInterval(render, 10000);
+window.addEventListener('bpleone:continuous-cycle', render);
+</script>
+</body>
+</html>

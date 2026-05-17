@@ -329,6 +329,15 @@
               VolumeTracker.recordResolution(entry.ts, Date.now());
             }
           } catch (e) {}
+          // COUNTERFACTUAL REPLAY: measure how robust this prediction was
+          // by perturbing each feature ±10% and seeing if the prediction
+          // changes much. Sample every 5th resolution to keep cost low.
+          try {
+            if (typeof CounterfactualReplay !== 'undefined' && entry.features && Math.random() < 0.2) {
+              const cr = CounterfactualReplay.measure(model, entry.features);
+              if (cr) CounterfactualReplay.record(cr.robustness);
+            }
+          } catch (e) {}
           // SYMBOL BIAS: feed per-symbol bias term so the shared model can
           // learn symbol-specific quirks on top of general features.
           try {

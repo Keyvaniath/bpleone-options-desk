@@ -479,6 +479,14 @@ document.addEventListener('DOMContentLoaded', () => {
         s.async = false;
         document.head.appendChild(s);
       }
+      // Counterfactual replay: perturbs features ±10% and measures prediction
+      // robustness. Brittle predictions are flagged for review.
+      if (!document.querySelector('script[src*="counterfactual-replay.js"]')) {
+        const s = document.createElement('script');
+        s.src = 'js/counterfactual-replay.js';
+        s.async = false;
+        document.head.appendChild(s);
+      }
       // Regime-Stratified Calibrator: separate Platt scalers per market
       // regime (bull/bear/chop/high-vol/mixed) so calibration adapts to
       // current conditions instead of averaging across regimes.
