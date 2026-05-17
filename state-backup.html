@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>State Backup — bpleone</title>
+<meta name="description" content="Export and import all brain state, journal, settings, and auto-trade history as a single JSON file. Sync across devices.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.tile { padding:18px;background:var(--bg-elevated);border-radius:10px; }
+.tile .lbl { font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;font-weight:700; }
+.tile .val { font-family:var(--font-mono);font-size:22px;font-weight:800;margin-top:6px;color:var(--accent); }
+.action-card { padding:24px;border-radius:14px;text-align:center; }
+.action-card.export { background:linear-gradient(135deg,rgba(16,185,129,0.08),rgba(16,185,129,0.02));border:2px solid var(--green); }
+.action-card.import { background:linear-gradient(135deg,rgba(140,100,255,0.08),rgba(140,100,255,0.02));border:2px solid #a884ff; }
+.action-card h3 { margin:0 0 10px;font-size:20px;font-weight:800; }
+.action-card.export h3 { color:var(--green); }
+.action-card.import h3 { color:#a884ff; }
+.action-card p { color:var(--text-secondary);font-size:13px;margin:0 0 16px;line-height:1.5; }
+.btn-big { padding:14px 28px;border-radius:10px;border:none;font-weight:800;cursor:pointer;font-size:15px;letter-spacing:0.5px; }
+.btn-export { background:linear-gradient(135deg,#10b981,#059669);color:#fff; }
+.btn-import { background:linear-gradient(135deg,#a884ff,#7c3aed);color:#fff; }
+table.t { width:100%;border-collapse:collapse;font-size:12px;font-family:var(--font-mono); }
+table.t th { text-align:left;padding:8px 10px;border-bottom:1px solid var(--bg-elevated);color:var(--text-muted);font-size:10px;text-transform:uppercase;letter-spacing:0.5px;font-weight:700; }
+table.t td { padding:6px 10px;border-bottom:1px solid rgba(255,255,255,0.04); }
+.diff-card { padding:16px 20px;border-radius:10px;background:rgba(0,212,255,0.06);border-left:4px solid var(--accent);margin-top:14px;display:none; }
+.diff-card .row { font-family:var(--font-mono);font-size:13px;color:var(--text-secondary);margin:4px 0; }
+.diff-card .row strong { color:var(--accent); }
+.diff-card .actions { margin-top:14px;display:flex;gap:10px;flex-wrap:wrap; }
+.diff-card button { padding:10px 18px;border-radius:6px;border:none;cursor:pointer;font-weight:700;font-size:13px; }
+.btn-apply { background:linear-gradient(135deg,#10b981,#059669);color:#fff; }
+.btn-apply-wipe { background:linear-gradient(135deg,#dc2626,#991b1b);color:#fff; }
+.btn-cancel { background:rgba(120,140,160,0.12);color:var(--text-muted);border:1px solid rgba(120,140,160,0.3); }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">💾 State Backup &amp; Restore</div>
+      <div class="page-subtitle">Export all brain state, journal, settings, auto-trade history, alerts, and learning weights as a single JSON file. Restore on another device.</div>
+    </div>
+  </div>
+
+  <div class="grid grid-4 mb-24" id="kpi-grid"></div>
+
+  <div class="grid grid-2 mb-24">
+    <div class="action-card export">
+      <h3>📤 Export</h3>
+      <p>Download a JSON snapshot of every <code>bpleone_*</code> localStorage key. Save it as a backup, send to yourself, or restore on another device.</p>
+      <button onclick="doExport()" class="btn-big btn-export">⬇ Download backup</button>
+    </div>
+    <div class="action-card import">
+      <h3>📥 Import</h3>
+      <p>Restore from a previously-exported JSON file. Shows diff preview before applying so nothing nukes silently.</p>
+      <label for="import-file" class="btn-big btn-import" style="display:inline-block;cursor:pointer;">📁 Select backup file</label>
+      <input id="import-file" type="file" accept=".json,application/json" style="display:none;" onchange="loadImport(event)">
+      <div id="diff-card" class="diff-card">
+        <div style="font-weight:800;font-size:14px;margin-bottom:8px;color:var(--accent);">📊 Diff preview</div>
+        <div id="diff-content"></div>
+        <div class="actions">
+          <button onclick="applyImport(false)" class="btn-apply">✅ Apply (merge — keep existing keys)</button>
+          <button onclick="applyImport(true)" class="btn-apply-wipe">⚠ Apply (wipe first — replace everything)</button>
+          <button onclick="cancelImport()" class="btn-cancel">Cancel</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card mb-24">
+    <div class="card-header">
+      <div class="card-title">🗝 Stored keys</div>
+      <button onclick="render()" style="padding:6px 12px;background:rgba(120,140,160,0.12);color:var(--text);border:1px solid rgba(255,255,255,0.1);border-radius:5px;font-size:11px;font-weight:700;cursor:pointer;">🔄 Refresh</button>
+    </div>
+    <table class="t" id="keys-table">
+      <thead><tr><th>Key</th><th>Size</th><th>Preview</th><th>Actions</th></tr></thead>
+      <tbody id="keys-body"></tbody>
+    </table>
+  </div>
+
+  <div class="card">
+    <div class="card-header"><div class="card-title">🔗 Related</div></div>
+    <div style="display:flex;gap:12px;flex-wrap:wrap;">
+      <a href="settings.html" style="text-decoration:none;display:inline-block;background:linear-gradient(135deg,#00d4ff,#0094c7);color:#000;padding:10px 18px;border-radius:8px;font-weight:700;">⚙ Settings</a>
+      <a href="brain-health.html" style="text-decoration:none;display:inline-block;background:rgba(120,140,160,0.12);color:var(--accent);padding:10px 18px;border-radius:8px;font-weight:700;">❤️ Brain Health</a>
+    </div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script src="js/state-backup.js"></script>
+<script>buildNav('state-backup');</script>
+<script>
+let pendingJson = null;
+
+function fmtBytes(b) { if (b < 1024) return b + 'B'; if (b < 1048576) return (b / 1024).toFixed(1) + 'KB'; return (b / 1048576).toFixed(1) + 'MB'; }
+function escapeHtml(s) { return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
+
+function doExport() {
+  if (!window.StateBackup) return;
+  window.StateBackup.exportFile();
+}
+
+async function loadImport(e) {
+  if (!e || !e.target.files || e.target.files.length === 0) return;
+  if (!window.StateBackup) return;
+  try {
+    const res = await window.StateBackup.importFile(e.target.files[0]);
+    pendingJson = res.json;
+    const d = res.diff;
+    if (d.error) { alert('Invalid backup file: ' + d.error); pendingJson = null; return; }
+    const card = document.getElementById('diff-card');
+    const html = '<div class="row">📥 <strong>' + d.addedCount + '</strong> new keys</div>' +
+      '<div class="row">🔄 <strong>' + d.changedCount + '</strong> changed keys</div>' +
+      '<div class="row">✅ <strong>' + d.unchangedCount + '</strong> unchanged keys</div>' +
+      '<div class="row">🗑 <strong>' + d.droppedCount + '</strong> existing keys NOT in backup (merge mode keeps them; wipe-first deletes)</div>';
+    document.getElementById('diff-content').innerHTML = html;
+    card.style.display = 'block';
+  } catch (err) {
+    alert('Failed to read file: ' + err);
+  }
+}
+
+function applyImport(wipe) {
+  if (!pendingJson) return;
+  if (wipe) {
+    if (!confirm('⚠ WIPE FIRST will DELETE all existing bpleone_* keys before applying the backup. This is irreversible. Continue?')) return;
+  } else {
+    if (!confirm('Apply backup in merge mode? Existing keys not in backup will be preserved.')) return;
+  }
+  const r = window.StateBackup.importJSON(pendingJson, { wipeFirst: wipe });
+  if (r.ok) {
+    alert('✅ Imported ' + r.set + ' keys.' + (wipe ? ' Wiped ' + r.deletedBefore + ' existing keys first.' : '') + ' Reloading page to pick up changes...');
+    setTimeout(() => location.reload(), 500);
+  } else {
+    alert('Import failed: ' + r.reason);
+  }
+}
+
+function cancelImport() {
+  pendingJson = null;
+  document.getElementById('diff-card').style.display = 'none';
+  document.getElementById('import-file').value = '';
+}
+
+function delKey(k) {
+  if (!confirm('Delete key "' + k + '"? This is irreversible.')) return;
+  window.StateBackup.deleteKey(k);
+  render();
+}
+
+function render() {
+  if (!window.StateBackup) { setTimeout(render, 400); return; }
+  const keys = window.StateBackup.keyList();
+  const totalBytes = keys.reduce((s, k) => s + k.bytes, 0);
+  document.getElementById('kpi-grid').innerHTML =
+    '<div class="tile"><div class="lbl">Stored keys</div><div class="val">' + keys.length + '</div></div>' +
+    '<div class="tile"><div class="lbl">Total size</div><div class="val">' + fmtBytes(totalBytes) + '</div></div>' +
+    '<div class="tile"><div class="lbl">Largest</div><div class="val" style="font-size:14px;">' + (keys[0] ? keys[0].key.replace('bpleone_', '') : '—') + '</div></div>' +
+    '<div class="tile"><div class="lbl">Browser quota</div><div class="val" style="font-size:14px;">~5MB (per origin)</div></div>';
+  const body = document.getElementById('keys-body');
+  if (keys.length === 0) {
+    body.innerHTML = '<tr><td colspan="4" style="color:var(--text-muted);text-align:center;padding:18px;">No bpleone_ keys stored yet.</td></tr>';
+    return;
+  }
+  body.innerHTML = keys.map(k =>
+    '<tr><td><strong>' + escapeHtml(k.key) + '</strong></td><td>' + fmtBytes(k.bytes) + '</td><td style="color:var(--text-muted);max-width:340px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + escapeHtml(k.preview) + '</td><td><button onclick="delKey(\'' + k.key + '\')" style="padding:3px 8px;background:rgba(220,38,38,0.12);color:var(--red);border:1px solid rgba(220,38,38,0.3);border-radius:4px;font-size:10px;font-weight:700;cursor:pointer;">delete</button></td></tr>'
+  ).join('');
+}
+setTimeout(render, 400);
+</script>
+</body>
+</html>

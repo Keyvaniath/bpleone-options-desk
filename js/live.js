@@ -429,6 +429,27 @@ document.addEventListener('DOMContentLoaded', () => {
         s.async = false;
         document.head.appendChild(s);
       }
+      // Webhook Bridge — POSTs alerts to Discord/Slack/generic endpoint.
+      if (!document.querySelector('script[src*="webhook-bridge.js"]')) {
+        const s = document.createElement('script');
+        s.src = 'js/webhook-bridge.js';
+        s.async = false;
+        document.head.appendChild(s);
+      }
+      // Money Hotkeys — vim-style g+letter shortcuts. Available site-wide.
+      if (!document.querySelector('script[src*="money-hotkeys.js"]')) {
+        const s = document.createElement('script');
+        s.src = 'js/money-hotkeys.js';
+        s.async = true;
+        document.head.appendChild(s);
+      }
+      // Auto-Watchlist — auto-promotes alerted symbols to a curated list.
+      if (!document.querySelector('script[src*="auto-watchlist.js"]')) {
+        const s = document.createElement('script');
+        s.src = 'js/auto-watchlist.js';
+        s.async = false;
+        document.head.appendChild(s);
+      }
       // Multi-horizon ensemble MUST load before continuous-learner so the
       // learner can call MultiHorizon.* immediately on first capture.
       if (!document.querySelector('script[src*="multi-horizon.js"]')) {

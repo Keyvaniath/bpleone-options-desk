@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Brain Health Pro — bpleone</title>
+<meta name="description" content="One-page diagnostic of every brain subsystem: data feed, source quality, brain modules, auto-loops, alerts, money tracker.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.section { background:var(--bg-elevated);border-radius:12px;padding:18px 22px;margin-bottom:14px; }
+.section h3 { margin:0 0 14px;font-size:13px;font-weight:800;color:var(--text-muted);text-transform:uppercase;letter-spacing:1px; }
+.status-row { display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid rgba(255,255,255,0.04);font-size:13px; }
+.status-row:last-child { border-bottom:none; }
+.status-row .label { color:var(--text-secondary); }
+.dot { display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:8px;vertical-align:middle; }
+.dot.ok { background:var(--green);box-shadow:0 0 8px var(--green); }
+.dot.warn { background:var(--yellow);box-shadow:0 0 8px var(--yellow); }
+.dot.bad { background:var(--red);box-shadow:0 0 8px var(--red); }
+.dot.idle { background:rgba(120,140,160,0.4); }
+.val-mono { font-family:var(--font-mono);font-weight:700;color:var(--accent); }
+.overall { padding:32px;border-radius:18px;text-align:center;margin-bottom:24px; }
+.overall.green { background:linear-gradient(135deg,rgba(16,185,129,0.12),rgba(16,185,129,0.02));border:3px solid var(--green); }
+.overall.yellow { background:linear-gradient(135deg,rgba(245,158,11,0.12),rgba(245,158,11,0.02));border:3px solid var(--yellow); }
+.overall.red { background:linear-gradient(135deg,rgba(220,38,38,0.12),rgba(220,38,38,0.02));border:3px solid var(--red); }
+.overall .icon { font-size:48px;margin-bottom:10px;line-height:1; }
+.overall .big { font-family:var(--font-mono);font-size:36px;font-weight:900;line-height:1;letter-spacing:-0.5px; }
+.overall .desc { color:var(--text-secondary);font-size:13px;margin-top:10px; }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">❤️ Brain Health Pro</div>
+      <div class="page-subtitle">One-page diagnostic of every brain subsystem. Refreshes every 5 seconds.</div>
+    </div>
+  </div>
+
+  <div id="overall" class="overall green">
+    <div class="icon">⏳</div>
+    <div class="big">Checking…</div>
+    <div class="desc">Loading subsystem statuses.</div>
+  </div>
+
+  <div class="grid grid-3 mb-24" id="subsystem-grid"></div>
+
+  <div class="card mt-16">
+    <div class="card-header"><div class="card-title">🔗 Related</div></div>
+    <div style="display:flex;gap:12px;flex-wrap:wrap;">
+      <a href="data-reliability.html" style="text-decoration:none;display:inline-block;background:linear-gradient(135deg,#00d4ff,#0094c7);color:#000;padding:10px 18px;border-radius:8px;font-weight:700;">📊 Data Reliability</a>
+      <a href="source-quality.html" style="text-decoration:none;display:inline-block;background:rgba(120,140,160,0.12);color:var(--accent);padding:10px 18px;border-radius:8px;font-weight:700;">⚖️ Source Quality</a>
+      <a href="state-backup.html" style="text-decoration:none;display:inline-block;background:rgba(120,140,160,0.12);color:var(--accent);padding:10px 18px;border-radius:8px;font-weight:700;">💾 Backup</a>
+      <a href="auto-trade.html" style="text-decoration:none;display:inline-block;background:rgba(120,140,160,0.12);color:var(--accent);padding:10px 18px;border-radius:8px;font-weight:700;">🤖 Auto-Trade</a>
+    </div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script>buildNav('brain-health-pro');</script>
+<script>
+function fmtAgo(t) { if (!t) return '—'; const ms = Date.now() - t; if (ms < 60000) return Math.round(ms/1000) + 's ago'; if (ms < 3600000) return Math.round(ms/60000) + 'm ago'; if (ms < 86400000) return Math.round(ms/3600000) + 'h ago'; return Math.round(ms/86400000) + 'd ago'; }
+function dot(state) { return '<span class="dot ' + state + '"></span>'; }
+
+function check() {
+  const subs = [];
+  // Data feed
+  let dataState = 'idle', dataMsg = 'No live data';
+  if (typeof QUOTES !== 'undefined') {
+    const fresh = Object.values(QUOTES).filter(q => q.liveAt && Date.now() - q.liveAt < 5 * 60 * 1000).length;
+    const total = Object.keys(QUOTES).length;
+    if (fresh > total * 0.7) { dataState = 'ok'; dataMsg = fresh + ' / ' + total + ' fresh'; }
+    else if (fresh > 0) { dataState = 'warn'; dataMsg = 'Only ' + fresh + ' / ' + total + ' fresh'; }
+    else { dataState = 'bad'; dataMsg = '0 fresh tickers'; }
+  }
+  subs.push({ name: '📊 Data Feed', items: [
+    { label: 'Live tickers', value: dataMsg, state: dataState },
+    { label: 'Source', value: (typeof DataProvider !== 'undefined' && DataProvider.getConfig) ? (DataProvider.getConfig().provider || 'auto') : 'auto', state: 'idle' }
+  ]});
+
+  // Data reliability
+  if (window.DataReliability) {
+    const h = window.DataReliability.allHealth();
+    const sr = h.summary || {};
+    subs.push({ name: '🛡 Data Reliability', items: [
+      { label: 'Stale symbols', value: sr.staleSymbols + ' / ' + sr.totalSymbols, state: sr.staleSymbols === 0 ? 'ok' : sr.staleSymbols < 3 ? 'warn' : 'bad' },
+      { label: 'Degraded sources', value: sr.degradedSources + ' / ' + sr.totalSources, state: sr.degradedSources === 0 ? 'ok' : 'warn' },
+      { label: 'Recent rejections (5min)', value: sr.recentRejections, state: sr.recentRejections === 0 ? 'ok' : sr.recentRejections < 5 ? 'warn' : 'bad' }
+    ]});
+  }
+
+  // Brain core
+  const cores = [
+    { name: 'ModelStore', ok: typeof window.ModelStore !== 'undefined' },
+    { name: 'FeatureExtractor', ok: typeof window.FeatureExtractor !== 'undefined' },
+    { name: 'ContinuousLearner', ok: typeof window.ContinuousLearner !== 'undefined' },
+    { name: 'HistoricalBootstrap', ok: typeof window.HistoricalBootstrap !== 'undefined' },
+    { name: 'WeeklyRefresh', ok: typeof window.WeeklyRefresh !== 'undefined' },
+    { name: 'BrierSkill', ok: typeof window.BrierSkill !== 'undefined' }
+  ];
+  subs.push({ name: '🧠 Brain Core', items: cores.map(c => ({ label: c.name, value: c.ok ? 'loaded' : 'MISSING', state: c.ok ? 'ok' : 'bad' })) });
+
+  // Money & sizing
+  const moneyMods = [
+    { name: 'ConfidenceKelly', ok: typeof window.ConfidenceKelly !== 'undefined' },
+    { name: 'PortfolioAllocator', ok: typeof window.PortfolioAllocator !== 'undefined' },
+    { name: 'MoneyTracker', ok: typeof window.MoneyTracker !== 'undefined' },
+    { name: 'BrainBacktest', ok: typeof window.BrainBacktest !== 'undefined' },
+    { name: 'RiskMonteCarlo', ok: typeof window.RiskMonteCarlo !== 'undefined' },
+    { name: 'BrainVsSpy', ok: typeof window.BrainVsSpy !== 'undefined' }
+  ];
+  subs.push({ name: '💰 Money Layer', items: moneyMods.map(c => ({ label: c.name, value: c.ok ? 'loaded' : 'MISSING', state: c.ok ? 'ok' : 'bad' })) });
+
+  // Loops
+  let alertsCount = 0, alertsLastTs = 0;
+  if (window.HighConvictionAlerts) {
+    const f = window.HighConvictionAlerts.feed(50);
+    alertsCount = f.length;
+    alertsLastTs = f[0] ? f[0].ts : 0;
+  }
+  let atOpen = 0, atClosed = 0, atEnabled = false;
+  if (window.AutoTrade) {
+    atOpen = window.AutoTrade.openTrades().length;
+    atClosed = window.AutoTrade.closedTrades().length;
+    atEnabled = window.AutoTrade.isEnabled();
+  }
+  const voiceOn = window.VoiceCoach && window.VoiceCoach.isEnabled();
+  const webhookOn = window.WebhookBridge && window.WebhookBridge.isEnabled();
+  subs.push({ name: '🔁 Auto-Loops', items: [
+    { label: 'High-conv alerts (loop)', value: (window.HighConvictionAlerts && window.HighConvictionAlerts.isEnabled() ? 'ON' : 'off') + ' · ' + alertsCount + ' in feed', state: alertsCount > 0 ? 'ok' : 'idle' },
+    { label: 'Auto-Trade', value: atEnabled ? 'ON · ' + atOpen + ' open / ' + atClosed + ' closed' : 'off', state: atEnabled ? 'ok' : 'idle' },
+    { label: 'Voice Coach', value: voiceOn ? 'ON' : 'off', state: voiceOn ? 'ok' : 'idle' },
+    { label: 'Webhook Bridge', value: webhookOn ? 'ON' : 'off', state: webhookOn ? 'ok' : 'idle' },
+    { label: 'Last alert', value: alertsLastTs ? fmtAgo(alertsLastTs) : 'never', state: 'idle' }
+  ]});
+
+  // Money state
+  let moneyState = 'idle', moneyMsg = 'No trades yet';
+  if (window.MoneyTracker) {
+    const s = window.MoneyTracker.summary();
+    if (!s.empty && s.windows && s.windows.lifetime) {
+      const w = s.windows.lifetime;
+      moneyMsg = w.totalTrades + ' trades · ' + (w.winRate != null ? (w.winRate * 100).toFixed(0) + '% wr' : '—') + ' · ' + (w.totalPnL >= 0 ? '+$' : '-$') + Math.abs(w.totalPnL).toFixed(0);
+      moneyState = w.totalPnL > 0 ? 'ok' : w.totalPnL < 0 ? 'warn' : 'idle';
+    }
+  }
+  subs.push({ name: '💵 Money Performance', items: [
+    { label: 'Lifetime', value: moneyMsg, state: moneyState }
+  ]});
+
+  // Storage
+  let storageItems = 0, totalBytes = 0;
+  if (typeof localStorage !== 'undefined') {
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (k && k.indexOf('bpleone_') === 0) { storageItems++; totalBytes += (localStorage.getItem(k) || '').length; }
+    }
+  }
+  const kb = (totalBytes / 1024).toFixed(0);
+  const usagePct = (totalBytes / (5 * 1024 * 1024)) * 100;
+  subs.push({ name: '💾 Storage', items: [
+    { label: 'Keys', value: storageItems, state: 'idle' },
+    { label: 'Used', value: kb + 'KB (~' + usagePct.toFixed(1) + '% of 5MB)', state: usagePct < 50 ? 'ok' : usagePct < 80 ? 'warn' : 'bad' }
+  ]});
+
+  return subs;
+}
+
+function render() {
+  const subs = check();
+  // Render subsystems
+  document.getElementById('subsystem-grid').innerHTML = subs.map(s =>
+    '<div class="section"><h3>' + s.name + '</h3>' +
+    s.items.map(it => '<div class="status-row"><span class="label">' + dot(it.state) + it.label + '</span><span class="val-mono">' + it.value + '</span></div>').join('') +
+    '</div>'
+  ).join('');
+  // Overall: count bad/warn states across all subs
+  let bad = 0, warn = 0;
+  subs.forEach(s => s.items.forEach(i => { if (i.state === 'bad') bad++; else if (i.state === 'warn') warn++; }));
+  const overall = document.getElementById('overall');
+  let icon = '✅', big = 'HEALTHY', cls = 'green', desc = 'All subsystems nominal.';
+  if (bad > 0) { icon = '🚨'; big = bad + ' CRITICAL'; cls = 'red'; desc = bad + ' subsystem(s) failing. Investigate now.'; }
+  else if (warn > 0) { icon = '⚠'; big = warn + ' WARNING'; cls = 'yellow'; desc = warn + ' subsystem(s) degraded. Monitor.'; }
+  overall.className = 'overall ' + cls;
+  overall.innerHTML = '<div class="icon">' + icon + '</div><div class="big">' + big + '</div><div class="desc">' + desc + '</div>';
+}
+setTimeout(render, 600);
+setInterval(render, 5000);
+</script>
+</body>
+</html>
