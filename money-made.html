@@ -1,0 +1,277 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Money Made — bpleone</title>
+<meta name="description" content="If you had followed every high-conviction brain signal with disciplined sizing, this is how much you would have made. Updated as the brain resolves trades.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.hero { padding:42px 36px;border-radius:20px;text-align:center;margin-bottom:32px; }
+.hero.gain { background:linear-gradient(135deg,rgba(16,185,129,0.12),rgba(16,185,129,0.04));border:3px solid var(--green); }
+.hero.loss { background:linear-gradient(135deg,rgba(220,38,38,0.12),rgba(220,38,38,0.04));border:3px solid var(--red); }
+.hero.neutral { background:linear-gradient(135deg,rgba(0,212,255,0.10),rgba(140,100,255,0.08));border:3px solid var(--accent); }
+.hero .label { font-size:14px;color:var(--text-muted);text-transform:uppercase;letter-spacing:2px;font-weight:700;margin-bottom:14px; }
+.hero .big-number { font-family:var(--font-mono);font-size:84px;font-weight:900;line-height:1;letter-spacing:-2px; }
+.hero.gain .big-number { color:var(--green); }
+.hero.loss .big-number { color:var(--red); }
+.hero.neutral .big-number { color:var(--accent); }
+.hero .subtitle { font-size:14px;color:var(--text-secondary);margin-top:16px; }
+.tile { padding:18px;background:var(--bg-elevated);border-radius:10px; }
+.tile .lbl { font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;font-weight:700; }
+.tile .val { font-family:var(--font-mono);font-size:24px;font-weight:800;margin-top:6px;color:var(--accent); }
+.tile.gain .val { color:var(--green); }
+.tile.loss .val { color:var(--red); }
+.tab-row { display:flex;gap:4px;margin-bottom:18px;border-bottom:2px solid var(--bg-elevated); }
+.tab-row button { background:none;border:none;color:var(--text-muted);padding:12px 18px;font-weight:700;cursor:pointer;font-size:14px;border-bottom:2px solid transparent;margin-bottom:-2px;letter-spacing:0.3px; }
+.tab-row button.active { color:var(--accent);border-bottom-color:var(--accent); }
+.cfg-row { display:flex;gap:14px;align-items:center;flex-wrap:wrap;padding:14px 18px;background:var(--bg-elevated);border-radius:10px;margin-bottom:18px; }
+.cfg-row label { font-size:12px;color:var(--text-muted);font-weight:700;text-transform:uppercase; }
+.cfg-row input { background:rgba(0,0,0,0.3);border:1px solid rgba(255,255,255,0.1);border-radius:6px;padding:6px 10px;color:var(--text);width:90px;font-family:var(--font-mono);font-size:13px; }
+table.t { width:100%;border-collapse:collapse;font-size:13px; }
+table.t th { text-align:left;padding:10px 12px;border-bottom:1px solid var(--bg-elevated);color:var(--text-muted);font-size:11px;text-transform:uppercase;letter-spacing:0.5px;font-weight:700; }
+table.t td { padding:10px 12px;border-bottom:1px solid rgba(255,255,255,0.04);font-family:var(--font-mono); }
+.pnl-pos { color:var(--green);font-weight:700; }
+.pnl-neg { color:var(--red);font-weight:700; }
+#equity-chart { width:100%;height:200px; }
+.note { font-size:12px;color:var(--text-muted);font-style:italic;line-height:1.5; }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">💵 Money Made by the Brain</div>
+      <div class="page-subtitle">Cumulative simulated P&amp;L if you had followed every high-conviction signal with disciplined Confidence-Scaled Kelly sizing. Updates live as the brain resolves trades.</div>
+    </div>
+  </div>
+
+  <div class="cfg-row">
+    <label>Bankroll $<input id="cfg-bankroll" type="number" value="10000" min="100" step="100"></label>
+    <label>Risk/trade %<input id="cfg-risk" type="number" value="2" min="0.1" max="10" step="0.1"></label>
+    <label>Min conviction<input id="cfg-conv" type="number" value="0.55" min="0.5" max="0.95" step="0.01"></label>
+    <button onclick="applyConfig()" style="padding:8px 16px;background:linear-gradient(135deg,#00d4ff,#0094c7);color:#000;border:none;border-radius:6px;font-weight:700;cursor:pointer;">Apply</button>
+    <button onclick="resetConfig()" style="padding:8px 14px;background:rgba(120,140,160,0.12);color:var(--text-muted);border:1px solid rgba(120,140,160,0.3);border-radius:6px;font-weight:700;cursor:pointer;">Reset</button>
+    <span class="note" style="flex:1;">Simulation assumes 1% stop, max 5R trail. Real performance varies with slippage, fees, fills.</span>
+  </div>
+
+  <div id="hero" class="hero neutral"></div>
+
+  <div class="tab-row" id="window-tabs">
+    <button data-w="d7" class="active">Last 7 days</button>
+    <button data-w="d30">Last 30 days</button>
+    <button data-w="d90">Last 90 days</button>
+    <button data-w="lifetime">Lifetime</button>
+  </div>
+
+  <div class="grid grid-4 mb-24" id="kpi-grid"></div>
+
+  <div class="grid grid-2 mb-24">
+    <div class="card">
+      <div class="card-header"><div class="card-title">📈 Equity curve</div></div>
+      <canvas id="equity-chart"></canvas>
+    </div>
+    <div class="card">
+      <div class="card-header"><div class="card-title">🏆 Top symbols by P&amp;L</div></div>
+      <table class="t" id="sym-table">
+        <thead><tr><th>Symbol</th><th>P&amp;L</th><th>Share</th></tr></thead>
+        <tbody id="sym-body"><tr><td colspan="3" class="note" style="text-align:center;padding:18px;">No trades yet in this window.</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="card mb-24">
+    <div class="card-header"><div class="card-title">📋 Recent simulated trades (most recent first)</div></div>
+    <table class="t" id="trades-table">
+      <thead><tr><th>When</th><th>Symbol</th><th>R-Multiple</th><th>$ P&amp;L</th><th>Cumulative</th></tr></thead>
+      <tbody id="trades-body"><tr><td colspan="5" class="note" style="text-align:center;padding:18px;">No resolved trades yet.</td></tr></tbody>
+    </table>
+  </div>
+
+  <div class="card">
+    <div class="card-header"><div class="card-title">🔗 Related</div></div>
+    <div style="display:flex;gap:12px;flex-wrap:wrap;">
+      <a href="make-money.html" style="text-decoration:none;display:inline-block;background:linear-gradient(135deg,#00d4ff,#0094c7);color:#000;padding:10px 18px;border-radius:8px;font-weight:700;">💰 Make Money Dashboard</a>
+      <a href="how-to-make-money.html" style="text-decoration:none;display:inline-block;background:rgba(120,140,160,0.12);color:var(--accent);padding:10px 18px;border-radius:8px;font-weight:700;">📖 How to Make Money Guide</a>
+      <a href="options-101.html" style="text-decoration:none;display:inline-block;background:rgba(120,140,160,0.12);color:var(--accent);padding:10px 18px;border-radius:8px;font-weight:700;">🎓 Options 101</a>
+      <a href="brain-bet.html" style="text-decoration:none;display:inline-block;background:rgba(120,140,160,0.12);color:var(--accent);padding:10px 18px;border-radius:8px;font-weight:700;">🧠 Today's Brain Bets</a>
+    </div>
+  </div>
+
+  <p style="font-size:12px;color:var(--text-muted);margin-top:24px;line-height:1.5;">
+    <strong>Methodology:</strong> The brain captures predictions in <code>bpleone_pred_journal_v1</code>. Once each prediction has aged past its horizon (1 day for short), the actual price move is compared to the brain's call. Win = direction matched and move &gt; 0.3%. This page replays every resolved trade with the sizing rule <code>risk = bankroll × riskPct × max(0.2, |conviction − 0.5| × 2)</code>, capping upside at +5R and downside at −1R (stop assumption). The shown P&amp;L is what you would have made if you had taken every signal at this size and held to the brain's resolution horizon.
+  </p>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/charts.js"></script>
+<script src="js/live.js"></script>
+<script>buildNav('money-made');</script>
+<script>
+let currentWindow = 'd7';
+let equityChart = null;
+
+function fmt$(v) {
+  if (v == null || !isFinite(v)) return '—';
+  const abs = Math.abs(v);
+  const sign = v < 0 ? '-' : '';
+  return sign + '$' + abs.toLocaleString(undefined, { maximumFractionDigits: 2, minimumFractionDigits: 2 });
+}
+function fmtPct(v) {
+  if (v == null || !isFinite(v)) return '—';
+  return (v * 100).toFixed(1) + '%';
+}
+function fmtTs(t) {
+  if (!t) return '—';
+  const d = new Date(t);
+  return d.toLocaleString();
+}
+function fmtAgo(t) {
+  if (!t) return '—';
+  const ms = Date.now() - t;
+  if (ms < 60000) return Math.round(ms/1000) + 's ago';
+  if (ms < 3600000) return Math.round(ms/60000) + 'm ago';
+  if (ms < 86400000) return Math.round(ms/3600000) + 'h ago';
+  return Math.round(ms/86400000) + 'd ago';
+}
+
+function loadCfgIntoInputs() {
+  if (!window.MoneyTracker) return;
+  const c = window.MoneyTracker.getConfig();
+  document.getElementById('cfg-bankroll').value = c.bankroll;
+  document.getElementById('cfg-risk').value = (c.riskPct * 100).toFixed(1);
+  document.getElementById('cfg-conv').value = c.minConvictionToTrade;
+}
+function applyConfig() {
+  if (!window.MoneyTracker) return;
+  const bankroll = parseFloat(document.getElementById('cfg-bankroll').value) || 10000;
+  const riskPct = (parseFloat(document.getElementById('cfg-risk').value) || 2) / 100;
+  const minConv = parseFloat(document.getElementById('cfg-conv').value) || 0.55;
+  window.MoneyTracker.config({ bankroll, riskPct, minConvictionToTrade: minConv });
+  render();
+}
+function resetConfig() {
+  if (!window.MoneyTracker) return;
+  window.MoneyTracker.reset();
+  loadCfgIntoInputs();
+  render();
+}
+
+function render() {
+  if (!window.MoneyTracker) {
+    document.getElementById('hero').innerHTML = '<div class="label">Loading</div><div class="big-number">…</div><div class="subtitle">MoneyTracker module loading. If this persists, hard-reload the page.</div>';
+    return;
+  }
+  const s = window.MoneyTracker.summary();
+  const w = s.windows[currentWindow];
+
+  if (s.empty || !w || w.totalTrades === 0) {
+    document.getElementById('hero').className = 'hero neutral';
+    document.getElementById('hero').innerHTML = '<div class="label">' + windowLabel(currentWindow) + '</div><div class="big-number">$0.00</div><div class="subtitle">No resolved trades yet in this window. The brain captures predictions in real time — first resolutions arrive ~24h after the brain starts. Try the lifetime tab if you ran historical bootstrap.</div>';
+    document.getElementById('kpi-grid').innerHTML = '';
+    document.getElementById('sym-body').innerHTML = '<tr><td colspan="3" class="note" style="text-align:center;padding:18px;">No trades yet in this window.</td></tr>';
+    document.getElementById('trades-body').innerHTML = '<tr><td colspan="5" class="note" style="text-align:center;padding:18px;">No resolved trades yet.</td></tr>';
+    if (equityChart) { equityChart.destroy(); equityChart = null; }
+    return;
+  }
+
+  // Hero number
+  const hero = document.getElementById('hero');
+  hero.className = 'hero ' + (w.totalPnL > 0 ? 'gain' : w.totalPnL < 0 ? 'loss' : 'neutral');
+  hero.innerHTML =
+    '<div class="label">' + windowLabel(currentWindow) + '</div>' +
+    '<div class="big-number">' + (w.totalPnL >= 0 ? '+' : '') + fmt$(w.totalPnL) + '</div>' +
+    '<div class="subtitle">' + w.totalTrades + ' trades · ' + fmtPct(w.winRate) + ' win rate · expectancy ' + fmt$(w.expectancy) + ' per trade · profit factor ' + (w.profitFactor === Infinity ? '∞' : (w.profitFactor != null ? w.profitFactor.toFixed(2) : '—')) + '</div>';
+
+  // KPIs
+  document.getElementById('kpi-grid').innerHTML =
+    '<div class="tile gain"><div class="lbl">Avg win</div><div class="val">' + fmt$(w.avgWin) + '</div></div>' +
+    '<div class="tile loss"><div class="lbl">Avg loss</div><div class="val">-' + fmt$(w.avgLoss) + '</div></div>' +
+    '<div class="tile loss"><div class="lbl">Max drawdown</div><div class="val">-' + fmt$(w.maxDrawdown) + '</div></div>' +
+    '<div class="tile"><div class="lbl">Max consec losses</div><div class="val">' + w.maxConsecLosses + '</div></div>';
+
+  // Symbol table
+  const symRows = Object.entries(w.symPnL).sort((a, b) => b[1] - a[1]);
+  const symTotal = symRows.reduce((s, r) => s + Math.abs(r[1]), 0);
+  document.getElementById('sym-body').innerHTML = symRows.slice(0, 12).map(([sym, pnl]) =>
+    '<tr><td><strong>' + sym + '</strong></td>' +
+    '<td class="' + (pnl >= 0 ? 'pnl-pos' : 'pnl-neg') + '">' + (pnl >= 0 ? '+' : '') + fmt$(pnl) + '</td>' +
+    '<td>' + (symTotal > 0 ? ((Math.abs(pnl) / symTotal) * 100).toFixed(1) + '%' : '0.0%') + '</td></tr>'
+  ).join('');
+
+  // Recent trades (most recent first)
+  const trades = w.trades.slice().reverse();
+  document.getElementById('trades-body').innerHTML = trades.slice(0, 30).map(t =>
+    '<tr><td>' + fmtAgo(t.ts) + '<div class="note" style="font-size:10px;">' + fmtTs(t.ts) + '</div></td>' +
+    '<td><strong>' + t.sym + '</strong></td>' +
+    '<td>' + (t.rMultiple >= 0 ? '+' : '') + t.rMultiple.toFixed(2) + 'R</td>' +
+    '<td class="' + (t.pnl >= 0 ? 'pnl-pos' : 'pnl-neg') + '">' + (t.pnl >= 0 ? '+' : '') + fmt$(t.pnl) + '</td>' +
+    '<td>' + (t.cum >= 0 ? '+' : '') + fmt$(t.cum) + '</td></tr>'
+  ).join('');
+
+  // Equity curve
+  const eq = window.MoneyTracker.equityCurve(currentWindow === 'lifetime' ? null : (currentWindow === 'd7' ? 7 : currentWindow === 'd30' ? 30 : 90));
+  drawEquity(eq);
+}
+
+function windowLabel(w) {
+  return w === 'd7' ? 'Last 7 days' : w === 'd30' ? 'Last 30 days' : w === 'd90' ? 'Last 90 days' : 'Lifetime';
+}
+
+function drawEquity(curve) {
+  const ctx = document.getElementById('equity-chart');
+  if (!ctx) return;
+  if (typeof Chart === 'undefined') return;
+  const labels = curve.map(p => new Date(p.ts).toLocaleDateString());
+  const data = curve.map(p => p.equity);
+  if (equityChart) equityChart.destroy();
+  equityChart = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [{
+        label: 'Cumulative P&L',
+        data,
+        borderColor: data.length && data[data.length-1] >= 0 ? '#10b981' : '#dc2626',
+        backgroundColor: data.length && data[data.length-1] >= 0 ? 'rgba(16,185,129,0.15)' : 'rgba(220,38,38,0.15)',
+        fill: true, tension: 0.25, borderWidth: 2, pointRadius: 0
+      }]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { display: false },
+        y: { ticks: { color: 'rgba(255,255,255,0.5)', callback: v => '$' + v.toLocaleString() } }
+      }
+    }
+  });
+}
+
+// Window tabs
+document.querySelectorAll('#window-tabs button').forEach(b => {
+  b.addEventListener('click', () => {
+    document.querySelectorAll('#window-tabs button').forEach(x => x.classList.remove('active'));
+    b.classList.add('active');
+    currentWindow = b.getAttribute('data-w');
+    render();
+  });
+});
+
+setTimeout(() => { loadCfgIntoInputs(); render(); }, 500);
+setInterval(render, 8000);
+</script>
+</body>
+</html>

@@ -397,6 +397,13 @@ document.addEventListener('DOMContentLoaded', () => {
         s.async = false;
         document.head.appendChild(s);
       }
+      // Money Tracker — simulated cumulative P&L from brain signals (7/30/90/lifetime).
+      if (!document.querySelector('script[src*="money-tracker.js"]')) {
+        const s = document.createElement('script');
+        s.src = 'js/money-tracker.js';
+        s.async = false;
+        document.head.appendChild(s);
+      }
       // Multi-horizon ensemble MUST load before continuous-learner so the
       // learner can call MultiHorizon.* immediately on first capture.
       if (!document.querySelector('script[src*="multi-horizon.js"]')) {
