@@ -366,6 +366,14 @@ document.addEventListener('DOMContentLoaded', () => {
         s.async = false;
         document.head.appendChild(s);
       }
+      // Stale-symbol auto-refresh — proactively fetches when DataReliability
+      // flags a symbol as stale. Closes the gap between 12s poll cycles.
+      if (!document.querySelector('script[src*="stale-refresh.js"]')) {
+        const s = document.createElement('script');
+        s.src = 'js/stale-refresh.js';
+        s.async = false;
+        document.head.appendChild(s);
+      }
       // Multi-horizon ensemble MUST load before continuous-learner so the
       // learner can call MultiHorizon.* immediately on first capture.
       if (!document.querySelector('script[src*="multi-horizon.js"]')) {
