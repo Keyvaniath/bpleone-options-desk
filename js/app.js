@@ -1048,8 +1048,10 @@ function initBrainStatusBar() {
     try {
       const s = window.BrainCoach.summary();
       bar.style.display = 'flex';
-      document.getElementById('bsb-dot').style.background = s.headlineColor;
-      document.getElementById('bsb-dot').style.boxShadow = '0 0 6px ' + s.headlineColor;
+      const dot = document.getElementById('bsb-dot');
+      dot.style.background = s.headlineColor;
+      dot.style.boxShadow = '0 0 6px ' + s.headlineColor;
+      dot.style.animation = 'bpleonePulse 1.5s ease-in-out infinite';
       document.getElementById('bsb-headline').textContent = s.headline;
       document.getElementById('bsb-headline').style.color = s.headlineColor;
       let metrics = 'Health ' + s.healthScore + '/100';
@@ -1061,6 +1063,8 @@ function initBrainStatusBar() {
   }
   refresh();
   setInterval(refresh, 30000);
+  // Also refresh on every brain cycle for instant update
+  window.addEventListener('bpleone:continuous-cycle', refresh);
 }
 
 // Heartbeat handler: visible nav-pulse tick + text updates on every cycle
