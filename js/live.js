@@ -643,6 +643,14 @@ document.addEventListener('DOMContentLoaded', () => {
         s.async = false;
         document.head.appendChild(s);
       }
+      // Brain Coach: synthesizes all 30+ diagnostic modules into a plain-
+      // English headline + diagnosis + advice. Pure computation.
+      if (!document.querySelector('script[src*="brain-coach.js"]')) {
+        const s = document.createElement('script');
+        s.src = 'js/brain-coach.js';
+        s.async = false;
+        document.head.appendChild(s);
+      }
       // Unified predictor: chains every meta-module into ONE call.
       // Loads last so all dependencies are present.
       if (!document.querySelector('script[src*="unified-predictor.js"]')) {

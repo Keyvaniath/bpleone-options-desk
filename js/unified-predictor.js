@@ -252,6 +252,19 @@
         components.currentDow = safe(() => DowPerf.currentDay(), null);
       }
     }
+    // Sector multiplier: grow size on sectors the brain has edge in,
+    // shrink on sectors with poor track record.
+    if (typeof SectorPerf !== 'undefined' && symbol) {
+      const sector = safe(() => SectorPerf.sectorOf(symbol), null);
+      if (sector) {
+        const secMult = safe(() => SectorPerf.sizeMultiplier(sector), 1.0);
+        if (secMult != null && secMult !== 1.0) {
+          sizeMult *= secMult;
+          components.sectorMult = secMult;
+          components.sector = sector;
+        }
+      }
+    }
     // Drawdown tilt protection: shrink size after recent losing streak
     // (or after long winning streak for anti-overconfidence).
     if (typeof DrawdownProtector !== 'undefined') {
