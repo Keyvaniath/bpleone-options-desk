@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Per-Sector Performance — bpleone / brain</title>
+<meta name="description" content="Brain accuracy + Sharpe stratified by sector. Tech vs energy vs crypto — which sectors carry the brain's edge.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.lb-row { display:grid;grid-template-columns:50px 1.3fr 1fr 1fr 1fr 70px 1.1fr;gap:10px;padding:14px;background:var(--bg-elevated);border-radius:10px;margin-bottom:8px;align-items:center; }
+.lb-row.head { background:transparent;font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;font-weight:700;padding:8px 14px;margin-bottom:0; }
+.lb-row .pos { font-family:var(--font-mono);font-size:20px;font-weight:800;color:var(--accent); }
+.lb-row .name { font-weight:700;font-size:15px; }
+.lb-row .metric { font-family:var(--font-mono);font-size:14px;font-weight:700;text-align:right; }
+.lb-row .pill { font-family:var(--font-mono);font-size:12px;font-weight:700;padding:6px 12px;border-radius:14px;text-align:center; }
+.pill.good { background:rgba(16,185,129,0.18);color:var(--green); }
+.pill.mid { background:rgba(0,212,255,0.18);color:var(--accent); }
+.pill.weak { background:rgba(245,158,11,0.18);color:var(--yellow); }
+.pill.bad { background:rgba(239,68,68,0.18);color:var(--red); }
+.pill.idle { background:rgba(140,140,140,0.10);color:var(--text-muted); }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">🏭 Per-Sector Performance</div>
+      <div class="page-subtitle">Brain edge stratified by sector · which sectors the brain understands best</div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-header"><div class="card-title">🏆 Sector leaderboard (last 200 resolutions)</div></div>
+    <div id="leaderboard"></div>
+    <div style="margin-top:14px;padding:12px;background:var(--bg-elevated);border-radius:8px;font-size:12px;color:var(--text-muted);line-height:1.7;">
+      <strong style="color:var(--text-secondary);">Sectors</strong> reuse the SymbolBias sector mapping (mega-tech, semi, auto, software, crypto, index, energy, metals, china, gig, vol, other).<br>
+      <strong style="color:var(--text-secondary);">BSS</strong> = Brier Skill above the always-mean baseline. <strong>Sharpe</strong> = annualized risk-adjusted return.<br>
+      Need ≥15 resolutions per sector before scores appear.
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-header"><div class="card-title">📚 Why aggregate to sector level</div></div>
+    <div style="font-size:13px;color:var(--text-secondary);line-height:1.7;">
+      Per-symbol BSS (<a href="symbol-skill.html" style="color:var(--accent);">symbol-skill.html</a>) tells you about each individual ticker. But sometimes you want the bigger picture: <strong>is the brain good at TECH or BAD at it?</strong>
+      <br><br>
+      This page rolls up symbol resolutions into sector buckets so:
+      <ul style="margin:8px 0 8px 24px;">
+        <li>A new symbol added to a strong sector starts with confidence — the brain has demonstrated edge in that category</li>
+        <li>If <strong>crypto</strong> sector shows -BSS but <strong>semi</strong> shows +BSS, you might restrict the brain to semi trades only</li>
+        <li>Sector multipliers (planned wire into UnifiedPredictor) would compound with the existing hourly/dow multipliers</li>
+      </ul>
+      Per-symbol Sharpe and per-sector Sharpe together give you a complete view of where the brain's profitable edge actually lives.
+    </div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script src="js/sector-perf.js"></script>
+<script>
+buildNav('sector-performance');
+
+function fmt(n, d) { return n != null ? n.toFixed(d != null ? d : 3) : '—'; }
+function fmtPct(p) { return p != null ? (p * 100).toFixed(1) + '%' : '—'; }
+
+function skillPill(skill) {
+  if (skill == null) return '<span class="pill idle">WARMING</span>';
+  if (skill > 0.20) return '<span class="pill good">STRONG</span>';
+  if (skill > 0.10) return '<span class="pill mid">USEFUL</span>';
+  if (skill > 0.0) return '<span class="pill weak">FAIR</span>';
+  return '<span class="pill bad">WEAK/BROKEN</span>';
+}
+
+function render() {
+  const lb = SectorPerf.leaderboard(200);
+  const list = document.getElementById('leaderboard');
+  if (lb.length === 0) {
+    list.innerHTML = '<div style="text-align:center;padding:30px;color:var(--text-muted);font-size:14px;">No per-sector resolutions yet.</div>';
+    return;
+  }
+  let html = '<div class="lb-row head"><div></div><div>Sector</div><div style="text-align:right;">BSS</div><div style="text-align:right;">Ann. Sharpe</div><div style="text-align:right;">Win rate</div><div style="text-align:right;">n</div><div style="text-align:center;">Tier</div></div>';
+  lb.forEach((row, i) => {
+    html += '<div class="lb-row">'
+      + '<div class="pos">#' + (i + 1) + '</div>'
+      + '<div class="name">' + row.sector + '</div>'
+      + '<div class="metric">' + (row.skill != null ? (row.skill >= 0 ? '+' : '') + row.skill.toFixed(3) : '—') + '</div>'
+      + '<div class="metric" style="color:' + (row.annSharpe == null ? 'var(--text-muted)' : row.annSharpe >= 0 ? 'var(--green)' : 'var(--red)') + ';">' + (row.annSharpe != null ? (row.annSharpe >= 0 ? '+' : '') + row.annSharpe.toFixed(2) : '—') + '</div>'
+      + '<div class="metric">' + fmtPct(row.winRate) + '</div>'
+      + '<div class="metric">' + row.n + '</div>'
+      + '<div>' + skillPill(row.skill) + '</div>'
+      + '</div>';
+  });
+  list.innerHTML = html;
+}
+
+render();
+setInterval(render, 8000);
+window.addEventListener('bpleone:continuous-cycle', render);
+</script>
+</body>
+</html>

@@ -627,6 +627,14 @@ document.addEventListener('DOMContentLoaded', () => {
         s.async = false;
         document.head.appendChild(s);
       }
+      // Per-sector performance: aggregates symbols into sectors (semi /
+      // mega-tech / index / energy / etc) for a higher-level edge view.
+      if (!document.querySelector('script[src*="sector-perf.js"]')) {
+        const s = document.createElement('script');
+        s.src = 'js/sector-perf.js';
+        s.async = false;
+        document.head.appendChild(s);
+      }
       // Unified predictor: chains every meta-module into ONE call.
       // Loads last so all dependencies are present.
       if (!document.querySelector('script[src*="unified-predictor.js"]')) {

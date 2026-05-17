@@ -304,6 +304,14 @@
               SymbolSharpe.record(entry.sym, signedRet);
             }
           } catch (e) {}
+          // PER-SECTOR PERFORMANCE: aggregate symbols into sectors
+          // (tech/semi/auto/etc) for a higher-level view.
+          try {
+            if (typeof SectorPerf !== 'undefined' && entry.sym) {
+              const signedRet = predUp ? ret : -ret;
+              SectorPerf.record(entry.sym, entry.predProb, label, signedRet);
+            }
+          } catch (e) {}
           // SYMBOL BIAS: feed per-symbol bias term so the shared model can
           // learn symbol-specific quirks on top of general features.
           try {
