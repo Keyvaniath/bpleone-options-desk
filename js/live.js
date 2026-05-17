@@ -635,6 +635,14 @@ document.addEventListener('DOMContentLoaded', () => {
         s.async = false;
         document.head.appendChild(s);
       }
+      // Reliability diagram: bins (predicted, actual) pairs for the
+      // gold-standard calibration curve + Expected Calibration Error.
+      if (!document.querySelector('script[src*="reliability-diagram.js"]')) {
+        const s = document.createElement('script');
+        s.src = 'js/reliability-diagram.js';
+        s.async = false;
+        document.head.appendChild(s);
+      }
       // Unified predictor: chains every meta-module into ONE call.
       // Loads last so all dependencies are present.
       if (!document.querySelector('script[src*="unified-predictor.js"]')) {

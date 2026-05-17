@@ -312,6 +312,13 @@
               SectorPerf.record(entry.sym, entry.predProb, label, signedRet);
             }
           } catch (e) {}
+          // RELIABILITY DIAGRAM: bin (predicted, actual) pairs by predicted-
+          // prob for the calibration curve + ECE tracking.
+          try {
+            if (typeof ReliabilityDiagram !== 'undefined') {
+              ReliabilityDiagram.recordPair(entry.predProb, label);
+            }
+          } catch (e) {}
           // SYMBOL BIAS: feed per-symbol bias term so the shared model can
           // learn symbol-specific quirks on top of general features.
           try {
