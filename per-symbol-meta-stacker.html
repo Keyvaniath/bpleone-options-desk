@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Per-Symbol Meta-Stacker — bpleone / brain</title>
+<meta name="description" content="Each symbol learns its own ensemble blend weights. NVDA's optimal mix differs from SPY's — this captures that.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.lb-row { display:grid;grid-template-columns:50px 1fr 80px 80px 1.3fr;gap:10px;padding:14px;background:var(--bg-elevated);border-radius:10px;margin-bottom:8px;align-items:center; }
+.lb-row.head { background:transparent;font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;font-weight:700;padding:8px 14px;margin-bottom:0; }
+.lb-row .pos { font-family:var(--font-mono);font-size:20px;font-weight:800;color:var(--accent); }
+.lb-row .name { font-weight:700;font-size:15px; }
+.lb-row .metric { font-family:var(--font-mono);font-size:14px;font-weight:700;text-align:right; }
+.weights-pill { display:flex;flex-wrap:wrap;gap:4px;justify-content:flex-end; }
+.weights-pill span { padding:3px 8px;background:rgba(0,212,255,0.10);color:var(--accent);border-radius:10px;font-size:10px;font-family:var(--font-mono);font-weight:700; }
+.status { font-size:11px;padding:3px 10px;border-radius:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px; }
+.status.ready { background:rgba(16,185,129,0.18);color:var(--green); }
+.status.warm { background:rgba(245,158,11,0.18);color:var(--yellow); }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">🧱 Per-Symbol Meta-Stacker</div>
+      <div class="page-subtitle">Each symbol learns its own ensemble blend · NVDA's optimal mix differs from SPY's</div>
+    </div>
+  </div>
+
+  <div class="card mb-24">
+    <div class="card-header"><div class="card-title">🏆 Symbol training leaderboard</div></div>
+    <div id="leaderboard"></div>
+    <div style="margin-top:14px;padding:12px;background:var(--bg-elevated);border-radius:8px;font-size:12px;color:var(--text-muted);line-height:1.7;">
+      Each symbol needs ≥30 resolutions before its own per-symbol weights kick in. Below that threshold, the predictor falls back to the global MetaStacker.<br>
+      <strong>Weights shown</strong> are softmax-normalized — they represent the relative trust the per-symbol blend gives to each base learner.
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-header"><div class="card-title">📚 Why per-symbol blends</div></div>
+    <div style="font-size:13px;color:var(--text-secondary);line-height:1.7;">
+      The global MetaStacker (<a href="meta-stacker.html" style="color:var(--accent);">meta-stacker.html</a>) learns ONE optimal blend across all symbols. But different symbols have different dynamics:
+      <ul style="margin:8px 0 8px 24px;">
+        <li><strong>SPY</strong> — large-cap index, smooth dynamics → multi-horizon ensemble often dominates</li>
+        <li><strong>NVDA / TSLA</strong> — high-vol momentum names → bootstrap divergence carries more info</li>
+        <li><strong>Crypto (BTC/ETH)</strong> — 24/7 markets → k-NN of similar past states may be most predictive</li>
+      </ul>
+      Per-symbol meta-stackers learn each symbol's optimal mix independently. After 30+ resolutions per symbol, the brain switches that symbol's predictions to its own learned blend. Below that threshold, the global blend is used.<br><br>
+      <strong>Storage:</strong> ~28 bytes per symbol (6 weights + bias). 24 symbols = ~700 bytes total. Trivial overhead for genuinely better predictions.
+    </div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script src="js/per-symbol-meta-stacker.js"></script>
+<script>
+buildNav('per-symbol-meta-stacker');
+
+function fmt(n, d) { return n != null ? n.toFixed(d != null ? d : 3) : '—'; }
+
+function renderWeights(symbol) {
+  const s = PerSymbolMetaStacker.stats(symbol);
+  if (!s.weights) return '<span class="weights-pill"><span>—</span></span>';
+  const names = PerSymbolMetaStacker.BASE_NAMES;
+  // Softmax normalize for display
+  const raw = s.weights.slice(0, names.length).map(w => Math.exp(w));
+  const sum = raw.reduce((a, b) => a + b, 0);
+  let html = '<div class="weights-pill">';
+  names.forEach((n, i) => {
+    const pct = sum > 0 ? (raw[i] / sum * 100).toFixed(0) : '0';
+    html += '<span>' + n.substring(0, 3) + ' ' + pct + '</span>';
+  });
+  html += '</div>';
+  return html;
+}
+
+function render() {
+  const lb = PerSymbolMetaStacker.leaderboard();
+  const list = document.getElementById('leaderboard');
+  if (lb.length === 0) {
+    list.innerHTML = '<div style="text-align:center;padding:30px;color:var(--text-muted);font-size:14px;">No per-symbol training data yet. Each resolution adds one training step for that symbol.</div>';
+    return;
+  }
+  let html = '<div class="lb-row head"><div></div><div>Symbol</div><div style="text-align:right;">Trained</div><div style="text-align:center;">Status</div><div style="text-align:right;">Learned weights (softmax)</div></div>';
+  lb.forEach((row, i) => {
+    const status = row.ready ? '<span class="status ready">READY</span>' : '<span class="status warm">' + row.nTrained + '/' + PerSymbolMetaStacker.MIN_TRAINED + '</span>';
+    html += '<div class="lb-row">'
+      + '<div class="pos">#' + (i + 1) + '</div>'
+      + '<div class="name">' + row.symbol + '</div>'
+      + '<div class="metric">' + row.nTrained + '</div>'
+      + '<div style="text-align:center;">' + status + '</div>'
+      + '<div>' + renderWeights(row.symbol) + '</div>'
+      + '</div>';
+  });
+  list.innerHTML = html;
+}
+
+render();
+setInterval(render, 10000);
+window.addEventListener('bpleone:continuous-cycle', render);
+</script>
+</body>
+</html>

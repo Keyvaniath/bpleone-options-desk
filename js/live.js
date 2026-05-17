@@ -462,6 +462,14 @@ document.addEventListener('DOMContentLoaded', () => {
         s.async = false;
         document.head.appendChild(s);
       }
+      // Per-symbol Meta-Stacker: same idea but separate weights per symbol.
+      // Falls back to global MetaStacker when a symbol hasn't trained yet.
+      if (!document.querySelector('script[src*="per-symbol-meta-stacker.js"]')) {
+        const s = document.createElement('script');
+        s.src = 'js/per-symbol-meta-stacker.js';
+        s.async = false;
+        document.head.appendChild(s);
+      }
       // Regime-Stratified Calibrator: separate Platt scalers per market
       // regime (bull/bear/chop/high-vol/mixed) so calibration adapts to
       // current conditions instead of averaging across regimes.

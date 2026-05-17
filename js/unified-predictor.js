@@ -114,12 +114,22 @@
         swa: swaProb
       };
       let stackedPred = null;
-      if (typeof MetaStacker !== 'undefined') {
+      // Prefer per-symbol meta-stacker if symbol-specific weights are ready.
+      // Falls back to global MetaStacker (which itself falls back to
+      // hard-coded blend if not ready).
+      if (typeof PerSymbolMetaStacker !== 'undefined' && symbol) {
+        const perSym = safe(() => PerSymbolMetaStacker.predict(symbol, basePreds), null);
+        if (perSym && perSym.source === 'per-symbol' && perSym.prob != null) {
+          stackedPred = perSym;
+          blendSource = 'per-symbol-stacker';
+        }
+      }
+      if (!stackedPred && typeof MetaStacker !== 'undefined') {
         stackedPred = safe(() => MetaStacker.predict(basePreds), null);
+        if (stackedPred && stackedPred.prob != null) blendSource = 'meta-stacker';
       }
       if (stackedPred && stackedPred.prob != null) {
         blendedProb = stackedPred.prob;
-        blendSource = 'meta-stacker';
         components.stackedBlend = stackedPred.prob;
       } else {
         const sources = [

@@ -360,6 +360,14 @@
               MetaStacker.train(entry.basePreds, label);
             }
           } catch (e) {}
+          // PER-SYMBOL META-STACKER: train symbol-specific blend weights
+          // alongside the global one. Different symbols may have different
+          // best blends (e.g. SPY may favor multi-horizon, NVDA may favor model).
+          try {
+            if (typeof PerSymbolMetaStacker !== 'undefined' && entry.basePreds && entry.sym) {
+              PerSymbolMetaStacker.train(entry.sym, entry.basePreds, label);
+            }
+          } catch (e) {}
           // ACTIVE-LEARNING: log the multiplier used so the dashboard can
           // verify high-mult examples were genuinely the harder ones.
           try {
