@@ -187,8 +187,12 @@
         const synth = [];
         for (let i = 30; i >= 0; i--) {
           const ts = Date.now() - i * 86400000;
-          // Drift back in time: each step before now is slightly lower (so SPY trended up)
-          const drift = (30 - i) * 0.001;  // 0.1% per day cumulative growth
+          // Audit pass 57: prior formula used drift=(30-i)*0.001 with `1 - drift`
+          // which made TODAY's close 3% BELOW baseSpy and 30-days-ago's close
+          // AT baseSpy — an inverted, declining curve. Intent was: history
+          // ENDS at baseSpy (today) and STARTED ~3% lower (so SPY trended up).
+          // Fixed: drift = i * 0.001 so at i=0 close=baseSpy, at i=30 close~0.97×.
+          const drift = i * 0.001;  // 0.1% per day cumulative growth ending today
           const noise = (rand() - 0.5) * 0.015;  // ±0.75% daily noise
           const close = baseSpy * (1 - drift + noise);
           synth.push({ ts, close: +close.toFixed(2) });
