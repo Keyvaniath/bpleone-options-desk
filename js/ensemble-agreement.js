@@ -112,13 +112,18 @@
     };
   }
 
-  // Categorize an agreement score
+  // Categorize an agreement score.
+  // Audit pass 53: was lowercase ('strong'/'moderate'/...) but THREE callers
+  // (confidence-kelly.js, trade-trust-score.js, brain-bet.html) compared
+  // against UPPERCASE ('STRONG'/'MODERATE'/...) — every case-sensitive check
+  // silently failed and the agreement-based size adjustments + colors never
+  // fired. Returning UPPERCASE here matches the existing call sites.
   function categorize(score) {
-    if (score == null) return 'unknown';
-    if (score >= 0.85) return 'strong';
-    if (score >= 0.65) return 'moderate';
-    if (score >= 0.45) return 'mixed';
-    return 'fragmented';
+    if (score == null) return 'UNKNOWN';
+    if (score >= 0.85) return 'STRONG';
+    if (score >= 0.65) return 'MODERATE';
+    if (score >= 0.45) return 'MIXED';
+    return 'FRAGMENTED';
   }
 
   // Multiplier for downstream sizing: amplify when all agree, shrink when split

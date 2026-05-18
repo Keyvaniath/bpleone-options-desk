@@ -138,31 +138,46 @@
     }
   }
 
+  let _running = false;
   async function checkOnce() {
     if (typeof window === 'undefined' || !window.DataReliability) return { attempted: 0, refreshed: 0 };
-    const staleList = window.DataReliability.staleSymbols();
-    const state = load();
-    let attempted = 0, refreshed = 0;
-    for (const s of staleList) {
-      const symbol = s.symbol;
-      const lastAttempt = state.attempts[symbol] || 0;
-      if (Date.now() - lastAttempt < MIN_SECONDS_BETWEEN_REFRESH * 1000) continue;
-      state.attempts[symbol] = Date.now();
-      attempted++;
-      state.totalAttempted = (state.totalAttempted || 0) + 1;
-      let ok = false;
-      if (s.isCrypto) {
-        ok = await _refreshCoinbase(symbol);
-      } else {
-        ok = await _refreshStooq(symbol);
+    // Audit pass 54: reentrancy guard. setInterval doesn't await async, so a
+    // checkOnce taking >30s would have the next interval fire while it's still
+    // running. Both runs load the same state, see the same lastAttempts, and
+    // double-fire fetches for stale symbols. The guard makes us skip the
+    // overlapping tick instead of duplicating work.
+    if (_running) return { attempted: 0, refreshed: 0, skipped: 'already-running' };
+    _running = true;
+    try {
+      const staleList = window.DataReliability.staleSymbols();
+      const state = load();
+      let attempted = 0, refreshed = 0;
+      for (const s of staleList) {
+        const symbol = s.symbol;
+        const lastAttempt = state.attempts[symbol] || 0;
+        if (Date.now() - lastAttempt < MIN_SECONDS_BETWEEN_REFRESH * 1000) continue;
+        state.attempts[symbol] = Date.now();
+        // Persist the attempt timestamp BEFORE the fetch so other concurrent
+        // tabs see it even if our save-at-end never lands.
+        save(state);
+        attempted++;
+        state.totalAttempted = (state.totalAttempted || 0) + 1;
+        let ok = false;
+        if (s.isCrypto) {
+          ok = await _refreshCoinbase(symbol);
+        } else {
+          ok = await _refreshStooq(symbol);
+        }
+        if (ok) {
+          refreshed++;
+          state.totalRefreshed = (state.totalRefreshed || 0) + 1;
+        }
       }
-      if (ok) {
-        refreshed++;
-        state.totalRefreshed = (state.totalRefreshed || 0) + 1;
-      }
+      save(state);
+      return { attempted, refreshed, totalChecked: staleList.length };
+    } finally {
+      _running = false;
     }
-    save(state);
-    return { attempted, refreshed, totalChecked: staleList.length };
   }
 
   function stats() {

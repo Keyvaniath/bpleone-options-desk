@@ -144,10 +144,23 @@
     breakdown.adjKelly = adjKelly;
 
     const dollarsRisk = bankroll * adjKelly;
-    const riskPerShare = input.riskPerShare || lossR;
-    const shares = riskPerShare > 0 ? Math.floor(dollarsRisk / riskPerShare) : 0;
+    // Audit pass 52: riskPerShare must be dollar-per-share. lossR is the
+    // FRACTIONAL stop (e.g. 0.01 = 1%). If callers don't pass riskPerShare
+    // explicitly, the safer fallback is entryPx × lossR. If entryPx is also
+    // missing, return shares=0 + a sharesError flag rather than the absurd
+    // result of dividing dollars by a unitless fraction.
+    let shares = 0;
+    let sharesError = null;
+    if (typeof input.riskPerShare === 'number' && input.riskPerShare > 0) {
+      shares = Math.floor(dollarsRisk / input.riskPerShare);
+    } else if (typeof input.entryPx === 'number' && input.entryPx > 0 && lossR > 0) {
+      const rps = input.entryPx * lossR;  // dollars-per-share at the stop
+      shares = Math.floor(dollarsRisk / rps);
+    } else {
+      sharesError = 'need riskPerShare (dollars-per-share) or entryPx';
+    }
 
-    return { adjKelly, dollarsRisk, shares, breakdown, pureKelly };
+    return { adjKelly, dollarsRisk, shares, sharesError, breakdown, pureKelly };
   }
 
   function config() { return load(); }

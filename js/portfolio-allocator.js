@@ -153,13 +153,24 @@
       }
       const k = Math.min(maxSingle, c.soloKelly * divMult * capMult);
       const dollars = bankroll * k;
-      const riskPerShare = c.riskPerShare || c.lossR || 1;
-      const shares = Math.floor(dollars / riskPerShare);
+      // Audit pass 51: riskPerShare must be dollar-per-share. The old fallback
+      // `c.lossR || 1` produced wildly-wrong share counts because lossR is a
+      // FRACTION (e.g. 0.01 = 1% stop), not dollars per share. If the caller
+      // omits riskPerShare we emit shares=0 + a warn flag so the UI can show
+      // "config error" instead of an absurd 100k-share recommendation.
+      let shares = 0;
+      let sharesError = null;
+      if (typeof c.riskPerShare === 'number' && c.riskPerShare > 0) {
+        shares = Math.floor(dollars / c.riskPerShare);
+      } else {
+        sharesError = 'riskPerShare missing — cannot compute share count';
+      }
       return Object.assign({}, c, {
         included: true,
         kelly: k,
         dollarsRisk: dollars,
         shares,
+        sharesError,
         weightInPortfolio: finalTotal > 0 ? (k / finalTotal) : 0
       });
     });
