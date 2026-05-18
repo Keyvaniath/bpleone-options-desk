@@ -102,7 +102,16 @@
   async function fetchStooqHistory(sym) {
     const stooqSym = sym.toLowerCase() + '.us';
     const url = 'https://stooq.com/q/d/l/?s=' + stooqSym + '&i=d';
-    const res = await fetch(url, { method: 'GET', cache: 'no-cache' });
+    // Audit pass 16: add 10s abort timeout so a hung Stooq response can't
+    // block the auto-trainer indefinitely.
+    const ctrl = (typeof AbortController !== 'undefined') ? new AbortController() : null;
+    const timeoutId = ctrl ? setTimeout(() => ctrl.abort(), 10000) : null;
+    let res;
+    try {
+      res = await fetch(url, { method: 'GET', cache: 'no-cache', signal: ctrl ? ctrl.signal : undefined });
+    } finally {
+      if (timeoutId) clearTimeout(timeoutId);
+    }
     if (!res.ok) throw new Error('HTTP ' + res.status);
     const text = await res.text();
     const lines = text.trim().split(/\r?\n/);
