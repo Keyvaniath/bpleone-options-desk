@@ -48,11 +48,15 @@
     items.push({ name: 'Source quality ≥ 55%', passed: srcPass, detail: srcDetail });
 
     // 4. DataReliability: not stale
-    let drPass = true, drDetail = '—';
+    // Audit pass 19: symbolHealth() returns { hasData:false } for never-seen
+    // symbols. Previously !h.stale was true (undefined falsy negated), so the
+    // gate falsely passed. Also h.ageMs is not in the return shape (only ageSec).
+    let drPass = false, drDetail = 'no data';
     if (typeof window !== 'undefined' && window.DataReliability && target.sym) {
       const h = window.DataReliability.symbolHealth(target.sym);
-      drPass = !h.stale;
-      drDetail = h.stale ? 'STALE' : 'fresh · ' + Math.round((h.ageMs || 0) / 1000) + 's old';
+      if (!h || !h.hasData) { drPass = false; drDetail = 'no data on this symbol'; }
+      else if (h.stale) { drPass = false; drDetail = 'STALE · ' + (h.ageMin || '0') + 'min old'; }
+      else { drPass = true; drDetail = 'fresh · ' + (h.ageSec || 0) + 's old'; }
     }
     items.push({ name: 'DataReliability not stale', passed: drPass, detail: drDetail });
 

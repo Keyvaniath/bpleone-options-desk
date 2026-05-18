@@ -168,7 +168,20 @@
   function symbolHealth(symbol) {
     const state = load();
     const s = state.symbols[symbol];
-    if (!s) return { symbol, hasData: false };
+    // Audit pass 19: hasData should require an accepted price, not just an
+    // entry. A symbol that only ever had rejections has lastPrice=undefined
+    // and lastTs=undefined, but the entry exists (from _logRejection). The
+    // pre-trade checklist + auto-trade depend on hasData to gate properly.
+    if (!s || !s.lastTs || !(s.lastPrice > 0)) {
+      return {
+        symbol,
+        hasData: false,
+        rejectedCount: (s && s.rejectedCount) || 0,
+        lastRejection: s && s.lastRejection,
+        stale: true,    // treat 'no data' as stale so downstream gates fail closed
+        isCrypto: isCrypto(symbol)
+      };
+    }
     const ageMs = Date.now() - s.lastTs;
     const maxStale = isCrypto(symbol) ? STALE_MS_CRYPTO : (isRTH() ? STALE_MS_EQUITY_RTH : STALE_MS_EQUITY_OFF);
     return {
@@ -176,6 +189,7 @@
       hasData: true,
       lastPrice: s.lastPrice,
       lastTs: s.lastTs,
+      ageMs: ageMs,    // expose ageMs for callers (pre-trade-checklist uses it)
       ageSec: Math.floor(ageMs / 1000),
       ageMin: (ageMs / 60000).toFixed(1),
       lastSource: s.lastSource,
