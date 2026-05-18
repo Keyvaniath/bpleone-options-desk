@@ -103,7 +103,9 @@
       const varR = rets.reduce((s, v) => s + (v - meanR) * (v - meanR), 0) / Math.max(1, rets.length - 1);
       const stdR = Math.sqrt(varR);
       sharpe = stdR > 1e-10 ? meanR / stdR : 0;
-      annSharpe = sharpe * Math.sqrt(23400);
+      // Audit pass 68: was sqrt(23400) (10-min periods) but callers feed
+      // DAILY returns. Inflated annSharpe by 9.6×. Use 252 trading days/year.
+      annSharpe = sharpe * Math.sqrt(252);
     }
     return { n, accuracy, brier, skill, winRate, sharpe, annSharpe, baseRate, ready: true };
   }
