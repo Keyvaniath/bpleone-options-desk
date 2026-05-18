@@ -33,21 +33,49 @@
    =========================================== */
 
 (function () {
-  const STATE_KEY = 'bpleone_hist_bootstrap_v1';
-  const BOOTSTRAP_DAYS = 60;       // pull ~60 days of bars per symbol
-  const FETCH_DELAY_MS = 300;      // 300ms between Stooq requests = ~3 req/sec
+  // Audit pass 69: bump state key to v2 so existing browsers re-run bootstrap
+  // with the deeper 250-day window + expanded universe. Old v1 entries stay
+  // in localStorage (unused) until a future cleanup.
+  const STATE_KEY = 'bpleone_hist_bootstrap_v2';
+  // Audit pass 69: 60 → 250 (~1 trading year). Bumps training examples per
+  // symbol from ~46 (60 days minus warmup + look-ahead) to ~236, so total
+  // examples grow from ~660 → ~11,000 across the expanded universe below.
+  const BOOTSTRAP_DAYS = 250;
+  const FETCH_DELAY_MS = 350;      // 350ms × 47 symbols ≈ 16s total
   const STOOQ_HOST = 'stooq.com';
 
   // Symbol → Stooq ticker (Stooq uses lowercase suffixes)
+  // Audit pass 69: expanded from 25 → 47 symbols across sectors, factors,
+  // bonds, vol, international, and crypto so the brain sees a wide regime
+  // surface during bootstrap. Bonds + vol + dollar are especially helpful
+  // for the regime classifier.
   const STOOQ_MAP = {
+    // Broad indices
     SPY: 'spy.us', QQQ: 'qqq.us', IWM: 'iwm.us', DIA: 'dia.us',
+    // Mega-tech
     AAPL: 'aapl.us', MSFT: 'msft.us', GOOGL: 'googl.us', META: 'meta.us', AMZN: 'amzn.us',
-    NVDA: 'nvda.us', AMD: 'amd.us', SMCI: 'smci.us',
-    TSLA: 'tsla.us', PLTR: 'pltr.us', CRM: 'crm.us', SHOP: 'shop.us',
-    COIN: 'coin.us',
-    XLE: 'xle.us', GLD: 'gld.us', SLV: 'slv.us',
-    BABA: 'baba.us', UBER: 'uber.us',
-    VIX: '^vix', BTC: 'btcusd', ETH: 'ethusd'
+    NFLX: 'nflx.us', ORCL: 'orcl.us',
+    // Semis
+    NVDA: 'nvda.us', AMD: 'amd.us', SMCI: 'smci.us', AVGO: 'avgo.us', MU: 'mu.us',
+    // Software / growth
+    TSLA: 'tsla.us', PLTR: 'pltr.us', CRM: 'crm.us', SHOP: 'shop.us', COIN: 'coin.us',
+    // Financials
+    JPM: 'jpm.us', BAC: 'bac.us', GS: 'gs.us',
+    // Sector ETFs
+    XLE: 'xle.us', XLF: 'xlf.us', XLK: 'xlk.us', XLV: 'xlv.us', XLY: 'xly.us',
+    XLP: 'xlp.us', XLI: 'xli.us', XLU: 'xlu.us',
+    // Commodities + metals
+    GLD: 'gld.us', SLV: 'slv.us', USO: 'uso.us',
+    // Bonds + rates
+    TLT: 'tlt.us', IEF: 'ief.us', HYG: 'hyg.us', LQD: 'lqd.us',
+    // Volatility
+    VIX: '^vix', VXX: 'vxx.us',
+    // International
+    BABA: 'baba.us', FXI: 'fxi.us', EWJ: 'ewj.us', INDA: 'inda.us',
+    // Gig / consumer
+    UBER: 'uber.us',
+    // Crypto
+    BTC: 'btcusd', ETH: 'ethusd'
   };
 
   function load() {

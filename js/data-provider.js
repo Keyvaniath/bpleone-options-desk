@@ -615,7 +615,13 @@ const DataProvider = (function() {
     SHY:'shy.us', IEF:'ief.us', TBT:'tbt.us', HYG:'hyg.us', LQD:'lqd.us', TIP:'tip.us',
     VXX:'vxx.us', UVXY:'uvxy.us', VNQ:'vnq.us',
     // Audit pass 3: forex ETFs were in QUOTES but never live-fed.
-    UUP:'uup.us', FXE:'fxe.us', FXY:'fxy.us', FXB:'fxb.us', FXC:'fxc.us', FXA:'fxa.us', FXF:'fxf.us'
+    UUP:'uup.us', FXE:'fxe.us', FXY:'fxy.us', FXB:'fxb.us', FXC:'fxc.us', FXA:'fxa.us', FXF:'fxf.us',
+    // Audit pass 69: expanded universe — sector ETFs + financials + add'l
+    // mega-caps so the live polling covers everything the trainer trains on.
+    NFLX:'nflx.us', ORCL:'orcl.us', AVGO:'avgo.us', MU:'mu.us',
+    JPM:'jpm.us', BAC:'bac.us', GS:'gs.us',
+    XLF:'xlf.us', XLK:'xlk.us', XLV:'xlv.us', XLY:'xly.us',
+    XLP:'xlp.us', XLI:'xli.us', XLU:'xlu.us'
   };
   let stooqPollTimer = null;
   let stooqLastFetchOk = 0;

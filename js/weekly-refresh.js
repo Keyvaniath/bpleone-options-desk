@@ -23,7 +23,11 @@
 
 (function () {
   const KEY = 'bpleone_weekly_refresh_v1';
-  const REFRESH_INTERVAL_MS = 7 * 24 * 60 * 60 * 1000;  // 7 days
+  // Audit pass 69: tightened from 7 days → 3 days. With the 1-year (250-day)
+  // bootstrap window now in historical-bootstrap.js, dropping the cadence to
+  // 3 days means the brain re-ingests the latest 3 days of bars roughly twice
+  // a week instead of once. Still respects the in-tab 6-hour interval check.
+  const REFRESH_INTERVAL_MS = 3 * 24 * 60 * 60 * 1000;
   const MIN_HOURS_BETWEEN_ATTEMPTS = 1;                  // safety: don't retry inside 1h
   const MAX_HISTORY = 20;
 

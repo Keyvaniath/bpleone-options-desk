@@ -14,7 +14,22 @@
   const LAST_KEY = 'bpleone_auto_train_ts_v1';
   const MIN_INTERVAL_MS = 20 * 60 * 60 * 1000;  // 20 hours
 
-  const UNIVERSE = ['SPY','QQQ','IWM','DIA','AAPL','NVDA','TSLA','MSFT','META','AMZN','GOOGL','AMD','PLTR','SMCI','COIN','BABA','SHOP','CRM','UBER','XLE','GLD','SLV'];
+  // Audit pass 69: expanded universe from 22 → 44 symbols to match
+  // historical-bootstrap's expanded coverage. Includes sector ETFs, bonds,
+  // vol, financials, international so daily auto-training reinforces every
+  // regime the bootstrap fitted to.
+  const UNIVERSE = [
+    'SPY','QQQ','IWM','DIA',
+    'AAPL','MSFT','GOOGL','META','AMZN','NFLX','ORCL',
+    'NVDA','AMD','SMCI','AVGO','MU',
+    'TSLA','PLTR','CRM','SHOP','COIN',
+    'JPM','BAC','GS',
+    'XLE','XLF','XLK','XLV','XLY','XLP','XLI','XLU',
+    'GLD','SLV','USO',
+    'TLT','IEF','HYG','LQD',
+    'BABA','FXI','EWJ','INDA',
+    'UBER'
+  ];
 
   function getLast() { try { return parseInt(localStorage.getItem(LAST_KEY) || '0'); } catch (e) { return 0; } }
   function setLast(ts) { try { localStorage.setItem(LAST_KEY, String(ts)); } catch (e) {} }

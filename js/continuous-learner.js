@@ -22,7 +22,23 @@
    =========================================== */
 
 (function () {
-  const UNIVERSE = ['SPY','QQQ','IWM','DIA','AAPL','NVDA','TSLA','MSFT','META','AMZN','GOOGL','AMD','PLTR','SMCI','COIN','BTC','ETH','BABA','SHOP','CRM','UBER','XLE','GLD','SLV'];
+  // Audit pass 69: expanded from 24 → 44 symbols to match the historical
+  // bootstrap + auto-trainer universes. Live capture now covers sectors,
+  // bonds, vol, financials, and international — the brain's training set
+  // and inference set are consistent across every code path.
+  const UNIVERSE = [
+    'SPY','QQQ','IWM','DIA',
+    'AAPL','MSFT','GOOGL','META','AMZN','NFLX','ORCL',
+    'NVDA','AMD','SMCI','AVGO','MU',
+    'TSLA','PLTR','CRM','SHOP','COIN',
+    'JPM','BAC','GS',
+    'XLE','XLF','XLK','XLV','XLY','XLP','XLI','XLU',
+    'GLD','SLV','USO',
+    'TLT','IEF','HYG','LQD',
+    'BABA','FXI','EWJ','INDA',
+    'UBER',
+    'BTC','ETH'
+  ];
 
   const JOURNAL_KEY = 'bpleone_pred_journal_v1';
   const ACCURACY_KEY = 'bpleone_rolling_acc_v1';

@@ -91,7 +91,22 @@ const QUOTES = {
   VXX:  { symbol: 'VXX',  last: 42.18,  prevClose: 43.51, volume: 28_400_000 },     // VIX short-term
   UVXY: { symbol: 'UVXY', last: 18.42,  prevClose: 19.21, volume: 38_400_000 },     // 2x VIX short-term
   // --- Real estate ---
-  VNQ:  { symbol: 'VNQ',  last: 92.18,  prevClose: 91.94, volume: 4_200_000 }       // Real estate
+  VNQ:  { symbol: 'VNQ',  last: 92.18,  prevClose: 91.94, volume: 4_200_000 },      // Real estate
+  // --- Pass 69 expansion: cover the new bootstrap/auto-trainer universe ---
+  NFLX: { symbol: 'NFLX', last: 980.40, prevClose: 972.50, volume: 4_800_000 },
+  ORCL: { symbol: 'ORCL', last: 178.60, prevClose: 176.80, volume: 12_200_000 },
+  AVGO: { symbol: 'AVGO', last: 245.30, prevClose: 242.10, volume: 18_400_000 },
+  MU:   { symbol: 'MU',   last: 104.50, prevClose: 103.20, volume: 22_400_000 },
+  JPM:  { symbol: 'JPM',  last: 260.40, prevClose: 258.90, volume: 9_800_000 },
+  BAC:  { symbol: 'BAC',  last: 48.20,  prevClose: 47.80, volume: 38_200_000 },
+  GS:   { symbol: 'GS',   last: 610.40, prevClose: 605.20, volume: 1_800_000 },
+  XLF:  { symbol: 'XLF',  last: 52.40,  prevClose: 52.10, volume: 28_400_000 },
+  XLK:  { symbol: 'XLK',  last: 245.80, prevClose: 243.20, volume: 4_800_000 },
+  XLV:  { symbol: 'XLV',  last: 152.40, prevClose: 151.80, volume: 6_200_000 },
+  XLY:  { symbol: 'XLY',  last: 218.40, prevClose: 216.80, volume: 4_400_000 },
+  XLP:  { symbol: 'XLP',  last: 82.60,  prevClose: 82.40, volume: 8_200_000 },
+  XLI:  { symbol: 'XLI',  last: 142.80, prevClose: 141.90, volume: 11_400_000 },
+  XLU:  { symbol: 'XLU',  last: 80.20,  prevClose: 79.95, volume: 14_200_000 }
 };
 
 function computeDerived(q) {
