@@ -200,9 +200,12 @@ function paint() {
   const weightedAvg = allChg.reduce((s, x) => s + x.chg * x.cap, 0) / allChg.reduce((s, x) => s + x.cap, 0);
   document.getElementById('kpiMkt').textContent = (weightedAvg >= 0 ? '+' : '') + weightedAvg.toFixed(2) + '%';
   document.getElementById('kpiMkt').style.color = weightedAvg > 0 ? 'var(--green)' : 'var(--red)';
-  const bySec = {};
-  allChg.forEach(s => { if (!bySec[s.sec]) bySec[s.sec] = []; bySec[s.sec].push(s); });
-  const secAvgs = Object.entries(bySec).map(([sec, items]) => ({ sec, avg: items.reduce((s, i) => s + i.chg, 0) / items.length }));
+  // Audit pass 66: was `const bySec = {}` — duplicate declaration with line
+  // 164 in same function scope, causing SyntaxError when paint() ran.
+  // Renamed to bySecForKpis so both declarations are valid.
+  const bySecForKpis = {};
+  allChg.forEach(s => { if (!bySecForKpis[s.sec]) bySecForKpis[s.sec] = []; bySecForKpis[s.sec].push(s); });
+  const secAvgs = Object.entries(bySecForKpis).map(([sec, items]) => ({ sec, avg: items.reduce((s, i) => s + i.chg, 0) / items.length }));
   secAvgs.sort((a, b) => b.avg - a.avg);
   document.getElementById('kpiStrong').textContent = secAvgs[0].sec;
   document.getElementById('kpiStrongBody').textContent = '+' + secAvgs[0].avg.toFixed(2) + '%';
