@@ -12,9 +12,13 @@
 
    Sharpe = mean(signedReturn) / std(signedReturn)
 
-   We also annualize. The short horizon is roughly 10 minutes ≈ 23,400 such
-   periods per trading year (252 days × 6.5h × 60min / 10min). Annualized
-   Sharpe = raw_sharpe × sqrt(N).
+   We also annualize via sqrt(N), where N = periods per year.
+   Audit pass 67: was 23400 (assuming 10-min returns) but every caller
+   (continuous-learner short horizon = 24h, historical-bootstrap = next-day
+   close) feeds DAILY returns. That over-reported annSharpe by ~9.6× and
+   pushed everything into "world-class" tier. Default is now 252 (trading
+   days per year). Callers feeding different cadence can pass periodsPerYear
+   explicitly to score().
 
    Tier targets (annualized):
      > 1.0  → professional grade
@@ -23,7 +27,7 @@
 
    Exposes:
      SharpeTracker.record(signedReturn)
-     SharpeTracker.score(window=200, periodsPerYear=23400) → { sharpe, annSharpe, mean, std, n }
+     SharpeTracker.score(window=200, periodsPerYear=252) → { sharpe, annSharpe, mean, std, n }
      SharpeTracker.reset()
    =========================================== */
 
@@ -31,7 +35,7 @@
   const KEY = 'bpleone_sharpe_v1';
   const MAX_LOG = 500;
   const DEFAULT_WINDOW = 200;
-  const DEFAULT_PERIODS_PER_YEAR = 23400; // 252 * 6.5 * 60 / 10 — 10-min periods
+  const DEFAULT_PERIODS_PER_YEAR = 252; // trading days per year — daily returns
 
   function load() {
     if (typeof localStorage === 'undefined') return { log: [] };
