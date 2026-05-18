@@ -20,7 +20,11 @@
   const MAX_PER_SYMBOL = 200;
   const DEFAULT_WINDOW = 100;
   const MIN_TO_SCORE = 10;
-  const PERIODS_PER_YEAR = 23400; // 10-min periods × 252 days × 6.5h
+  // Audit pass 68: same fix as SharpeTracker pass 67. Was 23400 (10-min
+  // periods) but callers (continuous-learner short horizon, historical-
+  // bootstrap) feed DAILY returns. Changed to 252 (trading days/year) so
+  // annSharpe is reported on the right scale.
+  const PERIODS_PER_YEAR = 252;
 
   function load() {
     if (typeof localStorage === 'undefined') return { bySymbol: {} };
