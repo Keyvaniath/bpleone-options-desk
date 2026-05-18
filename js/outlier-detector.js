@@ -86,6 +86,10 @@
     for (let i = 0; i < N_FEATURES; i++) {
       const x = features[i];
       const f = stats.f[i];
+      // Audit pass 63: defend against undefined x (short feature array) and
+      // missing f (schema-mismatched saved stats). Either case used to compute
+      // NaN z-scores that propagated into oodScore.
+      if (!f || !isFinite(x)) { perFeature.push({ idx: i, value: x, mean: f && f.mean, std: 0, z: 0, flagged: false }); continue; }
       const s = std(f, stats.n);
       const z = s > 0 ? (x - f.mean) / s : 0;
       const flagged = Math.abs(z) > Z_THRESHOLD;
@@ -109,7 +113,9 @@
     const z = zScores(features);
     if (!z.ready) return 0.5;  // unknown
     const maxZ = z.perFeature.reduce((m, f) => Math.max(m, Math.abs(f.z)), 0);
-    // Map max-z to [0, 1]: |z|=3 → 0.5, |z|=6 → 1
+    // Audit pass 63: comment used to claim "|z|=3 → 0.5" but the formula
+    // gives (3-1.5)/4.5 = 0.33. Corrected the comment to match the actual math.
+    // Map max-z to [0, 1]: |z|≤1.5 → 0, |z|=3 → 0.33, |z|=6 → 1.0
     const zScore = Math.min(1, Math.max(0, (maxZ - 1.5) / 4.5));
     return Math.max(zScore, z.oodRatio);
   }
