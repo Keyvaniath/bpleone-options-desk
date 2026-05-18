@@ -12,7 +12,12 @@
 
 (function () {
   const LAST_KEY = 'bpleone_auto_train_ts_v1';
-  const MIN_INTERVAL_MS = 20 * 60 * 60 * 1000;  // 20 hours
+  // Audit pass 70: 20h → 6h. Stooq updates daily bars once per US session
+  // close, but at 20h the trainer only catches the latest bar every-other
+  // day in many timezones. 6h means we always pick up the new daily bar
+  // within 6h of close. Each run only trains on bars NEWER than the last
+  // seen date so there's no duplicate work — just faster ingestion.
+  const MIN_INTERVAL_MS = 6 * 60 * 60 * 1000;
 
   // Audit pass 69: expanded universe from 22 → 44 symbols to match
   // historical-bootstrap's expanded coverage. Includes sector ETFs, bonds,

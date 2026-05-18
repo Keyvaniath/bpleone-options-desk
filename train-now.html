@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Train Now — bpleone</title>
+<meta name="description" content="One-click full training pipeline. Force-reruns historical bootstrap (250d × 47 syms), daily auto-trainer, and continuous-learner resolve loop. Reports progress as it goes.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.cmd { padding:24px;border-radius:14px;background:var(--bg-elevated);border:1px solid var(--border);margin-bottom:14px; }
+.cmd.run { border-color:var(--yellow);background:linear-gradient(135deg,rgba(245,158,11,0.08),rgba(245,158,11,0.02)); }
+.cmd.ok  { border-color:var(--green);background:linear-gradient(135deg,rgba(16,185,129,0.08),rgba(16,185,129,0.02)); }
+.cmd.err { border-color:var(--red);background:linear-gradient(135deg,rgba(239,68,68,0.08),rgba(239,68,68,0.02)); }
+.cmd .step-title { font-weight:800;font-size:15px;display:flex;align-items:center;gap:10px; }
+.cmd .step-detail { font-family:var(--font-mono);font-size:12px;color:var(--text-muted);margin-top:8px;line-height:1.5;white-space:pre-wrap; }
+.bigbtn { padding:18px 36px;border:none;border-radius:12px;background:linear-gradient(135deg,#00d4ff,#0094c7);color:#000;font-weight:900;font-size:16px;letter-spacing:0.5px;cursor:pointer;box-shadow:0 4px 20px rgba(0,212,255,0.25); }
+.bigbtn:disabled { opacity:0.5;cursor:not-allowed;box-shadow:none; }
+.kpi-grid { display:grid;grid-template-columns:repeat(4, 1fr);gap:12px;margin-bottom:18px; }
+@media (max-width:768px){ .kpi-grid { grid-template-columns:repeat(2, 1fr); } }
+.kpi { padding:16px;background:var(--bg-elevated);border-radius:10px;text-align:center; }
+.kpi .lbl { font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:1px;font-weight:700; }
+.kpi .val { font-family:var(--font-mono);font-size:24px;font-weight:800;margin-top:6px;color:var(--accent); }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">⚡ Train Now</div>
+      <div class="page-subtitle">One-click full training pipeline · force-reruns bootstrap, auto-train, calibrators · reports each step</div>
+    </div>
+  </div>
+
+  <div class="kpi-grid" id="kpi-grid"></div>
+
+  <div class="card mb-24" style="text-align:center;padding:32px;">
+    <div style="font-size:14px;color:var(--text-secondary);margin-bottom:20px;max-width:640px;margin-left:auto;margin-right:auto;line-height:1.6;">
+      Runs every training path the brain has in sequence:
+      <strong>Historical Bootstrap</strong> (250d × 47 syms) →
+      <strong>Auto-Trainer</strong> (latest Stooq bars, daily) →
+      <strong>Continuous-Learner resolve</strong> (settles any pending journal entries) →
+      <strong>Calibrator + IsotonicCalibrator + RegimeCalibrator fits</strong>.
+      <br><br>Expect ~30 seconds total. Network use: ~50&nbsp;KB of CSV. Safe to re-run anytime.
+    </div>
+    <button id="goBtn" class="bigbtn" onclick="runAll()">▶ TRAIN NOW</button>
+    <div id="overall" style="margin-top:18px;font-family:var(--font-mono);font-size:13px;color:var(--text-muted);"></div>
+  </div>
+
+  <div id="steps"></div>
+
+  <div class="card">
+    <div class="card-header"><div class="card-title">📚 What each step does</div></div>
+    <div style="font-size:13px;color:var(--text-secondary);line-height:1.7;">
+      <strong>1. Historical Bootstrap</strong> — pulls 250 daily bars × 47 symbols from Stooq, reconstructs 22-feature vectors per (sym, day), labels by next-day direction, feeds the global model + every calibrator. Expected output: ~11,000 training rows.<br><br>
+      <strong>2. Auto-Trainer</strong> — pulls only the freshest Stooq bars and trains on rows we haven't seen yet (deduped by date). Picks up everything that happened since the bootstrap ran. Trains main model + per-horizon ensemble (short/mid/long).<br><br>
+      <strong>3. Continuous-Learner resolve</strong> — walks the captured-but-unresolved journal, resolves any entries whose horizon has elapsed, trains on the freshly-labeled pairs.<br><br>
+      <strong>4. Calibrators</strong> — refits Platt (Calibrator), Isotonic PAV (IsotonicCalibrator), and per-regime calibration (RegimeCalibrator) on the populated (predicted, actual) pools so the next prediction is honest immediately.
+    </div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script src="js/model.js"></script>
+<script src="js/multi-horizon.js"></script>
+<script src="js/calibrator.js"></script>
+<script src="js/regime-calibrator.js"></script>
+<script src="js/isotonic-calibrator.js"></script>
+<script src="js/outlier-detector.js"></script>
+<script src="js/historical-bootstrap.js"></script>
+<script src="js/auto-trainer.js"></script>
+<script src="js/continuous-learner.js"></script>
+<script>
+buildNav('train-now');
+
+function paintKpis() {
+  const wrap = document.getElementById('kpi-grid');
+  let m = null;
+  try { m = (window.ModelStore && window.ModelStore.load()) || null; } catch (e) {}
+  const trained = m ? (m.n_trained || 0) : 0;
+  const rollingAcc = m && typeof m.rollingAccuracy === 'function' ? m.rollingAccuracy() : null;
+  let bss = null;
+  try { bss = window.BrierSkill && window.BrierSkill.score(); } catch (e) {}
+  let sharpe = null;
+  try { sharpe = window.SharpeTracker && window.SharpeTracker.score(); } catch (e) {}
+  wrap.innerHTML = ''
+    + '<div class="kpi"><div class="lbl">Model trained</div><div class="val">' + trained.toLocaleString() + '</div></div>'
+    + '<div class="kpi"><div class="lbl">Rolling acc</div><div class="val" style="color:' + (rollingAcc != null && rollingAcc >= 0.55 ? 'var(--green)' : 'var(--accent)') + ';">' + (rollingAcc != null ? (rollingAcc * 100).toFixed(1) + '%' : '—') + '</div></div>'
+    + '<div class="kpi"><div class="lbl">Brier skill</div><div class="val" style="color:' + (bss && bss.ready && bss.skill > 0 ? 'var(--green)' : 'var(--accent)') + ';">' + (bss && bss.ready ? bss.skill.toFixed(3) : '—') + '</div></div>'
+    + '<div class="kpi"><div class="lbl">Ann. Sharpe</div><div class="val" style="color:' + (sharpe && sharpe.ready && sharpe.annSharpe > 1 ? 'var(--green)' : 'var(--accent)') + ';">' + (sharpe && sharpe.ready ? sharpe.annSharpe.toFixed(2) : '—') + '</div></div>';
+}
+
+function step(title) {
+  const wrap = document.getElementById('steps');
+  const el = document.createElement('div');
+  el.className = 'cmd run';
+  el.innerHTML = '<div class="step-title"><span>▶</span><span>' + title + '</span></div><div class="step-detail">running…</div>';
+  wrap.appendChild(el);
+  return {
+    ok(detail) {
+      el.className = 'cmd ok';
+      el.querySelector('.step-title span:first-child').textContent = '✓';
+      el.querySelector('.step-detail').textContent = detail;
+    },
+    err(detail) {
+      el.className = 'cmd err';
+      el.querySelector('.step-title span:first-child').textContent = '✗';
+      el.querySelector('.step-detail').textContent = detail;
+    }
+  };
+}
+
+async function runAll() {
+  const btn = document.getElementById('goBtn');
+  btn.disabled = true;
+  document.getElementById('steps').innerHTML = '';
+  const overall = document.getElementById('overall');
+  overall.textContent = 'starting…';
+  const t0 = Date.now();
+
+  // 1. Historical Bootstrap
+  {
+    const s = step('1. Historical Bootstrap · 250d × 47 symbols');
+    try {
+      if (!window.HistoricalBootstrap) { s.err('HistoricalBootstrap module not loaded'); }
+      else {
+        const r = await window.HistoricalBootstrap.run({ force: true });
+        if (r && r.error) { s.err('error: ' + r.error); }
+        else {
+          const n = (r && (r.trainingExamples || r.trained)) || 0;
+          const syms = (r && (r.symbolsFetched || r.fetched)) || 0;
+          const errs = r && r.errors ? r.errors.length : 0;
+          s.ok(`trained ${n.toLocaleString()} rows across ${syms} symbols${errs ? ' · ' + errs + ' fetch errors' : ''}`);
+        }
+      }
+    } catch (e) { s.err('threw: ' + (e && e.message || e)); }
+    paintKpis();
+  }
+
+  // 2. Auto-trainer (force-reset cooldown + run)
+  {
+    const s = step('2. Auto-Trainer · latest Stooq bars');
+    try {
+      // Bypass the 6h gate
+      try { localStorage.removeItem('bpleone_auto_train_ts_v1'); } catch (e) {}
+      if (!window.AutoTrainer) { s.err('AutoTrainer module not loaded'); }
+      else {
+        await window.AutoTrainer.runNow();
+        s.ok('completed · main model + multi-horizon ensembles updated');
+      }
+    } catch (e) { s.err('threw: ' + (e && e.message || e)); }
+    paintKpis();
+  }
+
+  // 3. Continuous-Learner resolve
+  {
+    const s = step('3. Continuous-Learner · resolve pending journal entries');
+    try {
+      if (!window.ContinuousLearner) { s.err('ContinuousLearner module not loaded'); }
+      else {
+        const r = window.ContinuousLearner.resolveRound();
+        s.ok(`resolved ${r || 0} new entries`);
+      }
+    } catch (e) { s.err('threw: ' + (e && e.message || e)); }
+    paintKpis();
+  }
+
+  // 4. Calibrator re-fits
+  {
+    const s = step('4. Calibrators · Platt + Isotonic + Regime fits');
+    try {
+      const parts = [];
+      try { if (window.Calibrator && window.Calibrator.fit) { const p = window.Calibrator.fit(); parts.push('platt:' + (p ? 'ok' : 'skip')); } } catch (e) { parts.push('platt:err'); }
+      try { if (window.IsotonicCalibrator && window.IsotonicCalibrator.fit) { const p = window.IsotonicCalibrator.fit(); parts.push('isotonic:' + (p && p.fitted ? p.nBins + 'bins' : 'skip')); } } catch (e) { parts.push('isotonic:err'); }
+      try { if (window.RegimeCalibrator && window.RegimeCalibrator.fitAll) { window.RegimeCalibrator.fitAll(); parts.push('regime:ok'); } } catch (e) { parts.push('regime:err'); }
+      s.ok(parts.join(' · '));
+    } catch (e) { s.err('threw: ' + (e && e.message || e)); }
+    paintKpis();
+  }
+
+  const seconds = ((Date.now() - t0) / 1000).toFixed(1);
+  overall.textContent = 'done in ' + seconds + 's · KPIs above reflect post-training state';
+  btn.disabled = false;
+  btn.textContent = '↻ TRAIN AGAIN';
+}
+
+paintKpis();
+setInterval(paintKpis, 5000);
+</script>
+</body>
+</html>

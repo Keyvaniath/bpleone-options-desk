@@ -59,7 +59,12 @@
   const ROLLING_WINDOW = 50;              // rolling accuracy over last N labeled predictions
   const DRIFT_BASELINE = 0.50;            // baseline = random
   const DRIFT_TRIGGER = 0.45;             // below this triggers adaptation
-  const CAPTURE_COOLDOWN_MIN_PER_SYM = 30;  // don't capture the same symbol more than once per 30 min
+  // Audit pass 70: capture cooldown 30 → 20 min so the brain sees each symbol
+  // ~3×/hour during RTH instead of 2×. For 46 symbols that's ~138 captures/hr,
+  // ~828 per RTH day. After 24h resolutions, that's ~828 new training labels
+  // per RTH day — 50% more than the prior 30-min setting. Features genuinely
+  // change every 20 min during volatile sessions; 30 min was too conservative.
+  const CAPTURE_COOLDOWN_MIN_PER_SYM = 20;
   const CAPTURE_COOLDOWN_UNCERTAIN_MIN = 5; // boost frequency for uncertain (active-learning) symbols
 
   function loadJournal() { try { return JSON.parse(localStorage.getItem(JOURNAL_KEY) || '[]'); } catch (e) { return []; } }
