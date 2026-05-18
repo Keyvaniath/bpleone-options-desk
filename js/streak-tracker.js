@@ -60,35 +60,28 @@
     }
     currentStreak = inStreak * runLen;
     // Recovery: time from biggest loss to date when cum P&L returned to pre-loss level
+    // Audit pass 65: previous version had two dead pre-passes (the first loop
+    // never incremented `cum`; the second branched both directions identically)
+    // and then computed recovery by SKIPPING trades with ts <= biggestLoss.ts,
+    // which excluded the biggest loss itself from runCum. Result: recovery was
+    // reported the moment the FIRST positive post-loss trade landed, regardless
+    // of whether equity had actually clawed back to pre-loss level. Rewritten
+    // as a single forward pass.
     let recoveryHours = null;
     if (biggestLoss) {
-      // Find ending equity index up to biggest loss
-      let cum = 0, preLossCum = null;
+      let preLossEquity = 0;     // cumulative P&L BEFORE the biggest loss
+      let lossApplied = false;
+      let runCum = 0;
       for (const t of trades) {
-        if (t.ts === biggestLoss.ts) {
-          preLossCum = cum;
-          continue;
-        }
-      }
-      // Recompute the cum and look for recovery
-      cum = 0;
-      let preLoss = null;
-      for (const t of trades) {
-        if (t.ts <= biggestLoss.ts) cum += t.pnl;
-        else cum += t.pnl;
-        if (t.ts === biggestLoss.ts) preLoss = cum - t.pnl;   // value before applying this loss
-      }
-      if (preLoss != null) {
-        let postCum = 0;
-        for (const t of trades) {
-          if (t.ts < biggestLoss.ts) postCum += t.pnl;
-        }
-        // postCum equals preLoss before the loss
-        let runCum = postCum;
-        for (const t of trades) {
-          if (t.ts <= biggestLoss.ts) continue;
+        if (t.ts < biggestLoss.ts) {
           runCum += t.pnl;
-          if (runCum >= preLoss) {
+        } else if (t.ts === biggestLoss.ts && !lossApplied) {
+          preLossEquity = runCum;     // snapshot before applying the loss
+          runCum += t.pnl;            // apply the loss
+          lossApplied = true;
+        } else if (lossApplied) {
+          runCum += t.pnl;
+          if (runCum >= preLossEquity) {
             recoveryHours = (t.ts - biggestLoss.ts) / (1000 * 60 * 60);
             break;
           }
