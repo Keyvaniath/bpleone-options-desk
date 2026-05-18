@@ -89,8 +89,18 @@
     const mean = samples.reduce((s, v) => s + v, 0) / samples.length;
     const variance = samples.reduce((s, v) => s + (v - mean) * (v - mean), 0) / samples.length;
     const std = Math.sqrt(variance);
-    const p5 = samples[Math.floor(0.05 * samples.length)];
-    const p95 = samples[Math.floor(0.95 * samples.length)];
+    // Audit pass 48: previously used Math.floor(q * N) which for N=20 returned
+    // samples[1] for p5 (actually the ~10th percentile) and samples[19] for p95
+    // (the max), inflating interval width. Switch to linear-interpolated quantile.
+    const quantile = (q) => {
+      const idx = q * (samples.length - 1);
+      const lo = Math.floor(idx), hi = Math.ceil(idx);
+      if (lo === hi) return samples[lo];
+      const t = idx - lo;
+      return samples[lo] * (1 - t) + samples[hi] * t;
+    };
+    const p5 = quantile(0.05);
+    const p95 = quantile(0.95);
 
     return { mean, std, p5, p95, samples, n: N, dropoutRate: rate };
   }
