@@ -334,10 +334,21 @@ const BrainLoop = (function () {
     const recent = findings.items.filter(f => (now - f.ts) < four);
     // Group by symbol
     const bySym = {};
+    // Audit pass 59: severity is emitted as a STRING ('high'/'medium'/'low')
+    // by every emit() call site, but the old code did `(f.severity || 1) * 8`
+    // which coerces 'high' → NaN → score becomes NaN. Map to a numeric
+    // multiplier first.
+    function sevWeight(s) {
+      if (typeof s === 'number' && isFinite(s)) return s;
+      if (s === 'high' || s === 'critical') return 3;
+      if (s === 'medium') return 2;
+      if (s === 'low') return 1;
+      return 1;
+    }
     recent.forEach(f => {
       const sym = f.meta && f.meta.sym;
       if (!sym) return;
-      const contrib = (f.severity || 1) * 8 * Math.exp(-(now - f.ts) / (2.5 * 3.6e6));
+      const contrib = sevWeight(f.severity) * 8 * Math.exp(-(now - f.ts) / (2.5 * 3.6e6));
       if (!bySym[sym]) bySym[sym] = { sym, score: 0 };
       bySym[sym].score += contrib;
     });

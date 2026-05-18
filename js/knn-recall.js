@@ -88,22 +88,24 @@
 
     // For k-NN probability: inverse-distance weighted vote
     let totalWeight = 0;
-    let weightedWins = 0;
+    let weightedUps = 0;
     topK.forEach(n => {
       const w = 1 / Math.max(0.001, n.distance);
       totalWeight += w;
-      // Convert outcome to direction-matching win/loss
-      // entry.predProb indicated direction; outcome tells if that direction was right
-      const wasRightDirection = n.entry.outcome === 'correct';
+      // Audit pass 60: the previous version counted ALL 'correct' neighbors
+      // as up-votes, conflating two different signals. A neighbor that
+      // predicted DOWN and was right is evidence of DOWN — but the old
+      // code voted it toward UP. Result: knnProb returned P(direction-was-right),
+      // not P(LONG). Then unified-predictor blended this with rawProb assuming
+      // both represent P(LONG). Fix: compute what actually happened to the
+      // symbol — symbolWentUp = (predUp == wasRight) — and count UP-events only.
+      const wasRight = n.entry.outcome === 'correct';
       const predUp = (n.entry.predProb || 0.5) >= 0.5;
-      // If neighbor predicted UP and was right → up-vote
-      // If neighbor predicted DOWN and was right → down-vote
-      // For our prediction (which would also be UP if features are similar),
-      // we want to know: "of similar past situations, what fraction won when predicting like this?"
-      if (wasRightDirection) weightedWins += w;
+      const symbolWentUp = predUp === wasRight;
+      if (symbolWentUp) weightedUps += w;
     });
 
-    const prob = weightedWins / totalWeight;
+    const prob = totalWeight > 0 ? weightedUps / totalWeight : 0.5;
     return {
       prob,
       n: topK.length,
