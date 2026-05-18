@@ -339,7 +339,17 @@
       }));
     } catch (e) {}
 
-    return { fetched: symbolsFetched, trained: trainingExamples, errors };
+    // Audit pass 21: return both naming conventions so WeeklyRefresh +
+    // historical-bootstrap.html dashboards both work. Previously WeeklyRefresh
+    // looked for result.trainingExamples but we only returned result.trained,
+    // so it never recorded a successful refresh.
+    return {
+      fetched: symbolsFetched,
+      trained: trainingExamples,
+      symbolsFetched,
+      trainingExamples,
+      errors
+    };
   }
 
   function status() {
