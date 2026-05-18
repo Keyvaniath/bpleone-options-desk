@@ -31,7 +31,9 @@
     if (typeof localStorage === 'undefined') return defaultState();
     try {
       const j = localStorage.getItem(KEY);
-      return j ? JSON.parse(j) : defaultState();
+      // Audit pass 20: merge with defaults so old saved state (missing
+      // fields added later) doesn't make counters NaN on increment.
+      return j ? Object.assign(defaultState(), JSON.parse(j)) : defaultState();
     } catch (e) { return defaultState(); }
   }
 
