@@ -126,6 +126,10 @@
       else losses -= diff;
     }
     const avgGain = gains / 14, avgLoss = losses / 14;
+    // Audit pass 44: flat-price case (avgGain=0 AND avgLoss=0) used to return
+    // 100 here because the avgLoss===0 branch caught it first. RSI=100 is
+    // wrong for a stalled tape — the correct neutral is 50.
+    if (avgGain === 0 && avgLoss === 0) return 50;
     if (avgLoss === 0) return 100;
     const rs = avgGain / avgLoss;
     return 100 - (100 / (1 + rs));
@@ -179,7 +183,17 @@
     f[11] = ret > 0.01 ? 1 : 0;       // is_bull_setup
     f[12] = ret < -0.01 ? 1 : 0;      // is_bear_setup
     f[13] = Math.abs(ret) > 0.015 ? 1 : 0; // is_momentum
-    f[14] = idx >= 1 && Math.sign(ret) !== Math.sign((prev.close - (bars[idx-2] ? bars[idx-2].close : prev.close)) / Math.max(0.01, (bars[idx-2] ? bars[idx-2].close : prev.close))) ? 1 : 0; // is_reversion
+    // Audit pass 44: was `idx >= 1` but the next line accesses bars[idx-2].
+    // At idx=1, bars[idx-2] is undefined → fell back to prev.close → prevRet=0
+    // → sign(0)=0 ≠ sign(ret) almost always → false reversion=1 at every idx=1.
+    // Require idx >= 2 so we actually have a 2-day prior close.
+    if (idx >= 2) {
+      const prevPrev = bars[idx - 2].close;
+      const prevRet = prevPrev > 0 ? (prev.close - prevPrev) / prevPrev : 0;
+      f[14] = (Math.sign(ret) !== 0 && Math.sign(prevRet) !== 0 && Math.sign(ret) !== Math.sign(prevRet)) ? 1 : 0;
+    } else {
+      f[14] = 0;
+    }
     f[15] = idx >= 20 && bar.close > Math.max(...closes.slice(Math.max(0, idx-20), idx)) ? 1 : 0; // is_breakout
     f[16] = 0.5; // brain weight neutral
     f[17] = 0.5; // regime score neutral

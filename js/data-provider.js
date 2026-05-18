@@ -781,13 +781,20 @@ const DataProvider = (function() {
   // tick data for BTC-USD and ETH-USD. No API key, no signup.
   let coinbaseSocket = null;
   let coinbaseReconnect = null;
+  let coinbaseReconnectAttempts = 0;
+  let coinbaseLastFetchRecordAt = 0;
 
   function startCoinbaseCrypto() {
-    if (coinbaseSocket && coinbaseSocket.readyState === WebSocket.OPEN) return;
+    // Audit pass 43: also guard against CONNECTING state — without this, a
+    // rapid second call (e.g. autoStart + manual init) could open two sockets
+    // and leak one of them. The closed-over `ws` reference stays alive in
+    // listener closures and prevents GC.
+    if (coinbaseSocket && (coinbaseSocket.readyState === WebSocket.OPEN || coinbaseSocket.readyState === WebSocket.CONNECTING)) return;
     try {
       const ws = new WebSocket('wss://ws-feed.exchange.coinbase.com');
       coinbaseSocket = ws;
       ws.onopen = () => {
+        coinbaseReconnectAttempts = 0;  // reset backoff on successful open
         ws.send(JSON.stringify({
           type: 'subscribe',
           product_ids: ['BTC-USD', 'ETH-USD'],
@@ -836,22 +843,34 @@ const DataProvider = (function() {
             }
           } catch (e) {}
           try { if (typeof Feed !== 'undefined') Feed.publish(sym, q); } catch (e) {}
+          // Audit pass 43: throttle DataReliability success recording to at most
+          // once per 5s. Previously fired on every ticker (~10/sec), flooding the
+          // fetch history ring buffer (MAX_FETCH_HISTORY=100) within 10 seconds
+          // and making sourceHealth() metrics meaningless.
+          if (typeof window.DataReliability !== 'undefined') {
+            const now = Date.now();
+            if (now - coinbaseLastFetchRecordAt >= 5000) {
+              coinbaseLastFetchRecordAt = now;
+              window.DataReliability.recordFetch('coinbase', true, 0);
+            }
+          }
         } catch (e) {}
       };
       ws.onclose = () => {
         coinbaseSocket = null;
         if (typeof window.DataReliability !== 'undefined') window.DataReliability.recordFetch('coinbase', false, 0);
-        if (!coinbaseReconnect) coinbaseReconnect = setTimeout(() => { coinbaseReconnect = null; startCoinbaseCrypto(); }, 5000);
+        // Audit pass 43: exponential backoff with cap. 1.5s → 3s → 6s → 12s → 24s → 30s cap.
+        // Without backoff a network outage would hammer Coinbase with reconnects
+        // every 5 seconds until the tab is closed.
+        if (!coinbaseReconnect) {
+          coinbaseReconnectAttempts++;
+          const delay = Math.min(30000, 1500 * Math.pow(2, Math.min(coinbaseReconnectAttempts - 1, 5)));
+          coinbaseReconnect = setTimeout(() => { coinbaseReconnect = null; startCoinbaseCrypto(); }, delay);
+        }
       };
       ws.onerror = () => {
         if (typeof window.DataReliability !== 'undefined') window.DataReliability.recordFetch('coinbase', false, 0);
         try { ws.close(); } catch (e) {}
-      };
-      // Mark coinbase success on each accepted message — done implicitly when DataReliability.validate succeeds
-      const origOnMessage = ws.onmessage;
-      ws.onmessage = function (evt) {
-        if (origOnMessage) origOnMessage.call(this, evt);
-        if (typeof window.DataReliability !== 'undefined') window.DataReliability.recordFetch('coinbase', true, 0);
       };
     } catch (e) {}
   }
@@ -859,6 +878,7 @@ const DataProvider = (function() {
     try { if (coinbaseSocket) coinbaseSocket.close(); } catch (e) {}
     coinbaseSocket = null;
     if (coinbaseReconnect) { clearTimeout(coinbaseReconnect); coinbaseReconnect = null; }
+    coinbaseReconnectAttempts = 0;
   }
   function stopStooqFallback() {
     if (stooqPollTimer) { clearInterval(stooqPollTimer); stooqPollTimer = null; }

@@ -323,7 +323,18 @@ class Model {
       lossHistory: this.lossHistory.slice(-200),
       accHistory: this.accHistory.slice(),
       lastTrainTs: this.lastTrainTs,
-      createdTs: this.createdTs
+      createdTs: this.createdTs,
+      // Audit pass 40: persist Adam optimizer state. Without these the m/v
+      // running moments reset every page reload, effectively re-warming the
+      // optimizer from zero every session and discarding accumulated curvature
+      // information. The model still trained, but slower and less stably.
+      optimizer: this.optimizer,
+      m: this.m ? this.m.slice() : null,
+      v: this.v ? this.v.slice() : null,
+      adamStep: this.adamStep,
+      adamBeta1: this.adamBeta1,
+      adamBeta2: this.adamBeta2,
+      adamEps: this.adamEps
     };
   }
 
@@ -339,6 +350,16 @@ class Model {
     this.accHistory = d.accHistory || [];
     this.lastTrainTs = d.lastTrainTs || 0;
     this.createdTs = d.createdTs || Date.now();
+    // Audit pass 40: restore Adam state. Falls back to zero-initialized arrays
+    // for older saved models that pre-date Adam. train() also has length-mismatch
+    // guards so this is defensive in depth.
+    this.optimizer = d.optimizer || 'adam';
+    this.m = (d.m && d.m.length === FEATURES.length) ? d.m.slice() : new Array(FEATURES.length).fill(0);
+    this.v = (d.v && d.v.length === FEATURES.length) ? d.v.slice() : new Array(FEATURES.length).fill(0);
+    this.adamStep = d.adamStep || 0;
+    this.adamBeta1 = d.adamBeta1 || 0.9;
+    this.adamBeta2 = d.adamBeta2 || 0.999;
+    this.adamEps = d.adamEps || 1e-8;
   }
 }
 

@@ -145,7 +145,12 @@
     if (pairs.length < MIN_PAIRS_TO_FIT) return false;
     const since = Date.now() - lastFitAt;
     const newPairs = pairs.length - lastFitN;
-    if (newPairs >= 50 || (params && since > 60 * 60 * 1000)) {
+    // Audit pass 45: on first fit (no params yet), MIN_PAIRS_TO_FIT should be
+    // sufficient to trigger. Previously the 50-new-pairs threshold combined
+    // with lastFitN=0 meant first-fit didn't fire until pairs.length >= 50,
+    // even though MIN_PAIRS_TO_FIT was stated as 30. That delayed calibration
+    // by 20 extra pairs on a cold start.
+    if (!params || newPairs >= 50 || (params && since > 60 * 60 * 1000)) {
       const result = fit();
       if (result) {
         lastFitN = pairs.length;
