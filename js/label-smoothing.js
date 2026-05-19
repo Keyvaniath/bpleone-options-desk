@@ -63,45 +63,81 @@
     try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) {}
   }
 
+  // Audit pass 87: same write-storm fix as sample-decay. smooth() was
+  // writing to localStorage on every call (potentially thousands per minute
+  // during heavy resolveRound batches). Cache + flush periodically.
+  let _cachedState = null;
+  let _cachedAt = 0;
+  let _pendingCount = 0;
+  let _pendingLastTs = 0;
+  let _lastFlushAt = 0;
+  const CACHE_TTL_MS = 60 * 1000;
+  const FLUSH_INTERVAL_MS = 60 * 1000;
+
+  function getCachedState() {
+    if (!_cachedState || Date.now() - _cachedAt > CACHE_TTL_MS) {
+      _cachedState = load();
+      _cachedAt = Date.now();
+    }
+    return _cachedState;
+  }
+
+  function maybeFlush() {
+    if (_pendingCount === 0) return;
+    if (Date.now() - _lastFlushAt < FLUSH_INTERVAL_MS) return;
+    const state = load();
+    state.smoothedCount = (state.smoothedCount || 0) + _pendingCount;
+    state.lastTs = _pendingLastTs || state.lastTs;
+    save(state);
+    _cachedState = state;
+    _cachedAt = Date.now();
+    _pendingCount = 0;
+    _lastFlushAt = Date.now();
+  }
+
   function smooth(label, eps) {
     if (label !== 0 && label !== 1) return label; // pass through non-binary
-    const state = load();
+    const state = getCachedState();
     if (!state.enabled) return label;
     const e = typeof eps === 'number' ? eps : state.eps;
-    // y_smoothed = (1-e)*y + e*0.5
-    // y=1: 1 - e/2 = 1 - 0.025 = 0.975 if e=0.05
-    // ah wait, the formula y_smoothed = (1-e)*y + e*0.5:
-    // y=1: (1-0.05)*1 + 0.05*0.5 = 0.95 + 0.025 = 0.975
-    // y=0: (1-0.05)*0 + 0.05*0.5 = 0.025
-    // I want y=1 -> 0.95 and y=0 -> 0.05 which is the simpler form:
-    //   y_smoothed = (1-e)*y + e*(1-y) = y + e*(1-2y) ... no
-    // The classic formula:
-    //   y_smoothed = y*(1-e) + (1-y)*e/2 ... no, let me think again
-    // Actually the standard formula is: y_smoothed = y*(1-e) + e/K where K is num classes
-    // For binary K=2: y_smoothed = y*(1-e) + e/2
-    // y=1: 1*(1-0.05) + 0.05/2 = 0.95 + 0.025 = 0.975
-    // y=0: 0*(1-0.05) + 0.05/2 = 0.025
-    // OK so the formula above is correct; my docstring just had different numbers.
-    // We'll keep the standard formula:
+    // Standard formula: y_smoothed = y*(1-e) + e/K where K=2 (binary)
+    //   y=1, e=0.05 → 0.95 + 0.025 = 0.975
+    //   y=0, e=0.05 → 0 + 0.025 = 0.025
     const smoothed = label * (1 - e) + e / 2;
-    state.smoothedCount++;
-    state.lastTs = Date.now();
-    save(state);
+    _pendingCount++;
+    _pendingLastTs = Date.now();
+    maybeFlush();
     return smoothed;
   }
 
-  function epsilon() { return load().eps; }
+  function epsilon() { return getCachedState().eps; }
   function setEpsilon(eps) {
     const clamped = Math.max(MIN_EPSILON, Math.min(MAX_EPSILON, eps));
     const state = load();
     state.eps = clamped;
     save(state);
+    _cachedState = null;
   }
-  function enabled() { return load().enabled; }
+  function enabled() { return getCachedState().enabled; }
   function setEnabled(b) {
     const state = load();
     state.enabled = !!b;
     save(state);
+    _cachedState = null;
+  }
+
+  // Pass 87: flush on page hide so counters don't drift
+  if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
+    window.addEventListener('pagehide', () => {
+      try {
+        if (_pendingCount === 0) return;
+        const state = load();
+        state.smoothedCount = (state.smoothedCount || 0) + _pendingCount;
+        state.lastTs = _pendingLastTs || state.lastTs;
+        save(state);
+        _pendingCount = 0;
+      } catch (e) {}
+    });
   }
 
   function stats() {

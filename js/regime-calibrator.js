@@ -87,9 +87,29 @@
     return 'mixed';
   }
 
+  // Audit pass 80: CRITICAL — MultiHorizon.detectRegime() returns the names
+  // 'trending_bull' / 'choppy' / 'volatile_bear'. continuous-learner passes
+  // those into RegimeCalibrator.recordPair(p, w, entry.regime). But this
+  // module's REGIMES are 'bull','bear','chop','high-vol','mixed' — none of
+  // MultiHorizon's names matched, so EVERY pair was being bucketed as
+  // 'mixed' (the fallback). Per-regime calibration was completely inert;
+  // unified-predictor's per-regime lookup always missed and fell back to
+  // global Platt. Fix: normalize MultiHorizon's names to ours.
+  function normalizeRegime(regime) {
+    if (!regime) return null;
+    if (REGIMES.indexOf(regime) !== -1) return regime;  // already valid
+    // MultiHorizon → RegimeCalibrator
+    if (regime === 'trending_bull') return 'bull';
+    if (regime === 'choppy') return 'chop';
+    if (regime === 'volatile_bear') return 'bear';
+    // Legacy: also accept some plausible variants
+    if (regime === 'high_vol' || regime === 'high vol') return 'high-vol';
+    return 'mixed';
+  }
+
   function recordPair(rawProb, win, regime) {
     if (typeof rawProb !== 'number' || (win !== 0 && win !== 1)) return;
-    if (!regime) regime = classifyRegime();
+    regime = normalizeRegime(regime) || classifyRegime();
     if (REGIMES.indexOf(regime) === -1) regime = 'mixed';
     const pairs = loadPairs(regime);
     pairs.push({ p: +rawProb.toFixed(4), w: win, ts: Date.now() });
@@ -132,7 +152,7 @@
   // Apply per-regime calibration. If no params for this regime, falls back
   // to the global Calibrator, then identity.
   function calibrate(rawProb, regime) {
-    if (!regime) regime = classifyRegime();
+    regime = normalizeRegime(regime) || classifyRegime();   // pass 80
     if (REGIMES.indexOf(regime) === -1) regime = 'mixed';
     const params = loadParams(regime);
     if (params && typeof params.a === 'number') {

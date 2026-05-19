@@ -30,7 +30,14 @@
 
 (function () {
   const KEY = 'bpleone_advval_v1';
-  const MAX_POOL = 500;
+  // Audit pass 79: was 500. With continuous-learner now capturing ~138/hr
+  // during RTH (~900/day), a 500-entry pool only holds the last ~13 hours.
+  // OLD_THRESHOLD_MS requires entries 24h+ old — they get trimmed before
+  // they age in. Result: fit() ALWAYS returned `{ fitted: false }` and
+  // covariate-shift detection silently never fired across the whole site.
+  // Bumped to 5000 (~5.5 days @ 900/day) — plenty of headroom on both sides
+  // of the 24h boundary. Storage cost: 5000 × ~22 floats × ~8B ≈ 880KB.
+  const MAX_POOL = 5000;
   const OLD_THRESHOLD_MS = 24 * 3600 * 1000;     // 24h+
   const RECENT_THRESHOLD_MS = 2 * 3600 * 1000;   // <2h
   const MIN_POOL_TO_FIT = 30;                    // need 30 in each side
@@ -119,10 +126,17 @@
     state.lastFitAt = now;
     state.lastAuc = auc;
     save(state);
+    // Audit pass 79: symmetric shift detection. AUC near 1.0 = strong shift
+    // (recent is easy to distinguish from old); AUC near 0.0 also = strong
+    // shift but with the classifier-convention flipped (rare with proper
+    // labeling but defensive). Both ends mean covariate shift; only the
+    // middle (~0.5) means no shift.
+    const shiftMag = Math.abs(auc - 0.5);
     return {
       fitted: true,
       auc,
-      shifted: auc > SHIFT_AUC_THRESHOLD,
+      shiftMag,
+      shifted: shiftMag > (SHIFT_AUC_THRESHOLD - 0.5),
       n_old: old.length,
       n_recent: recent.length,
       n_test: test.length
@@ -147,9 +161,13 @@
 
   function score() {
     const state = load();
+    const auc = state.lastAuc;
+    const shiftMag = auc != null ? Math.abs(auc - 0.5) : null;
     return {
-      lastAuc: state.lastAuc,
-      shifted: state.lastAuc != null && state.lastAuc > SHIFT_AUC_THRESHOLD,
+      lastAuc: auc,
+      shiftMag,
+      // Pass 79: symmetric — both auc>0.7 and auc<0.3 indicate shift.
+      shifted: shiftMag != null && shiftMag > (SHIFT_AUC_THRESHOLD - 0.5),
       lastFitAt: state.lastFitAt,
       poolSize: state.pool.length,
       hasWeights: !!state.weights,

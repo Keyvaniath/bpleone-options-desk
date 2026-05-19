@@ -33,6 +33,11 @@
 (function () {
   const KEY = 'bpleone_swa_v1';
   const MIN_SNAPSHOTS = 5; // below this, predict() defers to model (cold start)
+  // Audit pass 81: cap the effective sample size. Pure running average with
+  // no cap means new snapshots get diluted (1/n weight) — after a few weeks
+  // SWA stops responding to genuine training. Cap at 200: once n hits 200,
+  // each new snapshot gets ~1/200 weight (EMA-like, half-life ~140 snapshots).
+  const N_EFF_CAP = 200;
 
   function load() {
     if (typeof localStorage === 'undefined') return null;
@@ -58,11 +63,12 @@
       state.n = 0;
     }
     // Running average: swa = (n*swa + w) / (n+1)
-    const n = state.n;
+    // Pass 81: cap n at N_EFF_CAP so old snapshots don't dilute new ones forever.
+    const n = Math.min(state.n, N_EFF_CAP);
     for (let i = 0; i < w.length; i++) {
       state.swa[i] = (n * state.swa[i] + w[i]) / (n + 1);
     }
-    state.n = n + 1;
+    state.n = state.n + 1;   // still track raw count for stats / divergence
     state.lastTs = Date.now();
     save(state);
     return state.n;

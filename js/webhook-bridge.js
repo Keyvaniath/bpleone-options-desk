@@ -169,7 +169,7 @@
     if (typeof window === 'undefined' || !window.HighConvictionAlerts) return { skipped: true, reason: 'no-alerts' };
     if (state.lastPushAt && Date.now() - state.lastPushAt < MIN_BETWEEN_PUSHES_MS) return { skipped: true, reason: 'throttle' };
     const feed = window.HighConvictionAlerts.feed(20);
-    let pushed = 0, skipped = 0;
+    let pushed = 0, skipped = 0, retryLater = 0;
     for (const a of feed) {
       const id = a.sourceJournalId || (a.sym + '-' + a.ts);
       if (state.seenJournalIds[id]) { skipped++; continue; }
@@ -177,15 +177,23 @@
       if (conv < cfg.minConviction) { state.seenJournalIds[id] = Date.now(); skipped++; continue; }
       // Push it
       state.lastPushAt = Date.now();
-      await push(a, state);
-      state.seenJournalIds[id] = Date.now();
+      const result = await push(a, state);
+      // Audit pass 84: only mark as seen on success OR permanent failure (4xx).
+      // Transient failures (network error, 5xx) leave the id unmarked so the
+      // next tick retries. Previously every failure was marked seen → alerts
+      // silently lost on any network blip.
+      const permanent = result.ok || (result.status && result.status >= 400 && result.status < 500);
+      if (permanent) {
+        state.seenJournalIds[id] = Date.now();
+      } else {
+        retryLater++;
+      }
       pushed++;
       // Wait a bit between sends so we don't bury Discord
       await new Promise(r => setTimeout(r, MIN_BETWEEN_PUSHES_MS));
-      // Reload state so other pages can read up-to-date log
     }
     save(state);
-    return { pushed, skipped };
+    return { pushed, skipped, retryLater };
   }
 
   async function testPing() {
