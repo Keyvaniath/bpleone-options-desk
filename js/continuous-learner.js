@@ -524,22 +524,29 @@
     const originalLR = model.lr;
     if (driftAdapt) model.lr = Math.min(0.2, originalLR * 2);
     let lossSum = 0;
+    // Pass 71: apply label smoothing to main-model training too. Previously
+    // only the per-horizon ensembles used LabelSmoothing.smooth() — the main
+    // model trained on hard 0/1 labels, which encourages overconfidence
+    // (peaked sigmoids near 0 and 1). With smoothing the main model targets
+    // ~0.025 / 0.975 instead. Same module already used elsewhere.
+    const useLabelSmoothing = typeof window !== 'undefined' && window.LabelSmoothing && window.LabelSmoothing.enabled();
     newRows.forEach(r => {
       // Reward-shaped training: repeat the SGD step weight-many times.
       // Bigger move = more impact on the model's weights. Floor at 0.25 so even
       // tiny moves contribute a quarter step.
       const w = Math.max(0.25, Math.min(4, r.weight || 1.0));
+      const trainLabel = useLabelSmoothing ? window.LabelSmoothing.smooth(r.label) : r.label;
       let repLoss = 0;
       const fullSteps = Math.floor(w);
       const frac = w - fullSteps;
       for (let k = 0; k < fullSteps; k++) {
-        const { loss } = model.train(r.features, r.label);
+        const { loss } = model.train(r.features, trainLabel);
         repLoss += loss;
       }
       if (frac > 0) {
         const lrSaved = model.lr;
         model.lr = lrSaved * frac;
-        const { loss } = model.train(r.features, r.label);
+        const { loss } = model.train(r.features, trainLabel);
         repLoss += loss * frac;
         model.lr = lrSaved;
       }
