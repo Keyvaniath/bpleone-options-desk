@@ -499,6 +499,12 @@
         MultiHorizon.trainHorizon(r.horizon, r.features, r.label, r.weight);
         MultiHorizon.recordOutcome(r.regime, r.horizon, r.label === 1, r.predProb);
         // Save as training row tagged with horizon for the analytics pages
+        // Audit pass 78 (fix #3): was `Math.abs(r.ret) / Math.max(0.01, 0.01)`
+        // — the Math.max is a no-op (both args identical), so this was just
+        // `|ret| / 0.01`. Should reference the per-horizon minMove like the
+        // sampleWeight calculation upstream. Use a per-horizon denom map.
+        const HORIZON_DENOM = { short: 0.003 * 3, mid: 0.01 * 3, long: 0.03 * 3 };
+        const denom = HORIZON_DENOM[r.horizon] || 0.01;
         ModelStore.addTrainingRow(r.features, r.label, {
           sym: r.sym,
           setup: 'continuous-' + r.horizon + '-' + r.sym,
@@ -507,7 +513,7 @@
           horizon: r.horizon,
           regime: r.regime,
           sampleWeight: r.weight,
-          rMultiple: Math.abs(r.ret) / Math.max(0.01, 0.01),
+          rMultiple: +(Math.abs(r.ret) / denom).toFixed(2),
           continuous: true
         });
       });

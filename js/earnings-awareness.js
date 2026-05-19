@@ -116,7 +116,17 @@
     const checks = checkOpenTrades();
     return checks.map(c => {
       const sev = c.severity === 'critical' ? '🚨 CRITICAL' : c.severity === 'high' ? '⚠ HIGH' : '⚡ MEDIUM';
-      return sev + ' — ' + c.trade.sym + ' has earnings ' + (c.earnings.daysOut < 0 ? 'today (already!) ' : 'in ~' + c.earnings.daysOut.toFixed(1) + 'd') + '. Position closes ' + new Date(c.trade.timeStop).toLocaleString() + '. Consider tightening stop, taking partial, or exiting pre-event.';
+      // Audit pass 78 (fix #7): old code said "today (already!)" for every
+      // daysOut < 0 — but that fires for events up to 2 days in the past
+      // (the nextEarnings filter is `> now - 2 * 86400000`). Be honest about
+      // what we actually mean: <0.5 days = imminent or today; otherwise we
+      // give the actual signed days.
+      const d = c.earnings.daysOut;
+      let whenStr;
+      if (d < -0.5)       whenStr = (-d).toFixed(1) + 'd ago (recent — IV crush already played out)';
+      else if (d < 0.5)   whenStr = 'today / imminent';
+      else                whenStr = 'in ~' + d.toFixed(1) + 'd';
+      return sev + ' — ' + c.trade.sym + ' has earnings ' + whenStr + '. Position closes ' + new Date(c.trade.timeStop).toLocaleString() + '. Consider tightening stop, taking partial, or exiting pre-event.';
     });
   }
 

@@ -49,27 +49,25 @@
     try { localStorage.setItem(KEY_PREFIX + k + '_v1', JSON.stringify(model.serialize())); } catch (e) {}
   }
 
-  // Deterministic include/exclude from a sample by seeding from features
-  // so the same sample makes the same decisions across calls (avoids
-  // double-training in re-runs).
-  function hashSeed(features) {
-    let h = 0x12345;
-    for (let i = 0; i < features.length; i++) {
-      h = ((h << 5) - h + Math.floor((features[i] || 0) * 10000)) | 0;
-    }
-    return h;
-  }
+  // Audit pass 78 (fix #4): previous version had a dead `hashSeed` helper and
+  // a comment promising "deterministic include/exclude" — but the actual
+  // inclusion used Math.random() (non-deterministic). Either drop the lie
+  // and use stochastic bagging, or use the hash for real determinism.
+  //
+  // Chose stochastic: each call to train() processes a sample EXACTLY ONCE
+  // (continuous-learner gates by `entry.resolved[horizon]`), so the
+  // "re-runs" concern from the old comment doesn't apply. Stochastic
+  // bagging is the textbook online-bagging recipe. Removed hashSeed; kept
+  // the K-independent inclusion via Math.random.
 
   // Train all K models with online bagging — each sample included in
-  // each model with probability INCLUSION_PROB.
+  // each model with probability INCLUSION_PROB. Independent across K.
   function train(features, label, sampleWeight) {
     if (!features || typeof label === 'undefined') return null;
     const w = typeof sampleWeight === 'number' ? sampleWeight : 1.0;
-    const seed = hashSeed(features);
     let trainedCount = 0;
     const losses = [];
     for (let k = 0; k < K; k++) {
-      // Use Math.random() so each call has independent inclusion across all K
       if (Math.random() < INCLUSION_PROB) {
         const m = loadModel(k);
         if (!m) continue;

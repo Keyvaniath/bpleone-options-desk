@@ -47,19 +47,36 @@
     };
   }
 
-  // Welford's online algorithm: stable running mean + variance
+  // Audit pass 78 (fix #5): pure Welford weighs every observation equally —
+  // after months of running, the mean/std lag the actual regime and OOD
+  // detection silently goes blind to genuine shifts. Switched to EMA-Welford:
+  // recent observations get more weight via an effective-sample-size cap.
+  // Once n >= EMA_CAP, we treat the running sample size as fixed at EMA_CAP
+  // so each new sample is weighted ~1/EMA_CAP regardless of how long we've
+  // been running. Equivalent to an EMA with half-life ~ EMA_CAP × ln(2).
+  // With EMA_CAP=500 and ~138 captures/hour during RTH, half-life ≈ 2.5 hours.
+  // Long enough to be stable, short enough to catch real regime change.
+  const EMA_CAP = 500;
+
   function update(features) {
     if (!Array.isArray(features) || features.length !== N_FEATURES) return null;
     let stats = loadStats() || emptyStats();
     stats.n++;
+    // Effective n for weighting: capped so older samples decay out
+    const nEff = Math.min(stats.n, EMA_CAP);
     for (let i = 0; i < N_FEATURES; i++) {
       const x = features[i];
       if (!isFinite(x)) continue;
       const f = stats.f[i];
       const delta = x - f.mean;
-      f.mean += delta / stats.n;
+      f.mean += delta / nEff;
       const delta2 = x - f.mean;
       f.m2 += delta * delta2;
+      // Decay m2 toward the new variance contribution once at cap
+      if (stats.n > EMA_CAP) {
+        // Scale m2 by (EMA_CAP-1)/EMA_CAP so the effective denominator stays bounded
+        f.m2 *= (EMA_CAP - 1) / EMA_CAP;
+      }
       if (x < f.min) f.min = x;
       if (x > f.max) f.max = x;
     }
@@ -68,7 +85,10 @@
   }
 
   function variance(f, n) {
-    return n > 1 ? f.m2 / (n - 1) : 0;
+    // For variance we always divide by min(n, EMA_CAP) - 1 so the std reflects
+    // the effective recent-window dispersion, not all-time.
+    const nEff = Math.min(n, EMA_CAP);
+    return nEff > 1 ? f.m2 / (nEff - 1) : 0;
   }
   function std(f, n) {
     const v = variance(f, n);

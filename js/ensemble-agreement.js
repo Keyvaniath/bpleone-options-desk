@@ -120,6 +120,7 @@
   // fired. Returning UPPERCASE here matches the existing call sites.
   function categorize(score) {
     if (score == null) return 'UNKNOWN';
+    if (!isFinite(score)) return 'UNKNOWN';   // pass 78 fix #6: NaN / Infinity guard
     if (score >= 0.85) return 'STRONG';
     if (score >= 0.65) return 'MODERATE';
     if (score >= 0.45) return 'MIXED';

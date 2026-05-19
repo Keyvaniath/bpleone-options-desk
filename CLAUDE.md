@@ -1,16 +1,16 @@
 # ⚠️ YOU ARE MID-PROJECT. READ THIS FIRST.
 
-> **Hi Claude. This is a continued session.** Prior Claudes built **247 HTML pages and 17+ JS modules** — a complete institutional-grade trading platform with a **self-learning ML brain** (logistic regression + MLP, online learning, calibration, drift detection, K-fold CV, active learning, SHAP-style explanations), high-conviction push notifications, autopilot paper trading, brain coach (live speech narration), per-symbol leaderboards, weekly auto-reports, what-if scenario tool, backup/restore, mobile dashboard, and 30+ ML-integrated pages. **DO NOT RESTART.** Don't propose to rebuild anything. Read this file, run `python _full_audit.py` to verify state, then continue from where the prior Claude left off.
+> **Hi Claude. This is a continued session.** Prior Claudes built **400 HTML pages and 102 JS modules** — a complete institutional-grade trading platform with a **self-learning ML brain** (logistic regression + Adam optimizer, multi-horizon ensemble, MC dropout, bootstrap bagging, kNN recall, Platt + Isotonic + Regime calibration, OOD detection, drift PSI, conformal intervals, meta-stacking, per-symbol bias, label smoothing, sample-decay, mixup, self-distillation, hindsight replay, active learning), high-conviction push notifications, autopilot paper trading (AutoTrade), brain coach (live speech), per-symbol leaderboards, weekly auto-reports, what-if scenario tool, backup/restore, mobile dashboard. **DO NOT RESTART.** Don't propose to rebuild anything. Read this file, then continue from where the prior Claude left off.
 >
-> **TL;DR for Brandon (the user):** he's building `options.bpleone.com` as a subdomain of `bpleone.com`. **The site IS LIVE on GitHub Pages.** The Squarespace hub tile that points to it may still need configuration — see `SQUARESPACE-FIX.md`. The Pokémon TCG desk is at `pokemon.bpleone.com`. Brandon's mode is autonomous-build: he says "continue" or "keep building" and expects you to ship without confirmation prompts. He hates being asked permission for routine work.
+> **TL;DR for Brandon (the user):** he's building `options.bpleone.com` as a subdomain of `bpleone.com`. **The site IS LIVE on GitHub Pages** (CNAME at repo root). The Squarespace hub tile is documented in `SQUARESPACE-FIX.md` + `SQUARESPACE-TILE.html` + `squarespace-preview.html`. The Pokémon TCG desk is at `pokemon.bpleone.com`. Brandon's mode is autonomous-build: he says "continue" or "keep building" and expects you to ship without confirmation prompts. He hates being asked permission for routine work.
 >
 > **First-thing-to-do checklist:**
-> 1. Run `python _full_audit.py` to confirm clean state (expect "AUDIT CLEAN" with 240+ pages).
-> 2. Check `git log --oneline -10` to see the latest commits — most recent batches added ML pages, weekly reports, mobile dash, live feed, etc.
-> 3. **Default action when Brandon says "continue":** build another batch of 4-6 valuable additions, wire into `js/app.js` nav, add to `sitemap.xml`, audit, commit, push. No questions asked.
-> 4. **Do NOT** ls the project to figure out what exists — the file map below is OUTDATED (lists ~50 pages from an early session). Use `Glob '*.html'` and `git log` to find what's there now.
-> 5. **Do NOT** propose a "fresh start" — everything is wired together.
-> 6. **The ML brain stack:** `js/model.js` (logistic + MLP engine), `js/brain-loop.js` (background brain ticks), `js/learn.js` (legacy weight-learning), `js/notify.js` (push notif w/ log patch). Pages in the `brainGrp` nav array (see `js/app.js`).
+> 1. `git log --oneline -15` to see recent commits — the most recent reflect today's audit work.
+> 2. Read `/audit-log.html` to see the running list of audit passes + critical bugs found.
+> 3. **Default action when Brandon says "continue":** find next thing to audit/build (the audit-log will hint), wire into `js/app.js` nav, add to `sitemap.xml`, lint, commit, push. No questions asked.
+> 4. **Do NOT** ls the project to figure out what exists — use `Glob '*.html'` and `git log`. The page count is current at the top of this doc, not a stale enumerated list.
+> 5. **Do NOT** propose a "fresh start" — everything is wired.
+> 6. **The ML brain stack:** see `js/model.js` (Adam logistic engine), `js/brain-loop.js` (background ticks), `js/continuous-learner.js` (capture/resolve/train every 30s), `js/historical-bootstrap.js` (250-day Stooq warmup × 47 symbols), `js/auto-trainer.js` (6h cadence), `js/multi-horizon.js` + `js/bootstrap-ensemble.js` + `js/knn-recall.js` + `js/unified-predictor.js` (composes everything).
 >
 > Now continue reading.
 
@@ -24,9 +24,9 @@
 
 ## TL;DR — what this is
 
-This is `bpleone-trading`, an institutional-grade options + technical-analysis web platform that ships to **`https://options.bpleone.com`** (a subdomain of Brandon's Squarespace-hosted hub at `bpleone.com`). It's the second of multiple "desks" Brandon is building — the Pokémon TCG desk is already live at `pokemon.bpleone.com`. This one is the equity / options / TA desk.
+This is `bpleone-trading`, an institutional-grade options + technical-analysis web platform that ships to **`https://options.bpleone.com`** (a subdomain of Brandon's Squarespace-hosted hub at `bpleone.com`). It's the second of multiple "desks" Brandon is building — the Pokémon TCG desk is live at `pokemon.bpleone.com`. This one is the equity / options / TA desk.
 
-The site is **static HTML/CSS/JS** (no build step, no framework). Drop the folder on Netlify, GitHub Pages, Vercel, or Cloudflare Pages and it's live. No backend yet — all "live" data is generated client-side by a mock streaming engine that's designed to be swapped for a real WebSocket feed (Polygon / Tradier / Alpaca / Finnhub).
+The site is **static HTML/CSS/JS** (no build step, no framework). Drop the folder on GitHub Pages and it's live. There's no backend — every "smart" feature runs client-side off localStorage. The data layer is the **Stooq zero-key fallback** (CSV poll every 12s for 47 symbols, ~15-min delayed) + **Coinbase WebSocket** (real-time BTC/ETH). User can swap in Finnhub/Polygon/Alpaca/Tradier via `settings.html`.
 
 ---
 
@@ -35,343 +35,189 @@ The site is **static HTML/CSS/JS** (no build step, no framework). Drop the folde
 | | |
 |---|---|
 | **Domain** | `options.bpleone.com` (CNAME file at repo root) |
-| **Pages** | 67 HTML files at the root (no `pages/` subdir) |
-| **JS modules** | 11 files in `js/` — `app.js`, `charts.js`, `live.js`, `learn.js`, `notify.js`, `data-provider.js`, `ai-client.js`, `command-palette.js`, `hotkeys.js`, `onboarding.js`, `toast.js` |
-| **CSS** | Single file: `css/style.css` (~1,460 lines, dark institutional theme) |
-| **Assets** | `assets/icon.svg` + root `favicon.svg` |
-| **PWA** | `manifest.json` at root, theme color `#00d4ff` |
-| **SEO** | `robots.txt`, `sitemap.xml` (49 URLs) |
-| **Deploy guide** | `DEPLOY.md` — 4 paths (GitHub Pages, Vercel, Netlify, Squarespace embed) |
-| **Latest ZIP** | `bpleone-trading-v5.zip` (stale — rebuild before deploy) |
+| **Pages** | 400 HTML files at the root (no `pages/` subdir) |
+| **JS modules** | 102 files in `js/` |
+| **CSS** | Single file: `css/style.css` (~1,500 lines, dark institutional theme) |
+| **Manifest** | `manifest.json` (PWA), theme color `#00d4ff` |
+| **SEO** | `robots.txt`, `sitemap.xml` (397 URLs) |
+| **Deploy** | GitHub Pages from `main` |
+| **Hub linkage** | `index.html` opens with a ribbon back to `bpleone.com`; nav has a small ← Hub pill on every page |
 
-To preview locally: `python3 -m http.server 8080` and open `http://localhost:8080`.
+To preview locally: `python3 -m http.server 8080` then open `http://localhost:8080`.
 
 ---
 
-## File map (50 HTML pages)
+## Page groups — where to find things
 
-Grouped the way the navigation dropdowns group them in `js/app.js → buildNav()`:
+Don't trust any list of named pages — it goes stale. Instead, the nav grouping in `js/app.js` (`buildNav()`) is the canonical map:
 
-### Top-level
-- `index.html` — landing (hero, TOTD preview, features, CTA)
-- `dashboard.html` — main market dashboard (SPY chart, signals, watchlist, news, econ cal)
-- `education.html` — Options 101, TA, Strategies, Risk, Glossary (tabbed)
-- `about.html` — pricing, FAQ, contact, disclosures
-- `404.html` — themed not-found page
+| Nav group | Variable in `app.js` | What's there |
+|---|---|---|
+| Daily | `playsGrp` | Trade of the Day, Morning Brief, Plays of the Day, Pre-market, Conviction Stack, Signals, Earnings, 0DTE, Squeeze Radar, Trade Plan |
+| Trade & Flow | `tradeGrp` | Day-Trader PRO, Big Bets, Options Flow + Chain + Pricer + Builder, Dark Pool, Pair Trades, Wheel, Vol Surface/Cone, Calendar |
+| Brain | `brainGrp` | Brain Heartbeat/Audit/Decisions/Hub/Truth, ML pages (model-*, calibration, brier-skill, sharpe, kNN, meta-stacker, isotonic, regime, drift-psi, etc.), Training tools (train-now, learning-velocity, brain-debug, historical-bootstrap), 100+ ML diagnostic pages |
+| Scanners | `scanGrp` | Algo signals, mean-reversion, trend-strength, confluence, edge-scanner, hot-movers, squeeze, pre-market scanners, earnings reactor, anomalies, IPO, pairs, candlestick, news-reactions, insider/congress, sweep counter |
+| Markets | `marketsGrp` | Macro, market internals, breadth, sector rotation, heatmaps, yield curve, economic events, halt tracker, MOC imbalance, VIX, news |
+| Tools | `toolsGrp` | Risk dashboards, fundamentals, backtester, journal, alerts, crypto, portfolio builder, position sizing, PDT, margin, execution, strategies, seasonality, settings, mindset, replay, hypothetical, account, performance attribution, **all-tools** (visual catalog of every page), PWA install, watchlist, money pages (money-made, mobile-money, voice-coach), webhook bridge, **pre-trade-checklist**, **train-now**, **learning-velocity**, **brain-debug**, **audit-log**, **self-test**, **live-status** |
 
-### Plays (7)
-- `plays.html` — Plays of the Day, 8 conviction-ranked cards
-- `trade-of-the-day.html` — featured single trade with full thesis + chart + options plays
-- `pre-market.html` — 5:30 AM ET morning brief (TL;DR, catalysts, key levels, game plan)
-- `signals.html` — live signal feed with filters
-- `earnings-calendar.html` — week grid + headline-names table + IV-crush tracker
-- `zero-dte.html` — 0DTE options dashboard with strike map and gamma walls
-- `setup-wizard.html` — 6-step trade builder, logs into Edge Analytics
-
-### Trading (18)
-- `options-flow.html` — unusual options activity table, sweeps/blocks, IV smile
-- `options-chain.html` — **the big one** — full chain w/ Greeks, strategy builder, Black-Scholes calc, P/L diagram (530 lines)
-- `vol-surface.html` — IV surface grid (strikes × expiries), smile + term slice charts
-- `vol-cone.html` — historical realized-vol percentile bands + current IV overlay
-- `technical-analysis.html` — multi-indicator scanner, key-levels table
-- `momentum.html` — multi-lookback RS ranking, Donchian breakouts, sector rotation
-- `heatmap.html` — Finviz-style sector treemap, sized by mkt cap, colored by today
-- `market-internals.html` — A/D, TICK/TRIN/VIX, McClellan, P/C ratio, yield curve, dark pool
-- `smart-money.html` — Congress trades, Form 4 insiders, 13F shifts, leaderboard
-- `watchlists.html` — localStorage-persisted multi-list manager
-- `gex.html` — gamma exposure map, vanna, charm, GEX history
-- `tape.html` — live Level-2 + ticking time & sales (600ms cadence)
-- `sectors.html` — 11-sector tabbed deep-dive, rotation quadrant, factor tilts
-- `pairs.html` — pair trading / stat arb scanner (Z-score, cointegration)
-- `calendar-analyzer.html` — calendar/diagonal spread builder + P/L
-- `dark-pool.html` — live dark pool print stream, % of vol by symbol, biggest blocks today, 30d history
-- `short-interest.html` — SI% of float, days-to-cover, squeeze candidates, FTDs, Reg SHO threshold list
-- `etf-flows.html` — daily creation/redemption, sector tiles, leaderboards, rotation quadrant, levered rebalance
-
-### Tools (20)
-- `fundamentals.html` — equity research view: earnings, financials, valuation, ratings, ownership (tabbed)
-- `macro.html` — global indices, yield curve, central banks, FX, commodities, macro cal
-- `news.html` — aggregated headlines with sentiment scoring per ticker
-- `risk-dashboard.html` — portfolio Greeks, VaR/CVaR, scenario shocks, correlation, equity curve
-- `backtester.html` — 8 strategies × any asset × date range, full perf/trade/risk stats
-- `journal.html` — log every trade, CSV export, feeds Learn engine
-- `alerts.html` — custom alerts (12 condition types), polls every 2.5s, fires browser notifications
-- `edge-analytics.html` — **the self-learning brain** — learned setup weights, win rate by setup/sector/DoW/hold
-- `crypto.html` — BTC/ETH, dominance, funding, ETF flows, on-chain, whale prints
-- `screener.html` — multi-factor screener with custom weights, 6 presets, 18-stock universe
-- `anomalies.html` — statistical outliers, vol spikes, gap moves, regime shifts
-- `assistant.html` — chat UI. Routes to real Claude (streaming) when Anthropic key set in settings.html; falls back to 12 keyword-routed canned responses otherwise
-- `portfolio-builder.html` — Markowitz mean-variance optimization, efficient frontier, max-Sharpe optimizer
-- `position-sizing.html` — 4 sizing methods (fixed-fractional, Kelly, ATR, vol-targeted) + options sizing
-- `execution.html` — Almgren-Chriss implementation shortfall, TWAP schedule, cost breakdown
-- `strategies.html` — 24-strategy library with max profit/loss, BE, POP, when-to-use
-- `seasonality.html` — year×month heatmap, DoW & monthly averages, OPEX patterns, presidential cycle, Santa rally
-- `economic-events.html` — Fed dot plot, this-week + 30d calendar, CPI/NFP reaction histograms, 5y CPI/Unrate charts
-- `settings.html` — **data provider config**, Claude API key, prefs, diagnostics, backup/restore, danger zone
-- `api.html` — developer reference for the live engine + webhooks
+`all-tools.html` is the human-readable index — if you need to find a specific page, look there.
 
 ---
 
 ## JS architecture — read this
 
-All 7 JS modules attach to the global window (no modules, no bundler). Load order on most pages:
+All 102 JS modules attach to the global window. Most pages load this baseline:
 
 ```html
-<script src="js/data-provider.js"></script>  <!-- real WS adapter (Finnhub/Polygon/Tradier/Alpaca) -->
-<script src="js/ai-client.js"></script>      <!-- Claude API wrapper for assistant -->
-<script src="js/app.js"></script>            <!-- nav, footer, ticker, tabs, sort, search, clock, live-data pill -->
+<script src="js/data-provider.js"></script>  <!-- WS/CSV adapter; Stooq fallback default -->
+<script src="js/ai-client.js"></script>      <!-- Claude API wrapper (browser-direct) -->
+<script src="js/app.js"></script>            <!-- nav, footer, ticker, clock, hub pill -->
 <script src="js/notify.js"></script>         <!-- browser push -->
-<script src="js/charts.js"></script>         <!-- Chart.js helpers (only on chart pages) -->
-<script src="js/live.js"></script>           <!-- mock tick engine + BS + chain generator -->
-<script src="js/learn.js"></script>          <!-- self-learning engine (only on plays/journal/edge) -->
+<script src="js/live.js"></script>           <!-- QUOTES + Feed pub/sub + Black-Scholes + mock tick -->
 <script>buildNav('pagename');</script>
 ```
 
-**Important:** `data-provider.js` and `ai-client.js` should load BEFORE `live.js` so the live engine can consult `DataProvider.init()` to decide whether to start the mock tick loop or yield to a real WebSocket feed. The 6 newest pages (settings, dark-pool, short-interest, etf-flows, seasonality, economic-events, assistant) include both. Older pages still run on mock — they don't need the upgrade unless Brandon wants live data flowing through their `data-live` bindings, in which case just add the two `<script>` tags before `js/live.js`.
+`live.js` also lazy-loads ~20 background modules on `DOMContentLoaded`: data-reliability, source-preference, stale-refresh, confidence-kelly, portfolio-allocator, money-tracker, demo-data, demo-fab, seed-detector, auto-trade, high-conviction-alerts, voice-coach, webhook-bridge, money-hotkeys, auto-watchlist, loss-cooloff, sound-synth, equity-protector, multi-horizon, brain-loop, model, more. Pages that need a specific module synchronously should add their own `<script src>` (see `_fix_direct_loads.py` for the auto-fixer).
 
-### `js/app.js` (~330 lines)
-- `buildNav(activePage)` — renders nav with active state, 4 dropdowns (Plays / Trading / Tools / Education), wires the 🔔 notify button
-- `buildFooter()` — renders 5-col footer with disclaimer
-- `startMarketClock()` — updates `#market-clock` every second with NY-time market session status
-- `initTabs() / initFilters() / initSort() / initSearch() / initSubscribe()` — generic page wiring (idempotent, safe to call multiple times)
-- Auto-init on `DOMContentLoaded` calls everything except `buildNav` (page-specific, called inline)
+### Critical modules to know
 
-### `js/live.js` (~290 lines) — **mock data + Black-Scholes**
-- `QUOTES` — keyed-by-symbol live quote map (28 symbols)
-- `Feed.subscribe(sym, cb)` / `Feed.publish(sym, q)` — pub/sub for tick updates
-- `startLive(intervalMs)` — kicks off the mock tick generator (OU mean-reverting random walks)
-- `BS.price / BS.greeks / BS.impliedVol` — Black-Scholes pricing + Greeks + bisection IV solver
-- `buildChain(symbol, expiries, strikesAround)` — generates a synthetic options chain w/ smile
-- `strategyPayoff(legs, sRange)` — P/L at expiration for any multi-leg structure
-- `bindLive()` — auto-updates any element with `data-live="SYM:field"` attribute on every tick. Fields: `last`, `change`, `changePct`, `bid`, `ask`, `volume`. Flashes green/red on change.
-
-**To wire real data**: it's now zero-code. User opens `settings.html`, picks a provider, pastes their API key, toggles "Enable Live Feed", clicks Save & Connect. `js/data-provider.js` takes over from there — every `data-live` binding on every page that includes `data-provider.js` starts streaming real ticks. The mock engine auto-pauses.
-
-### `js/learn.js` (~210 lines) — **the self-learning engine**
-- Uses `localStorage` key `bpleone_learn_v1`
-- `Learn.recordTrade(t)` — log a new open trade
-- `Learn.closeTrade(id, exit, reason)` — close it, compute R, rebalance weights
-- `Learn.rebalanceWeights()` — recompute setup weights from realized expectancy (squashed to `[0.5, 1.6]`)
-- `Learn.adjustedScore(rawScore, type)` — apply learned weight to a raw signal score
-- `Learn.stats()` — full roll-ups: by setup, sector, day-of-week, hold duration
-- `Learn.reset()` — wipe all learning memory
-- **Pre-seeded** with 240 simulated prior trades on first load so the system has signal from minute one
-
-### `js/charts.js` (~360 lines) — **Chart.js helpers**
-Wraps Chart.js with the dark theme and provides factories:
-- `renderPriceChart`, `renderPriceWithMAChart`, `renderRSIChart`, `renderMACD`, `renderVolumeChart`
-- `renderSectorChart`, `renderFlowDonut`, `renderIVSmile`, `renderOIByStrike`, `renderPerfChart`
-- `baseOptions(showLegend=false)` — the shared chart config object
-
-### `js/data-provider.js` (~360 lines) — **real-time data adapter**
-Pluggable WebSocket layer that lets the site swap mock for real. Config persisted at `bpleone_data_v1`.
-- `DataProvider.init()` — auto-called from `live.js`. Returns `{ useMock: true|false }`. If a real provider is configured & enabled, init connects the WS and yields the mock engine.
-- `DataProvider.connect() / disconnect() / reconnect()` — explicit controls.
-- `DataProvider.saveConfig({ provider, apiKey, apiSecret, enabled, symbols, subscribeAll })` — settings.html writes here.
-- `DataProvider.getStatus() / onStatus(cb)` — subscribe to `{ status, provider, enabled, lastError, messagesReceived, bytesReceived, lastMessageAt, reconnectAttempts }`. Used by the nav pill.
-- `DataProvider.getHistorical(symbol, resolution, fromMs, toMs)` — REST historical bars. Falls back to synthetic bars if no provider configured.
-- **Supported providers:**
-  - `mock` — built-in OU walks
-  - `finnhub` — `wss://ws.finnhub.io` (free tier, real-time US trades)
-  - `polygon` — `wss://socket.polygon.io/stocks` (T trades + Q quotes)
-  - `alpaca` — `wss://stream.data.alpaca.markets/v2/iex` (free, IEX feed, needs key+secret)
-  - `tradier` — `wss://ws.tradier.com/v1/markets/events` (broker tier, REST session token first)
-- Each handler funnels into `applyTrade(sym, price, size)` and `applyQuote(sym, bid, ask)` which mutate `QUOTES[sym]`, recompute derived fields, and republish via `Feed.publish()` — keeping every existing `data-live` binding working unchanged.
-- Exponential backoff reconnect (1.5s base, 30s cap, 2^n).
-
-### `js/ai-client.js` (~180 lines) — **Claude API wrapper**
-Direct browser-to-Anthropic. Config persisted at `bpleone_ai_v1`. Uses the `anthropic-dangerous-direct-browser-access: true` header (single-user pattern — for public multi-user, proxy through a backend).
-- `AIClient.chat(messages, opts?)` — one-shot Messages API call. Returns `{ text, usage, stop_reason, model }`.
-- `AIClient.chatStream(messages, opts?, onChunk)` — server-sent-events streaming. `onChunk(delta, fullSoFar)` fires per text delta.
-- `AIClient.buildSystemPrompt()` — auto-injects the live market snapshot (from `QUOTES`) + desk methodology + page-routing hints into the system prompt.
-- `AIClient.testConnection()` — sends "Reply pong" for a health check.
-- `AIClient.saveConfig({ apiKey, model, maxTokens, enabled })` — wired from settings.html.
-- `AIClient.isReady()` — boolean. `assistant.html` uses this to decide whether to route to Claude or fall back to the canned heuristic responses.
-
-### `js/notify.js` (~80 lines)
-- `Notify.request()` — request browser notification permission
-- `Notify.fire(title, body, opts)` — show a notification
-- `Notify.autoSubscribeSignals()` — pings on > 2% moves, debounced per-symbol-per-minute
-- `Notify.setMuted(bool)` / `Notify.isMuted()` — per-user mute preference
+| Module | Purpose | Storage key |
+|---|---|---|
+| `model.js` | Logistic regression w/ Adam optimizer, 22-feature vectors, NaN-safe sigmoid | `bpleone_model_v1` |
+| `continuous-learner.js` | Captures predictions every 30s, resolves at 1d/5d/20d horizons, trains the brain | `bpleone_pred_journal_v1` |
+| `historical-bootstrap.js` | 250-day × 47-symbol warmup from Stooq on first visit | `bpleone_hist_bootstrap_v2` |
+| `auto-trainer.js` | 6h cadence: pulls latest Stooq bars, trains main + per-horizon models | `bpleone_auto_train_ts_v1` |
+| `weekly-refresh.js` | Every 3d: re-runs the historical bootstrap to ingest fresh history | `bpleone_weekly_refresh_v1` |
+| `multi-horizon.js` | 3 logistic models (short/mid/long) with per-regime accuracy weighting | `bpleone_model_h_*_v1` |
+| `bootstrap-ensemble.js` | K=5 logistic models trained via online bagging (P=0.6 inclusion) | `bpleone_bootstrap_model_k_*_v1` |
+| `knn-recall.js` | Weighted-Euclidean k-NN over journal features (pass-60: returns P(LONG), not P(correct)) | reads `pred_journal_v1` |
+| `calibrator.js` | Platt scaling (sigmoid fit to logit-mapped pairs) | `bpleone_calib_*_v1` |
+| `isotonic-calibrator.js` | PAV (non-parametric monotone fit) | `bpleone_isotonic_*_v1` |
+| `regime-calibrator.js` | Per-regime Platt | `bpleone_regime_calib_v1` |
+| `outlier-detector.js` | EMA-Welford for 22 features; OOD score 0–1 (pass-78: now decays old samples) | `bpleone_feature_stats_v1` |
+| `drift-psi.js` | Population Stability Index drift detection (pass-76: dual export PSIDrift + DriftPSI) | `bpleone_psi_*_v1` |
+| `meta-stacker.js` | Learned logistic blend of (model, ensemble, bootstrap, knn, swa) base predictions | `bpleone_meta_stacker_v1` |
+| `unified-predictor.js` | Composes everything → `{ finalProb, finalSizeMult, components, narrative }` | (composes, no storage) |
+| `brier-skill.js` | BSS vs baseline | `bpleone_brier_skill_v1` |
+| `sharpe-tracker.js` | Annualized Sharpe (pass-67: corrected from 23400→252 periods/yr) | `bpleone_sharpe_v1` |
+| `auto-trade.js` | Closed-loop paper trading (pass-72: anchors entry to current q.last, not stale journal price) | `bpleone_auto_trade_v1` |
+| `confidence-kelly.js` | Confidence-scaled Kelly sizing (pass-74: input.fraction now overrides storage) | `bpleone_confidence_kelly_v1` |
+| `ensemble-agreement.js` | Cross-method agreement scorer (pass-53: returns UPPERCASE tiers to match all callers) | (composes) |
 
 ---
 
 ## CSS conventions
 
-`css/style.css` is the only stylesheet (~1,430 lines, organized into commented sections). Single-tier rules — no nesting, no preprocessor. Heavy use of CSS custom properties at `:root` for the design tokens.
+`css/style.css` is the only stylesheet. Single-tier rules, heavy CSS custom properties at `:root`.
 
-**Layout system:**
-- `.grid` with `.grid-2 / -3 / -4 / -12` for column counts
-- `.col-2 / -3 / -4 / -5 / -6 / -7 / -8 / -9 / -12` for column spans in a 12-col grid
-- `.card` is the base panel container
-- `.card-header` + `.card-title` for panel headers
-
-**Typography:**
-- Inter for sans
-- JetBrains Mono for `.mono` and all numeric values
-
-**Colors (CSS variables):**
-- `--accent` = `#00d4ff` (brand cyan)
-- `--green` / `--red` / `--yellow` / `--purple` for signals
-- `--green-bg` / `--red-bg` etc. for soft-tint backgrounds
-
-**Utility classes** at the bottom of the file: `.flex`, `.gap-{8,12,16}`, `.mt-{8,16,24}`, `.mb-{8,16,24}`, `.text-center`, `.mono`.
-
-**Responsive:** breakpoints at 1100px and 768px collapse grids.
+**Layout:** `.grid` + `.grid-2/-3/-4/-12`, `.col-N`, `.card`, `.card-header`, `.card-title`.
+**Typography:** Inter (sans), JetBrains Mono (`.mono` + numeric values).
+**Colors:** `--accent` (cyan), `--green`/`--red`/`--yellow`/`--purple`. Soft `--green-bg` etc.
+**Variables:** pass-26 fixed the stale `var(--bg)` and `var(--text)` aliasing 50+ pages were broken on — both now resolve via `:root` aliases.
+**Utility classes** at bottom: `.flex`, `.gap-{8,12,16}`, `.mt-{8,16,24}`, `.mb-{8,16,24}`, `.text-center`, `.mono`.
 
 ---
 
-## What works, what's mocked
+## Data layer — Stooq + Coinbase
 
-**Works for real:**
-- **Real-time market data feed** (Finnhub free tier, Polygon, Tradier, Alpaca — pick in `settings.html`)
-- **Claude API in the assistant** (drop in an Anthropic key in `settings.html` → assistant routes to real Claude w/ streaming responses + market context system prompt)
-- All Black-Scholes math (real, validated against textbook examples)
-- The self-learning engine (real localStorage persistence; really does rebalance weights from realized R)
-- Position sizing math (fixed-fractional, ¼-Kelly, ATR, vol-targeted)
-- Implementation Shortfall (Almgren-Chriss simplified)
-- Pair trading Z-scores (real math on synthetic price series)
-- Browser notifications (real `Notification` API)
-- Watchlists (real localStorage)
-- Trade journal (real localStorage)
-- Alerts (real polling + real notification fires)
-- The chat assistant routing (keyword-matched fallback when no LLM key; real Claude when configured)
-- Settings export/import + danger-zone resets
+**Default (no config required):**
+- `js/data-provider.js` boots a Stooq CSV poll for 47 symbols every 12s
+- `Coinbase` WS gives real-time BTC/ETH with exponential-backoff reconnect (pass-43)
+- `DataReliability` validates every price (30% jump cap, 5min equity / 2min crypto stale)
+- `SourcePreference` ranks fresh updates from multiple sources
 
-**Still mocked / placeholder data (until user wires their provider):**
-- Ticker quotes default to OU-mean-reverting random walks; flip on real feed in `settings.html`
-- News headlines (no Benzinga/Finnhub news wiring yet — could be added to data-provider)
-- Congressional / insider transactions (no QuiverQuant/Capitol Trades wiring)
-- Earnings calendar dates (no Earnings Whispers wiring)
-- Option chain prices (synthetic — Polygon and Tradier expose real chains via REST; not yet plumbed)
-- Dark pool prints stream on `dark-pool.html` (synthesizes from `QUOTES.last` — real feeds available via Polygon's `T` events with `D` condition code)
+**With user API key (settings.html → Save):**
+- Finnhub / Polygon / Tradier / Alpaca via real WS — overrides Stooq, mock pauses
 
-The mock-to-real swap is now **a config toggle** in settings.html — no code change required for live quotes.
+Every `data-live="SYM:field"` element auto-updates via `Feed.subscribe`. All pages share the same `QUOTES` global.
 
 ---
 
-## Deployment status (as of this handoff)
+## Hub linkage
 
-- **Domain target:** `options.bpleone.com` (CNAME file at repo root)
-- **Bundle:** `bpleone-trading-v5.zip` — 316 KB compressed, 44 HTML + 5 JS + 1 CSS + 2 SVG
-- **NOT yet deployed.** Brandon was going to drop this on Netlify (or match whatever he used for `pokemon.bpleone.com`).
-- **Hub status:** `bpleone.com` shows the "Options Desk" tile as "Coming Soon" pointing to `options.bpleone.com`. Once this site is live, that tile needs:
-  1. Coming-Soon badge → LIVE
-  2. Description rewritten — current Squarespace copy says "Bottom-up DCF + comps modeling" which is wrong; the desk is options/TA/momentum primarily. Suggested copy is in `DEPLOY.md`.
+- **CNAME** → `options.bpleone.com`
+- **index.html** opens with a visible ribbon back to bpleone.com (added pass 76)
+- **Nav ← Hub pill** on every page via `js/app.js`
+- **Squarespace tile** docs: `SQUARESPACE-FIX.md` (paths to fix), `SQUARESPACE-TILE.html` (raw source), `squarespace-preview.html` (one-click copy)
 
 ---
 
-## Audit baseline — the last full audit passed
+## Audit baseline — `/audit-log.html`
 
-The previous session ran an 18-point deep audit. All checks passed:
+77+ audit passes have run on this codebase, finding 14+ CRITICAL bugs that were silently corrupting metrics or breaking entire safety chains. The running log is at **`/audit-log.html`** — read it before adding new code. Some highlights worth knowing:
 
-| Check | Status |
-|---|---|
-| 50 HTML pages closed properly | ✓ |
-| 7 JS modules parse via `node --check` | ✓ |
-| 50 inline `<script>` blocks parse | ✓ |
-| All internal `href` links resolve | ✓ |
-| All `#anchor` targets exist | ✓ |
-| No duplicate IDs per page | ✓ |
-| All chart `<canvas>` IDs referenced in JS | ✓ |
-| All `data-live` symbols valid in `QUOTES` | ✓ |
-| 0 missing CSS classes (191 classes tested) | ✓ |
-| Manifest icons exist | ✓ |
-| `robots.txt` + `sitemap.xml` correct domain | ✓ |
-| Favicon on every page | ✓ |
-| Nav `activePage` strings all match a dropdown group | ✓ |
-
-**Known quirk:** the sandbox environment Brandon ran the build in occasionally truncated large files mid-write (≈ 50% of HTML edits with the Edit tool got cut off at ~8 KB). Workaround was using `bash` heredoc writes (`cat > file << 'EOF'`) for anything > 200 lines. Files are clean now; just worth knowing if you Edit a large file and the audit later flags it as having no `</html>`, that's the cause — re-write via bash heredoc.
+- **Pass 53**: EnsembleAgreement returned lowercase, 3 callers checked UPPERCASE → agreement-based sizing never fired
+- **Pass 60**: kNN returned P(direction-correct), blended as P(LONG) → wrong-direction neighbors voted UP
+- **Pass 67**: SharpeTracker used 23400 periods/yr → 9.6× over-reported annual Sharpe
+- **Pass 72**: auto-trade opened at stale journal price → instant stop-outs on volatile names
+- **Pass 76**: DriftPSI alias mismatch → drift-protection chain was inert across 5 callers
+- **Pass 76b**: 5 modules (AIClient, BS, DataProvider, Feed, Notify) declared with top-level `const` never auto-attached to window → defensive `window.X` access returned undefined
+- **Pass 78**: outlier-detector now decays old samples (EMA cap 500); bootstrap-ensemble removed dead `hashSeed`; ensemble-agreement unknown case NaN-guarded; continuous-learner per-horizon rMultiple typo
 
 ---
 
 ## Conventions Claude Code should keep
 
-1. **No build step.** This stays static HTML. Don't introduce webpack/vite/etc. without a reason.
-2. **No frameworks.** No React, no Vue, no jQuery. Vanilla JS + Chart.js CDN only.
-3. **No emojis in code that's not user-facing.** Brandon is fine with emojis in UI (they're throughout the nav and pages) but don't add them to code comments or commit messages.
-4. **Pages are flat at the root.** Don't move them into a `pages/` directory — links would all break.
-5. **Bash heredoc for any file > 200 lines.** Avoids the truncation issue. Edit tool is fine for surgical changes.
-6. **Always `node --check` JS files after editing them.** Same for an extracted inline-script body. Audit script at the bottom of this doc.
-7. **Black-Scholes is in `live.js`, not a separate file.** Don't refactor it out — it's referenced inline on `options-chain.html` and several other pages.
-8. **Match the existing dropdown nav grouping logic in `js/app.js → buildNav()`.** New pages need to be added to `playsGrp`, `tradeGrp`, or `toolsGrp` arrays so the active state lights up.
+1. **No build step.** Static HTML. Don't introduce webpack/vite/etc.
+2. **No frameworks.** Vanilla JS + Chart.js CDN only.
+3. **No emojis in code comments or commit messages.** Brandon is fine with emojis in UI but not in code.
+4. **Pages are flat at the root.** Don't move them into a `pages/` directory — every internal href would break.
+5. **Always `node --check` JS files after editing.**
+6. **Always add new pages to BOTH `app.js`'s buildNav() (for the active state) AND the brainGrp/playsGrp/etc array** (also in `app.js`), AND `sitemap.xml`.
+7. **Modules export via `window.X = X` at the bottom** — top-level `const X = ...` does NOT auto-attach (pass 76b).
+8. **Storage keys all start with `bpleone_`** and end with `_v1` (or `_v2` after schema changes).
+9. **Black-Scholes is in `live.js`**, not a separate file — don't refactor.
+10. **Match existing nav grouping logic.** Brain/training stuff → `brainGrp`. New tool → `toolsGrp`. New scanner → `scanGrp`. The `activePage` string passed to `buildNav()` MUST match the bare filename (without `.html`) for the active-state highlight to light up.
 
 ---
 
-## What's NOT yet built (Brandon may ask)
+## What's still mocked (until user wires a provider)
 
-Things considered but not done:
-- Real backend (auth, paid tier paywall, Stripe)
-- Email subscribe wired to ConvertKit/Beehiiv (currently writes to `localStorage` only)
-- Discord integration for the community tier
-- Mobile-first refinement (responsive works but mobile UX could be tighter on some pages)
-- TradingView widget embeds (we use Chart.js — could swap for richer TV widgets on key pages)
-- Real LLM-powered assistant (current is keyword-routed canned responses)
-- Real market data feed (one-line swap in `live.js`)
-- Tests (no test suite — the audits live in shell scripts in conversation history)
+- News headlines, Congressional/insider transactions, Earnings dates (we have a static pattern table in `earnings-awareness.js`), Option chain prices, Dark pool prints
+- Mock-to-real swap is now zero-code via `settings.html`
 
 ---
 
-## Quick audit script
-
-**On Windows (no `node` needed)** — run the Python audit:
-```bash
-python _full_audit.py
-```
-Validates: JS module brace/paren/bracket balance via proper tokenizer, inline `<script>` blocks in every HTML, closing `</html>` tag, duplicate IDs, broken internal hrefs, and sitemap coverage. Files: `_balance.py` (tokenizer lib), `_full_audit.py` (orchestrator).
-
-**On Mac/Linux with node** — the original bash audit still works:
+## Audit script
 
 ```bash
-echo "Pages: $(ls *.html | wc -l)"
-echo "JS: $(ls js/*.js | wc -l)"
-
-# All HTML closed
-for f in *.html; do tail -3 "$f" | grep -q "</html>" || echo "✗ $f"; done
-
-# JS valid
-for f in js/*.js; do node --check "$f" 2>&1 | grep -E "Error" && echo "✗ $f"; done
-
-# Inline scripts valid
-for f in *.html; do
-  python3 -c "
-import re
-c = open('$f').read()
-inline = re.findall(r'<script(?![^>]*\bsrc=)[^>]*>(.*?)</script>', c, re.DOTALL)
-print('\n'.join(inline))
-" > /tmp/inline.js
-  if [ -s /tmp/inline.js ]; then
-    node --check /tmp/inline.js 2>&1 | grep -E "Error" && echo "✗ $f"
-  fi
-done
+# Lint everything
+for f in js/*.js; do node --check "$f"; done
+# Quick state check
+python3 -m http.server 8080  # browse to localhost:8080
 ```
+
+For broader scans (broken hrefs, inline-JS parse, sitemap coverage), see the inline Python at the bottom of recent conversation transcripts — but the live audit page at `/audit-log.html` is the canonical record.
 
 ---
 
 ## How Brandon thinks about this product
 
-This is the **second of multiple "desks"** Brandon is building on `bpleone.com`. Each desk is its own subdomain, its own deploy. The Pokémon TCG desk shipped first. This one is the equity / options / TA desk. Future desks planned: Sports Cards, Sports Betting / DFS, Sports Hub.
+This is the **second of multiple "desks"** Brandon is building on `bpleone.com`. Pokémon TCG desk (`pokemon.bpleone.com`) shipped first. This one is the equity / options / TA desk. Future desks planned: Sports Cards, Sports Betting / DFS, Sports Hub.
 
 He wants this to feel like **Unusual Whales meets Goldman/MS terminal**. Institutional-grade UX, retail-friendly explanations underneath. He cares about:
 
-- Speed (no build step, instant page loads)
-- Depth (a real trader should find everything they'd want)
-- A real **self-learning element** — the system improves over time based on tracked outcomes (this is what `learn.js` + `edge-analytics.html` are about)
-- A daily **Trade of the Day** (the marquee feature) and a broader **Plays of the Day** ranking
-- Making money — the product is the foundation; the pricing tiers are on `about.html` (Free / $49 Pro / $149 Desk)
+- **Speed** (no build step, instant page loads)
+- **Depth** (a real trader should find everything they'd want)
+- **Self-learning** — the brain genuinely improves over time from real outcomes (this is what continuous-learner + auto-trainer + bootstrap + all the calibrators do)
+- **Honest metrics** — passes 67-68 corrected the annualized-Sharpe over-report; passes 60+76 fixed silent failures in kNN and drift; Brandon wants the numbers to be trustworthy
+- **Daily actionability** — Trade of the Day, Plays of the Day, Conviction Stack, Brain Bet (the "one trade now or nothing" page)
+- **Making money** — the product is the foundation; pricing is on `about.html`
 
-He's based in Southern California, late 20s, finance background (equity research / IB style). He uses Squarespace for the hub site and is comfortable with terminal but prefers click-by-click guides if there's a faster path.
+He's based in Southern California, late 20s, finance background (equity research / IB style). He uses Squarespace for the hub site and is comfortable with terminal but prefers click-by-click guides.
 
 ---
 
 ## Pick-up: typical next requests
 
-If Brandon comes back, he's most likely to ask for one of these — in roughly this order of probability:
+In rough order of probability when Brandon comes back:
 
-1. **"Keep building"** — meaning add more pages. He's added 60+ in 5 batches and hasn't slowed down. Read the "What's NOT yet built" section and propose 5-8 fresh additions.
-2. **"Walk me through deploying to Netlify"** — the DEPLOY.md has the full guide; offer to be his real-time co-pilot through the 6 steps.
-3. **"Fix [page X], it's not loading the chart"** — Chart.js timing issue; check that the `<canvas>` ID matches the render call, and that `chart.umd.min.js` CDN is in the `<head>`.
-4. **"Make [page X] more like Unusual Whales"** — typically means denser data, more contracts, more flow detail. Look at `options-flow.html` as the canonical "UW-style" page and replicate that density.
-5. **"Add real data"** — point to the one-function swap in `live.js`. Recommend Polygon (cheapest production-grade equity + options) or Tradier (if he wants the trading-integration upside).
+1. **"Keep building"** / **"Keep auditing"** — find next thing in audit-log to fix or extend; bias toward shipping. Reasonable defaults: more audit passes, more training-velocity features, more diagnostic surfaces.
+2. **"Train the model"** — point at `/train-now.html` (one-click full pipeline) or expand training (deeper history, more symbols, lower cooldowns).
+3. **"Fix [page X]"** — most "broken" pages turn out to be: missing direct `<script src>` (lazy-load race), or a case-mismatch like pass 53/76, or a misnamed window export like pass 76b.
+4. **"What's on the hub?"** — check that `bpleone.com` is showing the LIVE tile (paths in SQUARESPACE-FIX.md).
+5. **"Add real data"** — point to `settings.html` data-provider toggle.
 
-Good luck. Brandon's a fast-mover with strong taste — bias toward shipping over discussion.
+Brandon's a fast-mover with strong taste — bias toward shipping over discussion.
+
+— Updated by Claude through audit pass 78.
