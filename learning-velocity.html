@@ -1,0 +1,395 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Learning Velocity — bpleone</title>
+<meta name="description" content="Is the brain actually getting smarter? Tracks training volume, Brier skill, Sharpe, and accuracy over time so you can see whether the self-learning loop is working.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.hero { padding:28px;border-radius:16px;background:linear-gradient(135deg,rgba(0,212,255,0.08),rgba(0,212,255,0.02));border:2px solid rgba(0,212,255,0.4);margin-bottom:24px;text-align:center; }
+.hero .num { font-family:var(--font-mono);font-size:64px;font-weight:900;line-height:1; }
+.hero .lbl { font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:1.5px;font-weight:700;margin-top:8px; }
+.hero .delta { display:inline-block;margin-top:10px;font-family:var(--font-mono);font-size:14px;font-weight:700;padding:4px 12px;border-radius:14px; }
+.hero .delta.up { background:rgba(16,185,129,0.18);color:var(--green); }
+.hero .delta.dn { background:rgba(239,68,68,0.18);color:var(--red); }
+.hero .delta.flat { background:rgba(245,158,11,0.15);color:var(--yellow); }
+.spark { width:100%;height:50px;display:block; }
+.bar-row { display:flex;align-items:center;gap:10px;font-size:12px;padding:4px 0; }
+.bar-row .sym { font-family:var(--font-mono);font-weight:700;width:60px; }
+.bar-row .barwrap { flex:1;height:14px;background:rgba(255,255,255,0.04);border-radius:4px;overflow:hidden;position:relative; }
+.bar-row .bar { height:100%;border-radius:4px; }
+.bar-row .val { font-family:var(--font-mono);font-weight:700;width:60px;text-align:right; }
+.tile { padding:18px;background:var(--bg-elevated);border-radius:10px; }
+.tile .lbl { font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;font-weight:700; }
+.tile .val { font-family:var(--font-mono);font-size:22px;font-weight:800;margin-top:6px;color:var(--accent); }
+.heatcell { display:inline-block;width:14px;height:14px;margin:1px;border-radius:2px;vertical-align:top; }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">📈 Learning Velocity</div>
+      <div class="page-subtitle">Is the brain actually getting smarter? Training volume + skill metrics over time · <span id="market-clock">--</span></div>
+    </div>
+    <div class="flex gap-8">
+      <a href="train-now.html" class="btn btn-ghost">⚡ Train Now</a>
+      <a href="brain-truth.html" class="btn btn-ghost">🧪 Brain Truth</a>
+    </div>
+  </div>
+
+  <div class="grid grid-3 mb-24">
+    <div class="hero" id="heroBSS"></div>
+    <div class="hero" id="heroAcc"></div>
+    <div class="hero" id="heroSharpe"></div>
+  </div>
+
+  <div class="grid grid-2 mb-24">
+    <div class="card">
+      <div class="card-header"><div class="card-title">📊 Training events per day · last 30d</div></div>
+      <div id="trainVolume" style="min-height:160px;font-family:var(--font-mono);font-size:11px;line-height:1.7;"></div>
+    </div>
+    <div class="card">
+      <div class="card-header"><div class="card-title">🎯 Rolling 50-prediction accuracy</div></div>
+      <svg id="accSpark" class="spark" viewBox="0 0 400 80" preserveAspectRatio="none"></svg>
+      <div id="accCaption" style="font-size:12px;color:var(--text-muted);font-family:var(--font-mono);margin-top:8px;"></div>
+    </div>
+  </div>
+
+  <div class="card mb-24">
+    <div class="card-header"><div class="card-title">🏆 Per-symbol Brier skill (top 20 by sample count)</div></div>
+    <div id="symLeaderboard"></div>
+  </div>
+
+  <div class="card mb-24">
+    <div class="card-header"><div class="card-title">🌐 Per-sector annual Sharpe</div></div>
+    <div id="sectorLeaderboard"></div>
+  </div>
+
+  <div class="card mb-24">
+    <div class="card-header"><div class="card-title">📅 Capture activity heatmap · last 90 days</div></div>
+    <div id="captureHeatmap" style="line-height:0;"></div>
+    <div style="font-size:11px;color:var(--text-muted);margin-top:8px;font-family:var(--font-mono);">
+      cell = day; intensity = captures per day · <span style="color:var(--green);">deep green = high learning velocity</span>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-header"><div class="card-title">📚 Reading these numbers</div></div>
+    <div style="font-size:13px;color:var(--text-secondary);line-height:1.7;">
+      <strong>Brier Skill</strong> &gt; 0 means the brain beats the naive baseline (always-predict-base-rate). &gt; 0.10 = useful, &gt; 0.20 = strong. If your skill is flat or declining, something is wrong with the training data or labels.<br><br>
+      <strong>Rolling accuracy</strong> tracks the last 50 resolved short-horizon predictions. Above 55% on directional bets is the threshold for "profitable after costs."<br><br>
+      <strong>Annual Sharpe</strong> is the risk-adjusted return of betting on the brain's directional call. 0 = coin flip, 1+ = professional grade, 2+ = exceptional. After audit pass 67-68 it's reported on the correct daily scale (was 10× over-reported).<br><br>
+      <strong>Per-symbol</strong>: a green bar means the brain has measurable edge on that symbol. Red bars are noise — consider excluding them from the universe.<br><br>
+      <strong>Per-sector</strong>: shows where the brain has natural alpha. Tech + bonds + vol are usually different beasts.
+    </div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script src="js/model.js"></script>
+<script src="js/brier-skill.js"></script>
+<script src="js/sharpe-tracker.js"></script>
+<script src="js/symbol-skill.js"></script>
+<script src="js/symbol-sharpe.js"></script>
+<script src="js/sector-perf.js"></script>
+<script>
+buildNav('learning-velocity');
+
+function fmt(n, dp) { return (n == null || !isFinite(n)) ? '—' : n.toFixed(dp != null ? dp : 2); }
+function fmtSign(n, dp) { if (n == null || !isFinite(n)) return '—'; return (n >= 0 ? '+' : '') + n.toFixed(dp != null ? dp : 2); }
+
+// Load journal once for per-day training volume + capture heatmap
+function loadJournal() {
+  try { return JSON.parse(localStorage.getItem('bpleone_pred_journal_v1') || '[]'); } catch (e) { return []; }
+}
+
+function renderHeroBSS() {
+  let s = null;
+  try { s = window.BrierSkill && window.BrierSkill.score(); } catch (e) {}
+  const card = document.getElementById('heroBSS');
+  if (!s || !s.ready) {
+    card.innerHTML = '<div class="num" style="color:var(--text-muted);">—</div><div class="lbl">Brier skill</div><div class="delta flat">need 10+ resolutions</div>';
+    return;
+  }
+  const tier = window.BrierSkill.tier(s.skill);
+  const color = s.skill > 0.10 ? 'var(--green)' : s.skill > 0 ? 'var(--accent)' : 'var(--red)';
+  // Compute delta vs previous-window
+  let delta = null;
+  try {
+    const all = JSON.parse(localStorage.getItem('bpleone_brier_skill_v1') || '{"log":[]}').log;
+    if (all.length >= 60) {
+      const recent = all.slice(-30);
+      const older = all.slice(-60, -30);
+      const baseRecent = recent.reduce((s, r) => s + r.y, 0) / recent.length;
+      const baseOlder = older.reduce((s, r) => s + r.y, 0) / older.length;
+      const brierR = recent.reduce((s, r) => s + (r.p - r.y) ** 2, 0) / recent.length;
+      const brierO = older.reduce((s, r) => s + (r.p - r.y) ** 2, 0) / older.length;
+      const baseBrierR = recent.reduce((s, r) => s + (baseRecent - r.y) ** 2, 0) / recent.length;
+      const baseBrierO = older.reduce((s, r) => s + (baseOlder - r.y) ** 2, 0) / older.length;
+      const skillR = baseBrierR > 0 ? 1 - brierR / baseBrierR : 0;
+      const skillO = baseBrierO > 0 ? 1 - brierO / baseBrierO : 0;
+      delta = skillR - skillO;
+    }
+  } catch (e) {}
+  const deltaCls = delta == null ? 'flat' : delta > 0.01 ? 'up' : delta < -0.01 ? 'dn' : 'flat';
+  const deltaTxt = delta == null ? 'no comparison yet' : 'Δ ' + fmtSign(delta, 3) + ' vs prior 30';
+  card.innerHTML = '<div class="num" style="color:' + color + ';">' + fmt(s.skill, 3) + '</div>'
+    + '<div class="lbl">Brier skill · ' + tier + '</div>'
+    + '<div class="delta ' + deltaCls + '">' + deltaTxt + '</div>'
+    + '<div style="font-size:10px;color:var(--text-muted);margin-top:8px;font-family:var(--font-mono);">n=' + s.n + ' · base ' + fmt(s.baseRate * 100, 1) + '%</div>';
+}
+
+function renderHeroAcc() {
+  const card = document.getElementById('heroAcc');
+  let acc = null, n = 0;
+  try {
+    const log = JSON.parse(localStorage.getItem('bpleone_rolling_acc_v1') || '[]');
+    if (log.length >= 5) {
+      const recent = log.slice(-50);
+      acc = recent.filter(r => r.correct).length / recent.length;
+      n = recent.length;
+    }
+  } catch (e) {}
+  if (acc == null) {
+    card.innerHTML = '<div class="num" style="color:var(--text-muted);">—</div><div class="lbl">Rolling accuracy</div><div class="delta flat">need 5+ resolutions</div>';
+    return;
+  }
+  let delta = null;
+  try {
+    const log = JSON.parse(localStorage.getItem('bpleone_rolling_acc_v1') || '[]');
+    if (log.length >= 100) {
+      const a = log.slice(-50);
+      const b = log.slice(-100, -50);
+      const accA = a.filter(r => r.correct).length / a.length;
+      const accB = b.filter(r => r.correct).length / b.length;
+      delta = accA - accB;
+    }
+  } catch (e) {}
+  const color = acc >= 0.55 ? 'var(--green)' : acc >= 0.50 ? 'var(--accent)' : 'var(--red)';
+  const deltaCls = delta == null ? 'flat' : delta > 0.02 ? 'up' : delta < -0.02 ? 'dn' : 'flat';
+  const deltaTxt = delta == null ? 'no comparison yet' : 'Δ ' + fmtSign(delta * 100, 1) + 'pp vs prior 50';
+  card.innerHTML = '<div class="num" style="color:' + color + ';">' + (acc * 100).toFixed(1) + '%</div>'
+    + '<div class="lbl">Rolling accuracy</div>'
+    + '<div class="delta ' + deltaCls + '">' + deltaTxt + '</div>'
+    + '<div style="font-size:10px;color:var(--text-muted);margin-top:8px;font-family:var(--font-mono);">last ' + n + ' resolutions</div>';
+}
+
+function renderHeroSharpe() {
+  const card = document.getElementById('heroSharpe');
+  let s = null;
+  try { s = window.SharpeTracker && window.SharpeTracker.score(); } catch (e) {}
+  if (!s || !s.ready) {
+    card.innerHTML = '<div class="num" style="color:var(--text-muted);">—</div><div class="lbl">Annual Sharpe</div><div class="delta flat">need 10+ resolutions</div>';
+    return;
+  }
+  const t = window.SharpeTracker.tier(s.annSharpe);
+  const color = s.annSharpe >= 1.0 ? 'var(--green)' : s.annSharpe >= 0 ? 'var(--accent)' : 'var(--red)';
+  card.innerHTML = '<div class="num" style="color:' + color + ';">' + fmt(s.annSharpe, 2) + '</div>'
+    + '<div class="lbl">Annual Sharpe · ' + t + '</div>'
+    + '<div class="delta flat">' + s.n + ' samples · daily basis</div>'
+    + '<div style="font-size:10px;color:var(--text-muted);margin-top:8px;font-family:var(--font-mono);">mean ' + fmt(s.mean * 100, 3) + '% · std ' + fmt(s.std * 100, 3) + '%</div>';
+}
+
+function renderTrainVolume() {
+  const wrap = document.getElementById('trainVolume');
+  const journal = loadJournal();
+  if (journal.length === 0) {
+    wrap.innerHTML = '<div style="color:var(--text-muted);text-align:center;padding:40px;">No journal yet — visit /train-now.html to bootstrap.</div>';
+    return;
+  }
+  // Bucket resolved entries by day
+  const buckets = {};
+  let maxN = 0;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const todayMs = today.getTime();
+  for (let d = 29; d >= 0; d--) {
+    const dayMs = todayMs - d * 86400000;
+    const key = new Date(dayMs).toISOString().slice(0, 10);
+    buckets[key] = 0;
+  }
+  journal.forEach(e => {
+    if (!e.ts) return;
+    const d = new Date(e.ts);
+    d.setHours(0, 0, 0, 0);
+    const key = d.toISOString().slice(0, 10);
+    if (key in buckets) {
+      // Only count resolved short-horizon entries as "training events"
+      const resolved = e.resolved && (e.resolved === true || (e.resolved.short && e.resolved.short !== false));
+      if (resolved) buckets[key]++;
+    }
+  });
+  for (const k in buckets) maxN = Math.max(maxN, buckets[k]);
+  const total = Object.values(buckets).reduce((s, v) => s + v, 0);
+  const avgPerDay = (total / 30).toFixed(1);
+  wrap.innerHTML = '<div style="font-size:12px;color:var(--text-muted);margin-bottom:10px;">'
+    + '<strong style="color:var(--accent);">' + total + '</strong> training events in last 30d · avg <strong>' + avgPerDay + '</strong>/day · peak <strong>' + maxN + '</strong>'
+    + '</div>'
+    + Object.entries(buckets).map(([k, v]) => {
+      const pct = maxN > 0 ? (v / maxN) * 100 : 0;
+      const color = v > 0 ? 'var(--green)' : 'rgba(255,255,255,0.06)';
+      return '<div class="bar-row"><span class="sym" style="width:90px;">' + k.slice(5) + '</span>'
+        + '<div class="barwrap"><div class="bar" style="width:' + pct + '%;background:' + color + ';"></div></div>'
+        + '<span class="val">' + v + '</span></div>';
+    }).join('');
+}
+
+function renderAccSpark() {
+  const svg = document.getElementById('accSpark');
+  const cap = document.getElementById('accCaption');
+  let log = [];
+  try { log = JSON.parse(localStorage.getItem('bpleone_rolling_acc_v1') || '[]'); } catch (e) {}
+  if (log.length < 5) {
+    svg.innerHTML = '<text x="200" y="40" fill="rgba(255,255,255,0.5)" text-anchor="middle" font-size="11" font-family="var(--font-mono)">need 5+ resolutions</text>';
+    cap.textContent = '—';
+    return;
+  }
+  // Window into 50-sample rolling accuracy at each point
+  const window = 20;
+  const pts = [];
+  for (let i = window; i <= log.length; i++) {
+    const slice = log.slice(Math.max(0, i - 50), i);
+    const acc = slice.filter(r => r.correct).length / slice.length;
+    pts.push({ idx: i, acc });
+  }
+  if (pts.length < 2) {
+    svg.innerHTML = '<text x="200" y="40" fill="rgba(255,255,255,0.5)" text-anchor="middle" font-size="11" font-family="var(--font-mono)">need more data</text>';
+    cap.textContent = '—';
+    return;
+  }
+  // Map to SVG
+  const w = 400, h = 80;
+  const minY = 0.3, maxY = 0.75;
+  const path = pts.map((p, i) => {
+    const x = (i / (pts.length - 1)) * w;
+    const y = h - ((p.acc - minY) / (maxY - minY)) * h;
+    return (i === 0 ? 'M' : 'L') + x.toFixed(1) + ' ' + y.toFixed(1);
+  }).join(' ');
+  // 50% baseline
+  const baselineY = h - ((0.5 - minY) / (maxY - minY)) * h;
+  svg.innerHTML = ''
+    + '<line x1="0" y1="' + baselineY + '" x2="' + w + '" y2="' + baselineY + '" stroke="rgba(255,255,255,0.15)" stroke-dasharray="4,4"/>'
+    + '<path d="' + path + '" fill="none" stroke="var(--accent)" stroke-width="2"/>'
+    + '<text x="2" y="12" fill="rgba(255,255,255,0.5)" font-size="9" font-family="var(--font-mono)">75%</text>'
+    + '<text x="2" y="' + (h - 2) + '" fill="rgba(255,255,255,0.5)" font-size="9" font-family="var(--font-mono)">30%</text>'
+    + '<text x="' + (w - 2) + '" y="' + (baselineY - 3) + '" fill="rgba(255,255,255,0.5)" font-size="9" font-family="var(--font-mono)" text-anchor="end">coinflip</text>';
+  const last = pts[pts.length - 1].acc;
+  const first = pts[0].acc;
+  const change = last - first;
+  cap.textContent = pts.length + ' windows shown · current ' + (last * 100).toFixed(1) + '% · change ' + fmtSign(change * 100, 1) + 'pp over the period';
+}
+
+function renderSymLeaderboard() {
+  const wrap = document.getElementById('symLeaderboard');
+  let all = null;
+  try { all = window.SymbolSkill && window.SymbolSkill.leaderboard(100); } catch (e) {}
+  if (!all || all.length === 0) {
+    wrap.innerHTML = '<div style="color:var(--text-muted);padding:20px;text-align:center;">No per-symbol skill data yet — needs ≥10 resolved trades per symbol.</div>';
+    return;
+  }
+  const top = all.filter(a => a.ready && a.n >= 10).slice(0, 20);
+  if (top.length === 0) {
+    wrap.innerHTML = '<div style="color:var(--text-muted);padding:20px;text-align:center;">No symbols have 10+ resolutions yet.</div>';
+    return;
+  }
+  const maxAbs = Math.max(0.1, Math.max(...top.map(a => Math.abs(a.skill))));
+  wrap.innerHTML = top.map(s => {
+    const pct = (Math.abs(s.skill) / maxAbs) * 100;
+    const color = s.skill > 0 ? 'var(--green)' : 'var(--red)';
+    return '<div class="bar-row">'
+      + '<span class="sym">' + s.symbol + '</span>'
+      + '<div class="barwrap"><div class="bar" style="width:' + pct.toFixed(1) + '%;background:' + color + ';"></div></div>'
+      + '<span class="val" style="color:' + color + ';">' + fmtSign(s.skill, 3) + '</span>'
+      + '<span style="font-size:10px;color:var(--text-muted);margin-left:6px;font-family:var(--font-mono);">n=' + s.n + '</span>'
+      + '</div>';
+  }).join('');
+}
+
+function renderSectorLeaderboard() {
+  const wrap = document.getElementById('sectorLeaderboard');
+  let stats = null;
+  try { stats = window.SectorPerf && window.SectorPerf.stats(); } catch (e) {}
+  if (!stats || Object.keys(stats).length === 0) {
+    wrap.innerHTML = '<div style="color:var(--text-muted);padding:20px;text-align:center;">No per-sector data yet — needs ≥10 resolved trades per sector.</div>';
+    return;
+  }
+  const rows = Object.entries(stats).filter(([_, s]) => s.ready && s.annSharpe != null);
+  if (rows.length === 0) {
+    wrap.innerHTML = '<div style="color:var(--text-muted);padding:20px;text-align:center;">No sectors have 10+ resolutions yet.</div>';
+    return;
+  }
+  rows.sort((a, b) => b[1].annSharpe - a[1].annSharpe);
+  const maxAbs = Math.max(0.5, Math.max(...rows.map(([_, s]) => Math.abs(s.annSharpe))));
+  wrap.innerHTML = rows.map(([sector, s]) => {
+    const pct = (Math.abs(s.annSharpe) / maxAbs) * 100;
+    const color = s.annSharpe > 0 ? 'var(--green)' : 'var(--red)';
+    return '<div class="bar-row">'
+      + '<span class="sym" style="width:120px;">' + sector + '</span>'
+      + '<div class="barwrap"><div class="bar" style="width:' + pct.toFixed(1) + '%;background:' + color + ';"></div></div>'
+      + '<span class="val" style="color:' + color + ';">' + fmtSign(s.annSharpe, 2) + '</span>'
+      + '<span style="font-size:10px;color:var(--text-muted);margin-left:6px;font-family:var(--font-mono);">n=' + s.n + '</span>'
+      + '</div>';
+  }).join('');
+}
+
+function renderCaptureHeatmap() {
+  const wrap = document.getElementById('captureHeatmap');
+  const journal = loadJournal();
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const todayMs = today.getTime();
+  const buckets = {};
+  for (let d = 89; d >= 0; d--) {
+    const dayMs = todayMs - d * 86400000;
+    const key = new Date(dayMs).toISOString().slice(0, 10);
+    buckets[key] = 0;
+  }
+  journal.forEach(e => {
+    if (!e.ts) return;
+    const d = new Date(e.ts);
+    d.setHours(0, 0, 0, 0);
+    const key = d.toISOString().slice(0, 10);
+    if (key in buckets) buckets[key]++;
+  });
+  const maxN = Math.max(1, ...Object.values(buckets));
+  const cells = Object.entries(buckets).map(([k, v]) => {
+    const intensity = v / maxN;
+    const g = Math.round(40 + intensity * 200);
+    const bg = v === 0 ? 'rgba(255,255,255,0.04)' : 'rgb(16,' + g + ',129)';
+    return '<span class="heatcell" style="background:' + bg + ';" title="' + k + ': ' + v + ' captures"></span>';
+  }).join('');
+  wrap.innerHTML = cells;
+}
+
+function renderAll() {
+  renderHeroBSS();
+  renderHeroAcc();
+  renderHeroSharpe();
+  renderTrainVolume();
+  renderAccSpark();
+  renderSymLeaderboard();
+  renderSectorLeaderboard();
+  renderCaptureHeatmap();
+}
+
+renderAll();
+setInterval(renderAll, 15000);
+window.addEventListener('bpleone:continuous-resolved', renderAll);
+window.addEventListener('bpleone:continuous-cycle', renderAll);
+</script>
+</body>
+</html>
