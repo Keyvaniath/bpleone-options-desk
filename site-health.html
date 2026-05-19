@@ -1,0 +1,291 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Site Health — bpleone</title>
+<meta name="description" content="One-page health dashboard. TradeTrust + BSS + Sharpe + Drift + Covariate-shift + per-symbol skill + recent training events — everything Brandon needs to know if the brain is healthy.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.hero-num { font-family:var(--font-mono);font-size:88px;font-weight:900;line-height:1; }
+.health-card { padding:24px;border-radius:14px;background:var(--bg-elevated);border:1px solid var(--border);text-align:center; }
+.health-card.green { border-color:var(--green);background:linear-gradient(135deg,rgba(16,185,129,0.10),rgba(16,185,129,0.02)); }
+.health-card.yellow { border-color:var(--yellow);background:linear-gradient(135deg,rgba(245,158,11,0.10),rgba(245,158,11,0.02)); }
+.health-card.red { border-color:var(--red);background:linear-gradient(135deg,rgba(239,68,68,0.10),rgba(239,68,68,0.02)); }
+.tile { padding:18px;background:var(--bg-elevated);border-radius:10px; }
+.tile .lbl { font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;font-weight:700; }
+.tile .val { font-family:var(--font-mono);font-size:22px;font-weight:800;margin-top:6px; }
+.row { display:flex;align-items:center;gap:10px;padding:6px 10px;border-radius:6px;font-size:12px;margin-bottom:4px; }
+.row .name { font-family:var(--font-mono);font-weight:700;width:120px; }
+.row .barwrap { flex:1;height:10px;background:rgba(255,255,255,0.05);border-radius:4px;overflow:hidden; }
+.row .bar { height:100%;border-radius:4px; }
+.row .val { font-family:var(--font-mono);font-weight:700;width:80px;text-align:right;font-size:11px; }
+.fixed-badge { display:inline-block;font-size:10px;font-weight:800;padding:2px 8px;border-radius:10px;background:rgba(0,212,255,0.15);color:var(--accent);letter-spacing:0.5px;text-transform:uppercase;margin-left:8px; }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">🏥 Site Health</div>
+      <div class="page-subtitle">Single-page dashboard of every honest diagnostic · auto-refresh 10s · <span id="market-clock">--</span></div>
+    </div>
+    <div class="flex gap-8">
+      <a href="train-now.html" class="btn btn-ghost">⚡ Train Now</a>
+      <a href="learning-velocity.html" class="btn btn-ghost">📈 Velocity</a>
+      <a href="brain-debug.html" class="btn btn-ghost">🩺 Debug</a>
+      <a href="audit-log.html" class="btn btn-ghost">🔍 Audit Log</a>
+    </div>
+  </div>
+
+  <!-- HERO: overall trust score -->
+  <div class="grid grid-3 mb-24">
+    <div class="health-card" id="heroTrust"></div>
+    <div class="health-card" id="heroBSS"></div>
+    <div class="health-card" id="heroSharpe"></div>
+  </div>
+
+  <!-- Row 2: safety + drift indicators -->
+  <div class="grid grid-4 mb-24" id="safetyTiles"></div>
+
+  <!-- Row 3: per-symbol -->
+  <div class="grid grid-2 mb-24">
+    <div class="card">
+      <div class="card-header"><div class="card-title">🏆 Best symbols by Brier Skill</div></div>
+      <div id="bestSyms"></div>
+    </div>
+    <div class="card">
+      <div class="card-header"><div class="card-title">⚠ Worst symbols</div></div>
+      <div id="worstSyms"></div>
+    </div>
+  </div>
+
+  <!-- Row 4: per-sector -->
+  <div class="card mb-24">
+    <div class="card-header"><div class="card-title">🌐 Per-sector edge</div></div>
+    <div id="sectorList"></div>
+  </div>
+
+  <!-- Pass-by-pass summary -->
+  <div class="card mb-24">
+    <div class="card-header"><div class="card-title">🛠 Recent audit work that should affect what you see above</div></div>
+    <div style="font-size:13px;color:var(--text-secondary);line-height:1.7;">
+      Numbers above reflect 100 audit passes worth of fixes. Things that used to be silently broken and now actually work:<br><br>
+      <strong>Sharpe</strong> <span class="fixed-badge">pass 67</span> was 9.6× over-reported · is now on the correct daily basis<br>
+      <strong>Brier Skill</strong> <span class="fixed-badge">pass 60</span> kNN no longer flips direction · is now honest<br>
+      <strong>Drift PSI</strong> <span class="fixed-badge">pass 76</span> 5 callers couldn't reach the module · all wired up now<br>
+      <strong>Covariate shift</strong> <span class="fixed-badge">pass 79</span> pool too small to ever fit · now 5000-entry pool · actually fires<br>
+      <strong>Per-regime calibration</strong> <span class="fixed-badge">pass 80</span> regime names mismatched · now translated · stratification works<br>
+      <strong>Agreement-based sizing</strong> <span class="fixed-badge">pass 53</span> case mismatch silenced all checks · now active<br>
+      <strong>Auto-trade entry price</strong> <span class="fixed-badge">pass 72</span> opened at stale journal price · now anchors to current quote<br>
+      <strong>Kelly fraction</strong> <span class="fixed-badge">pass 74</span> input.fraction ignored · now respected<br>
+      <strong>Webhook reliability</strong> <span class="fixed-badge">pass 84</span> transient failures lost alerts · now retries 5xx/network errors<br>
+      <strong>OOD detector</strong> <span class="fixed-badge">pass 78</span> never decayed old samples · now EMA-Welford catches regime shifts<br>
+      <strong>Service worker</strong> <span class="fixed-badge">pass 94</span> JS fixes blocked behind cache · now stale-while-revalidate<br>
+      <strong>Module writes</strong> <span class="fixed-badge">pass 87, 89, 97</span> sample-decay/label-smoothing/self-distillation/cross-source-check all had write-storms · now cache+flush
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-header"><div class="card-title">📚 How to read this page</div></div>
+    <div style="font-size:13px;color:var(--text-secondary);line-height:1.7;">
+      Each row above is one diagnostic. Green = brain is doing what it's supposed to in this dimension. Yellow = warning. Red = something concrete you should investigate.<br><br>
+      <strong>TradeTrust</strong> ≥ 75 → safe to trade automated. 60–74 → reduce size. &lt; 60 → paper-only. &lt; 40 → AutoPause fires.<br>
+      <strong>Brier Skill</strong> &gt; 0.10 = the brain genuinely beats baseline. &lt; 0 = brain is anti-informative (rare, would mean something is corrupting the labels).<br>
+      <strong>Annual Sharpe</strong> &gt; 1 = professional grade. &gt; 2 = exceptional. &lt; 0.5 = not worth running.<br>
+      <strong>Drift PSI</strong> &gt; 0.25 = major shift, brain should retrain. &gt; 0.10 = minor shift, monitor.<br>
+      <strong>Covariate shift</strong> |AUC − 0.5| &gt; 0.20 = the input distribution looks different from the training distribution.<br>
+      <strong>Per-symbol/sector</strong> shows where the brain has measurable edge. Negative = the brain is anti-informative on that name; consider excluding.
+    </div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script src="js/model.js"></script>
+<script src="js/brier-skill.js"></script>
+<script src="js/sharpe-tracker.js"></script>
+<script src="js/symbol-skill.js"></script>
+<script src="js/symbol-sharpe.js"></script>
+<script src="js/sector-perf.js"></script>
+<script src="js/drift-psi.js"></script>
+<script src="js/adversarial-validator.js"></script>
+<script src="js/drawdown-protector.js"></script>
+<script src="js/trade-trust-score.js"></script>
+<script src="js/auto-pause.js"></script>
+<script src="js/trade-selectivity.js"></script>
+<script>
+buildNav('site-health');
+
+function fmt(n, dp) { return (n == null || !isFinite(n)) ? '—' : n.toFixed(dp != null ? dp : 2); }
+function fmtSign(n, dp) { if (n == null || !isFinite(n)) return '—'; return (n >= 0 ? '+' : '') + n.toFixed(dp != null ? dp : 2); }
+
+function renderHeroTrust() {
+  const card = document.getElementById('heroTrust');
+  let t = null;
+  try { t = window.TradeTrust && window.TradeTrust.score(); } catch (e) {}
+  if (!t) {
+    card.className = 'health-card yellow';
+    card.innerHTML = '<div class="hero-num" style="color:var(--text-muted);">—</div><div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:1.5px;font-weight:700;margin-top:8px;">TradeTrust</div>';
+    return;
+  }
+  const tier = t.score >= 75 ? 'green' : t.score >= 60 ? 'yellow' : t.score >= 40 ? 'yellow' : 'red';
+  card.className = 'health-card ' + tier;
+  card.innerHTML = '<div class="hero-num" style="color:' + (tier === 'green' ? 'var(--green)' : tier === 'red' ? 'var(--red)' : 'var(--yellow)') + ';">' + t.score + '</div>'
+    + '<div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:1.5px;font-weight:700;margin-top:8px;">TradeTrust · ' + t.tierLabel + '</div>'
+    + '<div style="font-size:11px;color:var(--text-muted);margin-top:8px;font-family:var(--font-mono);">' + (t.penalties || []).length + ' active penalties</div>';
+}
+
+function renderHeroBSS() {
+  const card = document.getElementById('heroBSS');
+  let bss = null;
+  try { bss = window.BrierSkill && window.BrierSkill.score(); } catch (e) {}
+  if (!bss || !bss.ready) {
+    card.className = 'health-card yellow';
+    card.innerHTML = '<div class="hero-num" style="color:var(--text-muted);">—</div><div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:1.5px;font-weight:700;margin-top:8px;">Brier Skill</div><div style="font-size:11px;color:var(--text-muted);margin-top:8px;font-family:var(--font-mono);">need 10+ resolutions</div>';
+    return;
+  }
+  const tier = bss.skill > 0.10 ? 'green' : bss.skill > 0 ? 'yellow' : 'red';
+  const color = tier === 'green' ? 'var(--green)' : tier === 'red' ? 'var(--red)' : 'var(--yellow)';
+  card.className = 'health-card ' + tier;
+  card.innerHTML = '<div class="hero-num" style="color:' + color + ';">' + fmt(bss.skill, 3) + '</div>'
+    + '<div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:1.5px;font-weight:700;margin-top:8px;">Brier Skill · ' + window.BrierSkill.tier(bss.skill) + '</div>'
+    + '<div style="font-size:11px;color:var(--text-muted);margin-top:8px;font-family:var(--font-mono);">n=' + bss.n + ' · base ' + fmt(bss.baseRate * 100, 1) + '%</div>';
+}
+
+function renderHeroSharpe() {
+  const card = document.getElementById('heroSharpe');
+  let s = null;
+  try { s = window.SharpeTracker && window.SharpeTracker.score(); } catch (e) {}
+  if (!s || !s.ready) {
+    card.className = 'health-card yellow';
+    card.innerHTML = '<div class="hero-num" style="color:var(--text-muted);">—</div><div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:1.5px;font-weight:700;margin-top:8px;">Annual Sharpe</div><div style="font-size:11px;color:var(--text-muted);margin-top:8px;font-family:var(--font-mono);">need 10+ resolutions</div>';
+    return;
+  }
+  const tier = s.annSharpe >= 1 ? 'green' : s.annSharpe >= 0 ? 'yellow' : 'red';
+  const color = tier === 'green' ? 'var(--green)' : tier === 'red' ? 'var(--red)' : 'var(--yellow)';
+  card.className = 'health-card ' + tier;
+  card.innerHTML = '<div class="hero-num" style="color:' + color + ';">' + fmt(s.annSharpe, 2) + '</div>'
+    + '<div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:1.5px;font-weight:700;margin-top:8px;">Annual Sharpe · ' + window.SharpeTracker.tier(s.annSharpe) + '</div>'
+    + '<div style="font-size:11px;color:var(--text-muted);margin-top:8px;font-family:var(--font-mono);">corrected basis · pass 67</div>';
+}
+
+function renderSafetyTiles() {
+  const wrap = document.getElementById('safetyTiles');
+  // Drift PSI
+  let psi = null;
+  try { psi = window.DriftPSI && window.DriftPSI.status(); } catch (e) {}
+  const psiVal = psi && typeof psi.psi === 'number' ? psi.psi : null;
+  const psiColor = psiVal == null ? 'var(--text-muted)' : psiVal < 0.10 ? 'var(--green)' : psiVal < 0.25 ? 'var(--yellow)' : 'var(--red)';
+
+  // Covariate shift
+  let av = null;
+  try { av = window.AdversarialValidator && window.AdversarialValidator.score(); } catch (e) {}
+  const avVal = av && typeof av.lastAuc === 'number' ? av.lastAuc : null;
+  const avDev = avVal != null ? Math.abs(avVal - 0.5) : null;
+  const avColor = avDev == null ? 'var(--text-muted)' : avDev < 0.10 ? 'var(--green)' : avDev < 0.20 ? 'var(--yellow)' : 'var(--red)';
+
+  // Drawdown
+  let dd = null;
+  try { dd = window.DrawdownProtector && window.DrawdownProtector.stats(); } catch (e) {}
+  const streak = dd && typeof dd.currentStreak === 'number' ? dd.currentStreak : 0;
+  const streakColor = streak <= -3 ? 'var(--red)' : streak <= -1 ? 'var(--yellow)' : 'var(--green)';
+
+  // AutoPause
+  let apState = 'unknown';
+  try { apState = (window.AutoPause && window.AutoPause.state()) || 'unknown'; } catch (e) {}
+  const apColor = apState === 'ACTIVE' ? 'var(--green)' : apState === 'COOLDOWN' ? 'var(--yellow)' : 'var(--red)';
+
+  wrap.innerHTML = ''
+    + '<div class="tile"><div class="lbl">Drift PSI</div><div class="val" style="color:' + psiColor + ';">' + (psiVal != null ? fmt(psiVal, 3) : '—') + '</div><div style="font-size:10px;color:var(--text-muted);margin-top:4px;">' + (psi && psi.status || 'n/a') + '</div></div>'
+    + '<div class="tile"><div class="lbl">Covariate shift</div><div class="val" style="color:' + avColor + ';">' + (avDev != null ? fmt(avDev * 100, 1) + '%' : '—') + '</div><div style="font-size:10px;color:var(--text-muted);margin-top:4px;">AUC ' + (avVal != null ? fmt(avVal, 2) : '—') + '</div></div>'
+    + '<div class="tile"><div class="lbl">Current streak</div><div class="val" style="color:' + streakColor + ';">' + (streak >= 0 ? '+' : '') + streak + '</div><div style="font-size:10px;color:var(--text-muted);margin-top:4px;">' + (dd && dd.reasoning || '') + '</div></div>'
+    + '<div class="tile"><div class="lbl">Auto-pause</div><div class="val" style="color:' + apColor + ';">' + apState + '</div><div style="font-size:10px;color:var(--text-muted);margin-top:4px;">' + (apState === 'PAUSED' ? 'trading paused' : apState === 'COOLDOWN' ? 'recovering' : 'normal') + '</div></div>';
+}
+
+function renderSymbolBars(targetId, items, sortDir, maxItems) {
+  const wrap = document.getElementById(targetId);
+  if (!items || items.length === 0) {
+    wrap.innerHTML = '<div style="color:var(--text-muted);padding:20px;text-align:center;font-size:12px;">No per-symbol data yet — needs ≥10 resolved trades per symbol.</div>';
+    return;
+  }
+  const filtered = items.filter(i => i.ready && i.n >= 10);
+  if (filtered.length === 0) {
+    wrap.innerHTML = '<div style="color:var(--text-muted);padding:20px;text-align:center;font-size:12px;">No symbols have 10+ resolutions yet.</div>';
+    return;
+  }
+  filtered.sort((a, b) => sortDir === 'desc' ? (b.skill - a.skill) : (a.skill - b.skill));
+  const top = filtered.slice(0, maxItems || 10);
+  const maxAbs = Math.max(0.05, Math.max(...top.map(s => Math.abs(s.skill))));
+  wrap.innerHTML = top.map(s => {
+    const pct = (Math.abs(s.skill) / maxAbs) * 100;
+    const color = s.skill > 0 ? 'var(--green)' : 'var(--red)';
+    return '<div class="row">'
+      + '<span class="name">' + s.symbol + '</span>'
+      + '<div class="barwrap"><div class="bar" style="width:' + pct.toFixed(1) + '%;background:' + color + ';"></div></div>'
+      + '<span class="val" style="color:' + color + ';">' + fmtSign(s.skill, 3) + '</span>'
+      + '</div>';
+  }).join('');
+}
+
+function renderSymbols() {
+  let all = null;
+  try { all = window.SymbolSkill && window.SymbolSkill.leaderboard(100); } catch (e) {}
+  renderSymbolBars('bestSyms', all, 'desc', 10);
+  renderSymbolBars('worstSyms', all, 'asc', 10);
+}
+
+function renderSectors() {
+  const wrap = document.getElementById('sectorList');
+  let stats = null;
+  try { stats = window.SectorPerf && window.SectorPerf.stats(); } catch (e) {}
+  if (!stats || Object.keys(stats).length === 0) {
+    wrap.innerHTML = '<div style="color:var(--text-muted);padding:20px;text-align:center;font-size:12px;">No per-sector data yet.</div>';
+    return;
+  }
+  const rows = Object.entries(stats).filter(([_, s]) => s.ready && typeof s.annSharpe === 'number');
+  if (rows.length === 0) {
+    wrap.innerHTML = '<div style="color:var(--text-muted);padding:20px;text-align:center;font-size:12px;">Need more resolutions per sector.</div>';
+    return;
+  }
+  rows.sort((a, b) => b[1].annSharpe - a[1].annSharpe);
+  const maxAbs = Math.max(0.5, Math.max(...rows.map(([_, s]) => Math.abs(s.annSharpe))));
+  wrap.innerHTML = rows.map(([sector, s]) => {
+    const pct = (Math.abs(s.annSharpe) / maxAbs) * 100;
+    const color = s.annSharpe > 0 ? 'var(--green)' : 'var(--red)';
+    return '<div class="row">'
+      + '<span class="name" style="width:120px;">' + sector + '</span>'
+      + '<div class="barwrap"><div class="bar" style="width:' + pct.toFixed(1) + '%;background:' + color + ';"></div></div>'
+      + '<span class="val" style="color:' + color + ';">' + fmtSign(s.annSharpe, 2) + '</span>'
+      + '<span style="font-size:10px;color:var(--text-muted);margin-left:6px;font-family:var(--font-mono);">n=' + s.n + '</span>'
+      + '</div>';
+  }).join('');
+}
+
+function renderAll() {
+  renderHeroTrust();
+  renderHeroBSS();
+  renderHeroSharpe();
+  renderSafetyTiles();
+  renderSymbols();
+  renderSectors();
+}
+
+renderAll();
+setInterval(renderAll, 10000);
+window.addEventListener('bpleone:continuous-resolved', renderAll);
+window.addEventListener('bpleone:continuous-cycle', renderAll);
+</script>
+</body>
+</html>
