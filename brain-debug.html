@@ -1,0 +1,348 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Brain Debug — bpleone</title>
+<meta name="description" content="One-stop ops dashboard for the brain. Module loaded-state, localStorage health, data freshness, biggest prediction errors, action buttons for resets. Use this when something feels off.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.mod-row { display:flex;align-items:center;gap:10px;padding:6px 10px;border-radius:6px;font-size:12px; }
+.mod-row.ok { background:rgba(16,185,129,0.06); }
+.mod-row.miss { background:rgba(239,68,68,0.06); }
+.mod-row .stat { width:20px;text-align:center;font-weight:800; }
+.mod-row.ok .stat { color:var(--green); }
+.mod-row.miss .stat { color:var(--red); }
+.mod-row .name { font-family:var(--font-mono);font-size:11px;flex:1; }
+.mod-row .meta { font-size:10px;color:var(--text-muted);font-family:var(--font-mono); }
+.keyrow { display:flex;align-items:center;gap:10px;padding:4px 0;font-size:11px;font-family:var(--font-mono);border-bottom:1px solid rgba(255,255,255,0.04); }
+.keyrow .name { flex:1;color:var(--text-secondary); }
+.keyrow .size { color:var(--accent);font-weight:700; }
+.keyrow .age { color:var(--text-muted); }
+.actbtn { padding:10px 16px;border-radius:8px;font-weight:700;font-size:12px;cursor:pointer;border:none;margin-right:8px;margin-bottom:8px; }
+.actbtn.danger { background:rgba(239,68,68,0.15);color:var(--red);border:1px solid rgba(239,68,68,0.4); }
+.actbtn.warn { background:rgba(245,158,11,0.15);color:var(--yellow);border:1px solid rgba(245,158,11,0.4); }
+.actbtn.ok { background:rgba(16,185,129,0.15);color:var(--green);border:1px solid rgba(16,185,129,0.4); }
+.actbtn:hover { filter:brightness(1.2); }
+.err-card { padding:10px 14px;border-radius:8px;background:rgba(239,68,68,0.06);border-left:3px solid var(--red);margin-bottom:8px;font-family:var(--font-mono);font-size:12px; }
+.tile { padding:14px;background:var(--bg-elevated);border-radius:10px;text-align:center; }
+.tile .lbl { font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;font-weight:700; }
+.tile .val { font-family:var(--font-mono);font-size:22px;font-weight:800;margin-top:4px;color:var(--accent); }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">🩺 Brain Debug</div>
+      <div class="page-subtitle">Module health · storage · biggest errors · resets — your ops console when something feels off</div>
+    </div>
+    <div class="flex gap-8">
+      <a href="train-now.html" class="btn btn-ghost">⚡ Train Now</a>
+      <a href="learning-velocity.html" class="btn btn-ghost">📈 Velocity</a>
+    </div>
+  </div>
+
+  <div class="grid grid-4 mb-24" id="topTiles"></div>
+
+  <div class="grid grid-2 mb-24">
+    <div class="card">
+      <div class="card-header"><div class="card-title">🧩 Module loaded-state</div></div>
+      <div id="modList" style="max-height:520px;overflow-y:auto;"></div>
+    </div>
+    <div class="card">
+      <div class="card-header"><div class="card-title">💾 localStorage · bpleone_* keys</div></div>
+      <div id="storageList" style="max-height:520px;overflow-y:auto;"></div>
+    </div>
+  </div>
+
+  <div class="card mb-24">
+    <div class="card-header"><div class="card-title">⏰ Data freshness · per-symbol last-update age</div></div>
+    <div id="freshness" style="font-size:12px;font-family:var(--font-mono);"></div>
+  </div>
+
+  <div class="card mb-24">
+    <div class="card-header"><div class="card-title">💢 Biggest recent prediction errors (top 10)</div></div>
+    <div style="font-size:12px;color:var(--text-secondary);margin-bottom:12px;">Resolved predictions where the brain was most confidently wrong. Useful for finding label bugs or genuinely uncovered regimes.</div>
+    <div id="errList"></div>
+  </div>
+
+  <div class="card mb-24">
+    <div class="card-header"><div class="card-title">🛠 Quick actions</div></div>
+    <div style="font-size:12px;color:var(--text-secondary);margin-bottom:14px;">All actions are local-only (no server). Bookmark this page when you need quick access during a regime shift.</div>
+    <button class="actbtn ok" onclick="runTrainNow()">⚡ Force full retrain</button>
+    <button class="actbtn ok" onclick="refitCalibrators()">📐 Refit calibrators</button>
+    <button class="actbtn warn" onclick="resetBootstrap()">↻ Re-run historical bootstrap</button>
+    <button class="actbtn warn" onclick="clearRollingAcc()">🧹 Clear rolling-accuracy log</button>
+    <button class="actbtn danger" onclick="resetModel()">⚠ Reset model weights to zero</button>
+    <button class="actbtn danger" onclick="clearJournal()">⚠ Clear journal (keeps trained model)</button>
+    <div id="actResult" style="margin-top:12px;font-family:var(--font-mono);font-size:12px;color:var(--text-muted);"></div>
+  </div>
+
+  <div class="card">
+    <div class="card-header"><div class="card-title">📚 When to use this page</div></div>
+    <div style="font-size:13px;color:var(--text-secondary);line-height:1.7;">
+      <strong>"The brain stopped making sense."</strong> → check <em>Biggest errors</em> first. If recent errors all have the same symbol or setup, you have a label bug or regime shift.<br><br>
+      <strong>"A page is showing 'loading…' forever."</strong> → check <em>Module loaded-state</em>. Missing module means the script src is wrong or the file doesn't exist on the server.<br><br>
+      <strong>"Brier skill went negative."</strong> → likely concept drift. Use <em>Refit calibrators</em> to recompute on the latest data. If skill stays negative, consider <em>Reset model weights</em> + <em>Force full retrain</em>.<br><br>
+      <strong>"Bootstrap never ran or got stuck."</strong> → use <em>Re-run historical bootstrap</em>. Safe to retry; it claims a 5-min running slot and won't double-fire.<br><br>
+      <strong>"Storage is huge."</strong> → check the <em>localStorage</em> column. Anything over a few MB is suspicious. Journal cap is 12,000 entries; if you see more, something isn't trimming.
+    </div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script src="js/model.js"></script>
+<script src="js/brier-skill.js"></script>
+<script src="js/sharpe-tracker.js"></script>
+<script src="js/calibrator.js"></script>
+<script src="js/regime-calibrator.js"></script>
+<script src="js/isotonic-calibrator.js"></script>
+<script src="js/historical-bootstrap.js"></script>
+<script src="js/auto-trainer.js"></script>
+<script src="js/continuous-learner.js"></script>
+<script>
+buildNav('brain-debug');
+
+// All the modules we expect to be loaded for the brain to work
+const MODULES = [
+  'QUOTES', 'Feed', 'startLive', 'BS',
+  'Model', 'ModelStore', 'ModelTrainer', 'FeatureExtractor', 'FEATURES',
+  'Calibrator', 'IsotonicCalibrator', 'RegimeCalibrator',
+  'BrierSkill', 'SharpeTracker', 'SymbolSkill', 'SymbolSharpe', 'SectorPerf',
+  'OutlierDetector', 'BayesianDropout', 'BootstrapEnsemble',
+  'MultiHorizon', 'KNNRecall', 'MetaStacker', 'PerSymbolMetaStacker',
+  'EnsembleAgreement', 'TradeTrust', 'AutoPause',
+  'DataReliability', 'CrossSourceCheck', 'SourcePreference',
+  'StaleRefresh', 'HistoricalBootstrap', 'AutoTrainer', 'ContinuousLearner', 'WeeklyRefresh',
+  'AutoTrade', 'HighConvictionAlerts', 'ConfidenceKelly', 'PortfolioAllocator',
+  'MoneyTracker', 'StreakTracker', 'PreTradeChecklist', 'TradeSelectivity',
+  'UnifiedPredictor', 'ActiveLearning', 'SampleDecay', 'LabelSmoothing',
+  'DrawdownProtector', 'AdversarialValidator', 'DriftPSI', 'HourlyPerf', 'DowPerf',
+  'EarningsAwareness', 'StateBackup', 'DemoData'
+];
+
+function fmtBytes(n) {
+  if (n < 1024) return n + 'B';
+  if (n < 1024 * 1024) return (n / 1024).toFixed(1) + 'KB';
+  return (n / (1024 * 1024)).toFixed(2) + 'MB';
+}
+
+function fmtAgo(ms) {
+  if (!ms || ms < 0) return '—';
+  if (ms < 60000) return Math.round(ms / 1000) + 's';
+  if (ms < 3600000) return Math.round(ms / 60000) + 'm';
+  if (ms < 86400000) return Math.round(ms / 3600000) + 'h';
+  return Math.round(ms / 86400000) + 'd';
+}
+
+function renderTopTiles() {
+  const wrap = document.getElementById('topTiles');
+  let loadedCount = 0, missingCount = 0;
+  MODULES.forEach(m => { if (typeof window[m] !== 'undefined') loadedCount++; else missingCount++; });
+  let kSize = 0, kCount = 0;
+  try {
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (k && k.indexOf('bpleone_') === 0) {
+        kSize += (localStorage.getItem(k) || '').length;
+        kCount++;
+      }
+    }
+  } catch (e) {}
+  let journalLen = 0;
+  try { journalLen = JSON.parse(localStorage.getItem('bpleone_pred_journal_v1') || '[]').length; } catch (e) {}
+  let modelTrained = 0;
+  try { const m = window.ModelStore && window.ModelStore.load(); if (m) modelTrained = m.n_trained || 0; } catch (e) {}
+  wrap.innerHTML = ''
+    + '<div class="tile"><div class="lbl">Modules loaded</div><div class="val" style="color:' + (missingCount === 0 ? 'var(--green)' : 'var(--yellow)') + ';">' + loadedCount + '/' + MODULES.length + '</div></div>'
+    + '<div class="tile"><div class="lbl">localStorage</div><div class="val">' + fmtBytes(kSize) + '</div><div style="font-size:10px;color:var(--text-muted);margin-top:4px;font-family:var(--font-mono);">' + kCount + ' keys</div></div>'
+    + '<div class="tile"><div class="lbl">Journal entries</div><div class="val">' + journalLen.toLocaleString() + '</div></div>'
+    + '<div class="tile"><div class="lbl">Model trained</div><div class="val">' + modelTrained.toLocaleString() + '</div></div>';
+}
+
+function renderModList() {
+  const wrap = document.getElementById('modList');
+  wrap.innerHTML = MODULES.map(m => {
+    const present = typeof window[m] !== 'undefined';
+    return '<div class="mod-row ' + (present ? 'ok' : 'miss') + '">'
+      + '<span class="stat">' + (present ? '✓' : '✗') + '</span>'
+      + '<span class="name">' + m + '</span>'
+      + '<span class="meta">' + (present ? 'loaded' : 'MISSING') + '</span>'
+      + '</div>';
+  }).join('');
+}
+
+function renderStorageList() {
+  const wrap = document.getElementById('storageList');
+  const rows = [];
+  try {
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (k && k.indexOf('bpleone_') === 0) {
+        const v = localStorage.getItem(k) || '';
+        rows.push({ key: k, size: v.length });
+      }
+    }
+  } catch (e) {}
+  rows.sort((a, b) => b.size - a.size);
+  wrap.innerHTML = rows.map(r => ''
+    + '<div class="keyrow">'
+    + '<span class="name">' + r.key.replace('bpleone_', '') + '</span>'
+    + '<span class="size">' + fmtBytes(r.size) + '</span>'
+    + '</div>').join('') || '<div style="color:var(--text-muted);padding:20px;text-align:center;">No bpleone_* keys yet.</div>';
+}
+
+function renderFreshness() {
+  const wrap = document.getElementById('freshness');
+  if (typeof window.QUOTES === 'undefined') {
+    wrap.innerHTML = '<div style="color:var(--text-muted);">QUOTES not loaded.</div>';
+    return;
+  }
+  const now = Date.now();
+  const rows = Object.entries(window.QUOTES).map(([sym, q]) => {
+    const liveAt = q.liveAt || 0;
+    const age = liveAt ? now - liveAt : null;
+    return { sym, age, src: q.priceSource || q.source || 'unknown', last: q.last };
+  });
+  // Show stalest first
+  rows.sort((a, b) => {
+    if (a.age == null) return -1;
+    if (b.age == null) return 1;
+    return b.age - a.age;
+  });
+  const top = rows.slice(0, 30);
+  wrap.innerHTML = '<div style="font-size:11px;color:var(--text-muted);margin-bottom:8px;">Showing 30 stalest symbols (top = most stale). Anything labeled <code>stale-seed</code> has never been live-fed.</div>'
+    + '<table style="width:100%;font-size:11px;">'
+    + '<thead><tr><th style="text-align:left;padding:4px;color:var(--text-muted);">SYM</th><th style="text-align:left;padding:4px;color:var(--text-muted);">SOURCE</th><th style="text-align:right;padding:4px;color:var(--text-muted);">LAST</th><th style="text-align:right;padding:4px;color:var(--text-muted);">AGE</th></tr></thead>'
+    + '<tbody>'
+    + top.map(r => {
+      const ageStr = r.age == null ? '<span style="color:var(--red);">seed</span>' : fmtAgo(r.age);
+      const srcCol = r.src === 'stale-seed' || r.src === 'unknown' ? 'var(--red)' : 'var(--accent)';
+      return '<tr style="border-top:1px solid rgba(255,255,255,0.04);"><td style="padding:4px;font-weight:700;">' + r.sym + '</td><td style="padding:4px;color:' + srcCol + ';">' + r.src + '</td><td style="padding:4px;text-align:right;">$' + (typeof r.last === 'number' ? r.last.toFixed(2) : '—') + '</td><td style="padding:4px;text-align:right;">' + ageStr + '</td></tr>';
+    }).join('')
+    + '</tbody></table>';
+}
+
+function renderErrList() {
+  const wrap = document.getElementById('errList');
+  let journal = [];
+  try { journal = JSON.parse(localStorage.getItem('bpleone_pred_journal_v1') || '[]'); } catch (e) {}
+  // Resolved, with predProb + outcome, and a labeled (correct/wrong) result
+  const resolved = journal.filter(e => {
+    if (!e.outcome || (e.outcome !== 'correct' && e.outcome !== 'wrong')) return false;
+    if (typeof e.predProb !== 'number') return false;
+    return true;
+  });
+  if (resolved.length === 0) {
+    wrap.innerHTML = '<div style="color:var(--text-muted);padding:20px;text-align:center;">No resolved predictions yet.</div>';
+    return;
+  }
+  // Wrongness magnitude = |predProb - actualWin| where actualWin = 1 if correct AND predUp, etc.
+  // Simpler: only show "wrong" outcomes, sorted by |predProb - 0.5| descending (most confident wrong).
+  const wrongs = resolved.filter(e => e.outcome === 'wrong').map(e => {
+    const conv = Math.max(e.predProb, 1 - e.predProb);
+    return { ...e, confidence: conv };
+  });
+  wrongs.sort((a, b) => b.confidence - a.confidence);
+  const top = wrongs.slice(0, 10);
+  if (top.length === 0) {
+    wrap.innerHTML = '<div style="color:var(--text-muted);padding:20px;text-align:center;">No confidently-wrong predictions — that\'s good news.</div>';
+    return;
+  }
+  wrap.innerHTML = top.map(e => {
+    const dir = e.predProb >= 0.5 ? 'LONG' : 'SHORT';
+    const dirColor = e.predProb >= 0.5 ? 'var(--green)' : 'var(--red)';
+    const realized = typeof e.realizedRet === 'number' ? (e.realizedRet * 100).toFixed(2) + '%' : '—';
+    const ageMs = Date.now() - e.ts;
+    return '<div class="err-card">'
+      + '<strong>' + (e.sym || '?') + '</strong> · '
+      + '<span style="color:' + dirColor + ';">' + dir + '</span> '
+      + (e.confidence * 100).toFixed(0) + '% confident → realized ' + realized + ' · '
+      + 'regime ' + (e.regime || '?') + ' · '
+      + fmtAgo(ageMs) + ' ago'
+      + '</div>';
+  }).join('');
+}
+
+function setActResult(txt) {
+  document.getElementById('actResult').textContent = txt;
+  setTimeout(renderAll, 500);
+}
+
+async function runTrainNow() {
+  setActResult('Running full retrain… see /train-now.html for live progress.');
+  try {
+    if (window.HistoricalBootstrap) await window.HistoricalBootstrap.run({ force: true });
+    if (window.AutoTrainer) await window.AutoTrainer.runNow();
+    if (window.ContinuousLearner) window.ContinuousLearner.resolveRound();
+    if (window.Calibrator && window.Calibrator.fit) window.Calibrator.fit();
+    if (window.IsotonicCalibrator && window.IsotonicCalibrator.fit) window.IsotonicCalibrator.fit();
+    if (window.RegimeCalibrator && window.RegimeCalibrator.fitAll) window.RegimeCalibrator.fitAll();
+    setActResult('✓ Full retrain complete.');
+  } catch (e) {
+    setActResult('✗ ' + (e && e.message || e));
+  }
+}
+
+function refitCalibrators() {
+  const parts = [];
+  try { if (window.Calibrator && window.Calibrator.fit) { window.Calibrator.fit(); parts.push('platt'); } } catch (e) {}
+  try { if (window.IsotonicCalibrator && window.IsotonicCalibrator.fit) { window.IsotonicCalibrator.fit(); parts.push('isotonic'); } } catch (e) {}
+  try { if (window.RegimeCalibrator && window.RegimeCalibrator.fitAll) { window.RegimeCalibrator.fitAll(); parts.push('regime'); } } catch (e) {}
+  setActResult('✓ Refit: ' + parts.join(', '));
+}
+
+function resetBootstrap() {
+  if (!confirm('Re-run historical bootstrap? Pulls fresh Stooq data for 47 symbols.')) return;
+  try { localStorage.removeItem('bpleone_hist_bootstrap_v2'); } catch (e) {}
+  try { localStorage.removeItem('bpleone_hist_bootstrap_v1'); } catch (e) {}
+  setActResult('✓ Flag cleared. Bootstrap will run within 8s — or visit /train-now.html now.');
+  if (window.HistoricalBootstrap) window.HistoricalBootstrap.run({ force: true }).catch(() => {});
+}
+
+function clearRollingAcc() {
+  if (!confirm('Clear rolling-accuracy log? Doesn\'t affect model weights or journal.')) return;
+  try { localStorage.removeItem('bpleone_rolling_acc_v1'); } catch (e) {}
+  setActResult('✓ Rolling-accuracy log cleared.');
+}
+
+function resetModel() {
+  if (!confirm('Reset model weights to zero? This DELETES all training — you will need to re-bootstrap.')) return;
+  if (!confirm('Are you sure? This is destructive.')) return;
+  try { localStorage.removeItem('bpleone_model_v1'); } catch (e) {}
+  setActResult('✓ Model reset. Run Train Now to rebuild.');
+}
+
+function clearJournal() {
+  if (!confirm('Clear prediction journal? Brain forgets all past captures, but keeps model weights.')) return;
+  try { localStorage.removeItem('bpleone_pred_journal_v1'); } catch (e) {}
+  try { localStorage.removeItem('bpleone_rolling_acc_v1'); } catch (e) {}
+  setActResult('✓ Journal cleared. Future captures will repopulate.');
+}
+
+function renderAll() {
+  renderTopTiles();
+  renderModList();
+  renderStorageList();
+  renderFreshness();
+  renderErrList();
+}
+
+renderAll();
+setInterval(renderAll, 10000);
+</script>
+</body>
+</html>
