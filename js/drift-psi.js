@@ -205,17 +205,38 @@
     if (timer) { clearInterval(timer); timer = null; }
   }
 
-  window.PSIDrift = {
+  // Audit pass 76 — CRITICAL: 5 callers (trade-trust-score, brain-coach,
+  // daily-card, brain-mobile, brain-truth) read window.DriftPSI.status()
+  // but the module previously exposed window.PSIDrift.summary() — a complete
+  // name mismatch. Every drift-aware safety check silently no-op'd, so the
+  // entire concept-drift protection chain was inert. Fix in two parts:
+  //   (a) add a flat status() that returns { psi, status } so the existing
+  //       `typeof psi.psi === 'number'` checks succeed.
+  //   (b) expose under BOTH PSIDrift (legacy in-repo correct callers like
+  //       feature-drift.html, brain-daily-report.html) and DriftPSI (the
+  //       name 5 callers were already using).
+  function status() {
+    try {
+      const r = computeRecent();
+      if (!r || !r.ok) return null;
+      return { psi: r.psi, status: r.status, recentN: r.recentN, snapTs: r.snapTs };
+    } catch (e) { return null; }
+  }
+
+  const api = {
     snapshot,
     ensureSnapshot,
     computeRecent,
     maybeAutoFire,
     summary,
+    status,        // pass 76
     start,
     stop,
     PSI_MINOR,
     PSI_MAJOR
   };
+  window.PSIDrift = api;
+  window.DriftPSI = api;   // pass 76: alias so the 5 mismatched callers wake up
 
   // Auto-start in browser
   if (typeof document !== 'undefined') {
