@@ -6,7 +6,9 @@
    cache-first for assets (JS/CSS/fonts).
    =========================================== */
 
-const VERSION = 'v1.0';
+// Audit pass 94: bumped version so the new stale-while-revalidate strategy
+// activates on existing browsers (caches with the old version get cleared).
+const VERSION = 'v1.1';
 const CACHE_SHELL = 'bpleone-shell-' + VERSION;
 const CACHE_RUNTIME = 'bpleone-runtime-' + VERSION;
 
@@ -68,17 +70,24 @@ self.addEventListener('fetch', e => {
     return;
   }
 
-  // Static assets (JS/CSS/SVG): cache-first
+  // Static assets (JS/CSS/SVG): stale-while-revalidate
+  // Audit pass 94: was cache-first, which meant once a JS file landed in the
+  // cache, bugfix deploys NEVER reached users (until VERSION bumped — manual,
+  // error-prone). Now: return cached immediately for speed, AND fetch a
+  // fresh copy in the background so the NEXT page-load picks up any deploy.
+  // For users with a cached version, fixes land within one page-refresh
+  // instead of being permanently stuck.
   e.respondWith(
     caches.match(req).then(cached => {
-      if (cached) return cached;
-      return fetch(req).then(resp => {
+      const network = fetch(req).then(resp => {
         if (resp && resp.status === 200 && resp.type === 'basic') {
           const copy = resp.clone();
           caches.open(CACHE_RUNTIME).then(c => c.put(req, copy)).catch(() => null);
         }
         return resp;
-      }).catch(() => cached);
+      }).catch(() => null);
+      // Return cached immediately if available; otherwise wait for network.
+      return cached || network;
     })
   );
 });

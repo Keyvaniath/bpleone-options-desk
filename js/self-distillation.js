@@ -64,10 +64,41 @@
     try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) {}
   }
 
+  // Audit pass 89: same write-storm fix as sample-decay/label-smoothing.
+  // Module is opt-in so impact is low, but apply for consistency + safety.
+  let _cachedState = null;
+  let _cachedAt = 0;
+  let _pendingCount = 0;
+  let _pendingLastTs = 0;
+  let _lastFlushAt = 0;
+  const CACHE_TTL_MS = 60 * 1000;
+  const FLUSH_INTERVAL_MS = 60 * 1000;
+
+  function getCachedState() {
+    if (!_cachedState || Date.now() - _cachedAt > CACHE_TTL_MS) {
+      _cachedState = load();
+      _cachedAt = Date.now();
+    }
+    return _cachedState;
+  }
+
+  function maybeFlush() {
+    if (_pendingCount === 0) return;
+    if (Date.now() - _lastFlushAt < FLUSH_INTERVAL_MS) return;
+    const state = load();
+    state.stepCount = (state.stepCount || 0) + _pendingCount;
+    state.lastTs = _pendingLastTs || state.lastTs;
+    save(state);
+    _cachedState = state;
+    _cachedAt = Date.now();
+    _pendingCount = 0;
+    _lastFlushAt = Date.now();
+  }
+
   function distillStep(model, features, hardLabel, alphaOverride) {
     if (!model || typeof model.train !== 'function') return null;
     if (!Array.isArray(features) || (hardLabel !== 0 && hardLabel !== 1)) return null;
-    const state = load();
+    const state = getCachedState();
     if (!state.enabled) return null;
 
     const SWA = (typeof window !== 'undefined') ? window.SWA : null;
@@ -81,24 +112,26 @@
       model.train(features, softTarget);
     } catch (e) { return null; }
 
-    state.stepCount++;
-    state.lastTs = Date.now();
-    save(state);
+    _pendingCount++;
+    _pendingLastTs = Date.now();
+    maybeFlush();
     return { teacherProb: teacher.prob, hardLabel, softTarget, alpha };
   }
 
-  function enabled() { return load().enabled; }
+  function enabled() { return getCachedState().enabled; }
   function setEnabled(b) {
     const state = load();
     state.enabled = !!b;
     save(state);
+    _cachedState = null;
   }
-  function alpha() { return load().alpha; }
+  function alpha() { return getCachedState().alpha; }
   function setAlpha(a) {
     const clamped = Math.max(MIN_ALPHA, Math.min(MAX_ALPHA, a));
     const state = load();
     state.alpha = clamped;
     save(state);
+    _cachedState = null;
   }
 
   function stats() {
@@ -106,12 +139,26 @@
     return {
       enabled: state.enabled,
       alpha: state.alpha,
-      stepCount: state.stepCount,
-      lastTs: state.lastTs,
+      stepCount: (state.stepCount || 0) + _pendingCount,
+      lastTs: _pendingLastTs || state.lastTs,
       min: MIN_ALPHA,
       max: MAX_ALPHA,
       defaultAlpha: DEFAULT_ALPHA
     };
+  }
+
+  // Flush on page hide
+  if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
+    window.addEventListener('pagehide', () => {
+      try {
+        if (_pendingCount === 0) return;
+        const state = load();
+        state.stepCount = (state.stepCount || 0) + _pendingCount;
+        state.lastTs = _pendingLastTs || state.lastTs;
+        save(state);
+        _pendingCount = 0;
+      } catch (e) {}
+    });
   }
 
   function reset() {
