@@ -74,6 +74,8 @@ const Notify = (function() {
 
   return { supported, permission, request, fire, testPing, autoSubscribeSignals, setMuted, isMuted };
 })();
+// Audit pass 76b: 4 callers read window.Notify; top-level const doesn't auto-attach.
+if (typeof window !== 'undefined') window.Notify = Notify;
 
 document.addEventListener('DOMContentLoaded', () => {
   if (typeof Notify !== 'undefined') Notify.autoSubscribeSignals();

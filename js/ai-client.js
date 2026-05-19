@@ -213,3 +213,8 @@ const AIClient = (function() {
     buildSystemPrompt
   };
 })();
+// Audit pass 76b: explicit window assignment so `window.AIClient` works from
+// inline scripts. Top-level `const` is script-scoped (NOT auto-attached to
+// window) — 3 callers used the `window.AIClient` form and were getting
+// undefined.
+if (typeof window !== 'undefined') window.AIClient = AIClient;

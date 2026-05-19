@@ -1001,3 +1001,5 @@ const DataProvider = (function() {
     getStooqStatus: () => ({ lastFetchOk: stooqLastFetchOk, polling: !!stooqPollTimer })
   };
 })();
+// Audit pass 76b: explicit window assignment — 2 callers used window.DataProvider.
+if (typeof window !== 'undefined') window.DataProvider = DataProvider;

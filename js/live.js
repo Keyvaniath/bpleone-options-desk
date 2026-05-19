@@ -20,6 +20,9 @@ const Feed = (() => {
   function symbols() { return [...subs.keys()]; }
   return { subscribe, publish, symbols };
 })();
+// Audit pass 76b: explicit window assignment so `window.Feed` works from
+// inline scripts and modules that defensively access it through window.
+if (typeof window !== 'undefined') { window.Feed = Feed; window.QUOTES = QUOTES; }
 
 // ----- Quote model -----
 // { symbol, last, bid, ask, change, changePct, volume, ts }
@@ -276,6 +279,9 @@ const BS = (() => {
 
   return { price, greeks, impliedVol, d1, d2 };
 })();
+// Audit pass 76b: site-diagnostics.html and other callers reference window.BS
+// for Black-Scholes utilities. Top-level `const BS` doesn't auto-attach.
+if (typeof window !== 'undefined') window.BS = BS;
 
 // ----- Generate a synthetic options chain -----
 function buildChain(symbol, expiries = [7, 21, 38, 65, 100], strikesAround = 12, strikeStep = null) {
