@@ -82,9 +82,18 @@
     }
 
     // Multipliers
+    // Audit pass 74: previously ALWAYS used state.fraction from localStorage,
+    // ignoring any `fraction` field on the input. AutoTrade passes
+    // cfg.kellyFraction explicitly to honor its own per-config setting — that
+    // silently did nothing. Now: input.fraction wins if provided (and is in
+    // a sane range), else fall back to persisted state.fraction.
     const state = load();
-    const fraction = state.fraction || DEFAULT_FRACTION;
+    let fraction = state.fraction || DEFAULT_FRACTION;
+    if (typeof input.fraction === 'number' && input.fraction > 0 && input.fraction <= MAX_FRACTION) {
+      fraction = input.fraction;
+    }
     breakdown.fraction = fraction;
+    breakdown.fractionSource = (typeof input.fraction === 'number') ? 'input' : 'storage';
 
     // 1. Uncertainty multiplier (MC dropout std / bootstrap divergence)
     // Audit pass 9: clamp to [0.3, 1.0] — was missing upper clamp, so a

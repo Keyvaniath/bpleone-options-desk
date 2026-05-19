@@ -175,9 +175,13 @@
         if (h && h.stale) return null;
       } catch (e) {}
     }
-    // OK to open. Use the entry price from the journal capture (matches what
-    // the brain saw at prediction time) — Brandon could have clicked then.
-    return entry.entryPx > 0 ? entry.entryPx : q.last;
+    // Audit pass 72: previously returned entry.entryPx (the brain's reference
+    // price from the journal — potentially up to 5 min stale). Paper trades
+    // are opening NOW, so they should anchor to the CURRENT q.last with stops
+    // computed from that. Otherwise on volatile names a 5-min-old entry could
+    // already be past its stop the moment the trade opens — instant stop-out
+    // before the brain's signal has any chance to play out.
+    return q.last;
   }
 
   // Compute Kelly-sized position from ConfidenceKelly module
@@ -220,6 +224,8 @@
       sym: entry.sym,
       openedAt: Date.now(),
       entryPx: entryPx,
+      brainEntryPx: entry.entryPx,  // pass 72: brain's reference price kept for diagnostics
+      slippageFromBrain: (entry.entryPx > 0) ? +(((entryPx - entry.entryPx) / entry.entryPx) * 100).toFixed(3) : 0,
       direction,
       shares: sized.shares,
       riskDollars: sized.riskDollars,
