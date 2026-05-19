@@ -140,8 +140,16 @@ const Hotkeys = (function() {
     if (isTyping()) return;
     if (e.metaKey || e.ctrlKey || e.altKey) return;
 
-    // chord: g X
-    if (chord === 'g') {
+    // Audit pass 102: when money-hotkeys.js is loaded, defer ALL `g [letter]`
+    // chords to it. Previously both modules bound their own `g` chord with
+    // 17 conflicting destinations (g d → dashboard.html vs data-reliability.html)
+    // and last-write-wins on location.href silently broke the old hotkeys
+    // mappings. money-hotkeys is the newer + broader set, so it wins; this
+    // module still handles non-g shortcuts (?, /, n, j/k, T).
+    const moneyHotkeysOwns = !!(window.MoneyHotkeys || window._moneyHotkeysInstalled);
+
+    // chord: g X — only if we still own it
+    if (chord === 'g' && !moneyHotkeysOwns) {
       const k = e.key.toLowerCase();
       if (ROUTES[k]) { e.preventDefault(); clearChord(); go(ROUTES[k]); return; }
       clearChord();
@@ -154,7 +162,7 @@ const Hotkeys = (function() {
       if (window.CmdPalette) CmdPalette.open();
       return;
     }
-    if (e.key === 'g') { e.preventDefault(); startChord('g'); return; }
+    if (e.key === 'g' && !moneyHotkeysOwns) { e.preventDefault(); startChord('g'); return; }
     // Quick-trade: press T (uppercase) → prompt for symbol → open Trade Ticket
     if (e.key === 'T') {
       e.preventDefault();
