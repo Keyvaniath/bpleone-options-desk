@@ -680,3 +680,7 @@ const Learn = (function () {
     bucketVixRegime, currentVix
   };
 })();
+// Audit pass 99: explicit window export per pass 76b convention. No active
+// caller uses window.Learn today but ensures defensive `window.Learn` access
+// from inline scripts or new modules works without surprises.
+if (typeof window !== 'undefined') window.Learn = Learn;

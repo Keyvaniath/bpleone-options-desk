@@ -31,8 +31,13 @@
   const DISAGREEMENT_THRESHOLD = 0.005;     // 0.5% = noteworthy
   const MAX_LOG = 1000;
   const MAX_DISAGREEMENTS = 200;
+  // Audit pass 97: record() was called on every price tick (Coinbase WS can
+  // fire many times/sec) and wrote localStorage every time — a brutal write
+  // storm. Now: hold the full state in-memory, work on it directly, and
+  // only persist to localStorage every FLUSH_INTERVAL_MS or on pagehide.
+  const FLUSH_INTERVAL_MS = 10 * 1000;
 
-  function load() {
+  function loadFromStorage() {
     if (typeof localStorage === 'undefined') return defaultState();
     try {
       const j = localStorage.getItem(KEY);
@@ -53,9 +58,27 @@
     try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) {}
   }
 
+  // In-memory state, hydrated lazily from localStorage on first access.
+  let _state = null;
+  let _lastFlushAt = 0;
+  let _dirty = false;
+
+  function getState() {
+    if (_state === null) _state = loadFromStorage();
+    return _state;
+  }
+
+  function maybeFlush() {
+    if (!_dirty) return;
+    if (Date.now() - _lastFlushAt < FLUSH_INTERVAL_MS) return;
+    save(_state);
+    _lastFlushAt = Date.now();
+    _dirty = false;
+  }
+
   function record(symbol, source, price) {
     if (!symbol || !source || typeof price !== 'number' || !isFinite(price) || price <= 0) return;
-    const state = load();
+    const state = getState();
     const now = Date.now();
 
     // Drop old entries beyond window
@@ -95,17 +118,18 @@
     // Add current to recent
     state.recent.push({ sym: symbol, source, price: +price.toFixed(4), ts: now });
     if (state.recent.length > MAX_LOG) state.recent = state.recent.slice(-MAX_LOG);
-    save(state);
+    _dirty = true;
+    maybeFlush();
   }
 
   function disagreements(n) {
     if (!n) n = 50;
-    const state = load();
+    const state = getState();
     return state.disagreements.slice(-n).reverse();
   }
 
   function symbolAgreement(symbol) {
-    const state = load();
+    const state = getState();
     const s = state.symbolStats[symbol];
     if (!s || s.checks === 0) return { symbol, checks: 0, agreementScore: null };
     const agreementRate = 1 - (s.disagreements / s.checks);
@@ -120,7 +144,7 @@
   }
 
   function allAgreements() {
-    const state = load();
+    const state = getState();
     const out = [];
     for (const sym in state.symbolStats) {
       out.push(symbolAgreement(sym));
@@ -132,6 +156,15 @@
   function reset() {
     if (typeof localStorage === 'undefined') return;
     localStorage.removeItem(KEY);
+    _state = defaultState();
+    _dirty = false;
+  }
+
+  // Pass 97: flush on page hide so we don't lose the buffered state.
+  if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
+    window.addEventListener('pagehide', () => {
+      try { if (_dirty && _state) { save(_state); _dirty = false; } } catch (e) {}
+    });
   }
 
   window.CrossSourceCheck = {
