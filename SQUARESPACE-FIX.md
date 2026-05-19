@@ -1,20 +1,82 @@
 # 🔧 Fix the options desk on bpleone.com
 
-> **Brandon — Nov 19 2026:** the betting desk works, the options one doesn't. That means DNS for `options.bpleone.com` isn't pointing at GitHub Pages yet. The CNAME file in this repo is correct (`options.bpleone.com`) and the site IS deployed — DNS is the missing piece. 5-minute fix below.
+> **Brandon — Nov 19 2026 UPDATE:** discovered that `betting.bpleone.com` ALSO returns a TLS-cert-mismatch error in Bitdefender. So this isn't a DNS-only problem — neither subdomain has a valid HTTPS certificate provisioned. Both need the same multi-step fix: DNS → GitHub Pages custom-domain → wait for Let's Encrypt → Enforce HTTPS.
 
 ---
 
-## Step 1 — Find the betting desk's DNS record and clone it
+## Why "betting works" is misleading
 
-Since the betting desk works, **its DNS record is the template**. Go look at it:
+If you've been visiting `betting.bpleone.com` and not seeing certificate warnings, your browser may be caching an old cert OR you're hitting it from a context that doesn't enforce HTTPS. But in incognito / with strict security on, you'll see the same Bitdefender block: "Your connection to this web page is not safe due to an unmatching security certificate."
 
-1. Open Squarespace → **Settings** → **Domains** → click **bpleone.com** → **DNS Settings**
-2. Look at the existing record for `betting` (or `sports`, or whatever subdomain the betting desk uses). It will be one of two things:
-   - A **CNAME** record pointing to `keyvaniath.github.io.` (or another GitHub Pages target)
-   - 4× **A records** pointing to `185.199.108.153`, `185.199.109.153`, `185.199.110.153`, `185.199.111.153`
-3. **Duplicate that exact record with `options` as the host.** Whatever betting uses, options should use.
+That means whatever server `betting.bpleone.com` resolves to is presenting a cert issued for a DIFFERENT hostname. Same root cause we need to fix for options.
 
-That's it. DNS propagation takes 5–15 minutes. Once it resolves, https://options.bpleone.com loads everything we've built.
+---
+
+## The full sequence — do this for options FIRST, then betting
+
+### Step 1 — DNS record on bpleone.com
+
+Squarespace → **Settings** → **Domains** → click **bpleone.com** → **DNS Settings** → **Add Custom Record**
+
+**Preferred — CNAME (simpler, only one record):**
+
+| Host | Type | Data | TTL |
+|---|---|---|---|
+| `options` | CNAME | `keyvaniath.github.io.` | default |
+
+(The trailing dot on `keyvaniath.github.io.` matters in some DNS UIs — include it if Squarespace allows.)
+
+**Alternative — 4× A records (faster propagation, no CNAME chain):**
+
+| Host | Type | Data |
+|---|---|---|
+| `options` | A | `185.199.108.153` |
+| `options` | A | `185.199.109.153` |
+| `options` | A | `185.199.110.153` |
+| `options` | A | `185.199.111.153` |
+
+DNS propagation: 5–60 min depending on TTL. Verify with `nslookup options.bpleone.com` from a terminal — should return either the GitHub Pages IPs or resolve through to them.
+
+### Step 2 — GitHub Pages: register the custom domain on the repo
+
+Go to **github.com/Keyvaniath/bpleone-options-desk/settings/pages**
+
+- **Source:** Deploy from a branch
+- **Branch:** `main` / `/ (root)`
+- **Custom domain:** type `options.bpleone.com` and click Save
+
+Once saved, GitHub runs a DNS check. If DNS from Step 1 has propagated, you'll see ✅ "DNS check successful." If not, you'll see a yellow warning — wait, refresh, repeat.
+
+### Step 3 — wait for Let's Encrypt cert
+
+After DNS check passes, GitHub Pages submits a certificate request to Let's Encrypt. This takes **5–15 minutes**. The page shows "Your site is ready to be published at..." or similar. The "Enforce HTTPS" checkbox is GREYED OUT during this window.
+
+**Do not click anything on the page during this time** — the cert process is fragile to repo settings changes.
+
+### Step 4 — Enforce HTTPS
+
+Once the cert is issued, "Enforce HTTPS" becomes available. **Check it.** This is what tells Pages to serve the Let's Encrypt cert instead of falling back to GitHub's default (which is what's causing Bitdefender's warning today — the wrong cert is being served).
+
+### Step 5 — verify
+
+In an **incognito window** (no cached certs):
+
+```
+https://options.bpleone.com/dns-test.html
+```
+
+You should see the big green ✓ "options.bpleone.com is LIVE" page. NO certificate warning. NO Bitdefender block.
+
+Also from terminal:
+
+```
+$ curl -sI https://options.bpleone.com | head -5
+HTTP/2 200
+server: GitHub.com
+content-type: text/html; charset=utf-8
+```
+
+If you see `server: GitHub.com` with no cert error → 🎉 done.
 
 ---
 
