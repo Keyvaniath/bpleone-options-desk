@@ -5,11 +5,14 @@
 ## Status check first
 
 The trading desk **IS live** — go test it yourself:
-- https://options.bpleone.com ✓ returns 200 OK
+- https://options.bpleone.com ✓ returns 200 OK · hub-back ribbon on landing
 - https://options.bpleone.com/morning-brief.html ✓ daily brief
 - https://options.bpleone.com/conviction-stack.html ✓ brain setups
-- https://options.bpleone.com/all-tools.html ✓ visual catalog of 320+ pages
-- https://options.bpleone.com/brain-truth.html ✓ live status of all 26 self-learning modules
+- https://options.bpleone.com/all-tools.html ✓ visual catalog of 397+ pages
+- https://options.bpleone.com/brain-truth.html ✓ live status of every self-learning module
+- https://options.bpleone.com/train-now.html ✓ **one-click full training pipeline** (NEW)
+- https://options.bpleone.com/learning-velocity.html ✓ is the brain getting smarter? (NEW)
+- https://options.bpleone.com/brain-debug.html ✓ ops console (NEW)
 
 **If those URLs all work** → the only thing broken is the dashboard tile on your Squarespace hub site. Use Path 4 below (preferred — drops a full-design tile).
 **If those URLs don't work** → DNS issue on the subdomain (rare, since cert is approved); see "Nuclear option" below.
