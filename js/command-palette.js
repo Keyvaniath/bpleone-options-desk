@@ -73,7 +73,22 @@ const CmdPalette = (function() {
     { title: 'Settings', sub: 'API keys, prefs, diagnostics', url: 'settings.html', icon: '⚙' },
     { title: 'Education', sub: 'Options 101, TA, Glossary', url: 'education.html', icon: '🎓' },
     { title: 'About / Pricing', sub: 'Tiers, FAQ, disclosures', url: 'about.html', icon: 'ℹ' },
-    { title: 'API & Webhooks', sub: 'Developer reference', url: 'api.html', icon: '🔌' }
+    { title: 'API & Webhooks', sub: 'Developer reference', url: 'api.html', icon: '🔌' },
+    // Audit pass 106 additions — the new training/diagnostic surfaces
+    { title: 'Train Now', sub: 'One-click full training pipeline', url: 'train-now.html', icon: '⚡' },
+    { title: 'Learning Velocity', sub: 'Is the brain getting smarter?', url: 'learning-velocity.html', icon: '📈' },
+    { title: 'Brain Debug', sub: 'Ops console — module health + storage + errors', url: 'brain-debug.html', icon: '🩺' },
+    { title: 'Site Health', sub: 'Cumulative diagnostic dashboard', url: 'site-health.html', icon: '🏥' },
+    { title: 'Audit Log', sub: '100+ audit passes, 17 CRITICAL bugs fixed', url: 'audit-log.html', icon: '🔍' },
+    { title: 'Historical Bootstrap', sub: 'Pre-train brain on 250 days × 47 symbols', url: 'historical-bootstrap.html', icon: '⏪' },
+    { title: 'Make Money', sub: 'Portfolio allocation + Kelly sizing', url: 'make-money.html', icon: '💰' },
+    { title: 'Money Made', sub: 'Simulated cumulative P&L from brain signals', url: 'money-made.html', icon: '💵' },
+    { title: 'Auto-Trade', sub: 'Closed-loop paper trading', url: 'auto-trade.html', icon: '🤖' },
+    { title: 'Brain Bet', sub: 'The one trade right now (or nothing)', url: 'brain-bet.html', icon: '🎰' },
+    { title: 'Brain Conviction', sub: 'All picks ranked by conviction', url: 'brain-conviction.html', icon: '⭐' },
+    { title: 'Brain Hub', sub: 'Single-page command center', url: 'brain-hub.html', icon: '🧠' },
+    { title: 'Live Status', sub: 'Per-symbol data freshness', url: 'live-status.html', icon: '📡' },
+    { title: 'All Tools', sub: 'Visual catalog of 397+ pages', url: 'all-tools.html', icon: '🗺' }
   ];
 
   const ACTIONS = [

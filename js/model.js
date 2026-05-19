@@ -501,8 +501,15 @@ const ModelTrainer = {
     const data = ModelStore.getTrainingData();
     let totalLoss = 0;
     for (let e = 0; e < epochs; e++) {
-      // Shuffle
-      const shuffled = data.slice().sort(() => Math.random() - 0.5);
+      // Audit pass 109: was `data.slice().sort(() => Math.random() - 0.5)` —
+      // the "random comparator" pattern is biased (V8's sort isn't uniform
+      // when the comparator is random). Fisher-Yates gives a true uniform
+      // shuffle — important for stochastic gradient descent ordering.
+      const shuffled = data.slice();
+      for (let i = shuffled.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        const tmp = shuffled[i]; shuffled[i] = shuffled[j]; shuffled[j] = tmp;
+      }
       shuffled.forEach(row => {
         if (row.features && row.features.length === FEATURES.length) {
           const { loss } = model.train(row.features, row.label);
