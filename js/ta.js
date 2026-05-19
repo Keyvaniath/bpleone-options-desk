@@ -71,6 +71,10 @@ const TA = (function () {
       gain = (gain * (n - 1) + Math.max(d, 0)) / n;
       loss = (loss * (n - 1) + Math.max(-d, 0)) / n;
     }
+    // Audit pass 104: same fix as pass 44 in historical-bootstrap.js. The
+    // all-flat case (gain=0, loss=0) used to fall through to "loss === 0 → 100"
+    // which is wrong — RSI for a stalled tape is neutral 50, not extreme 100.
+    if (gain === 0 && loss === 0) return 50;
     if (loss === 0) return 100;
     const rs = gain / loss;
     return 100 - 100 / (1 + rs);
