@@ -35,6 +35,11 @@
      wrangler deploy
    =========================================== */
 
+// Pass 200: version stamp so brain-proof.html + worker-setup.html can detect
+// when the deployed worker is behind the repo source. Bump on every meaningful
+// behavior change. Read via /brain/health → worker_version field.
+const WORKER_VERSION = 'pass-200';
+
 const UNIVERSE = [
   'SPY','QQQ','IWM','DIA','AAPL','NVDA','TSLA','MSFT','META','AMZN','GOOGL','AMD',
   'VIX','GLD','TLT','USO','SMCI','PLTR','COIN','MARA','RIVN','XLE','BABA','SHOP',
@@ -574,7 +579,8 @@ async function handleRequest(request, env, ctx) {
       ok: true,
       lastTickAgo: ageS,
       lastTick: lt,
-      healthy: ageS != null && ageS < 180
+      healthy: ageS != null && ageS < 180,
+      worker_version: WORKER_VERSION  // pass 200
     });
   }
 
