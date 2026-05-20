@@ -52,6 +52,7 @@ const KV_KEYS = {
   WEIGHT_LEDGER: 'weight_ledger_v1',
   HELDOUT: 'heldout_test_v1',     // out-of-sample test pairs from bootstrap
   METRICS_CACHE: 'metrics_cache_v1',
+  BARS_HISTORY: 'bars_history_v1', // pass 193: per-symbol rolling bar history
 };
 
 const MAX_JOURNAL = 12000;
@@ -99,14 +100,79 @@ function extractFeatures(quote, marketSnap) {
   if (!quote || !quote.last) return f;
   const changePct = quote.changePct || 0;
   const range = (quote.dayHigh && quote.dayLow) ? (quote.dayHigh - quote.dayLow) / quote.last : 0;
-  // 0-21: subset of the browser's feature vector. The server runs a
-  // simpler model — browser pages can supply richer features via /brain/inject.
-  f[0] = clamp(50 / 100, 0, 1);                                  // RSI placeholder
-  f[1] = clamp(range * 100, 0, 1);                               // intraday range %
-  f[5] = clamp((changePct + 5) / 10, 0, 1);                      // change% normalized
-  f[18] = clamp((marketSnap.vix - 10) / 40, 0, 1);               // VIX
-  f[20] = clamp((etHour() - 9.5) / (16 - 9.5), 0, 1);            // ET hour-of-session
-  f[21] = 1;                                                     // bias
+  f[0] = clamp(50 / 100, 0, 1);
+  f[1] = clamp(range * 100, 0, 1);
+  f[5] = clamp((changePct + 5) / 10, 0, 1);
+  f[18] = clamp((marketSnap.vix - 10) / 40, 0, 1);
+  f[20] = clamp((etHour() - 9.5) / (16 - 9.5), 0, 1);
+  f[21] = 1;
+  return f;
+}
+
+// Pass 193: rich feature extractor that uses recent bar history.
+// Returns the SAME 12+ features the bootstrap trains on, so live predictions
+// match the model's training distribution. If history is too short, falls
+// back to extractFeatures and produces neutral 0.5s.
+function extractRichFeatures(quote, history, marketSnap) {
+  if (!history || history.length < 14) return extractFeatures(quote, marketSnap);
+  const f = new Array(22).fill(0.5);
+  const bars = history;  // array of {ts, close, open, high, low, volume}
+  const i = bars.length - 1;
+  const today = bars[i];
+  // RSI(14)
+  let gains = 0, losses = 0;
+  for (let k = i - 13; k <= i; k++) {
+    if (k <= 0) continue;
+    const d = bars[k].close - bars[k-1].close;
+    if (d > 0) gains += d; else losses -= d;
+  }
+  const rs = (gains + losses) > 0 ? gains / (gains + losses) : 0.5;
+  f[0] = clamp(rs, 0, 1);
+  // Intraday range
+  f[1] = clamp(((today.high - today.low) / today.close) * 50, 0, 1);
+  // ATR%
+  let atrSum = 0;
+  for (let k = i - 13; k <= i; k++) atrSum += (bars[k].high - bars[k].low) / bars[k].close;
+  f[2] = clamp((atrSum / 14) * 100, 0, 1);
+  // Change%
+  if (i > 0) {
+    const chg = (today.close - bars[i-1].close) / bars[i-1].close;
+    f[5] = clamp((chg + 0.05) / 0.10, 0, 1);
+  }
+  // 5-day momentum
+  if (i >= 5) {
+    const mom5 = (today.close - bars[i-5].close) / bars[i-5].close;
+    f[3] = clamp((mom5 + 0.10) / 0.20, 0, 1);
+  }
+  // 20-day momentum (or less if not enough history)
+  if (i >= 20) {
+    const mom20 = (today.close - bars[i-20].close) / bars[i-20].close;
+    f[4] = clamp((mom20 + 0.20) / 0.40, 0, 1);
+  }
+  // Volume vs avg(14)
+  let volSum = 0;
+  for (let k = i - 13; k <= i; k++) volSum += bars[k].volume || 0;
+  const avgVol = volSum / 14;
+  const rvol = avgVol > 0 ? (today.volume || 0) / avgVol : 1;
+  f[6] = clamp(rvol / 3, 0, 1);
+  // Position in 14-day H/L range
+  let hi14 = -Infinity, lo14 = Infinity;
+  for (let k = i - 13; k <= i; k++) {
+    if (bars[k].high > hi14) hi14 = bars[k].high;
+    if (bars[k].low < lo14) lo14 = bars[k].low;
+  }
+  if (hi14 > lo14) f[7] = (today.close - lo14) / (hi14 - lo14);
+  // Distance from 14-day SMA
+  let sma14 = 0;
+  for (let k = i - 13; k <= i; k++) sma14 += bars[k].close;
+  sma14 /= 14;
+  f[8] = clamp(((today.close - sma14) / sma14 + 0.10) / 0.20, 0, 1);
+  // VIX
+  f[18] = clamp((marketSnap.vix - 10) / 40, 0, 1);
+  // Day-of-week + ET hour
+  f[19] = (new Date(today.ts).getUTCDay() % 5) / 5;
+  f[20] = clamp((etHour() - 9.5) / (16 - 9.5), 0, 1);
+  f[21] = 1;
   return f;
 }
 function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
@@ -321,10 +387,11 @@ async function fetchHistoricalBars(env, sym, days) {
 // ============================================================
 async function tick(env) {
   const startTs = Date.now();
-  const [journal, model, lastTick] = await Promise.all([
+  const [journal, model, lastTick, barsHistory] = await Promise.all([
     kvGet(env, KV_KEYS.JOURNAL, []),
     kvGet(env, KV_KEYS.MODEL, newModel()),
-    kvGet(env, KV_KEYS.LAST_TICK, { ts: 0, syms_updated: 0, errors: 0 })
+    kvGet(env, KV_KEYS.LAST_TICK, { ts: 0, syms_updated: 0, errors: 0 }),
+    kvGet(env, KV_KEYS.BARS_HISTORY, {})  // pass 193: per-sym recent bars
   ]);
 
   // Pass 188: rotate through universe over multiple ticks to stay under
@@ -346,15 +413,51 @@ async function tick(env) {
   }
   const vix = (byMap.VIX && byMap.VIX.last) || 18;
 
+  // Pass 193: update per-symbol bar history. New "bar" added when the
+  // current ET day differs from the last stored bar's day. Within the same
+  // day, we just update the latest bar's close/high/low/volume.
+  function todayET() {
+    const d = new Date();
+    const et = new Date(d.toLocaleString('en-US', { timeZone: 'America/New_York' }));
+    return et.getUTCFullYear() * 10000 + (et.getUTCMonth() + 1) * 100 + et.getUTCDate();
+  }
+  const dayKey = todayET();
+
   // Capture: one entry per symbol with valid quote (only this tick's slice)
   let captured = 0;
   for (const sym of slice) {
     const q = byMap[sym];
     if (!q) continue;
-    // 5-min cooldown per symbol (don't capture too often)
     const lastCap = journal.filter(e => e.sym === sym).slice(-1)[0];
     if (lastCap && (Date.now() - lastCap.ts) < 5 * 60 * 1000) continue;
-    const features = extractFeatures(q, { vix });
+
+    // Update bar history for this symbol
+    if (!barsHistory[sym]) barsHistory[sym] = [];
+    const history = barsHistory[sym];
+    const lastBar = history.length > 0 ? history[history.length - 1] : null;
+    if (lastBar && lastBar.dayKey === dayKey) {
+      // Same day — update existing bar
+      lastBar.close = q.last;
+      if (q.dayHigh && q.dayHigh > lastBar.high) lastBar.high = q.dayHigh;
+      if (q.dayLow && q.dayLow < lastBar.low) lastBar.low = q.dayLow;
+      lastBar.volume = q.volume || lastBar.volume || 0;
+    } else {
+      // New day — push a new bar
+      history.push({
+        ts: Date.now(),
+        dayKey,
+        open: q.dayOpen || q.last,
+        high: q.dayHigh || q.last,
+        low: q.dayLow || q.last,
+        close: q.last,
+        volume: q.volume || 0
+      });
+      // Cap history at 40 bars per symbol (enough for 20-day momentum)
+      if (history.length > 40) history.splice(0, history.length - 40);
+    }
+
+    // Use rich features if we have enough history
+    const features = extractRichFeatures(q, history, { vix });
     const p = predict(model, features);
     journal.push({
       id: 'w-' + Date.now() + '-' + sym + '-' + Math.random().toString(36).slice(2, 6),
@@ -365,7 +468,8 @@ async function tick(env) {
       predProb: p,
       priceSource: 'finnhub-worker',
       regime: vix > 25 ? 'volatile_bear' : (q.changePct > 0 ? 'trending_bull' : 'choppy'),
-      resolved: { short: false, mid: false, long: false }
+      resolved: { short: false, mid: false, long: false },
+      bars_in_history: history.length  // for debugging
     });
     captured++;
   }
@@ -411,6 +515,7 @@ async function tick(env) {
   // due to Cloudflare KV's eventual-consistency window.
   const writes = [
     kvPut(env, KV_KEYS.JOURNAL, journal),
+    kvPut(env, KV_KEYS.BARS_HISTORY, barsHistory),  // pass 193
     kvPut(env, KV_KEYS.LAST_TICK, {
       ts: Date.now(),
       syms_updated: okCount,
@@ -626,6 +731,9 @@ async function runBootstrap(env) {
   const trainingExamples = [];
   let symbolsFetched = 0;
   const errors = [];
+  // Pass 193: seed per-sym bar history so live tick has the same context
+  // the bootstrap trained on. Each symbol's last 40 bars stored.
+  const barsHistory = {};
 
   // Pass 191: richer feature extractor for bootstrap. Uses 14 historical
   // bars of context to compute real TA indicators (RSI, ATR, momentum,
@@ -683,6 +791,12 @@ async function runBootstrap(env) {
       continue;
     }
     symbolsFetched++;
+    // Pass 193: seed bar history for this symbol with the last 40 bars
+    barsHistory[sym] = bars.slice(-40).map(b => ({
+      ts: b.ts,
+      dayKey: new Date(b.ts).getUTCFullYear() * 10000 + (new Date(b.ts).getUTCMonth() + 1) * 100 + new Date(b.ts).getUTCDate(),
+      open: b.open, high: b.high, low: b.low, close: b.close, volume: b.volume
+    }));
     for (let i = 20; i < bars.length - 1; i++) {
       const today = bars[i];
       const tomorrow = bars[i + 1];
@@ -690,8 +804,6 @@ async function runBootstrap(env) {
       const label = ret > 0.003 ? 1 : (ret < -0.003 ? 0 : null);
       if (label === null) continue;
       const features = richFeatures(bars, i);
-      // Pass 192: include ts so we can do honest time-ordered walk-forward
-      // validation (not just random shuffle which leaks future info).
       trainingExamples.push({ features, label, sym, ts: today.ts });
     }
   }
@@ -766,7 +878,8 @@ async function runBootstrap(env) {
 
   await Promise.all([
     kvPut(env, KV_KEYS.MODEL, model),
-    kvPut(env, KV_KEYS.HELDOUT, { random_split: heldout, walk_forward: walkForward })
+    kvPut(env, KV_KEYS.HELDOUT, { random_split: heldout, walk_forward: walkForward }),
+    kvPut(env, KV_KEYS.BARS_HISTORY, barsHistory)  // pass 193
   ]);
 
   return {
