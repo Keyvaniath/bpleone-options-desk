@@ -39,10 +39,17 @@
   </div>
 
   <div class="grid grid-4 mb-24">
-    <div class="tile" style="background:rgba(16,185,129,0.06);"><div class="lbl">Audit passes</div><div class="val" style="color:var(--green);">197</div></div>
-    <div class="tile" style="background:rgba(16,185,129,0.06);"><div class="lbl">Bugs fixed</div><div class="val" style="color:var(--green);">145+</div></div>
+    <div class="tile" style="background:rgba(16,185,129,0.06);"><div class="lbl">Audit passes</div><div class="val" style="color:var(--green);">201</div></div>
+    <div class="tile" style="background:rgba(16,185,129,0.06);"><div class="lbl">Bugs fixed</div><div class="val" style="color:var(--green);">150+</div></div>
     <div class="tile" style="background:rgba(220,38,38,0.06);"><div class="lbl">CRITICAL bugs</div><div class="val" style="color:var(--red);">26</div></div>
     <div class="tile"><div class="lbl">Total commits</div><div class="val">100+</div></div>
+  </div>
+
+  <div style="padding:14px 18px;border-radius:10px;background:rgba(124,58,237,0.08);border-left:4px solid var(--purple);margin-bottom:14px;font-size:13px;color:var(--text-secondary);line-height:1.6;">
+    <strong>Batch Q (passes 198-201) — worker↔browser boundary hardening:</strong>
+    With the worker brain shipping (Batch P), the seams where browser and worker disagree became the new failure surface. Batch Q fixes four of them.
+    <br><br>
+    <b>198:</b> worker-bridge.js syncFromWorker had three brittle spots — JSON.parse of a corrupted local journal threw and killed the whole sync silently forever; s.journal.filter() assumed array (could be undefined on malformed response); s.model.weights accepted any truthy value but downstream loaders need a 22-element array. All now defensively guarded. <b>199:</b> the browser brain (continuous-learner + auto-trainer + historical-bootstrap) was fighting the worker — every 30-60s the browser trained its locally-mirrored model on local Stooq captures; next worker sync overwrote those gradients; meanwhile both brains were double-counting the same outcomes. Now all three browser trainers check <code>WorkerBridge.isEnabled()</code> and defer to the worker. Browser capture/resolve still runs so brain-proof can show the loop is alive. <b>200:</b> Brandon's deployed worker was N passes behind the repo source and there was no way to tell at a glance. Added <code>WORKER_VERSION</code> constant baked into the worker, exposed via <code>/brain/health</code>, and worker-setup.html now shows a green "current" banner or a yellow "redeploy" banner with the exact <code>git pull &amp;&amp; wrangler deploy</code> command. <b>201:</b> three worker endpoints had unguarded destructure / parseInt paths — <code>/brain/journal?n=garbage</code> returned the entire journal; <code>/brain/symbols</code> would 500 if any heldout entry was null; <code>/brain/metrics</code> computeMetrics polluted BSS with NaN p/y. All three now filter to typed, finite values before computing.
   </div>
 
   <div style="padding:14px 18px;border-radius:10px;background:rgba(124,58,237,0.08);border-left:4px solid var(--purple);margin-bottom:14px;font-size:13px;color:var(--text-secondary);line-height:1.6;">

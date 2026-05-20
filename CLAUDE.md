@@ -142,15 +142,19 @@ Every `data-live="SYM:field"` element auto-updates via `Feed.subscribe`. All pag
 
 ---
 
-## Architecture as of pass 194
+## Architecture as of pass 201
 
-Two brains run in parallel:
+Two brains run in parallel, with **WorkerBridge picking the authority**:
 
 1. **Browser brain** (`js/continuous-learner.js`, `js/model.js`) — runs while a tab is open, captures from QUOTES, trains on resolutions. localStorage state.
 
 2. **Cloudflare Worker brain** (`worker/src/index.js`) — runs 24/7 on Cloudflare edge, captures from Finnhub every minute (12 syms per minute rotating), resolves outcomes at 24h/5d/20d horizons, trains. Cloudflare KV state.
 
 The browser pages can **mirror state from the worker** via `js/worker-bridge.js`. Brandon's worker is at `https://bpleone-brain-worker.brandonpleone.workers.dev`. Connect via `/worker-setup.html`.
+
+**Pass 199 ownership rule:** when `WorkerBridge.isEnabled()` is true, the worker is the authoritative brain. The three browser-side trainers (`continuous-learner`, `auto-trainer`, `historical-bootstrap`) all defer their train+save blocks — capture and resolve still run for diagnostic display on `brain-proof.html`, but the browser doesn't train on local data the worker has already processed. This prevents silent gradient loss (next worker sync overwrote local updates) AND double-counting (browser trained on outcomes the worker had already incorporated).
+
+**Pass 200 version drift detection:** `worker/src/index.js` exports `WORKER_VERSION` (currently `'pass-201'`) and exposes it via `/brain/health → worker_version`. `worker-setup.html` compares to a hardcoded `EXPECTED_WORKER_VERSION`. When you ship a worker behavior change, bump both — the UI will then show a yellow "redeploy" banner until Brandon runs `git pull && cd worker && wrangler deploy`.
 
 ### Worker endpoints
 
