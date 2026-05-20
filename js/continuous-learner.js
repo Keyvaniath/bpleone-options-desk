@@ -145,7 +145,11 @@
           pred.prob = 0.5 + (pred.prob - 0.5) * (1 - oodScore);
         }
         const journalEntry = {
-          id: 'c-' + Date.now() + '-' + sym,
+          // Audit pass B5: add Math.random suffix so two tabs/devices capturing
+          // the same symbol at the exact same ms don't collide on entry.id.
+          // (Auto-trade and HighConvictionAlerts use seenJournalIds[entry.id]
+          // for dedup — colliding IDs would cause one alert to be silently skipped.)
+          id: 'c-' + Date.now() + '-' + sym + '-' + Math.random().toString(36).slice(2, 6),
           ts: Date.now(),
           sym: sym,
           entryPx: q.last,

@@ -20,7 +20,20 @@ const DataProvider = (function() {
   const KEY = 'bpleone_data_v1';
   const RECONNECT_BASE_MS = 1500;
   const RECONNECT_MAX_MS = 30000;
+  const DEFAULT_FETCH_TIMEOUT_MS = 10000;  // pass B4: all REST fetches abort after 10s
   const subs = new Set();
+
+  // Audit pass B4: wrap fetch with AbortController so a hung provider can't
+  // block the polling loop indefinitely. Returns the same Response or throws
+  // an AbortError on timeout.
+  function fetchT(url, opts, timeoutMs) {
+    const t = timeoutMs || DEFAULT_FETCH_TIMEOUT_MS;
+    if (typeof AbortController === 'undefined') return fetch(url, opts);
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), t);
+    const o = Object.assign({}, opts || {}, { signal: ctrl.signal });
+    return fetch(url, o).finally(() => clearTimeout(timer));
+  }
 
   let config = loadConfig();
   let ws = null;
@@ -236,7 +249,7 @@ const DataProvider = (function() {
     await Promise.all(syms.map(async sym => {
       try {
         const fhSym = toFinnhub(sym);
-        const r = await fetch('https://finnhub.io/api/v1/quote?symbol=' + encodeURIComponent(fhSym) + '&token=' + encodeURIComponent(config.apiKey));
+        const r = await fetchT('https://finnhub.io/api/v1/quote?symbol=' + encodeURIComponent(fhSym) + '&token=' + encodeURIComponent(config.apiKey));
         if (!r.ok) return;
         const j = await r.json();
         if (!QUOTES[sym]) return;
@@ -388,7 +401,7 @@ const DataProvider = (function() {
   async function connectTradier() {
     if (!config.apiKey) throw new Error('Tradier requires an Access Token');
     // Tradier needs a session token from REST first
-    const sessResp = await fetch('https://api.tradier.com/v1/markets/events/session', {
+    const sessResp = await fetchT('https://api.tradier.com/v1/markets/events/session', {
       method: 'POST',
       headers: {
         'Accept': 'application/json',
@@ -479,7 +492,7 @@ const DataProvider = (function() {
     const map = { '1m':'1', '5m':'5', '15m':'15', '30m':'30', '60m':'60', '1d':'D', '1w':'W', '1mo':'M' };
     const r = map[res] || 'D';
     const url = `https://finnhub.io/api/v1/stock/candle?symbol=${encodeURIComponent(symbol)}&resolution=${r}&from=${Math.floor(from/1000)}&to=${Math.floor(to/1000)}&token=${encodeURIComponent(config.apiKey)}`;
-    const resp = await fetch(url);
+    const resp = await fetchT(url);
     if (!resp.ok) throw new Error('Finnhub bars failed: ' + resp.status);
     const j = await resp.json();
     if (j.s !== 'ok') throw new Error('Finnhub returned: ' + j.s);
@@ -490,7 +503,7 @@ const DataProvider = (function() {
     const map = { '1m':'1/minute', '5m':'5/minute', '15m':'15/minute', '30m':'30/minute', '60m':'1/hour', '1d':'1/day', '1w':'1/week', '1mo':'1/month' };
     const r = map[res] || '1/day';
     const url = `https://api.polygon.io/v2/aggs/ticker/${encodeURIComponent(symbol)}/range/${r}/${from}/${to}?adjusted=true&sort=asc&limit=5000&apiKey=${encodeURIComponent(config.apiKey)}`;
-    const resp = await fetch(url);
+    const resp = await fetchT(url);
     if (!resp.ok) throw new Error('Polygon bars failed: ' + resp.status);
     const j = await resp.json();
     return (j.results || []).map(b => ({ t: b.t, o: b.o, h: b.h, l: b.l, c: b.c, v: b.v }));
@@ -502,7 +515,7 @@ const DataProvider = (function() {
     const fromStr = new Date(from).toISOString().slice(0,10);
     const toStr = new Date(to).toISOString().slice(0,10);
     const url = `https://api.tradier.com/v1/markets/history?symbol=${encodeURIComponent(symbol)}&interval=${interval}&start=${fromStr}&end=${toStr}`;
-    const resp = await fetch(url, { headers: { 'Accept': 'application/json', 'Authorization': 'Bearer ' + config.apiKey } });
+    const resp = await fetchT(url, { headers: { 'Accept': 'application/json', 'Authorization': 'Bearer ' + config.apiKey } });
     if (!resp.ok) throw new Error('Tradier bars failed: ' + resp.status);
     const j = await resp.json();
     const days = (j.history && j.history.day) || [];
@@ -513,7 +526,7 @@ const DataProvider = (function() {
     const map = { '1m':'1Min', '5m':'5Min', '15m':'15Min', '30m':'30Min', '60m':'1Hour', '1d':'1Day' };
     const tf = map[res] || '1Day';
     const url = `https://data.alpaca.markets/v2/stocks/${encodeURIComponent(symbol)}/bars?timeframe=${tf}&start=${new Date(from).toISOString()}&end=${new Date(to).toISOString()}&limit=5000&feed=iex`;
-    const resp = await fetch(url, { headers: { 'APCA-API-KEY-ID': config.apiKey, 'APCA-API-SECRET-KEY': config.apiSecret || '' } });
+    const resp = await fetchT(url, { headers: { 'APCA-API-KEY-ID': config.apiKey, 'APCA-API-SECRET-KEY': config.apiSecret || '' } });
     if (!resp.ok) throw new Error('Alpaca bars failed: ' + resp.status);
     const j = await resp.json();
     return (j.bars || []).map(b => ({ t: new Date(b.t).getTime(), o: b.o, h: b.h, l: b.l, c: b.c, v: b.v }));
@@ -549,7 +562,7 @@ const DataProvider = (function() {
     const key = _fhKey();
     const qs = Object.entries(params || {}).map(([k,v]) => k + '=' + encodeURIComponent(v)).join('&');
     const url = 'https://finnhub.io/api/v1' + path + '?' + qs + '&token=' + key;
-    const r = await fetch(url);
+    const r = await fetchT(url);
     if (!r.ok) throw new Error('Finnhub ' + path + ' failed: ' + r.status);
     return r.json();
   }

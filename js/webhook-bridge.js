@@ -146,11 +146,17 @@
     const target = detectTarget(cfg.url);
     const payload = buildPayload(alert, cfg, target);
     try {
+      // Audit pass B4: 10s abort timeout — Discord/Slack/generic webhooks
+      // should respond in <2s; anything beyond 10s is hung. Without this,
+      // a stuck webhook would block subsequent push attempts in the loop.
+      const ctrl = (typeof AbortController !== 'undefined') ? new AbortController() : null;
+      const timeoutId = ctrl ? setTimeout(() => ctrl.abort(), 10000) : null;
       const res = await fetch(cfg.url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-      });
+        body: JSON.stringify(payload),
+        signal: ctrl ? ctrl.signal : undefined
+      }).finally(() => { if (timeoutId) clearTimeout(timeoutId); });
       const ok = res.ok;
       state.log.push({ ts: Date.now(), sym: alert.sym, target, ok, status: res.status });
       if (ok) state.totalPushes++; else state.totalErrors++;
