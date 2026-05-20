@@ -469,6 +469,18 @@ const ModelStore = {
 const ModelTrainer = {
   /** Train one mini-batch from newly-rated outcomes that haven't been trained on yet. */
   trainBatch() {
+    // Pass 205: defer when WorkerBridge is authoritative. Pass 199 gated
+    // continuous-learner + auto-trainer + historical-bootstrap, but this
+    // fourth browser trainer (called from brain-loop.js tickMLFeedback every
+    // 5 min) was missed — it would still train on rated outcomes while the
+    // worker was the source of truth, then the next syncFromWorker overwrote
+    // those gradients. Now gated at the entry point so all callers (brain-loop,
+    // train-now.html, model-trainer.html) get the same protection.
+    if (typeof window !== 'undefined' && window.WorkerBridge &&
+        typeof window.WorkerBridge.isEnabled === 'function' &&
+        window.WorkerBridge.isEnabled()) {
+      return { trained: 0, avgLoss: 0, model: ModelStore.load(), skipped: 'worker-bridge-authoritative' };
+    }
     const model = ModelStore.load();
     let trained = 0;
     let lossSum = 0;
