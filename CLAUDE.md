@@ -142,9 +142,38 @@ Every `data-live="SYM:field"` element auto-updates via `Feed.subscribe`. All pag
 
 ---
 
+## Architecture as of pass 194
+
+Two brains run in parallel:
+
+1. **Browser brain** (`js/continuous-learner.js`, `js/model.js`) — runs while a tab is open, captures from QUOTES, trains on resolutions. localStorage state.
+
+2. **Cloudflare Worker brain** (`worker/src/index.js`) — runs 24/7 on Cloudflare edge, captures from Finnhub every minute (12 syms per minute rotating), resolves outcomes at 24h/5d/20d horizons, trains. Cloudflare KV state.
+
+The browser pages can **mirror state from the worker** via `js/worker-bridge.js`. Brandon's worker is at `https://bpleone-brain-worker.brandonpleone.workers.dev`. Connect via `/worker-setup.html`.
+
+### Worker endpoints
+
+- `GET /brain/health` — readyz (lastTickAgo, healthy bool)
+- `GET /brain/state` — full snapshot (journal+model+lastTick)
+- `GET /brain/journal?n=N` — last N journal entries
+- `GET /brain/model` — current model weights
+- `GET /brain/metrics` — held-out + walk-forward BSS, accuracy, p-value (the "real signal vs noise" answer)
+- `GET /brain/symbols` — per-symbol BSS breakdown
+- `GET /brain/debug/fetch?sym=X` — diagnose data sources (Yahoo/Stooq)
+- `POST /brain/bootstrap` (auth) — 250-day pre-train via Yahoo Finance v8
+- `POST /brain/tick` (auth) — manual cron trigger
+
+### Worker key invariants
+
+- **NO browser CORS limits** — fetches Yahoo/Stooq successfully where browser can't
+- **Finnhub free tier**: 60 calls/min, no /stock/candle (paid tier only). Worker rate-limits to 12 syms/tick (every minute, full universe rotates in ~6 min)
+- **Cron tick only writes the model if `trained > 0`** (pass 190 race fix). Bootstrap is the authoritative model writer.
+- **Per-symbol bar history in KV** (pass 193) so live captures use the same rich features as the bootstrap training set.
+
 ## Audit baseline — `/audit-log.html`
 
-173+ audit passes have run on this codebase, finding **24 CRITICAL bugs** that were silently corrupting metrics or breaking entire safety chains. The running log is at **`/audit-log.html`** — read it before adding new code. Some highlights worth knowing:
+194+ audit passes have run on this codebase, finding **24+ CRITICAL bugs** that were silently corrupting metrics or breaking entire safety chains. The running log is at **`/audit-log.html`** — read it before adding new code. Some highlights worth knowing:
 
 - **Pass 53**: EnsembleAgreement returned lowercase, 3 callers checked UPPERCASE → agreement-based sizing never fired
 - **Pass 60**: kNN returned P(direction-correct), blended as P(LONG) → wrong-direction neighbors voted UP
