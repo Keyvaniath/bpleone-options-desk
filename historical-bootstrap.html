@@ -15,6 +15,7 @@
 .status-card.done { background:linear-gradient(135deg,rgba(16,185,129,0.10),rgba(16,185,129,0.02));border:2px solid var(--green); }
 .status-card.running { background:linear-gradient(135deg,rgba(245,158,11,0.10),rgba(245,158,11,0.02));border:2px solid var(--yellow); }
 .status-card.idle { background:linear-gradient(135deg,rgba(0,212,255,0.06),rgba(0,212,255,0.02));border:2px solid var(--accent); }
+.status-card.error { background:linear-gradient(135deg,rgba(220,38,38,0.10),rgba(220,38,38,0.02));border:2px solid var(--red); }
 .status-card .big { font-family:var(--font-mono);font-size:56px;font-weight:900;line-height:1; }
 .tile { padding:18px;background:var(--bg-elevated);border-radius:10px; }
 .tile .lbl { font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;font-weight:700; }
@@ -96,10 +97,22 @@ function render() {
     msg = 'BOOTSTRAP RUNNING';
     sub = 'Fetching Stooq bars and training the brain. Takes ~10s. Watch the BSS dashboard.';
   } else if (s.completed) {
-    cls = 'status-card done';
-    icon = '✓';
-    msg = 'BOOTSTRAP COMPLETE';
-    sub = 'Brain pre-trained on ' + fmt(s.trainingExamples) + ' historical examples from ' + fmt(s.symbolsFetched) + ' symbols';
+    // CRITICAL UI HONESTY FIX (pass 178): if "completed" but ZERO examples
+    // were fetched/trained, that's NOT success — that's failure. Showing a
+    // green checkmark with "BOOTSTRAP COMPLETE · 0 examples from 0 symbols"
+    // is dishonest. Show a RED ERROR state instead so users know to act.
+    if (!s.trainingExamples || !s.symbolsFetched) {
+      cls = 'status-card error';
+      icon = '✗';
+      msg = 'BOOTSTRAP FAILED — 0 examples fetched';
+      const errCount = (s.lastRunResult && s.lastRunResult.errorCount) || 0;
+      sub = 'All ' + (errCount || '47') + ' symbol fetches failed. Stooq is CORS-blocked from browsers, and Finnhub free tier doesn\'t include /stock/candle. The brain has NOT been pre-trained. See <a href="connect-live-data.html" style="color:var(--accent);">connect-live-data</a> for options (paid API tier OR small backend worker).';
+    } else {
+      cls = 'status-card done';
+      icon = '✓';
+      msg = 'BOOTSTRAP COMPLETE';
+      sub = 'Brain pre-trained on ' + fmt(s.trainingExamples) + ' historical examples from ' + fmt(s.symbolsFetched) + ' symbols';
+    }
   } else {
     icon = '○';
     msg = 'NOT YET RUN';

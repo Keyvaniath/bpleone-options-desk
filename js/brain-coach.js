@@ -165,10 +165,39 @@
       }
     }
 
+    // --- UI HONESTY GATE (pass 178) ---
+    // Before any module-by-module "looks healthy" signal can claim victory,
+    // check the ONE thing that actually matters: has the brain ever trained?
+    // If model.n_trained === 0 the brain is making predictions from random/
+    // initial weights — "HEALTHY · trade with conviction" is a lie no matter
+    // what the per-module diagnostics say. Same if there's no journal at all.
+    let untrained = false;
+    let untrainedReason = '';
+    try {
+      const m = JSON.parse(localStorage.getItem('bpleone_model_v1') || 'null');
+      if (!m || !m.n_trained || m.n_trained === 0) {
+        untrained = true;
+        untrainedReason = m ? 'model.n_trained = 0' : 'no model saved yet';
+      }
+    } catch (e) {
+      untrained = true;
+      untrainedReason = 'model store unreadable';
+    }
+    let journalLen = 0;
+    try { journalLen = (JSON.parse(localStorage.getItem('bpleone_pred_journal_v1') || '[]') || []).length; } catch (e) {}
+
     // --- Headline ---
     healthScore = Math.max(0, Math.min(100, healthScore));
     let headline, headlineColor;
-    if (alertCount > 0) {
+    if (untrained) {
+      // Cap health at the lower of the per-module-derived score OR 35.
+      // An untrained brain is NOT 100/100 no matter how clean the modules look.
+      healthScore = Math.min(healthScore, 35);
+      headline = journalLen > 0
+        ? 'Brain UNTRAINED — capturing data but not learning yet (' + journalLen + ' captures, ' + untrainedReason + ')'
+        : 'Brain UNTRAINED — no model weights, no journal (' + untrainedReason + ')';
+      headlineColor = 'var(--red)';
+    } else if (alertCount > 0) {
       headline = 'BRAIN IS DEGRADED — be very careful';
       headlineColor = 'var(--red)';
     } else if (warnCount > 1) {
