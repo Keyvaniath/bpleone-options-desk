@@ -583,6 +583,23 @@
     model.lr = originalLR;
     model.n_trained = (model.n_trained || 0) + newRows.length;
     ModelStore.save(model);
+    // Append to weight ledger so brain-proof.html can show evidence of learning
+    // even when the user isn't actively watching. Each entry is a small FNV-1a
+    // hash of the 22-weight vector + n_trained at save time. Capped at 200.
+    try {
+      const ledger = JSON.parse(localStorage.getItem('bpleone_weight_ledger_v1') || '[]');
+      const w = model.weights || [];
+      const s = w.map(x => (Math.round(x * 1e6) / 1e6).toString()).join('|');
+      let h = 2166136261 >>> 0;
+      for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = (h * 16777619) >>> 0; }
+      const newEntry = { ts: Date.now(), hash: h.toString(16).padStart(8, '0'), n_trained: model.n_trained, source: 'cl-resolve' };
+      // Only push if hash changed from last
+      if (ledger.length === 0 || ledger[ledger.length - 1].hash !== newEntry.hash) {
+        ledger.push(newEntry);
+        if (ledger.length > 200) ledger.splice(0, ledger.length - 200);
+        localStorage.setItem('bpleone_weight_ledger_v1', JSON.stringify(ledger));
+      }
+    } catch (e) {}
 
     // SELF-DISTILLATION: optional extra training step pulling toward
     // SWA teacher's predictions. Disabled by default; opt-in via dashboard.

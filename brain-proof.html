@@ -1,0 +1,471 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Brain Proof — bpleone / trade</title>
+<meta name="description" content="Verifiable proof the brain is actually learning — no cached numbers, all recomputed from raw journal data.">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.proof-tile { padding:18px;background:var(--bg-elevated);border-radius:10px;border-left:4px solid var(--text-muted); }
+.proof-tile.green { border-left-color:var(--green); }
+.proof-tile.red { border-left-color:var(--red); }
+.proof-tile.yellow { border-left-color:var(--yellow); }
+.proof-tile .lbl { font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;font-weight:700; }
+.proof-tile .val { font-family:var(--font-mono);font-size:24px;font-weight:800;margin-top:6px; }
+.proof-tile .sub { font-size:11px;color:var(--text-muted);margin-top:6px;font-family:var(--font-mono); }
+.proof-tile .verdict { font-size:12px;margin-top:8px;font-weight:700; }
+.proof-tile.green .verdict { color:var(--green); }
+.proof-tile.red .verdict { color:var(--red); }
+.proof-tile.yellow .verdict { color:var(--yellow); }
+.evidence-row { padding:12px 14px;background:var(--bg-elevated);border-radius:8px;margin-bottom:8px;font-family:var(--font-mono);font-size:12px; }
+.evidence-row .ts { color:var(--text-muted);font-size:10px; }
+.evidence-row.fresh { border-left:3px solid var(--green); }
+.action-btn { padding:12px 22px;border-radius:8px;border:1px solid rgba(0,212,255,0.4);background:transparent;color:var(--accent);cursor:pointer;font-family:var(--font-mono);font-weight:700;font-size:13px;transition:all 0.15s; }
+.action-btn:hover { background:rgba(0,212,255,0.1); }
+.code-blob { background:#0a0a0a;border:1px solid var(--border);border-radius:6px;padding:10px;font-family:var(--font-mono);font-size:10px;overflow-x:auto;color:#999; }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">🔬 Brain Proof</div>
+      <div class="page-subtitle">Evidence-based verification the brain is actually learning. Every number on this page is recomputed live from raw journal data — nothing cached.</div>
+    </div>
+    <button class="action-btn" onclick="refresh()">↻ Recompute everything</button>
+  </div>
+
+  <!-- The 5 questions any user should be able to answer -->
+  <div class="grid grid-3 mb-24">
+    <div class="proof-tile" id="q1"><div class="lbl">Q1. Are predictions being captured?</div><div class="val">—</div><div class="sub">—</div><div class="verdict">—</div></div>
+    <div class="proof-tile" id="q2"><div class="lbl">Q2. Are outcomes being resolved?</div><div class="val">—</div><div class="sub">—</div><div class="verdict">—</div></div>
+    <div class="proof-tile" id="q3"><div class="lbl">Q3. Is the model actually learning?</div><div class="val">—</div><div class="sub">—</div><div class="verdict">—</div></div>
+    <div class="proof-tile" id="q4"><div class="lbl">Q4. Is accuracy real or cached?</div><div class="val">—</div><div class="sub">—</div><div class="verdict">—</div></div>
+    <div class="proof-tile" id="q5"><div class="lbl">Q5. Are weights converging?</div><div class="val">—</div><div class="sub">—</div><div class="verdict">—</div></div>
+    <div class="proof-tile" id="q6"><div class="lbl">Q6. Are real prices feeding it?</div><div class="val">—</div><div class="sub">—</div><div class="verdict">—</div></div>
+  </div>
+
+  <!-- The "weight ledger" — snapshots every page-load, proves weights change -->
+  <div class="card mb-24">
+    <div class="card-header"><div class="card-title">📜 Weight Ledger — proves weights are changing over time</div></div>
+    <div style="font-size:12px;color:var(--text-secondary);line-height:1.6;margin-bottom:14px;">
+      Each row is a SHA-style hash of the model's weight vector at that moment. If two hashes are different, the brain trained between them.
+      If they're all identical, the brain isn't learning — flag a bug.
+    </div>
+    <div id="ledger-rows"></div>
+    <div style="font-size:11px;color:var(--text-muted);margin-top:10px;">
+      Last 20 page-loads. New row added every time you visit this page.
+    </div>
+  </div>
+
+  <!-- Live verification: inject test prediction, watch it resolve -->
+  <div class="card mb-24">
+    <div class="card-header"><div class="card-title">⚗ Live Verification — inject a test prediction</div></div>
+    <div style="font-size:12px;color:var(--text-secondary);line-height:1.6;margin-bottom:14px;">
+      Click below to inject a known prediction (AAPL LONG, prob=0.85) into the journal. Then watch
+      <a href="brain-debug.html" style="color:var(--accent);">/brain-debug</a> tick — within 30s the new entry shows up.
+      After the short-horizon (24h) elapses it resolves automatically; OR click "Force resolve" to immediately simulate the resolution against current AAPL price.
+    </div>
+    <div class="flex gap-12" style="flex-wrap:wrap;">
+      <button class="action-btn" onclick="injectTest()">⚗ Inject test prediction</button>
+      <button class="action-btn" onclick="forceResolve()">⏩ Force-resolve oldest unresolved</button>
+      <button class="action-btn" onclick="purgeTests()">🗑 Purge test entries</button>
+    </div>
+    <div id="inject-result" style="margin-top:14px;font-family:var(--font-mono);font-size:11px;"></div>
+  </div>
+
+  <!-- Recomputed accuracy from raw journal — bypass any cached number -->
+  <div class="card mb-24">
+    <div class="card-header"><div class="card-title">🧮 Live Accuracy — recomputed from raw journal</div></div>
+    <div style="font-size:12px;color:var(--text-secondary);line-height:1.6;margin-bottom:14px;">
+      Recomputes from <code>bpleone_pred_journal_v1</code> directly. If this disagrees with the
+      number shown on brain-truth.html, there's a stale cache somewhere — flag it.
+    </div>
+    <div class="grid grid-4 mb-12">
+      <div class="proof-tile"><div class="lbl">Total resolved</div><div class="val" id="raw-resolved">—</div></div>
+      <div class="proof-tile"><div class="lbl">Correct (recomputed)</div><div class="val" id="raw-correct">—</div></div>
+      <div class="proof-tile"><div class="lbl">Accuracy (recomputed)</div><div class="val" id="raw-acc">—</div></div>
+      <div class="proof-tile"><div class="lbl">vs baseline 50%</div><div class="val" id="raw-edge">—</div></div>
+    </div>
+    <div class="code-blob" id="raw-breakdown">—</div>
+  </div>
+
+  <!-- Outcome streams — proves the resolution loop is real -->
+  <div class="card mb-24">
+    <div class="card-header"><div class="card-title">📡 Recent Activity Stream — last 20 events</div></div>
+    <div style="font-size:12px;color:var(--text-secondary);line-height:1.6;margin-bottom:14px;">
+      Live feed showing the brain capturing predictions and resolving them. If this freezes, the brain isn't ticking.
+    </div>
+    <div id="activity-stream"></div>
+  </div>
+
+  <!-- Honest disclosure -->
+  <div class="card" style="border-left:4px solid var(--yellow);">
+    <div class="card-header"><div class="card-title" style="color:var(--yellow);">⚠ What this page does NOT prove</div></div>
+    <div style="font-size:12px;color:var(--text-secondary);line-height:1.7;">
+      <p><strong>This page proves the mechanics work.</strong> It does NOT prove the brain is making GOOD predictions —
+      only that it's capturing, resolving, and training. Whether the predictions actually beat random is a separate question (see
+      <a href="brier-skill.html" style="color:var(--accent);">/brier-skill</a> and
+      <a href="sharpe-ratio.html" style="color:var(--accent);">/sharpe-ratio</a>).</p>
+      <p>It also does not prove the input <em>features</em> are correct — only that whatever-was-captured trains the model.
+      If you suspect bad features, run <a href="self-test.html" style="color:var(--accent);">/self-test</a> which checks
+      the FeatureExtractor's output shape and bounds.</p>
+      <p>For a paper-trading audit (did open/stop/target prices match real moves?), run
+      <a href="daily-replay.html" style="color:var(--accent);">/daily-replay</a> for any past day.</p>
+    </div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js"></script>
+<script src="js/ai-client.js"></script>
+<script src="js/app.js"></script>
+<script src="js/notify.js"></script>
+<script src="js/live.js"></script>
+<script src="js/model.js"></script>
+<script src="js/continuous-learner.js"></script>
+<script>
+buildNav('brain-proof');
+
+const JOURNAL_KEY = 'bpleone_pred_journal_v1';
+const LEDGER_KEY = 'bpleone_weight_ledger_v1';
+
+function loadJournal() {
+  try { return JSON.parse(localStorage.getItem(JOURNAL_KEY) || '[]'); }
+  catch(e) { return []; }
+}
+function saveJournal(j) {
+  try { localStorage.setItem(JOURNAL_KEY, JSON.stringify(j)); } catch(e) {}
+}
+function loadLedger() {
+  try { return JSON.parse(localStorage.getItem(LEDGER_KEY) || '[]'); }
+  catch(e) { return []; }
+}
+function saveLedger(l) {
+  try { localStorage.setItem(LEDGER_KEY, JSON.stringify(l.slice(-50))); } catch(e) {}
+}
+
+// Simple weight-vector hash — small FNV-1a so we can fingerprint a 22-element float array.
+function hashWeights(w) {
+  if (!Array.isArray(w) || w.length === 0) return 'empty';
+  // Quantize to 6 decimal places so floating-point jitter doesn't dominate
+  const s = w.map(x => (Math.round(x * 1e6) / 1e6).toString()).join('|');
+  let h = 2166136261 >>> 0;
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
+    h = (h * 16777619) >>> 0;
+  }
+  return h.toString(16).padStart(8, '0');
+}
+
+function fmtAgo(ms) {
+  if (!ms || ms < 0) return 'never';
+  const s = Math.floor(ms / 1000);
+  if (s < 60) return s + 's ago';
+  if (s < 3600) return Math.floor(s / 60) + 'm ago';
+  if (s < 86400) return Math.floor(s / 3600) + 'h ago';
+  return Math.floor(s / 86400) + 'd ago';
+}
+
+function setTile(id, val, sub, verdict, color) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.className = 'proof-tile ' + (color || '');
+  el.children[1].textContent = val;
+  el.children[2].textContent = sub;
+  el.children[3].textContent = verdict;
+}
+
+function refresh() {
+  const journal = loadJournal();
+  const now = Date.now();
+
+  // Q1: Are predictions being captured?
+  if (journal.length === 0) {
+    setTile('q1', '0', 'No entries in journal yet', '✗ Not capturing', 'red');
+  } else {
+    const last = journal[journal.length - 1];
+    const ageMs = now - (last.ts || 0);
+    const fresh = ageMs < 5 * 60 * 1000;  // < 5 min
+    const sub = 'Last captured: ' + fmtAgo(ageMs) + ' (sym: ' + (last.sym || '?') + ')';
+    if (fresh) setTile('q1', journal.length, sub, '✓ Capturing live', 'green');
+    else setTile('q1', journal.length, sub, '⚠ No recent capture — brain may be idle', 'yellow');
+  }
+
+  // Q2: Are outcomes being resolved?
+  const resolved = journal.filter(e => {
+    if (!e.resolved) return false;
+    if (typeof e.resolved === 'boolean') return e.resolved;
+    return e.resolved.short && e.resolved.short !== false;
+  });
+  const resolvedPct = journal.length > 0 ? (resolved.length / journal.length * 100).toFixed(1) : '0';
+  const recentResolved = resolved.filter(e => (now - (e.ts || 0)) < 48 * 3600 * 1000).length;
+  if (resolved.length === 0) {
+    setTile('q2', '0', journal.length + ' captures, 0 resolved (need ≥24h after capture)', '⚠ Pending — wait', 'yellow');
+  } else {
+    setTile('q2', resolved.length, resolvedPct + '% of total · ' + recentResolved + ' resolved past 48h', '✓ Resolution loop working', 'green');
+  }
+
+  // Q3: Is the model learning? (weight ledger evidence)
+  const ledger = loadLedger();
+  const model = (typeof ModelStore !== 'undefined') ? ModelStore.load() : null;
+  const currentHash = model && model.weights ? hashWeights(model.weights) : 'no-model';
+  const currentTrained = model ? (model.n_trained || 0) : 0;
+
+  // Add current snapshot to ledger (if changed from last)
+  if (ledger.length === 0 || ledger[ledger.length - 1].hash !== currentHash) {
+    ledger.push({ ts: now, hash: currentHash, n_trained: currentTrained });
+    saveLedger(ledger);
+  }
+
+  // How many unique weight hashes have we seen?
+  const uniqueHashes = new Set(ledger.map(l => l.hash)).size;
+  const sinceFirstTrain = ledger.length > 0 ? now - ledger[0].ts : 0;
+  if (uniqueHashes <= 1 && currentTrained === 0) {
+    setTile('q3', 'no', currentTrained + ' training steps recorded', '✗ Brain has not trained yet', 'red');
+  } else if (uniqueHashes <= 1) {
+    setTile('q3', 'static', currentTrained + ' steps but weights identical (?)', '⚠ Weights not changing despite training', 'yellow');
+  } else {
+    setTile('q3', uniqueHashes + ' distinct snapshots', currentTrained + ' total training steps · over ' + fmtAgo(sinceFirstTrain).replace(' ago', ''), '✓ Weights changing → learning', 'green');
+  }
+
+  // Q4: Is accuracy real (recomputed) vs cached?
+  const correctCount = resolved.filter(e => {
+    if (typeof e.resolved === 'object' && e.resolved.short === 'correct') return true;
+    return false;
+  }).length;
+  const acc = resolved.length > 0 ? correctCount / resolved.length : null;
+  // Compare to any cached stat
+  let cachedAcc = null;
+  try {
+    const accLog = JSON.parse(localStorage.getItem('bpleone_acc_log_v1') || '[]');
+    if (accLog.length > 0) {
+      const cachedCorrect = accLog.filter(a => a.correct).length;
+      cachedAcc = cachedCorrect / accLog.length;
+    }
+  } catch(e) {}
+
+  if (resolved.length < 5) {
+    setTile('q4', 'N/A', 'Need ≥5 resolved entries to compute', '⏳ Waiting for data', 'yellow');
+  } else {
+    const accPct = (acc * 100).toFixed(1) + '%';
+    let sub = correctCount + '/' + resolved.length + ' correct';
+    let verdict;
+    if (cachedAcc != null) {
+      const diff = Math.abs(acc - cachedAcc) * 100;
+      sub += ' · cached: ' + (cachedAcc * 100).toFixed(1) + '%';
+      verdict = diff < 1 ? '✓ Cached agrees (within 1%)' : '⚠ Cache off by ' + diff.toFixed(1) + '%';
+      setTile('q4', accPct, sub, verdict, diff < 1 ? 'green' : 'yellow');
+    } else {
+      setTile('q4', accPct, sub + ' (no cache to compare)', '✓ Recomputed from raw', 'green');
+    }
+  }
+
+  // Q5: Are weights converging? (decreasing variance over snapshots)
+  if (ledger.length < 3) {
+    setTile('q5', 'N/A', 'Need ≥3 ledger entries to assess convergence', '⏳ Waiting', 'yellow');
+  } else {
+    // Look at last 10 snapshots: are weight hashes still changing every time?
+    const recent10 = ledger.slice(-10);
+    const recentUnique = new Set(recent10.map(l => l.hash)).size;
+    const stableRatio = 1 - (recentUnique / recent10.length);
+    if (stableRatio > 0.5) {
+      setTile('q5', (stableRatio * 100).toFixed(0) + '%', recent10.length + ' recent snapshots · ' + recentUnique + ' unique', '✓ Stabilizing — model is converging', 'green');
+    } else if (stableRatio > 0.2) {
+      setTile('q5', (stableRatio * 100).toFixed(0) + '%', 'Still oscillating', '⚠ Active learning, not yet stable', 'yellow');
+    } else {
+      setTile('q5', '0%', 'Every snapshot differs', '⚠ High learning rate or noise', 'yellow');
+    }
+  }
+
+  // Q6: Are real prices feeding it?
+  const realCount = journal.filter(e => e.priceSource && e.priceSource !== 'stale-seed' && e.priceSource !== 'mock').length;
+  const realPct = journal.length > 0 ? (realCount / journal.length * 100).toFixed(0) : '0';
+  if (journal.length === 0) {
+    setTile('q6', 'N/A', 'No journal entries to check', '⏳ Waiting', 'yellow');
+  } else if (realCount === 0) {
+    setTile('q6', '0%', 'All captures from mock/seed prices', '✗ Brain only seeing fake data', 'red');
+  } else if (realCount === journal.length) {
+    setTile('q6', '100%', realCount + '/' + journal.length + ' from real sources (Stooq/Coinbase/etc)', '✓ Real prices only', 'green');
+  } else {
+    setTile('q6', realPct + '%', realCount + '/' + journal.length + ' real · rest mock/seed', '⚠ Mixed — some captures may be from seed data', 'yellow');
+  }
+
+  // Render weight ledger
+  const wrap = document.getElementById('ledger-rows');
+  wrap.innerHTML = '';
+  const recent20 = ledger.slice(-20).reverse();
+  if (recent20.length === 0) {
+    wrap.innerHTML = '<div style="color:var(--text-muted);font-size:12px;">No ledger entries yet — recompute to add one.</div>';
+  } else {
+    recent20.forEach((row, i) => {
+      const ageMs = now - row.ts;
+      const isFresh = i === 0 && ageMs < 60000;
+      wrap.innerHTML += '<div class="evidence-row' + (isFresh ? ' fresh' : '') + '">'
+        + '<span class="ts">[' + new Date(row.ts).toISOString() + ']</span>'
+        + ' hash=<code style="color:var(--accent);">' + row.hash + '</code>'
+        + ' &nbsp;n_trained=' + row.n_trained
+        + ' &nbsp;<span class="ts">(' + fmtAgo(ageMs) + ')</span>'
+        + '</div>';
+    });
+  }
+
+  // Live accuracy recomputation panel
+  document.getElementById('raw-resolved').textContent = resolved.length;
+  document.getElementById('raw-correct').textContent = correctCount;
+  if (resolved.length === 0) {
+    document.getElementById('raw-acc').textContent = '—';
+    document.getElementById('raw-edge').textContent = '—';
+  } else {
+    document.getElementById('raw-acc').textContent = (acc * 100).toFixed(1) + '%';
+    document.getElementById('raw-acc').style.color = acc > 0.55 ? 'var(--green)' : acc < 0.45 ? 'var(--red)' : 'var(--text-primary)';
+    const edge = (acc - 0.5) * 100;
+    document.getElementById('raw-edge').textContent = (edge >= 0 ? '+' : '') + edge.toFixed(1) + 'pp';
+    document.getElementById('raw-edge').style.color = edge > 5 ? 'var(--green)' : edge < -5 ? 'var(--red)' : 'var(--text-primary)';
+  }
+
+  // Per-symbol breakdown
+  const bySym = {};
+  resolved.forEach(e => {
+    if (!bySym[e.sym]) bySym[e.sym] = { n: 0, w: 0 };
+    bySym[e.sym].n++;
+    if (typeof e.resolved === 'object' && e.resolved.short === 'correct') bySym[e.sym].w++;
+  });
+  const symStr = Object.entries(bySym)
+    .sort((a, b) => b[1].n - a[1].n)
+    .slice(0, 15)
+    .map(([s, v]) => s + '=' + v.w + '/' + v.n + ' (' + Math.round(v.w / v.n * 100) + '%)')
+    .join('  ');
+  document.getElementById('raw-breakdown').textContent = symStr || '(no resolutions yet)';
+
+  // Activity stream
+  const stream = document.getElementById('activity-stream');
+  stream.innerHTML = '';
+  // Last 10 captures + last 10 resolutions, interleaved by ts
+  const events = [];
+  journal.slice(-20).forEach(e => events.push({ ts: e.ts, type: 'capture', sym: e.sym, prob: e.predProb, regime: e.regime }));
+  resolved.slice(-20).forEach(e => events.push({ ts: e.ts, type: 'resolved', sym: e.sym, outcome: e.resolved.short }));
+  events.sort((a, b) => b.ts - a.ts);
+  if (events.length === 0) {
+    stream.innerHTML = '<div style="color:var(--text-muted);font-size:12px;">No activity yet. Wait 30s for first capture cycle.</div>';
+  } else {
+    events.slice(0, 20).forEach(e => {
+      const ageMs = now - e.ts;
+      const fresh = ageMs < 5 * 60 * 1000;
+      const detail = e.type === 'capture'
+        ? 'CAPTURED ' + e.sym + ' · p=' + (e.prob != null ? e.prob.toFixed(3) : '?') + ' · ' + (e.regime || 'no-regime')
+        : 'RESOLVED ' + e.sym + ' · ' + e.outcome;
+      stream.innerHTML += '<div class="evidence-row' + (fresh ? ' fresh' : '') + '">'
+        + '<span class="ts">' + new Date(e.ts).toLocaleTimeString() + '</span>'
+        + ' &nbsp;' + detail
+        + ' &nbsp;<span class="ts">(' + fmtAgo(ageMs) + ')</span>'
+        + '</div>';
+    });
+  }
+}
+
+function injectTest() {
+  if (typeof FeatureExtractor === 'undefined' || typeof ModelStore === 'undefined') {
+    document.getElementById('inject-result').textContent = '✗ FeatureExtractor or ModelStore not loaded yet — wait a few seconds';
+    return;
+  }
+  // Build a fake high-conviction LONG prediction for AAPL
+  const aapl = (typeof QUOTES !== 'undefined' && QUOTES.AAPL) ? QUOTES.AAPL : { last: 245, changePct: 0.5 };
+  const finding = {
+    ts: Date.now(),
+    type: 'continuous-capture',
+    severity: 1,
+    meta: { sym: 'AAPL', setup: 'TEST-INJECTION', last: aapl.last, bias: 'long' }
+  };
+  let features = null;
+  try {
+    features = FeatureExtractor.extract(finding);
+  } catch(e) {
+    document.getElementById('inject-result').textContent = '✗ FeatureExtractor.extract threw: ' + e.message;
+    return;
+  }
+  const model = ModelStore.load();
+  const pred = model.predict(features);
+  const journal = loadJournal();
+  const entry = {
+    id: 'test-' + Date.now() + '-' + Math.random().toString(36).slice(2, 6),
+    ts: Date.now(),
+    sym: 'AAPL',
+    entryPx: aapl.last,
+    features: features,
+    predProb: pred.prob,
+    oodScore: 0,
+    priceSource: 'TEST-INJECTION',
+    regime: 'test',
+    regimeVix: 18,
+    regimeSpyChg: 0,
+    resolved: { short: false, mid: false, long: false }
+  };
+  journal.push(entry);
+  saveJournal(journal);
+  document.getElementById('inject-result').innerHTML = '✓ Injected test entry id=<code>' + entry.id + '</code> · model predicted ' + (pred.prob * 100).toFixed(1) + '% LONG. Use "Force-resolve" below to immediately train on it, or wait 24h for natural resolution.';
+  setTimeout(refresh, 100);
+}
+
+function forceResolve() {
+  const journal = loadJournal();
+  const unresolved = journal.find(e =>
+    e.resolved && typeof e.resolved === 'object' && e.resolved.short === false
+  );
+  if (!unresolved) {
+    document.getElementById('inject-result').textContent = '✗ No unresolved entries to resolve';
+    return;
+  }
+  if (typeof QUOTES === 'undefined' || !QUOTES[unresolved.sym]) {
+    document.getElementById('inject-result').textContent = '✗ No live quote for ' + unresolved.sym + ' yet — wait for Stooq';
+    return;
+  }
+  const last = QUOTES[unresolved.sym].last;
+  const ret = (last - unresolved.entryPx) / unresolved.entryPx;
+  const predUp = unresolved.predProb >= 0.5;
+  const wentUp = ret > 0.003;
+  const wentDown = ret < -0.003;
+  let outcome;
+  if (Math.abs(ret) < 0.003) outcome = 'flat';
+  else if ((predUp && wentUp) || (!predUp && wentDown)) outcome = 'correct';
+  else outcome = 'wrong';
+
+  unresolved.resolved = { short: outcome, mid: false, long: false };
+  saveJournal(journal);
+
+  // Force the brain to train if outcome was correct/wrong
+  if (outcome !== 'flat' && typeof ModelStore !== 'undefined') {
+    const model = ModelStore.load();
+    const before = JSON.stringify(model.weights);
+    model.train(unresolved.features, outcome === 'correct' ? (unresolved.predProb >= 0.5 ? 1 : 0) : (unresolved.predProb >= 0.5 ? 0 : 1));
+    ModelStore.save(model);
+    const after = JSON.stringify(model.weights);
+    const changed = before !== after;
+    document.getElementById('inject-result').innerHTML = '✓ Resolved ' + unresolved.sym + ' as <strong>' + outcome + '</strong> (return=' + (ret * 100).toFixed(2) + '%) · model weights ' + (changed ? '<span style="color:var(--green);">CHANGED</span> (brain learned)' : '<span style="color:var(--red);">UNCHANGED</span> (brain did NOT learn — bug!)');
+  } else {
+    document.getElementById('inject-result').textContent = '✓ Resolved ' + unresolved.sym + ' as ' + outcome + ' (return=' + (ret * 100).toFixed(2) + '%) · no training (flat outcome)';
+  }
+  setTimeout(refresh, 100);
+}
+
+function purgeTests() {
+  const journal = loadJournal();
+  const filtered = journal.filter(e => !e.id || !e.id.startsWith('test-'));
+  saveJournal(filtered);
+  document.getElementById('inject-result').textContent = '✓ Removed ' + (journal.length - filtered.length) + ' test entries';
+  setTimeout(refresh, 100);
+}
+
+// First render
+setTimeout(refresh, 600);
+// Re-render every 10s
+setInterval(refresh, 10000);
+</script>
+</body>
+</html>
