@@ -594,6 +594,38 @@ async function handleRequest(request, env, ctx) {
     return json(model);
   }
 
+  if (path === '/brain/symbols') {
+    // Pass 194: per-symbol breakdown — which symbols brain is good/bad at.
+    // Reads heldout test pairs and live resolved captures.
+    const heldoutRaw = await kvGet(env, KV_KEYS.HELDOUT, []);
+    const journal = await kvGet(env, KV_KEYS.JOURNAL, []);
+    const heldout = Array.isArray(heldoutRaw) ? heldoutRaw : (heldoutRaw.walk_forward || heldoutRaw.random_split || []);
+    const bySym = {};
+    for (const { p, y, sym } of heldout) {
+      if (!sym) continue;
+      if (!bySym[sym]) bySym[sym] = { n: 0, correct: 0, brierSum: 0 };
+      bySym[sym].n++;
+      if ((p >= 0.5 ? 1 : 0) === y) bySym[sym].correct++;
+      bySym[sym].brierSum += (p - y) * (p - y);
+    }
+    const live = journal.filter(e => e.resolved && typeof e.resolved === 'object' && e.resolved.short && e.resolved.short !== false);
+    const liveBySym = {};
+    for (const e of live) {
+      if (!liveBySym[e.sym]) liveBySym[e.sym] = { n: 0, correct: 0 };
+      liveBySym[e.sym].n++;
+      if (e.resolved.short === 'correct') liveBySym[e.sym].correct++;
+    }
+    const rows = Object.entries(bySym).map(([sym, v]) => ({
+      sym,
+      heldout_n: v.n,
+      heldout_acc: +(v.correct / v.n).toFixed(4),
+      heldout_bss: +(1 - (v.brierSum / v.n) / 0.25).toFixed(4),
+      live_n: liveBySym[sym] ? liveBySym[sym].n : 0,
+      live_acc: liveBySym[sym] && liveBySym[sym].n > 0 ? +(liveBySym[sym].correct / liveBySym[sym].n).toFixed(4) : null
+    })).sort((a, b) => b.heldout_bss - a.heldout_bss);
+    return json({ symbols: rows, total: rows.length });
+  }
+
   if (path === '/brain/metrics') {
     // Pass 191-192: real signal-vs-noise metrics from BOTH random-split
     // held-out (stationary upper bound) AND walk-forward (honest trading test).
