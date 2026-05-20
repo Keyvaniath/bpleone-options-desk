@@ -54,19 +54,32 @@
   <div class="card mb-24" id="worker-metrics-card" style="display:none;">
     <div class="card-header"><div class="card-title">🎯 Worker — held-out test results (real signal vs noise)</div></div>
     <div style="font-size:12px;color:var(--text-secondary);line-height:1.6;margin-bottom:14px;">
-      The worker bootstrap trained on 80% of historical data and tested on the remaining 20% the model NEVER saw.
-      These are honest out-of-sample numbers — not cherry-picked.
+      The worker bootstrap trains on 80% of historical data and tests on the remaining 20% the model NEVER saw.
+      <strong>Two splits</strong>: random shuffle (stationary upper bound) and walk-forward (honest "trained on past, predicts future" test).
     </div>
+
+    <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px;font-weight:700;">Random 80/20 split — stationary estimate</div>
     <div class="grid grid-4 mb-12">
       <div class="proof-tile"><div class="lbl">Test set size</div><div class="val" id="m-n">—</div></div>
       <div class="proof-tile"><div class="lbl">Accuracy</div><div class="val" id="m-acc">—</div></div>
       <div class="proof-tile"><div class="lbl">Brier Skill Score</div><div class="val" id="m-bss">—</div><div class="sub">vs constant 0.5 baseline</div></div>
       <div class="proof-tile"><div class="lbl">p-value vs random</div><div class="val" id="m-p">—</div></div>
     </div>
-    <div id="m-verdict" style="padding:14px 18px;border-radius:8px;font-weight:800;text-align:center;font-size:15px;"></div>
-    <div style="font-size:11px;color:var(--text-muted);margin-top:10px;">
-      <strong>BSS reading guide:</strong> &gt;+0.05 = real edge · 0 to +0.05 = weak signal · ≤0 = below random.
-      <strong>p &lt;0.05</strong> = statistically significant.
+    <div id="m-verdict" style="padding:14px 18px;border-radius:8px;font-weight:800;text-align:center;font-size:15px;margin-bottom:16px;"></div>
+
+    <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px;font-weight:700;">Walk-forward split — honest trading test</div>
+    <div class="grid grid-4 mb-12">
+      <div class="proof-tile"><div class="lbl">Test set size</div><div class="val" id="wf-n">—</div></div>
+      <div class="proof-tile"><div class="lbl">Accuracy</div><div class="val" id="wf-acc">—</div></div>
+      <div class="proof-tile"><div class="lbl">Brier Skill Score</div><div class="val" id="wf-bss">—</div><div class="sub">vs constant 0.5 baseline</div></div>
+      <div class="proof-tile"><div class="lbl">p-value vs random</div><div class="val" id="wf-p">—</div></div>
+    </div>
+    <div id="wf-verdict" style="padding:14px 18px;border-radius:8px;font-weight:800;text-align:center;font-size:15px;"></div>
+
+    <div style="font-size:11px;color:var(--text-muted);margin-top:10px;line-height:1.6;">
+      <strong>BSS reading guide:</strong> &gt;+0.05 = real edge · 0 to +0.05 = weak signal · ≤0 = below random.<br>
+      <strong>p &lt;0.05</strong> = statistically significant. <strong>Walk-forward is the truth-test.</strong>
+      If random says REAL SIGNAL but walk-forward says BELOW BASELINE, the model is overfitting / leaking future info.
     </div>
   </div>
 
@@ -204,7 +217,35 @@ function setTile(id, val, sub, verdict, color) {
   el.children[3].textContent = verdict;
 }
 
-// Pass 191: pull held-out metrics from the worker if WorkerBridge is enabled.
+// Pass 191-192: pull both random + walk-forward metrics from the worker.
+function renderMetricsTile(m, prefix, verdictId) {
+  if (!m) return;
+  document.getElementById(prefix + '-n').textContent = m.n.toLocaleString();
+  document.getElementById(prefix + '-acc').textContent = (m.accuracy * 100).toFixed(1) + '%';
+  document.getElementById(prefix + '-acc').style.color = m.accuracy > 0.53 ? 'var(--green)' : (m.accuracy < 0.47 ? 'var(--red)' : 'var(--text)');
+  document.getElementById(prefix + '-bss').textContent = (m.bss >= 0 ? '+' : '') + m.bss.toFixed(4);
+  document.getElementById(prefix + '-bss').style.color = m.bss > 0.05 ? 'var(--green)' : (m.bss > 0 ? 'var(--yellow)' : 'var(--red)');
+  document.getElementById(prefix + '-p').textContent = m.p_value < 0.0001 ? '<0.0001' : m.p_value.toFixed(4);
+  document.getElementById(prefix + '-p').style.color = m.significant ? 'var(--green)' : 'var(--text-muted)';
+  const v = document.getElementById(verdictId);
+  if (m.verdict === 'REAL SIGNAL') {
+    v.textContent = '✓ REAL SIGNAL — BSS ' + m.bss.toFixed(3) + ', p=' + m.p_value.toFixed(3);
+    v.style.background = 'rgba(16,185,129,0.15)';
+    v.style.color = 'var(--green)';
+    v.style.border = '1px solid var(--green)';
+  } else if (m.verdict === 'WEAK SIGNAL') {
+    v.textContent = '⚠ WEAK SIGNAL — BSS ' + m.bss.toFixed(3) + ' (close to random)';
+    v.style.background = 'rgba(245,158,11,0.15)';
+    v.style.color = 'var(--yellow)';
+    v.style.border = '1px solid var(--yellow)';
+  } else {
+    v.textContent = '✗ BELOW BASELINE — BSS ' + m.bss.toFixed(3) + ' (no better than guessing)';
+    v.style.background = 'rgba(220,38,38,0.15)';
+    v.style.color = 'var(--red)';
+    v.style.border = '1px solid var(--red)';
+  }
+}
+
 async function refreshWorkerMetrics() {
   if (typeof WorkerBridge === 'undefined' || !WorkerBridge.isEnabled()) return;
   const url = WorkerBridge.getUrl();
@@ -213,33 +254,10 @@ async function refreshWorkerMetrics() {
     const r = await fetch(url + '/brain/metrics');
     if (!r.ok) return;
     const j = await r.json();
-    if (!j.heldout_test) return;
-    const m = j.heldout_test;
+    if (!j.heldout_test && !j.walk_forward_test) return;
     document.getElementById('worker-metrics-card').style.display = 'block';
-    document.getElementById('m-n').textContent = m.n.toLocaleString();
-    document.getElementById('m-acc').textContent = (m.accuracy * 100).toFixed(1) + '%';
-    document.getElementById('m-acc').style.color = m.accuracy > 0.53 ? 'var(--green)' : (m.accuracy < 0.47 ? 'var(--red)' : 'var(--text)');
-    document.getElementById('m-bss').textContent = (m.bss >= 0 ? '+' : '') + m.bss.toFixed(4);
-    document.getElementById('m-bss').style.color = m.bss > 0.05 ? 'var(--green)' : (m.bss > 0 ? 'var(--yellow)' : 'var(--red)');
-    document.getElementById('m-p').textContent = m.p_value < 0.0001 ? '<0.0001' : m.p_value.toFixed(4);
-    document.getElementById('m-p').style.color = m.significant ? 'var(--green)' : 'var(--text-muted)';
-    const v = document.getElementById('m-verdict');
-    if (m.verdict === 'REAL SIGNAL') {
-      v.textContent = '✓ REAL SIGNAL — brain has demonstrated edge on out-of-sample data (BSS ' + m.bss.toFixed(3) + ', p=' + m.p_value.toFixed(3) + ')';
-      v.style.background = 'rgba(16,185,129,0.15)';
-      v.style.color = 'var(--green)';
-      v.style.border = '1px solid var(--green)';
-    } else if (m.verdict === 'WEAK SIGNAL') {
-      v.textContent = '⚠ WEAK SIGNAL — slightly better than random but not statistically robust (BSS ' + m.bss.toFixed(3) + ')';
-      v.style.background = 'rgba(245,158,11,0.15)';
-      v.style.color = 'var(--yellow)';
-      v.style.border = '1px solid var(--yellow)';
-    } else {
-      v.textContent = '✗ BELOW BASELINE — model is no better than guessing (BSS ' + m.bss.toFixed(3) + '). Don\'t trust predictions.';
-      v.style.background = 'rgba(220,38,38,0.15)';
-      v.style.color = 'var(--red)';
-      v.style.border = '1px solid var(--red)';
-    }
+    if (j.heldout_test) renderMetricsTile(j.heldout_test, 'm', 'm-verdict');
+    if (j.walk_forward_test) renderMetricsTile(j.walk_forward_test, 'wf', 'wf-verdict');
   } catch (e) {}
 }
 
