@@ -425,6 +425,15 @@ document.addEventListener('DOMContentLoaded', () => {
         s.async = false;
         document.head.appendChild(s);
       }
+      // Journal Repair — one-shot idempotent migrations that fix past
+      // corruption from audit-discovered bugs (e.g. pass 119 feature[20]
+      // timezone fix). Runs at most once per migration-version per browser.
+      if (!document.querySelector('script[src*="journal-repair.js"]')) {
+        const s = document.createElement('script');
+        s.src = 'js/journal-repair.js';
+        s.async = false;
+        document.head.appendChild(s);
+      }
       // Demo Data Generator — lets users populate empty pages with synthetic
       // resolved trades so the brain UI doesn't read empty for 24+ hours.
       if (!document.querySelector('script[src*="demo-data.js"]')) {

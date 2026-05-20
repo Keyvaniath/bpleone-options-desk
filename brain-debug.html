@@ -78,11 +78,18 @@
     <div style="font-size:12px;color:var(--text-secondary);margin-bottom:14px;">All actions are local-only (no server). Bookmark this page when you need quick access during a regime shift.</div>
     <button class="actbtn ok" onclick="runTrainNow()">⚡ Force full retrain</button>
     <button class="actbtn ok" onclick="refitCalibrators()">📐 Refit calibrators</button>
+    <button class="actbtn ok" onclick="runJournalRepair()">🧰 Run journal repair (pass-119 fix)</button>
     <button class="actbtn warn" onclick="resetBootstrap()">↻ Re-run historical bootstrap</button>
     <button class="actbtn warn" onclick="clearRollingAcc()">🧹 Clear rolling-accuracy log</button>
     <button class="actbtn danger" onclick="resetModel()">⚠ Reset model weights to zero</button>
     <button class="actbtn danger" onclick="clearJournal()">⚠ Clear journal (keeps trained model)</button>
     <div id="actResult" style="margin-top:12px;font-family:var(--font-mono);font-size:12px;color:var(--text-muted);"></div>
+  </div>
+
+  <div class="card mb-24">
+    <div class="card-header"><div class="card-title">🧰 Journal repair migrations</div></div>
+    <div style="font-size:12px;color:var(--text-secondary);margin-bottom:14px;">One-shot idempotent migrations that retroactively fix past corruption from audit-discovered bugs. Each migration runs at most once per browser per migration-version. Auto-fires 4s after every page load.</div>
+    <div id="repairList" style="font-size:12px;font-family:var(--font-mono);"></div>
   </div>
 
   <div class="card">
@@ -113,6 +120,7 @@
 <script src="js/historical-bootstrap.js"></script>
 <script src="js/auto-trainer.js"></script>
 <script src="js/continuous-learner.js"></script>
+<script src="js/journal-repair.js"></script>
 <script>
 buildNav('brain-debug');
 
@@ -333,12 +341,49 @@ function clearJournal() {
   setActResult('✓ Journal cleared. Future captures will repopulate.');
 }
 
+function runJournalRepair() {
+  if (!window.JournalRepair) { setActResult('✗ JournalRepair module not loaded'); return; }
+  // Re-run forcibly by resetting flags first
+  try { window.JournalRepair.reset(); } catch (e) {}
+  const results = window.JournalRepair.runAll();
+  const summary = results.map(r => r.name + ': ' + (r.result && r.result.repaired != null ? (r.result.repaired + ' repaired, ' + r.result.skipped + ' skipped') : JSON.stringify(r.result))).join(' · ');
+  setActResult('✓ Journal repair: ' + summary);
+}
+
+function renderRepair() {
+  const wrap = document.getElementById('repairList');
+  if (!wrap) return;
+  if (!window.JournalRepair) {
+    wrap.innerHTML = '<div style="color:var(--text-muted);">JournalRepair module not loaded yet — refresh in a few seconds.</div>';
+    return;
+  }
+  const s = window.JournalRepair.status();
+  const rows = s.migrations.map(m => {
+    const ran = m.ranAt ? fmtAgo(Date.now() - m.ranAt) + ' ago' : '<span style="color:var(--yellow);">pending</span>';
+    return '<div style="padding:8px 0;border-bottom:1px solid rgba(255,255,255,0.05);">'
+      + '<div><strong>' + m.name + '</strong> <span style="color:var(--text-muted);">v' + m.version + '</span> · ' + ran + '</div>'
+      + '<div style="color:var(--text-muted);font-size:11px;margin-top:2px;">' + m.description + '</div>'
+      + '</div>';
+  }).join('');
+  let history = '';
+  if (s.history && s.history.length) {
+    history = '<div style="margin-top:14px;font-size:11px;color:var(--text-muted);">Recent runs:</div>'
+      + s.history.slice(0, 5).map(h => {
+        const r = h.result || {};
+        const detail = r.repaired != null ? (r.repaired + ' repaired / ' + r.skipped + ' skipped / ' + r.total + ' total') : JSON.stringify(r);
+        return '<div style="font-size:11px;padding:2px 0;">' + new Date(h.ts).toISOString().slice(0, 19) + ' · ' + h.name + ' · ' + detail + ' · ' + h.durationMs + 'ms</div>';
+      }).join('');
+  }
+  wrap.innerHTML = rows + history;
+}
+
 function renderAll() {
   renderTopTiles();
   renderModList();
   renderStorageList();
   renderFreshness();
   renderErrList();
+  renderRepair();
 }
 
 renderAll();
