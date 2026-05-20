@@ -38,7 +38,7 @@
 // Pass 200: version stamp so brain-proof.html + worker-setup.html can detect
 // when the deployed worker is behind the repo source. Bump on every meaningful
 // behavior change. Read via /brain/health → worker_version field.
-const WORKER_VERSION = 'pass-207';
+const WORKER_VERSION = 'pass-208';
 
 const UNIVERSE = [
   'SPY','QQQ','IWM','DIA','AAPL','NVDA','TSLA','MSFT','META','AMZN','GOOGL','AMD',
@@ -96,7 +96,11 @@ function trainStep(model, features, label) {
   // L2=0.001 keeps weights bounded; the bias term and features[21] (the
   // constant-1 bias column) are exempt from decay so the intercept is free
   // to absorb the class prior. Matches the browser model.js pattern.
-  const L2 = 0.001;
+  // Pass 208: bumped L2 from 0.001 → 0.003. Walk-forward (which already
+  // trained from a fresh model) only improved 0.008 BSS at L2=0.001 — the
+  // gradient signal still dominated weight decay. 3× stronger keeps weights
+  // bounded more aggressively over the 42k SGD steps of 5-epoch training.
+  const L2 = 0.003;
   for (let i = 0; i < 22; i++) {
     const decay = (i === 21) ? 0 : L2 * model.weights[i];
     model.weights[i] -= model.lr * (err * (features[i] || 0) + decay);
@@ -799,7 +803,16 @@ async function handleRequest(request, env, ctx) {
 }
 
 async function runBootstrap(env) {
-  const model = await kvGet(env, KV_KEYS.MODEL, newModel());
+  // Pass 208 (CRITICAL): start from a fresh model EVERY bootstrap call.
+  // Previously this loaded the existing KV model and trained on top of it,
+  // so successive bootstraps accumulated weights from prior runs — each
+  // bootstrap was actually "5 more epochs on top of whatever was there".
+  // The random-split BSS was measuring "did the latest fine-tune help"
+  // not "does the model have signal from scratch". The wfModel above
+  // was already fresh per call; only the main model leaked.
+  // Result of the bug: pass 207's L2=0.001 looked like it had no effect
+  // because the model was stuck at the pre-L2 equilibrium.
+  const model = newModel();
   const trainingExamples = [];
   let symbolsFetched = 0;
   const errors = [];
