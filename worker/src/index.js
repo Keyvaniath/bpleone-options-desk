@@ -391,10 +391,12 @@ async function tick(env) {
     journal.splice(0, journal.length - MAX_JOURNAL);
   }
 
-  // Persist
-  await Promise.all([
+  // Pass 190 (CRITICAL race fix): only persist the model if we actually
+  // trained on resolutions. Otherwise the cron tick could overwrite a
+  // freshly-bootstrapped model (n_trained=8562) with a stale in-memory copy
+  // due to Cloudflare KV's eventual-consistency window.
+  const writes = [
     kvPut(env, KV_KEYS.JOURNAL, journal),
-    kvPut(env, KV_KEYS.MODEL, model),
     kvPut(env, KV_KEYS.LAST_TICK, {
       ts: Date.now(),
       syms_updated: okCount,
@@ -402,9 +404,14 @@ async function tick(env) {
       captured,
       resolved,
       trained,
-      durationMs: Date.now() - startTs
+      durationMs: Date.now() - startTs,
+      skipped_model_write: trained === 0
     })
-  ]);
+  ];
+  if (trained > 0) {
+    writes.push(kvPut(env, KV_KEYS.MODEL, model));
+  }
+  await Promise.all(writes);
 
   return { ok: true, captured, resolved, trained, syms: okCount, errors: errCount };
 }
