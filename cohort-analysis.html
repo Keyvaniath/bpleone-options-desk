@@ -103,21 +103,25 @@ const SECTORS = {
   'SPY':'Index','QQQ':'Index','IWM':'Index','DIA':'Index','XLK':'Sector','XLF':'Sector','XLE':'Sector','XLV':'Sector','BTC':'Crypto','ETH':'Crypto','COIN':'Crypto'
 };
 
+// Audit pass 170: bucket cohort time-dims by ET clock so the session labels
+// (Open, Morning, Midday, Close, After hours) reflect ET market times.
+function _etHourOf(ts) { try { return new Date(new Date(ts).toLocaleString('en-US', { timeZone: 'America/New_York' })).getHours(); } catch(e) { return new Date(ts).getHours(); } }
+function _etDowOf(ts) { try { return new Date(new Date(ts).toLocaleString('en-US', { timeZone: 'America/New_York' })).getDay(); } catch(e) { return new Date(ts).getDay(); } }
 function dimKey(t, dim) {
   if (dim === 'sym') return t.meta?.sym || 'UNK';
   if (dim === 'setup') return t.meta?.setup || 'unknown';
   if (dim === 'severity') return t.severity || t.meta?.severity || 'med';
   if (dim === 'hour') {
-    const h = new Date(t.ts).getHours();
-    if (h < 7) return 'Overnight (<7am)';
-    if (h < 10) return 'Open (7-10am)';
-    if (h < 12) return 'Morning (10-12)';
-    if (h < 14) return 'Midday (12-2pm)';
-    if (h < 16) return 'Close (2-4pm)';
-    return 'After hours';
+    const h = _etHourOf(t.ts);
+    if (h < 7) return 'Overnight ET (<7am)';
+    if (h < 10) return 'Open ET (7-10am)';
+    if (h < 12) return 'Morning ET (10-12)';
+    if (h < 14) return 'Midday ET (12-2pm)';
+    if (h < 16) return 'Close ET (2-4pm)';
+    return 'After hours ET';
   }
   if (dim === 'dow') {
-    return ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][new Date(t.ts).getDay()];
+    return ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][_etDowOf(t.ts)];
   }
   if (dim === 'conf') {
     let p = null; try { if (window.predictForFinding) { const r = window.predictForFinding(t); p = r ? r.prob : null; } } catch(e) {}

@@ -78,11 +78,19 @@ function getTrades() {
   if (s.empty || !s.windows || !s.windows.lifetime) return [];
   return s.windows.lifetime.trades || [];
 }
+// Audit pass 170: bucket by ET clock hour, not local. Hour labels in the
+// chart imply ET market clock (9:30am open, 4pm close).
+function etHourOf(ts) {
+  try {
+    const d = new Date(new Date(ts).toLocaleString('en-US', { timeZone: 'America/New_York' }));
+    return d.getHours();
+  } catch (e) { return new Date(ts).getHours(); }
+}
 function render() {
   const trades = getTrades();
   const buckets = Array.from({ length: 24 }, (_, i) => ({ hour: i, pnl: 0, wins: 0, losses: 0, count: 0 }));
   for (const t of trades) {
-    const h = new Date(t.ts).getHours();
+    const h = etHourOf(t.ts);
     buckets[h].pnl += t.pnl;
     buckets[h].count++;
     if (t.pnl > 0) buckets[h].wins++;

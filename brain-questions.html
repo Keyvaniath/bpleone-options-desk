@@ -87,19 +87,23 @@ const QUESTIONS = [
     const [s, v] = arr[0];
     return 'The <strong>' + s + '</strong> setup is your edge: <strong>+' + (v.r/v.n).toFixed(2) + 'R per trade</strong> over ' + v.n + ' trades. Look for more of these.';
   }},
+  // Audit pass 170: bucket by ET clock so hour/dow stats reflect the
+  // market-attribution calendar, not the user's local timezone.
   { cat:'timing', q:'What\'s my best hour of the day?', a:() => {
+    function etHourOf(ts) { try { return new Date(new Date(ts).toLocaleString('en-US', { timeZone: 'America/New_York' })).getHours(); } catch(e) { return new Date(ts).getHours(); } }
     const train = loadTrain();
     const byHour = Array(24).fill(0).map(() => ({ n:0, r:0 }));
-    train.forEach(t => { const h = new Date(t.ts).getHours(); byHour[h].n++; byHour[h].r += t.y === 1 ? (t.r || 1.5) : -1.0; });
+    train.forEach(t => { const h = etHourOf(t.ts); byHour[h].n++; byHour[h].r += t.y === 1 ? (t.r || 1.5) : -1.0; });
     const arr = byHour.map((v, h) => ({ h, ...v })).filter(v => v.n >= 3).sort((a,b) => b.r/b.n - a.r/a.n);
     if (arr.length === 0) return 'Need 3+ trades per hour.';
-    return 'You\'re sharpest at <strong>' + arr[0].h + ':00</strong> — <strong>+' + (arr[0].r/arr[0].n).toFixed(2) + 'R/trade</strong> across ' + arr[0].n + ' trades. Schedule your focus around this hour.';
+    return 'You\'re sharpest at <strong>' + arr[0].h + ':00 ET</strong> — <strong>+' + (arr[0].r/arr[0].n).toFixed(2) + 'R/trade</strong> across ' + arr[0].n + ' trades. Schedule your focus around this hour.';
   }},
   { cat:'timing', q:'What\'s my worst day of the week?', a:() => {
+    function etDowOf(ts) { try { return new Date(new Date(ts).toLocaleString('en-US', { timeZone: 'America/New_York' })).getDay(); } catch(e) { return new Date(ts).getDay(); } }
     const train = loadTrain();
     const dayNames = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
     const byDow = Array(7).fill(0).map(() => ({ n:0, r:0 }));
-    train.forEach(t => { const d = new Date(t.ts).getDay(); byDow[d].n++; byDow[d].r += t.y === 1 ? (t.r || 1.5) : -1.0; });
+    train.forEach(t => { const d = etDowOf(t.ts); byDow[d].n++; byDow[d].r += t.y === 1 ? (t.r || 1.5) : -1.0; });
     const arr = byDow.map((v, d) => ({ d, ...v })).filter(v => v.n >= 2).sort((a,b) => a.r/a.n - b.r/b.n);
     if (arr.length === 0) return 'Need 2+ trades per weekday.';
     return '<strong>' + dayNames[arr[0].d] + '</strong> is your worst day — <strong>' + (arr[0].r/arr[0].n).toFixed(2) + 'R/trade</strong> across ' + arr[0].n + ' trades. Consider paper-only on this day.';
