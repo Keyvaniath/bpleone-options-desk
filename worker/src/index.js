@@ -490,17 +490,20 @@ async function handleRequest(request, env, ctx) {
   }
 
   if (path === '/brain/metrics') {
-    // Pass 191: real signal-vs-noise metrics from the held-out test set
-    // and the live resolved journal. No auth required (read-only).
-    const heldout = await kvGet(env, KV_KEYS.HELDOUT, []);
+    // Pass 191-192: real signal-vs-noise metrics from BOTH random-split
+    // held-out (stationary upper bound) AND walk-forward (honest trading test).
+    const heldoutRaw = await kvGet(env, KV_KEYS.HELDOUT, []);
     const journal = await kvGet(env, KV_KEYS.JOURNAL, []);
+    // Backwards-compat: pass 191 stored a flat array; pass 192 stores
+    // { random_split, walk_forward }.
+    const heldout = Array.isArray(heldoutRaw) ? heldoutRaw : (heldoutRaw.random_split || []);
+    const walkForwardSet = !Array.isArray(heldoutRaw) ? (heldoutRaw.walk_forward || []) : [];
 
-    // ---- Held-out test metrics (from bootstrap split) ----
-    let testMetrics = null;
-    if (heldout.length > 0) {
+    function computeMetrics(pairs) {
+      if (pairs.length === 0) return null;
       let correct = 0, brierSum = 0;
       const bins = Array(10).fill(0).map(() => ({ n: 0, sum_y: 0, sum_p: 0 }));
-      for (const { p, y } of heldout) {
+      for (const { p, y } of pairs) {
         if ((p >= 0.5 ? 1 : 0) === y) correct++;
         brierSum += (p - y) * (p - y);
         const bin = Math.min(9, Math.floor(p * 10));
@@ -508,23 +511,20 @@ async function handleRequest(request, env, ctx) {
         bins[bin].sum_y += y;
         bins[bin].sum_p += p;
       }
-      const brier = brierSum / heldout.length;
+      const brier = brierSum / pairs.length;
       const bss = 1 - (brier / 0.25);
-      // ECE (expected calibration error)
       let ece = 0;
       for (const b of bins) {
         if (b.n === 0) continue;
         const actualRate = b.sum_y / b.n;
         const meanProb = b.sum_p / b.n;
-        ece += (b.n / heldout.length) * Math.abs(actualRate - meanProb);
+        ece += (b.n / pairs.length) * Math.abs(actualRate - meanProb);
       }
-      // Binomial test vs 50% (Wald approximation for large n)
-      const acc = correct / heldout.length;
-      const z = (acc - 0.5) / Math.sqrt(0.25 / heldout.length);
-      // Two-sided p-value via normal CDF approximation
+      const acc = correct / pairs.length;
+      const z = (acc - 0.5) / Math.sqrt(0.25 / pairs.length);
       const pValue = 2 * (1 - normalCdf(Math.abs(z)));
-      testMetrics = {
-        n: heldout.length,
+      return {
+        n: pairs.length,
         accuracy: +acc.toFixed(4),
         brier: +brier.toFixed(4),
         bss: +bss.toFixed(4),
@@ -535,6 +535,9 @@ async function handleRequest(request, env, ctx) {
         verdict: bss > 0.05 ? 'REAL SIGNAL' : (bss > 0 ? 'WEAK SIGNAL' : 'BELOW BASELINE')
       };
     }
+
+    const randomMetrics = computeMetrics(heldout);
+    const walkForwardMetrics = computeMetrics(walkForwardSet);
 
     // ---- Live journal metrics (from resolved captures) ----
     const resolved = journal.filter(e => e.resolved && typeof e.resolved === 'object' && e.resolved.short && e.resolved.short !== false);
@@ -559,7 +562,8 @@ async function handleRequest(request, env, ctx) {
     }
 
     return json({
-      heldout_test: testMetrics,
+      heldout_test: randomMetrics,           // random 80/20 split (stationary estimate)
+      walk_forward_test: walkForwardMetrics, // time-ordered split (honest trading test)
       live_resolved: liveMetrics,
       total_captures: journal.length,
       timestamp: Date.now()
@@ -686,7 +690,9 @@ async function runBootstrap(env) {
       const label = ret > 0.003 ? 1 : (ret < -0.003 ? 0 : null);
       if (label === null) continue;
       const features = richFeatures(bars, i);
-      trainingExamples.push({ features, label, sym });
+      // Pass 192: include ts so we can do honest time-ordered walk-forward
+      // validation (not just random shuffle which leaks future info).
+      trainingExamples.push({ features, label, sym, ts: today.ts });
     }
   }
 
@@ -704,10 +710,19 @@ async function runBootstrap(env) {
     }
     return a;
   }
+  // Pass 192: TWO splits — random (leaks future) and time-ordered (honest).
+  // Random gives the "stationary data" upper-bound estimate.
+  // Time-ordered (train on past, test on future) is the honest trading test.
   const shuffled = seedShuffle(trainingExamples, 42);
   const splitIdx = Math.floor(shuffled.length * 0.8);
   const trainSet = shuffled.slice(0, splitIdx);
   const testSet = shuffled.slice(splitIdx);
+
+  // Time-ordered split for walk-forward validation
+  const timeSorted = trainingExamples.slice().sort((a, b) => (a.ts || 0) - (b.ts || 0));
+  const wfSplitIdx = Math.floor(timeSorted.length * 0.8);
+  const wfTrainSet = timeSorted.slice(0, wfSplitIdx);
+  const wfTestSet = timeSorted.slice(wfSplitIdx);
 
   // Train phase
   let lossSum = 0;
@@ -732,9 +747,26 @@ async function runBootstrap(env) {
   const brierBaseline = 0.25;
   const bss = brier != null ? 1 - (brier / brierBaseline) : null;
 
+  // Pass 192: run a SEPARATE walk-forward test on time-ordered split.
+  // Use a clone of the trained model state — train on wfTrainSet, test on wfTestSet.
+  // This is the honest "trained on past, predicting future" test.
+  const wfModel = JSON.parse(JSON.stringify(newModel()));
+  for (const ex of wfTrainSet) trainStep(wfModel, ex.features, ex.label);
+  const walkForward = [];
+  let wfCorrect = 0, wfBrierSum = 0;
+  for (const ex of wfTestSet) {
+    const p = predict(wfModel, ex.features);
+    walkForward.push({ p, y: ex.label, sym: ex.sym, ts: ex.ts });
+    if ((p >= 0.5 ? 1 : 0) === ex.label) wfCorrect++;
+    wfBrierSum += (p - ex.label) * (p - ex.label);
+  }
+  const wfAcc = wfTestSet.length > 0 ? wfCorrect / wfTestSet.length : null;
+  const wfBrier = wfTestSet.length > 0 ? wfBrierSum / wfTestSet.length : null;
+  const wfBss = wfBrier != null ? 1 - (wfBrier / 0.25) : null;
+
   await Promise.all([
     kvPut(env, KV_KEYS.MODEL, model),
-    kvPut(env, KV_KEYS.HELDOUT, heldout)
+    kvPut(env, KV_KEYS.HELDOUT, { random_split: heldout, walk_forward: walkForward })
   ]);
 
   return {
@@ -749,7 +781,11 @@ async function runBootstrap(env) {
     heldout_test_accuracy: testAcc,
     heldout_brier: brier,
     heldout_bss: bss,
-    is_real_signal: bss != null && bss > 0.02
+    walk_forward_accuracy: wfAcc,
+    walk_forward_brier: wfBrier,
+    walk_forward_bss: wfBss,
+    is_real_signal: bss != null && bss > 0.02,
+    is_real_signal_walk_forward: wfBss != null && wfBss > 0.02
   };
 }
 
