@@ -495,7 +495,14 @@ document.addEventListener('DOMContentLoaded', () => {
       // Webhook Bridge — POSTs alerts to Discord/Slack/generic endpoint.
       if (!document.querySelector('script[src*="webhook-bridge.js"]')) {
         const s = document.createElement('script');
-        s.src = 'js/webhook-bridge.js';
+        s.src = 'js/webhook-bridge.js?v=v178';
+        s.async = false;
+        document.head.appendChild(s);
+      }
+      // Worker Bridge (pass 180) — talks to Cloudflare Worker for 24/7 brain state.
+      if (!document.querySelector('script[src*="worker-bridge.js"]')) {
+        const s = document.createElement('script');
+        s.src = 'js/worker-bridge.js?v=v178';
         s.async = false;
         document.head.appendChild(s);
       }

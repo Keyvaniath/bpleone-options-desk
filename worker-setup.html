@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Worker Setup — bpleone</title>
+<meta name="description" content="Connect the 24/7 Cloudflare Worker that runs the brain server-side. Solves 'tab must be open' limit.">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.step { padding:18px;background:var(--bg-elevated);border-radius:10px;margin-bottom:14px;border-left:4px solid var(--accent); }
+.step h3 { margin:0 0 8px;font-size:15px;font-weight:800; }
+.code-blob { background:#0a0a0a;border:1px solid var(--border);border-radius:6px;padding:12px;font-family:var(--font-mono);font-size:11px;overflow-x:auto;color:#0fa;line-height:1.6;margin:8px 0;white-space:pre; }
+.input-row { display:flex;gap:10px;align-items:center;margin:12px 0; }
+.input-row input { flex:1;padding:10px 12px;background:#0a0a0a;border:1px solid var(--border);border-radius:6px;color:var(--text);font-family:var(--font-mono);font-size:13px; }
+.btn { padding:10px 18px;border-radius:6px;border:none;cursor:pointer;font-weight:700;font-family:var(--font-mono);font-size:12px; }
+.btn-go { background:linear-gradient(135deg,#00d4ff,#0094c7);color:#000; }
+.btn-warn { background:rgba(245,158,11,0.18);color:var(--yellow);border:1px solid rgba(245,158,11,0.5); }
+.kpi { padding:14px;background:var(--bg-elevated);border-radius:8px; }
+.kpi .lbl { font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;font-weight:700; }
+.kpi .val { font-family:var(--font-mono);font-size:20px;font-weight:800;margin-top:4px; }
+.status-ok { color:var(--green); }
+.status-err { color:var(--red); }
+.status-warn { color:var(--yellow); }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">⚡ Worker Setup — 24/7 brain</div>
+      <div class="page-subtitle">Connect the Cloudflare Worker so the brain runs even when this tab is closed. One-time setup, free tier covers everything.</div>
+    </div>
+  </div>
+
+  <div class="card mb-24" style="background:rgba(0,212,255,0.06);border:1px solid rgba(0,212,255,0.3);">
+    <div class="card-header"><div class="card-title">🎯 What this solves</div></div>
+    <div style="font-size:13px;color:var(--text-secondary);line-height:1.7;">
+      The browser brain only runs while a tab is open. Close Chrome → brain stops. Re-open → brain starts from scratch (only learns from new captures going forward).
+      <br><br>
+      The worker fixes this:
+      <ul style="margin:6px 0 6px 22px;line-height:1.7;">
+        <li><strong>Runs 24/7 on Cloudflare's edge</strong> — every minute, polls Finnhub, runs capture/resolve/train, persists state in KV.</li>
+        <li><strong>Historical bootstrap works</strong> — no CORS limits server-side. Finnhub's <code>/stock/candle</code> works from the worker even though it's blocked from your browser.</li>
+        <li><strong>Free tier</strong> — Cloudflare Workers free plan covers everything (100k req/day, 1GB KV).</li>
+        <li><strong>Browser becomes a viewer</strong> — pages read state from the worker via <code>/brain/state</code>. Local capture continues as a fallback.</li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- Setup steps -->
+  <div class="card mb-24">
+    <div class="card-header"><div class="card-title">📋 One-time setup (10 minutes)</div></div>
+
+    <div class="step">
+      <h3>1. Get the worker code</h3>
+      <div style="font-size:12px;color:var(--text-secondary);">The worker source lives in <code>worker/</code> in the repo. Clone the repo locally if you haven't yet.</div>
+      <div class="code-blob">git clone https://github.com/Keyvaniath/bpleone-options-desk
+cd bpleone-options-desk/worker</div>
+    </div>
+
+    <div class="step">
+      <h3>2. Install Wrangler (Cloudflare's CLI)</h3>
+      <div class="code-blob">npm install -g wrangler
+wrangler login    # opens browser to authorize</div>
+    </div>
+
+    <div class="step">
+      <h3>3. Create the KV namespace</h3>
+      <div class="code-blob">wrangler kv:namespace create BRAIN_KV
+# Output gives you an `id = "..."` — copy that
+# Paste it into wrangler.toml (replace REPLACE_WITH_KV_ID_FROM_WRANGLER_OUTPUT)</div>
+    </div>
+
+    <div class="step">
+      <h3>4. Set secrets</h3>
+      <div class="code-blob">wrangler secret put FINNHUB_API_KEY
+# (paste your Finnhub key when prompted — same one you use in settings.html)
+
+wrangler secret put ADMIN_TOKEN
+# (make up a random long string — used to trigger bootstrap)</div>
+    </div>
+
+    <div class="step">
+      <h3>5. Deploy</h3>
+      <div class="code-blob">wrangler deploy
+# Returns a URL like:
+#   https://bpleone-brain-worker.YOUR-SUBDOMAIN.workers.dev
+# Copy that URL.</div>
+    </div>
+
+    <div class="step">
+      <h3>6. Trigger the initial bootstrap</h3>
+      <div style="font-size:12px;color:var(--text-secondary);">This pulls 250 days of Finnhub candles and pre-trains the model. ~30 seconds.</div>
+      <div class="code-blob">curl -X POST -H "Authorization: Bearer YOUR_ADMIN_TOKEN" \
+  https://bpleone-brain-worker.YOUR-SUBDOMAIN.workers.dev/brain/bootstrap</div>
+    </div>
+
+    <div class="step">
+      <h3>7. Connect this browser to the worker</h3>
+      <div style="font-size:12px;color:var(--text-secondary);">Paste the worker URL below and click connect. From this moment, every page reads brain state from the worker.</div>
+      <div class="input-row">
+        <input type="text" id="worker-url" placeholder="https://bpleone-brain-worker.YOUR-SUBDOMAIN.workers.dev" />
+        <button class="btn btn-go" onclick="connectWorker()">⚡ Connect</button>
+      </div>
+      <div id="connect-result" style="font-family:var(--font-mono);font-size:11px;margin-top:8px;"></div>
+    </div>
+  </div>
+
+  <!-- Live status -->
+  <div class="card mb-24">
+    <div class="card-header"><div class="card-title">📡 Live worker status</div></div>
+    <div class="grid grid-4 mb-12">
+      <div class="kpi"><div class="lbl">Connected</div><div class="val" id="w-connected">—</div></div>
+      <div class="kpi"><div class="lbl">Last tick</div><div class="val" id="w-tick">—</div></div>
+      <div class="kpi"><div class="lbl">Journal (server)</div><div class="val" id="w-journal">—</div></div>
+      <div class="kpi"><div class="lbl">Model n_trained</div><div class="val" id="w-trained">—</div></div>
+    </div>
+    <div style="font-size:11px;color:var(--text-muted);">Auto-refreshes every 15 seconds.</div>
+  </div>
+
+  <!-- Disconnect -->
+  <div class="card">
+    <div class="card-header"><div class="card-title">🔌 Disconnect</div></div>
+    <div style="font-size:12px;color:var(--text-secondary);margin-bottom:10px;">Falls back to browser-only brain. Worker keeps running in Cloudflare — you just stop reading from it.</div>
+    <button class="btn btn-warn" onclick="disconnectWorker()">Disconnect from worker</button>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js?v=v178"></script>
+<script src="js/ai-client.js?v=v178"></script>
+<script src="js/app.js?v=v178"></script>
+<script src="js/notify.js?v=v178"></script>
+<script src="js/live.js?v=v178"></script>
+<script src="js/worker-bridge.js?v=v178"></script>
+<script>
+buildNav('worker-setup');
+
+function connectWorker() {
+  const url = document.getElementById('worker-url').value.trim();
+  if (!url) {
+    document.getElementById('connect-result').innerHTML = '<span class="status-err">✗ Enter a worker URL first</span>';
+    return;
+  }
+  WorkerBridge.setUrl(url);
+  WorkerBridge.enable();
+  document.getElementById('connect-result').innerHTML = '<span class="status-ok">✓ Connected. Testing...</span>';
+  setTimeout(refresh, 500);
+}
+
+function disconnectWorker() {
+  if (!confirm('Disconnect? Pages will fall back to browser-only brain. Worker keeps running but you stop reading from it.')) return;
+  WorkerBridge.disable();
+  refresh();
+}
+
+async function refresh() {
+  if (typeof WorkerBridge === 'undefined') {
+    setTimeout(refresh, 500);
+    return;
+  }
+  const url = WorkerBridge.getUrl();
+  const enabled = WorkerBridge.isEnabled();
+  document.getElementById('worker-url').value = url || '';
+  document.getElementById('w-connected').textContent = enabled && url ? 'YES' : 'no';
+  document.getElementById('w-connected').className = 'val ' + (enabled && url ? 'status-ok' : 'status-warn');
+
+  if (!enabled || !url) {
+    document.getElementById('w-tick').textContent = '—';
+    document.getElementById('w-journal').textContent = '—';
+    document.getElementById('w-trained').textContent = '—';
+    return;
+  }
+  try {
+    const h = await WorkerBridge.health();
+    if (h.error) {
+      document.getElementById('w-tick').textContent = 'ERR';
+      document.getElementById('w-tick').className = 'val status-err';
+      document.getElementById('connect-result').innerHTML = '<span class="status-err">✗ ' + h.error + ' — is the URL right? Is the worker deployed?</span>';
+      return;
+    }
+    if (h.lastTickAgo == null) {
+      document.getElementById('w-tick').textContent = 'never';
+      document.getElementById('w-tick').className = 'val status-warn';
+    } else {
+      document.getElementById('w-tick').textContent = h.lastTickAgo + 's';
+      document.getElementById('w-tick').className = 'val ' + (h.lastTickAgo < 120 ? 'status-ok' : 'status-warn');
+    }
+    const s = await WorkerBridge.state();
+    if (s.error) {
+      document.getElementById('w-journal').textContent = 'ERR';
+      document.getElementById('w-trained').textContent = 'ERR';
+      return;
+    }
+    document.getElementById('w-journal').textContent = (s.journalTotal || 0).toLocaleString();
+    document.getElementById('w-trained').textContent = (s.model && s.model.n_trained ? s.model.n_trained : 0).toLocaleString();
+    document.getElementById('connect-result').innerHTML = '<span class="status-ok">✓ Worker live · ' + h.lastTickAgo + 's since last tick · ' + s.journalTotal + ' journal entries · ' + (s.model?.n_trained || 0) + ' training steps</span>';
+  } catch (e) {
+    document.getElementById('connect-result').innerHTML = '<span class="status-err">✗ ' + e.message + '</span>';
+  }
+}
+
+// First render + auto-refresh
+setTimeout(refresh, 800);
+setInterval(refresh, 15000);
+</script>
+</body>
+</html>
