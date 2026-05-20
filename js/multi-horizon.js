@@ -133,6 +133,14 @@
 
   function trainHorizon(horizon, features, label, sampleWeight) {
     if (!HORIZONS.includes(horizon)) return null;
+    // Pass 203: guard against malformed feature vectors. Caller is supposed to
+    // pass FEATURES.length-element array but a stale-schema journal entry or
+    // bad upstream caller could pass [] or wrong length — train() would silently
+    // loop over a partial range, leaving the upper weights of the per-horizon
+    // model un-updated forever.
+    const expectedLen = (typeof window !== 'undefined' && window.FEATURES) ? window.FEATURES.length : 22;
+    if (!Array.isArray(features) || features.length !== expectedLen) return null;
+    if (typeof label !== 'number' || !Number.isFinite(label)) return null;
     const model = HorizonStore.load(horizon);
     if (!model) return null;
     // Model.train returns { loss }. We optionally scale loss-adjusted update by
