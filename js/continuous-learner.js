@@ -527,6 +527,15 @@
 
     if (newRows.length === 0) return 0;
 
+    // Audit pass 169: defer the entire train+save block while historical-
+    // bootstrap or auto-trainer is running. Those run for minutes with many
+    // model.save() calls; if CL also saves, both sides race and one set of
+    // updates is silently lost. The deferred resolutions stay in newRows
+    // for the next runCycle — nothing is permanently lost.
+    if (typeof window !== 'undefined' && (window._historicalTrainerRunning || window._autoTrainerRunning)) {
+      return 0;
+    }
+
     // Train on resolved entries with REWARD-SHAPED sample weights
     const state = loadState();
     const driftAdapt = state.driftAdapting || false;

@@ -244,18 +244,26 @@
     state.runningAt = Date.now();
     save(state);
 
+    // Audit pass 169: claim the global model-training lock so continuous-learner
+    // skips its save() during this multi-minute run. Auto-trainer already
+    // reads this flag (line 169). Without setting it here, CL's 30s-tick saves
+    // would silently overwrite each per-symbol training increment.
+    window._historicalTrainerRunning = true;
+
     // Need ModelStore + FeatureExtractor + BrierSkill etc to be loaded
     if (typeof window === 'undefined') return { error: 'no-window' };
     const ModelStore = window.ModelStore;
     if (!ModelStore) {
       state.runningAt = 0;
       save(state);
+      window._historicalTrainerRunning = false;
       return { error: 'ModelStore not loaded' };
     }
     const model = ModelStore.load();
     if (!model || typeof model.train !== 'function') {
       state.runningAt = 0;
       save(state);
+      window._historicalTrainerRunning = false;
       return { error: 'Model not available' };
     }
 
@@ -373,6 +381,8 @@
     state.trainingExamples = trainingExamples;
     state.lastRunResult = { symbolsFetched, trainingExamples, errorCount: errors.length };
     save(state);
+    // Release the model-training lock so continuous-learner can resume saving.
+    window._historicalTrainerRunning = false;
 
     // Notify subscribers
     try {

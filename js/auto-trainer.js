@@ -167,7 +167,12 @@
     if (Date.now() - last < MIN_INTERVAL_MS) return;
     // Avoid running while a manual training session is happening
     if (window._historicalTrainerRunning) return;
+    if (window._autoTrainerRunning) return;  // also block self-overlap
     setLast(Date.now());  // claim the slot immediately to prevent concurrent runs
+    // Audit pass 169: also set this flag so continuous-learner defers its own
+    // save() during our async fetch window. Without it, CL's 30s tick saves
+    // during our Phase 1 fetches could be overwritten by our Phase 2 save.
+    window._autoTrainerRunning = true;
 
     // Audit pass 168 (CRITICAL race condition fix): the original implementation
     // loaded the model BEFORE the async Stooq fetch loop. Each loop iteration
@@ -286,6 +291,8 @@
         localStorage.setItem('bpleone_brain_changelog_v1', JSON.stringify(log.slice(0, 200)));
       } catch (e) {}
     }
+    // Release the lock so continuous-learner can resume its 30s save cycle.
+    window._autoTrainerRunning = false;
   }
 
   // Fire 60s after page load so we never block initial render
