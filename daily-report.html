@@ -81,10 +81,33 @@ buildNav('daily-report');
 document.getElementById('dateInput').valueAsDate = new Date();
 let activeFmt = 'markdown';
 
+// Audit pass 164: bucket findings by ET YYYY-MM-DD instead of local-day
+// window. For PT users (Brandon), local 0:00 PT is 3:00 ET — the previous
+// 3 hours of ET market activity would be excluded from "today" view.
+function etDateKeyOfTs(ts) {
+  try {
+    const parts = new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'America/New_York',
+      year: 'numeric', month: '2-digit', day: '2-digit'
+    }).formatToParts(new Date(ts));
+    let y = 0, m = 0, d = 0;
+    for (const p of parts) {
+      if (p.type === 'year') y = +p.value;
+      if (p.type === 'month') m = +p.value;
+      if (p.type === 'day') d = +p.value;
+    }
+    return y + '-' + String(m).padStart(2, '0') + '-' + String(d).padStart(2, '0');
+  } catch (e) {
+    const dt = new Date(ts);
+    return dt.getFullYear() + '-' + String(dt.getMonth() + 1).padStart(2, '0') + '-' + String(dt.getDate()).padStart(2, '0');
+  }
+}
+
 function buildReport(dateStr, fmt) {
   const date = new Date(dateStr);
-  const startOfDay = new Date(date); startOfDay.setHours(0, 0, 0, 0);
-  const endOfDay = new Date(date); endOfDay.setHours(23, 59, 59, 999);
+  // dateStr is YYYY-MM-DD; treat it as that ET date (markets are ET-anchored).
+  // The date-key string IS the bucket key — no UTC math needed.
+  const targetKey = dateStr;  // already YYYY-MM-DD from <input type="date">
 
   // Pull data
   let findings = [], state = {}, model = {};
@@ -92,7 +115,7 @@ function buildReport(dateStr, fmt) {
   try { state = JSON.parse(localStorage.getItem('bpleone_brain_loop_state_v1') || '{}'); } catch (e) {}
   if (window.ModelStore) model = window.ModelStore.load();
 
-  const dayFindings = findings.filter(f => f.ts >= startOfDay.getTime() && f.ts <= endOfDay.getTime());
+  const dayFindings = findings.filter(f => etDateKeyOfTs(f.ts) === targetKey);
   const dayResolved = dayFindings.filter(f => f.outcome === 'hit' || f.outcome === 'miss');
   const hits = dayResolved.filter(f => f.outcome === 'hit').length;
   const misses = dayResolved.filter(f => f.outcome === 'miss').length;

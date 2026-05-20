@@ -85,18 +85,65 @@ buildNav('brain-monthly-calendar');
 
 let monthOffset = 0;
 
+// Audit pass 163 (CRITICAL for non-ET users): the calendar buckets trades by
+// LOCAL day. For Brandon in PT, a 10pm PT trade (= 1am ET next day) would
+// appear in the wrong cell — same TZ-naive bug class as pass 119. Fix:
+// bucket every trade by its ET-attributed YYYY-MM-DD instead of local time.
+// Markets are ET-anchored, so this is the financially-correct attribution.
+function etDateKey(ts) {
+  try {
+    const parts = new Intl.DateTimeFormat('en-CA', {  // en-CA → YYYY-MM-DD format
+      timeZone: 'America/New_York',
+      year: 'numeric', month: '2-digit', day: '2-digit'
+    }).formatToParts(new Date(ts));
+    let y = 0, m = 0, d = 0;
+    for (const p of parts) {
+      if (p.type === 'year') y = +p.value;
+      if (p.type === 'month') m = +p.value;
+      if (p.type === 'day') d = +p.value;
+    }
+    return y + '-' + String(m).padStart(2, '0') + '-' + String(d).padStart(2, '0');
+  } catch (e) {
+    const dt = new Date(ts);
+    return dt.getFullYear() + '-' + String(dt.getMonth() + 1).padStart(2, '0') + '-' + String(dt.getDate()).padStart(2, '0');
+  }
+}
+function etTodayParts() {
+  // Returns {year, month0idx, day} for "today" in ET.
+  try {
+    const parts = new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'America/New_York',
+      year: 'numeric', month: '2-digit', day: '2-digit'
+    }).formatToParts(new Date());
+    let y = 0, m = 0, d = 0;
+    for (const p of parts) {
+      if (p.type === 'year') y = +p.value;
+      if (p.type === 'month') m = +p.value;
+      if (p.type === 'day') d = +p.value;
+    }
+    return { year: y, month: m - 1, day: d };
+  } catch (e) {
+    const dt = new Date();
+    return { year: dt.getFullYear(), month: dt.getMonth(), day: dt.getDate() };
+  }
+}
+function cellKey(year, month0, day) {
+  return year + '-' + String(month0 + 1).padStart(2, '0') + '-' + String(day).padStart(2, '0');
+}
+
 function getMonth() {
-  const now = new Date();
-  now.setMonth(now.getMonth() - monthOffset);
-  return { year: now.getFullYear(), month: now.getMonth() };
+  const t = etTodayParts();
+  // Start from ET-today, walk back by monthOffset months
+  const base = new Date(t.year, t.month, 1);
+  base.setMonth(base.getMonth() - monthOffset);
+  return { year: base.getFullYear(), month: base.getMonth() };
 }
 
 function loadTrain() { try { return JSON.parse(localStorage.getItem('bpleone_train_v1') || '[]'); } catch(e) { return []; } }
 
 function dayStats(year, month, day) {
-  const start = new Date(year, month, day, 0, 0, 0).getTime();
-  const end = new Date(year, month, day, 23, 59, 59).getTime();
-  const t = loadTrain().filter(r => r.ts >= start && r.ts <= end);
+  const key = cellKey(year, month, day);
+  const t = loadTrain().filter(r => etDateKey(r.ts) === key);
   if (t.length === 0) return null;
   const wins = t.filter(r => r.y === 1).length;
   return { n: t.length, wins, hitRate: wins / t.length, rTotal: t.reduce((a,r) => a + (r.y === 1 ? (r.r || 1.5) : -1.0), 0) };
@@ -119,8 +166,10 @@ function render() {
 
   const firstDay = new Date(year, month, 1).getDay();
   const daysInMonth = new Date(year, month + 1, 0).getDate();
-  const now = new Date();
-  const today = now.getFullYear() === year && now.getMonth() === month ? now.getDate() : -1;
+  // Audit pass 163: use ET-today for the "today" highlight so PT users
+  // don't see yesterday highlighted after 9pm PT (= midnight ET next day).
+  const etToday = etTodayParts();
+  const today = etToday.year === year && etToday.month === month ? etToday.day : -1;
 
   const calBody = document.getElementById('calBody');
   calBody.innerHTML = '';
@@ -161,9 +210,9 @@ function render() {
       document.getElementById('detailBody').innerHTML = '<div style="font-size:13px;color:var(--text-muted);padding:14px 0;">No brain activity this day.</div>';
       return;
     }
-    const start = new Date(year, month, d, 0, 0, 0).getTime();
-    const end = new Date(year, month, d, 23, 59, 59).getTime();
-    const t = loadTrain().filter(r => r.ts >= start && r.ts <= end).sort((a,b) => b.ts - a.ts);
+    // Audit pass 163: bucket by ET YYYY-MM-DD to match dayStats above.
+    const key = cellKey(year, month, d);
+    const t = loadTrain().filter(r => etDateKey(r.ts) === key).sort((a,b) => b.ts - a.ts);
     document.getElementById('detailCard').style.display = 'block';
     document.getElementById('detailTitle').textContent = monthName + ' ' + d + ', ' + year + ' — ' + s.n + ' trades · ' + (s.hitRate*100).toFixed(0) + '% hit · ' + (s.rTotal >= 0 ? '+' : '') + s.rTotal.toFixed(1) + 'R';
     document.getElementById('detailBody').innerHTML = t.map(r =>

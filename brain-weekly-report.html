@@ -114,24 +114,87 @@ buildNav('brain-weekly-report');
 
 let weekOffset = 0;
 
+// Audit pass 164: bucket by ET week (markets are ET-anchored). For PT user
+// Brandon, local Sunday-Saturday week is offset 3 hours from ET week boundary;
+// late-Saturday trades (PT) that happened during ET Sunday morning were
+// being misbucketed. Day-of-week chart also used local getDay().
+function etPartsOf(ts) {
+  try {
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone: 'America/New_York',
+      year: 'numeric', month: '2-digit', day: '2-digit', weekday: 'short'
+    }).formatToParts(new Date(ts));
+    let y = 0, m = 0, d = 0, wkd = 'Sun';
+    for (const p of parts) {
+      if (p.type === 'year') y = +p.value;
+      if (p.type === 'month') m = +p.value;
+      if (p.type === 'day') d = +p.value;
+      if (p.type === 'weekday') wkd = p.value;
+    }
+    const dowMap = { Sun:0, Mon:1, Tue:2, Wed:3, Thu:4, Fri:5, Sat:6 };
+    return { year: y, month: m, day: d, dow: dowMap[wkd] != null ? dowMap[wkd] : 0 };
+  } catch (e) {
+    const dt = new Date(ts);
+    return { year: dt.getFullYear(), month: dt.getMonth() + 1, day: dt.getDate(), dow: dt.getDay() };
+  }
+}
+function etDow(ts) { return etPartsOf(ts).dow; }
+
 function weekRange() {
-  const now = new Date();
-  now.setDate(now.getDate() - (weekOffset * 7));
-  const dow = now.getDay();
-  const start = new Date(now); start.setDate(now.getDate() - dow); start.setHours(0,0,0,0);
-  const end = new Date(start); end.setDate(start.getDate() + 7);
-  return { start: start.getTime(), end: end.getTime(), startStr: start.toLocaleDateString(), endStr: new Date(end - 1).toLocaleDateString() };
+  // "Now" in ET, walk back weekOffset weeks, find the Sunday that starts that ET week.
+  const nowEt = etPartsOf(Date.now());
+  // Build a local Date approximating ET midnight of "today" and walk from there.
+  // We use UTC math: Sunday-start = (Today - dow days). The ET-attribution of each
+  // trade is what matters (etDow check below), so the boundary just needs to be
+  // a stable cut-off near ET midnight.
+  // Simplest robust approach: take ET YYYY-MM-DD of "today", subtract weekOffset*7
+  // and (dow) days, anchor to that ET-midnight (= ET 04:00-05:00 UTC depending on DST).
+  // We approximate using local Date arithmetic plus a 5-hour shift; precision to the
+  // hour isn't needed since trades cluster in 9:30am-4pm ET market window.
+  const todayLocal = new Date();
+  // Build the "ET-today" local Date so date arithmetic uses local TZ but reflects
+  // ET-attributed calendar day.
+  const etToday = new Date(nowEt.year, nowEt.month - 1, nowEt.day);
+  etToday.setDate(etToday.getDate() - (weekOffset * 7));
+  const startEt = new Date(etToday);
+  startEt.setDate(etToday.getDate() - nowEt.dow);
+  const endEt = new Date(startEt);
+  endEt.setDate(startEt.getDate() + 7);
+  // For ts-range filter, convert these to ms approximating ET-midnight by subtracting
+  // the local-to-ET offset. But since our findings filter ALSO uses etDateKey-style
+  // bucketing below, we can just use the ms range with a 1-day buffer on each side
+  // and rely on the etDow/etPartsOf comparisons for accuracy.
+  return {
+    start: startEt.getTime() - 12 * 3600000,  // -12h buffer
+    end: endEt.getTime() + 12 * 3600000,      // +12h buffer
+    startStr: startEt.toLocaleDateString(),
+    endStr: new Date(endEt - 86400000).toLocaleDateString(),
+    etYear: nowEt.year, etMonth: nowEt.month, etDayStart: etToday.getDate() - nowEt.dow
+  };
 }
 
 function loadFindings() { try { return JSON.parse(localStorage.getItem('bpleone_brain_findings_v1') || '{"items":[]}').items; } catch (e) { return []; } }
 function loadTraining() { try { return JSON.parse(localStorage.getItem('bpleone_train_v1') || '[]'); } catch (e) { return []; } }
 
+// Tight ET-attributed filter: keep only entries whose ET-day falls within
+// the offset week.
+function inWeekEt(ts, wk) {
+  const ep = etPartsOf(ts);
+  // Compute "ET-attributed day count from year 0" for ordering
+  function dayCount(y, m, d) { return y * 372 + m * 31 + d; }  // good enough monotone proxy
+  const tsDay = dayCount(ep.year, ep.month, ep.day);
+  const startDay = dayCount(wk.etYear, wk.etMonth, wk.etDayStart);
+  return tsDay >= startDay && tsDay < startDay + 7;
+}
+
 function render() {
   const wk = weekRange();
   document.getElementById('weekRange').textContent = wk.startStr + ' – ' + wk.endStr;
 
-  const findings = loadFindings().filter(f => f.ts >= wk.start && f.ts < wk.end);
-  const train = loadTraining().filter(t => t.ts >= wk.start && t.ts < wk.end);
+  // Audit pass 164: filter by ET-day rather than local-ms window, to match
+  // financial calendar attribution.
+  const findings = loadFindings().filter(f => inWeekEt(f.ts, wk));
+  const train = loadTraining().filter(t => inWeekEt(t.ts, wk));
 
   // Stats
   const n = findings.length;
@@ -171,11 +234,11 @@ function render() {
   // Daily hit chart
   const days = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
   const dailyHit = days.map((_, di) => {
-    const dayTrain = train.filter(t => new Date(t.ts).getDay() === di);
+    const dayTrain = train.filter(t => etDow(t.ts) === di);
     if (dayTrain.length === 0) return null;
     return dayTrain.filter(t => t.y === 1).length / dayTrain.length;
   });
-  const dailyCnt = days.map((_, di) => train.filter(t => new Date(t.ts).getDay() === di).length);
+  const dailyCnt = days.map((_, di) => train.filter(t => etDow(t.ts) === di).length);
   if (window._hitChart) window._hitChart.destroy();
   window._hitChart = new Chart(document.getElementById('hitChart'), {
     type: 'bar',
