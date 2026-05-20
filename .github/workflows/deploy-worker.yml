@@ -36,10 +36,23 @@ jobs:
         with:
           node-version: '20'
 
+      - name: Check secrets present
+        id: secrets_check
+        run: |
+          if [ -z "${{ secrets.CLOUDFLARE_API_TOKEN }}" ] || [ -z "${{ secrets.CLOUDFLARE_ACCOUNT_ID }}" ]; then
+            echo "GitHub secrets CLOUDFLARE_API_TOKEN or CLOUDFLARE_ACCOUNT_ID not set."
+            echo "Skipping worker deploy. Use local 'wrangler deploy' instead."
+            echo "secrets_set=false" >> $GITHUB_OUTPUT
+          else
+            echo "secrets_set=true" >> $GITHUB_OUTPUT
+          fi
+
       - name: Install Wrangler
+        if: steps.secrets_check.outputs.secrets_set == 'true'
         run: npm install -g wrangler@latest
 
       - name: Ensure KV namespace exists
+        if: steps.secrets_check.outputs.secrets_set == 'true'
         working-directory: worker
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -71,6 +84,7 @@ jobs:
           fi
 
       - name: Upload secrets to worker
+        if: steps.secrets_check.outputs.secrets_set == 'true'
         working-directory: worker
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -80,6 +94,7 @@ jobs:
           echo "${{ secrets.ADMIN_TOKEN }}" | wrangler secret put ADMIN_TOKEN
 
       - name: Deploy worker
+        if: steps.secrets_check.outputs.secrets_set == 'true'
         working-directory: worker
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -87,6 +102,7 @@ jobs:
         run: wrangler deploy
 
       - name: Wait for cron + verify health
+        if: steps.secrets_check.outputs.secrets_set == 'true'
         run: |
           # Wait 75s for first cron tick to fire
           sleep 75
