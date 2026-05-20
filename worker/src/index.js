@@ -38,7 +38,7 @@
 // Pass 200: version stamp so brain-proof.html + worker-setup.html can detect
 // when the deployed worker is behind the repo source. Bump on every meaningful
 // behavior change. Read via /brain/health → worker_version field.
-const WORKER_VERSION = 'pass-206';
+const WORKER_VERSION = 'pass-207';
 
 const UNIVERSE = [
   'SPY','QQQ','IWM','DIA','AAPL','NVDA','TSLA','MSFT','META','AMZN','GOOGL','AMD',
@@ -88,9 +88,18 @@ function predict(model, features) {
 function trainStep(model, features, label) {
   const p = predict(model, features);
   const err = p - label;
-  // gradient descent — same shape as js/model.js's Adam-lite
+  // Pass 207: L2 weight decay. Without this the 5-epoch multi-pass training
+  // (~42k SGD steps) grew weights unbounded — sigmoid outputs piled up near
+  // 0 and 1 producing CONFIDENT WRONG predictions, blowing Brier (0.287 vs
+  // 0.25 baseline) and avg log-loss (3.56 — ~7x calibrated baseline of 0.5).
+  // Even with 55% raw accuracy on random-split the BSS was -0.147.
+  // L2=0.001 keeps weights bounded; the bias term and features[21] (the
+  // constant-1 bias column) are exempt from decay so the intercept is free
+  // to absorb the class prior. Matches the browser model.js pattern.
+  const L2 = 0.001;
   for (let i = 0; i < 22; i++) {
-    model.weights[i] -= model.lr * err * (features[i] || 0);
+    const decay = (i === 21) ? 0 : L2 * model.weights[i];
+    model.weights[i] -= model.lr * (err * (features[i] || 0) + decay);
   }
   model.bias -= model.lr * err;
   model.n_trained = (model.n_trained || 0) + 1;
