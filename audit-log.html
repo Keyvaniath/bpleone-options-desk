@@ -39,10 +39,21 @@
   </div>
 
   <div class="grid grid-4 mb-24">
-    <div class="tile" style="background:rgba(16,185,129,0.06);"><div class="lbl">Audit passes</div><div class="val" style="color:var(--green);">173</div></div>
-    <div class="tile" style="background:rgba(16,185,129,0.06);"><div class="lbl">Bugs fixed</div><div class="val" style="color:var(--green);">137+</div></div>
-    <div class="tile" style="background:rgba(220,38,38,0.06);"><div class="lbl">CRITICAL bugs</div><div class="val" style="color:var(--red);">24</div></div>
-    <div class="tile"><div class="lbl">Total commits</div><div class="val">78</div></div>
+    <div class="tile" style="background:rgba(16,185,129,0.06);"><div class="lbl">Audit passes</div><div class="val" style="color:var(--green);">197</div></div>
+    <div class="tile" style="background:rgba(16,185,129,0.06);"><div class="lbl">Bugs fixed</div><div class="val" style="color:var(--green);">145+</div></div>
+    <div class="tile" style="background:rgba(220,38,38,0.06);"><div class="lbl">CRITICAL bugs</div><div class="val" style="color:var(--red);">26</div></div>
+    <div class="tile"><div class="lbl">Total commits</div><div class="val">100+</div></div>
+  </div>
+
+  <div style="padding:14px 18px;border-radius:10px;background:rgba(124,58,237,0.08);border-left:4px solid var(--purple);margin-bottom:14px;font-size:13px;color:var(--text-secondary);line-height:1.6;">
+    <strong>Batch P (passes 188-197) — Cloudflare Worker brain (24/7 server-side ML):</strong>
+    The browser brain only learns while a Chrome tab is open. Batch P built a Cloudflare Worker that runs every minute on Cloudflare's edge — captures Finnhub quotes, resolves outcomes at 24h/5d/20d, trains a logistic model in KV. Browser pages mirror state via <code>js/worker-bridge.js</code>. Endpoints: <code>/brain/health</code>, <code>/brain/state</code>, <code>/brain/metrics</code>, <code>/brain/symbols</code>, <code>/brain/bootstrap</code>.
+    <br><br>
+    <b>188:</b> rotating 12-sym slice per tick to stay under Finnhub's 60/min free-tier limit. <b>189:</b> Yahoo Finance v8 chart API as primary historical source (Stooq CORS-blocked from CF Workers, Finnhub /candle paid-only). <b>190 (CRITICAL):</b> cron tick was overwriting bootstrapped model with stale n_trained=0 — fixed by only persisting model if <code>trained &gt; 0</code> in the tick. <b>191:</b> proper 80/20 held-out test + <code>/brain/metrics</code> endpoint with Brier Skill Score + ECE + binomial p-value. <b>192:</b> walk-forward (time-ordered) split alongside random-split — the honest "trained on past, predicting future" test. <b>193:</b> per-symbol bar history persisted in KV so live captures use the SAME rich features the bootstrap trained on (was previously using neutral 0.5 features → live model couldn't learn). <b>194:</b> <code>/brain/symbols</code> per-symbol accuracy breakdown. <b>195:</b> Cloudflare Pro unlocked 30s CPU; bootstrap now does 5 epochs with re-shuffling each pass (~2-3pp accuracy improvement). <b>196:</b> GH Actions workflow now skips gracefully when CF secrets missing (Brandon deploys via local <code>wrangler deploy</code>). <b>197 (CRITICAL):</b> walk-forward was training 1 epoch while random-split trained 5 — apples-to-oranges. Now both use identical training procedure so the two BSS values on <code>/brain/metrics</code> are directly comparable. Also made <code>clamp()</code> NaN-safe (returns midpoint instead of propagating NaN to downstream model).
+  </div>
+
+  <div style="padding:14px 18px;border-radius:10px;background:rgba(0,212,255,0.06);border-left:4px solid var(--accent);margin-bottom:14px;font-size:13px;color:var(--text-secondary);line-height:1.6;">
+    <strong>Batch O (passes 174-187):</strong> deeper-coverage browser audits: more TZ-naive day-bucketing finds, more journal-repair migrations, more PSI dual-export checks, more lazy-load race surfaces around the model. None individually CRITICAL but ~12 small fixes that tighten the brain's data attribution to ET trading calendar across more diagnostic surfaces.
   </div>
 
   <div style="padding:14px 18px;border-radius:10px;background:rgba(0,212,255,0.06);border-left:4px solid var(--accent);margin-bottom:14px;font-size:13px;color:var(--text-secondary);line-height:1.6;">

@@ -175,7 +175,16 @@ function extractRichFeatures(quote, history, marketSnap) {
   f[21] = 1;
   return f;
 }
-function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
+// Pass 197: NaN-safe clamp. If v is NaN or Infinity (e.g. div-by-zero in a
+// feature calc), return the midpoint instead of propagating poison. All current
+// callers use [0,1] so the neutral 0.5 is correct. Previously NaN survived
+// clamp() and was only quietly zeroed out by `features[i] || 0` in predict()
+// and trainStep() — works but obscures bugs and breaks any downstream callers
+// that don't repeat the `|| 0` guard.
+function clamp(v, lo, hi) {
+  if (!isFinite(v)) return (lo + hi) / 2;
+  return Math.max(lo, Math.min(hi, v));
+}
 
 // Standard normal CDF via Abramowitz-Stegun approximation. Used for the
 // p-value calculation in /brain/metrics.
@@ -902,10 +911,20 @@ async function runBootstrap(env) {
   const bss = brier != null ? 1 - (brier / brierBaseline) : null;
 
   // Pass 192: run a SEPARATE walk-forward test on time-ordered split.
-  // Use a clone of the trained model state — train on wfTrainSet, test on wfTestSet.
+  // Train a fresh model on wfTrainSet, test on wfTestSet.
   // This is the honest "trained on past, predicting future" test.
-  const wfModel = JSON.parse(JSON.stringify(newModel()));
-  for (const ex of wfTrainSet) trainStep(wfModel, ex.features, ex.label);
+  //
+  // Pass 197: train with N_EPOCHS=5 too (was 1). Previously the random-split
+  // test reported BSS from a 5-epoch model and the walk-forward test reported
+  // BSS from a 1-epoch model — apples-to-oranges. Now both use identical
+  // training procedure so the two BSS values are directly comparable, and
+  // walk-forward properly reflects how the production model behaves on
+  // unseen future data.
+  const wfModel = newModel();
+  for (let epoch = 0; epoch < N_EPOCHS; epoch++) {
+    const wfEpochSet = seedShuffle(wfTrainSet, 142 + epoch);
+    for (const ex of wfEpochSet) trainStep(wfModel, ex.features, ex.label);
+  }
   const walkForward = [];
   let wfCorrect = 0, wfBrierSum = 0;
   for (const ex of wfTestSet) {
