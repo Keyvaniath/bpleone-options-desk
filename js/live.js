@@ -22,7 +22,13 @@ const Feed = (() => {
 })();
 // Audit pass 76b: explicit window assignment so `window.Feed` works from
 // inline scripts and modules that defensively access it through window.
-if (typeof window !== 'undefined') { window.Feed = Feed; window.QUOTES = QUOTES; }
+// CRITICAL FIX (pass 175 — live-verified bug): the original line
+// `window.QUOTES = QUOTES` was BEFORE `const QUOTES = {...}` at line 32,
+// which is a Temporal Dead Zone violation — it silently throws at script
+// eval time and the entire `window.QUOTES` assignment is skipped. Verified
+// live: window.QUOTES was undefined even though Finnhub had populated QUOTES
+// itself. window.QUOTES assignment is now moved below the const declaration.
+if (typeof window !== 'undefined') { window.Feed = Feed; }
 
 // ----- Quote model -----
 // { symbol, last, bid, ask, change, changePct, volume, ts }
@@ -111,6 +117,10 @@ const QUOTES = {
   XLI:  { symbol: 'XLI',  last: 142.80, prevClose: 141.90, volume: 11_400_000 },
   XLU:  { symbol: 'XLU',  last: 80.20,  prevClose: 79.95, volume: 14_200_000 }
 };
+// Pass 175: window.QUOTES assignment moved here (AFTER the const declaration)
+// so it doesn't hit TDZ. Without this, every module that defensively reads
+// window.QUOTES gets undefined.
+if (typeof window !== 'undefined') { window.QUOTES = QUOTES; }
 
 function computeDerived(q) {
   q.change = q.last - q.prevClose;

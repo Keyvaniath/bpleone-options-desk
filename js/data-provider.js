@@ -259,6 +259,14 @@ const DataProvider = (function() {
           QUOTES[sym].last = j.c;
           QUOTES[sym].fresh = true;          // mark as confirmed-from-feed
           QUOTES[sym].source = 'finnhub';
+          // CRITICAL FIX (pass 174 — live-verified bug): continuous-learner's
+          // isLiveQuote() requires BOTH priceSource (string, not 'stale-seed'/'mock')
+          // AND liveAt (recent timestamp). Without these the brain rejects every
+          // Finnhub-fed quote and never captures anything to train on.
+          // Verified live in browser: 8695 Finnhub messages received but
+          // ContinuousLearner.captureRound() returned 0 captures.
+          QUOTES[sym].priceSource = 'finnhub';
+          QUOTES[sym].liveAt = Date.now();
           if (typeof j.h === 'number') QUOTES[sym].dayHigh = j.h;
           if (typeof j.l === 'number') QUOTES[sym].dayLow = j.l;
           if (typeof j.o === 'number') QUOTES[sym].dayOpen = j.o;

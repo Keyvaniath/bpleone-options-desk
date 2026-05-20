@@ -8,7 +8,7 @@
 
 // Audit pass 94: bumped version so the new stale-while-revalidate strategy
 // activates on existing browsers (caches with the old version get cleared).
-const VERSION = 'v1.1';
+const VERSION = 'v1.2';  // pass 174-175: CRITICAL fixes (Finnhub priceSource/liveAt + window.QUOTES TDZ) — force cache invalidation
 const CACHE_SHELL = 'bpleone-shell-' + VERSION;
 const CACHE_RUNTIME = 'bpleone-runtime-' + VERSION;
 
