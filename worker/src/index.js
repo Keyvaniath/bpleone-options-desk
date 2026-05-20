@@ -38,7 +38,7 @@
 // Pass 200: version stamp so brain-proof.html + worker-setup.html can detect
 // when the deployed worker is behind the repo source. Bump on every meaningful
 // behavior change. Read via /brain/health → worker_version field.
-const WORKER_VERSION = 'pass-200';
+const WORKER_VERSION = 'pass-201';
 
 const UNIVERSE = [
   'SPY','QQQ','IWM','DIA','AAPL','NVDA','TSLA','MSFT','META','AMZN','GOOGL','AMD',
@@ -599,7 +599,11 @@ async function handleRequest(request, env, ctx) {
   }
 
   if (path === '/brain/journal') {
-    const n = Math.min(2000, parseInt(url.searchParams.get('n') || '200', 10));
+    // Pass 201: validate n more carefully. parseInt('garbage') → NaN, then
+    // Math.min(2000, NaN) → NaN, then journal.slice(-NaN) → entire journal.
+    // Coerce to a sane positive int between 1 and 2000.
+    const nRaw = parseInt(url.searchParams.get('n') || '200', 10);
+    const n = Math.min(2000, Math.max(1, Number.isFinite(nRaw) ? nRaw : 200));
     const journal = await kvGet(env, KV_KEYS.JOURNAL, []);
     return json({ journal: journal.slice(-n), total: journal.length });
   }
@@ -616,14 +620,20 @@ async function handleRequest(request, env, ctx) {
     const journal = await kvGet(env, KV_KEYS.JOURNAL, []);
     const heldout = Array.isArray(heldoutRaw) ? heldoutRaw : (heldoutRaw.walk_forward || heldoutRaw.random_split || []);
     const bySym = {};
-    for (const { p, y, sym } of heldout) {
+    // Pass 201: guard against null/malformed entries in the heldout array.
+    // Destructuring `null` throws TypeError — would 500 the endpoint if KV
+    // ever returned a partially-corrupted heldout set.
+    for (const item of heldout) {
+      if (!item || typeof item !== 'object') continue;
+      const { p, y, sym } = item;
       if (!sym) continue;
+      if (typeof p !== 'number' || typeof y !== 'number') continue;
       if (!bySym[sym]) bySym[sym] = { n: 0, correct: 0, brierSum: 0 };
       bySym[sym].n++;
       if ((p >= 0.5 ? 1 : 0) === y) bySym[sym].correct++;
       bySym[sym].brierSum += (p - y) * (p - y);
     }
-    const live = journal.filter(e => e.resolved && typeof e.resolved === 'object' && e.resolved.short && e.resolved.short !== false);
+    const live = (Array.isArray(journal) ? journal : []).filter(e => e && e.resolved && typeof e.resolved === 'object' && e.resolved.short && e.resolved.short !== false);
     const liveBySym = {};
     for (const e of live) {
       if (!liveBySym[e.sym]) liveBySym[e.sym] = { n: 0, correct: 0 };
@@ -652,10 +662,16 @@ async function handleRequest(request, env, ctx) {
     const walkForwardSet = !Array.isArray(heldoutRaw) ? (heldoutRaw.walk_forward || []) : [];
 
     function computeMetrics(pairs) {
-      if (pairs.length === 0) return null;
+      // Pass 201: filter out malformed entries (null, non-numeric p/y) before
+      // computing — destructure-null would throw, NaN p/y would poison brier.
+      const valid = (Array.isArray(pairs) ? pairs : []).filter(it =>
+        it && typeof it === 'object' &&
+        typeof it.p === 'number' && Number.isFinite(it.p) &&
+        typeof it.y === 'number' && Number.isFinite(it.y));
+      if (valid.length === 0) return null;
       let correct = 0, brierSum = 0;
       const bins = Array(10).fill(0).map(() => ({ n: 0, sum_y: 0, sum_p: 0 }));
-      for (const { p, y } of pairs) {
+      for (const { p, y } of valid) {
         if ((p >= 0.5 ? 1 : 0) === y) correct++;
         brierSum += (p - y) * (p - y);
         const bin = Math.min(9, Math.floor(p * 10));
@@ -663,20 +679,20 @@ async function handleRequest(request, env, ctx) {
         bins[bin].sum_y += y;
         bins[bin].sum_p += p;
       }
-      const brier = brierSum / pairs.length;
+      const brier = brierSum / valid.length;
       const bss = 1 - (brier / 0.25);
       let ece = 0;
       for (const b of bins) {
         if (b.n === 0) continue;
         const actualRate = b.sum_y / b.n;
         const meanProb = b.sum_p / b.n;
-        ece += (b.n / pairs.length) * Math.abs(actualRate - meanProb);
+        ece += (b.n / valid.length) * Math.abs(actualRate - meanProb);
       }
-      const acc = correct / pairs.length;
-      const z = (acc - 0.5) / Math.sqrt(0.25 / pairs.length);
+      const acc = correct / valid.length;
+      const z = (acc - 0.5) / Math.sqrt(0.25 / valid.length);
       const pValue = 2 * (1 - normalCdf(Math.abs(z)));
       return {
-        n: pairs.length,
+        n: valid.length,
         accuracy: +acc.toFixed(4),
         brier: +brier.toFixed(4),
         bss: +bss.toFixed(4),
