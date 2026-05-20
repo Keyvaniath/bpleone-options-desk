@@ -102,8 +102,75 @@
     try { localStorage.setItem(STATE_KEY, JSON.stringify(state)); } catch (e) {}
   }
 
-  // Fetch CSV: Date,Open,High,Low,Close,Volume — daily bars
+  // CRITICAL FIX (pass 177 — live-verified bug): Stooq is CORS-blocked from
+  // browsers (Failed to fetch). historical-bootstrap was returning 0 examples
+  // for all users because Stooq is its ONLY historical source. Verified live
+  // in Chrome: 48 fetches, 48 errors. Fix: when a Finnhub API key is
+  // configured, use Finnhub's /stock/candle endpoint instead. Stooq stays
+  // as fallback for users without a key.
+
+  function getFinnhubKey() {
+    try {
+      const raw = localStorage.getItem('bpleone_data_v1');
+      if (!raw) return null;
+      const c = JSON.parse(raw);
+      return (c && c.provider === 'finnhub' && c.apiKey) ? c.apiKey : null;
+    } catch (e) { return null; }
+  }
+
+  async function fetchFinnhubHistorical(sym, days) {
+    const key = getFinnhubKey();
+    if (!key) return null;
+    days = days || 250;
+    const now = Math.floor(Date.now() / 1000);
+    const from = now - days * 86400;
+    // Finnhub /stock/candle: resolution D = daily
+    const fhSym = sym === 'BTC' ? 'BINANCE:BTCUSDT' : sym === 'ETH' ? 'BINANCE:ETHUSDT' : sym;
+    const url = 'https://finnhub.io/api/v1/stock/candle?symbol=' + encodeURIComponent(fhSym) + '&resolution=D&from=' + from + '&to=' + now + '&token=' + encodeURIComponent(key);
+    const startTs = Date.now();
+    try {
+      const ctrl = (typeof AbortController !== 'undefined') ? new AbortController() : null;
+      const timeoutId = ctrl ? setTimeout(() => ctrl.abort(), 10000) : null;
+      const res = await fetch(url, { method: 'GET', signal: ctrl ? ctrl.signal : undefined });
+      if (timeoutId) clearTimeout(timeoutId);
+      if (typeof window.DataReliability !== 'undefined') {
+        window.DataReliability.recordFetch('finnhub-hist', res.ok, Date.now() - startTs);
+      }
+      if (!res.ok) return null;
+      const j = await res.json();
+      if (j.s !== 'ok' || !Array.isArray(j.c) || j.c.length === 0) return null;
+      // Finnhub format: { c:[closes], h:[highs], l:[lows], o:[opens], t:[timestamps], v:[volumes] }
+      const out = [];
+      for (let i = 0; i < j.c.length; i++) {
+        const close = j.c[i];
+        if (!isFinite(close) || close <= 0) continue;
+        const d = new Date(j.t[i] * 1000);
+        const date = d.toISOString().slice(0, 10);
+        out.push({
+          date,
+          open: j.o[i] || close,
+          high: j.h[i] || close,
+          low: j.l[i] || close,
+          close,
+          volume: j.v[i] || 0
+        });
+      }
+      return out;
+    } catch (e) {
+      if (typeof window.DataReliability !== 'undefined') {
+        window.DataReliability.recordFetch('finnhub-hist', false, Date.now() - startTs);
+      }
+      return null;
+    }
+  }
+
+  // Fetch CSV: Date,Open,High,Low,Close,Volume — daily bars (Stooq fallback)
   async function fetchHistorical(stooqSym) {
+    // Pass 177: try Finnhub first if key configured. Stooq is CORS-blocked from
+    // browser so it's effectively dead for any user fetch.
+    const fhResult = await fetchFinnhubHistorical(stooqSym.replace('.us', '').toUpperCase());
+    if (fhResult && fhResult.length > 0) return fhResult;
+
     const url = 'https://' + STOOQ_HOST + '/q/d/l/?s=' + encodeURIComponent(stooqSym) + '&i=d';
     const startTs = Date.now();
     try {
