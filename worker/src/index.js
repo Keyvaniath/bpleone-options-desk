@@ -164,8 +164,67 @@ async function fetchFinnhubQuote(env, sym) {
   }
 }
 
-// Server-side bootstrap that browsers can't do (no CORS)
+// Server-side historical fetcher. Tries Stooq first (free, no auth, no CORS
+// here because we're server-side). Falls back to Finnhub /stock/candle if a
+// paid Finnhub plan is configured. Pass 188: Finnhub free tier returns 403
+// on /stock/candle, verified live. Stooq works fine from a server.
+const STOOQ_MAP = {
+  SPY:'spy.us', QQQ:'qqq.us', IWM:'iwm.us', DIA:'dia.us',
+  AAPL:'aapl.us', NVDA:'nvda.us', TSLA:'tsla.us', MSFT:'msft.us',
+  META:'meta.us', AMZN:'amzn.us', GOOGL:'googl.us', AMD:'amd.us',
+  BTC:'btcusd', ETH:'ethusd', VIX:'^vix',
+  GLD:'gld.us', TLT:'tlt.us', USO:'uso.us', SMCI:'smci.us',
+  PLTR:'pltr.us', COIN:'coin.us', MARA:'mara.us', RIVN:'rivn.us',
+  XLE:'xle.us', BABA:'baba.us', SHOP:'shop.us', CRM:'crm.us', UBER:'uber.us',
+  SLV:'slv.us', UNG:'ung.us', DBA:'dba.us',
+  FXI:'fxi.us', MCHI:'mchi.us', EWJ:'ewj.us', EWG:'ewg.us', EWU:'ewu.us',
+  INDA:'inda.us', EWZ:'ewz.us', EWY:'ewy.us', EWT:'ewt.us',
+  EEM:'eem.us', EFA:'efa.us', VEA:'vea.us', VWO:'vwo.us',
+  UUP:'uup.us', FXE:'fxe.us', FXY:'fxy.us', FXB:'fxb.us', FXC:'fxc.us',
+  FXA:'fxa.us', FXF:'fxf.us', SHY:'shy.us', IEF:'ief.us', TBT:'tbt.us',
+  HYG:'hyg.us', LQD:'lqd.us', TIP:'tip.us', VXX:'vxx.us', UVXY:'uvxy.us',
+  VNQ:'vnq.us', NFLX:'nflx.us', ORCL:'orcl.us', AVGO:'avgo.us', MU:'mu.us',
+  JPM:'jpm.us', BAC:'bac.us', GS:'gs.us', XLF:'xlf.us', XLK:'xlk.us',
+  XLV:'xlv.us', XLY:'xly.us', XLP:'xlp.us', XLI:'xli.us', XLU:'xlu.us'
+};
+
+async function fetchStooqHistorical(sym, days) {
+  const stooqSym = STOOQ_MAP[sym];
+  if (!stooqSym) return null;
+  // Stooq daily CSV: Date,Open,High,Low,Close,Volume
+  const url = 'https://stooq.com/q/d/l/?s=' + encodeURIComponent(stooqSym) + '&i=d';
+  try {
+    const r = await fetch(url);
+    if (!r.ok) return null;
+    const text = await r.text();
+    const lines = text.trim().split(/\r?\n/);
+    if (lines.length < 2) return null;
+    const out = [];
+    // Skip header, take last `days` rows
+    const start = Math.max(1, lines.length - days);
+    for (let i = start; i < lines.length; i++) {
+      const cols = lines[i].split(',');
+      if (cols.length < 5) continue;
+      const close = parseFloat(cols[4]);
+      if (!isFinite(close) || close <= 0) continue;
+      out.push({
+        ts: new Date(cols[0]).getTime(),
+        close,
+        open: parseFloat(cols[1]) || close,
+        high: parseFloat(cols[2]) || close,
+        low: parseFloat(cols[3]) || close,
+        volume: parseInt(cols[5]) || 0
+      });
+    }
+    return out.length > 0 ? out : null;
+  } catch (e) {
+    return null;
+  }
+}
+
 async function fetchFinnhubCandles(env, sym, days) {
+  // Only useful on paid Finnhub plans. Free tier returns 403.
+  if (!env.FINNHUB_API_KEY) return null;
   const fhSym = sym === 'BTC' ? 'BINANCE:BTCUSDT' : sym === 'ETH' ? 'BINANCE:ETHUSDT' : sym;
   const now = Math.floor(Date.now() / 1000);
   const from = now - days * 86400;
@@ -188,6 +247,13 @@ async function fetchFinnhubCandles(env, sym, days) {
   }
 }
 
+// Try Stooq first (free, works), fall back to Finnhub (paid only)
+async function fetchHistoricalBars(env, sym, days) {
+  const stooqResult = await fetchStooqHistorical(sym, days);
+  if (stooqResult && stooqResult.length > 0) return stooqResult;
+  return await fetchFinnhubCandles(env, sym, days);
+}
+
 // ============================================================
 // Tick handler — runs every minute on cron
 // ============================================================
@@ -199,20 +265,28 @@ async function tick(env) {
     kvGet(env, KV_KEYS.LAST_TICK, { ts: 0, syms_updated: 0, errors: 0 })
   ]);
 
-  // Fetch all quotes in parallel
-  const quotePromises = UNIVERSE.map(s => fetchFinnhubQuote(env, s));
+  // Pass 188: rotate through universe over multiple ticks to stay under
+  // Finnhub free tier's 60-calls/min rate limit. Browser pages may also be
+  // calling Finnhub, so we conservatively fetch 12 symbols per minute = 720
+  // calls/hour, leaving headroom for browser usage.
+  const tickIndex = Math.floor(Date.now() / 60000) % Math.ceil(UNIVERSE.length / 12);
+  const start = tickIndex * 12;
+  const slice = UNIVERSE.slice(start, start + 12);
+
+  // Fetch the slice in parallel
+  const quotePromises = slice.map(s => fetchFinnhubQuote(env, s));
   const quotes = await Promise.all(quotePromises);
   const byMap = {};
   let okCount = 0, errCount = 0;
-  for (let i = 0; i < UNIVERSE.length; i++) {
-    if (quotes[i]) { byMap[UNIVERSE[i]] = quotes[i]; okCount++; }
+  for (let i = 0; i < slice.length; i++) {
+    if (quotes[i]) { byMap[slice[i]] = quotes[i]; okCount++; }
     else errCount++;
   }
   const vix = (byMap.VIX && byMap.VIX.last) || 18;
 
-  // Capture: one entry per symbol with valid quote
+  // Capture: one entry per symbol with valid quote (only this tick's slice)
   let captured = 0;
-  for (const sym of UNIVERSE) {
+  for (const sym of slice) {
     const q = byMap[sym];
     if (!q) continue;
     // 5-min cooldown per symbol (don't capture too often)
@@ -376,7 +450,9 @@ async function runBootstrap(env) {
   const errors = [];
 
   for (const sym of UNIVERSE) {
-    const bars = await fetchFinnhubCandles(env, sym, 250);
+    // Pass 188: use Stooq (free, works from server) instead of Finnhub
+    // /stock/candle (paid-only, 403 on free tier).
+    const bars = await fetchHistoricalBars(env, sym, 250);
     if (!bars || bars.length < 20) {
       errors.push({ sym, reason: 'no-bars' });
       continue;
