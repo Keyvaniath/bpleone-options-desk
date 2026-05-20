@@ -1,0 +1,43 @@
+name: Bootstrap Brain (250-day pre-training)
+
+# After the worker is deployed, run this ONCE to pre-train the brain on
+# 250 days of Finnhub historical bars. Or any time you want to reset.
+#
+# Trigger: manually via "Run workflow" button.
+
+on:
+  workflow_dispatch:
+    inputs:
+      worker_url:
+        description: 'Worker URL (e.g. https://bpleone-brain-worker.YOUR-SUBDOMAIN.workers.dev)'
+        required: true
+        type: string
+
+jobs:
+  bootstrap:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger bootstrap
+        run: |
+          URL="${{ inputs.worker_url }}"
+          URL="${URL%/}"  # strip trailing slash
+          echo "Triggering bootstrap on $URL/brain/bootstrap"
+          RESPONSE=$(curl -sS -X POST \
+            -H "Authorization: Bearer ${{ secrets.ADMIN_TOKEN }}" \
+            -w "\nHTTP_STATUS:%{http_code}" \
+            "$URL/brain/bootstrap")
+          HTTP_STATUS=$(echo "$RESPONSE" | tail -n1 | sed 's/HTTP_STATUS://')
+          BODY=$(echo "$RESPONSE" | sed '$d')
+          echo "Status: $HTTP_STATUS"
+          echo "Response: $BODY"
+          if [ "$HTTP_STATUS" != "200" ]; then
+            exit 1
+          fi
+
+      - name: Verify post-bootstrap state
+        run: |
+          URL="${{ inputs.worker_url }}"
+          URL="${URL%/}"
+          echo ""
+          echo "===== Brain state after bootstrap ====="
+          curl -sS "$URL/brain/state" | python3 -m json.tool | head -40
