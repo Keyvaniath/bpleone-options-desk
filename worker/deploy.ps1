@@ -96,13 +96,19 @@ Write-Ok 'ADMIN_TOKEN set'
 
 # 5. Deploy
 Write-Step '5. Deploy worker'
+# Pass 186: temporarily relax error mode for wrangler — it writes warnings
+# to stderr which PowerShell's Stop mode treats as fatal even when wrangler
+# returns success exit code.
+$prevEAP = $ErrorActionPreference
+$ErrorActionPreference = 'Continue'
 $deployOutput = wrangler deploy 2>&1 | Out-String
+$ErrorActionPreference = $prevEAP
 Write-Host $deployOutput
 if ($deployOutput -match '(https://[a-z0-9-]+\.workers\.dev)') {
   $workerUrl = $matches[1]
   Write-Ok ('Deployed to: ' + $workerUrl)
 } else {
-  Write-Err 'Could not parse worker URL.'
+  Write-Err 'Could not parse worker URL from deploy output.'
   exit 1
 }
 
