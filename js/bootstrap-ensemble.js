@@ -63,7 +63,11 @@
   // Train all K models with online bagging — each sample included in
   // each model with probability INCLUSION_PROB. Independent across K.
   function train(features, label, sampleWeight) {
-    if (!features || typeof label === 'undefined') return null;
+    // Pass 203: same length-check pattern as multi-horizon. K models with
+    // bad-length features = K models with silently un-updated upper weights.
+    const expectedLen = (typeof window !== 'undefined' && window.FEATURES) ? window.FEATURES.length : 22;
+    if (!Array.isArray(features) || features.length !== expectedLen) return null;
+    if (typeof label !== 'number' || !Number.isFinite(label)) return null;
     const w = typeof sampleWeight === 'number' ? sampleWeight : 1.0;
     let trainedCount = 0;
     const losses = [];
@@ -88,7 +92,11 @@
 
   // Predict with all K models, return ensemble stats
   function predict(features) {
-    if (!features || !Array.isArray(features)) return null;
+    // Pass 203: tighten predict guard — array of wrong length would produce
+    // K sigmoid(0)=0.5 predictions and the ensemble would falsely report
+    // "high agreement, neutral confidence" instead of erroring out.
+    const expectedLen = (typeof window !== 'undefined' && window.FEATURES) ? window.FEATURES.length : 22;
+    if (!Array.isArray(features) || features.length !== expectedLen) return null;
     const predictions = [];
     for (let k = 0; k < K; k++) {
       const m = loadModel(k);
