@@ -483,8 +483,18 @@ const ModelTrainer = {
           skippedMock++;
           return;
         }
-        // Build feature vector — prefer stored snapshot, else regenerate
-        const features = f.features || FeatureExtractor.extract(f);
+        // Build feature vector — prefer stored snapshot, else regenerate.
+        // Pass 202: length-check the stored snapshot before trusting it.
+        // [] is truthy in JS (so `f.features || extract` would use the empty
+        // array), and journal entries with a stale or mismatched feature
+        // schema would otherwise silently train on fewer weights than the
+        // model has, leaving the upper weights unchanged forever.
+        let features;
+        if (Array.isArray(f.features) && f.features.length === FEATURES.length) {
+          features = f.features;
+        } else {
+          features = FeatureExtractor.extract(f);
+        }
         const label = f.outcome === 'hit' ? 1 : 0;
         // Apply label smoothing if enabled — prevents overconfidence by
         // training on y=0.025 / y=0.975 instead of 0/1
@@ -667,8 +677,17 @@ function _generateSyntheticSeed(force) {
  */
 function predictForFinding(f) {
   if (!f) return null;
-  const features = f.features || FeatureExtractor.extract(f);
-  if (!features) return null;
+  // Pass 202: same length-check pattern as trainBatch — an empty or wrongly
+  // sized stored feature vector would silently produce sigmoid(0)=0.5 with
+  // no signal, masquerading as a real prediction. Re-extract if the stored
+  // snapshot doesn't match the current schema.
+  let features;
+  if (Array.isArray(f.features) && f.features.length === FEATURES.length) {
+    features = f.features;
+  } else {
+    features = FeatureExtractor.extract(f);
+  }
+  if (!features || features.length !== FEATURES.length) return null;
   const model = ModelStore.load();
   return model.predict(features);
 }
