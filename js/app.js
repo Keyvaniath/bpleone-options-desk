@@ -39,10 +39,18 @@
     const have = new Set(allScripts.map(s => {
       try { return new URL(s.src, location.href).pathname.split('/').slice(-2).join('/'); } catch (e) { return s.src; }
     }));
+    // Pass 179: cache-bust dynamic injections too, matching the static <script>
+    // tags that have ?v=v178 baked in. Otherwise Chrome serves stale brain-coach.js
+    // / model.js / brain-loop.js etc. from HTTP cache after deploys.
+    const CACHE_BUST = 'v178';
     want.forEach(rel => {
-      if (have.has(rel) || allScripts.some(s => s.src.endsWith(rel))) return;
+      // Check for both raw rel AND rel-with-any-query (since static tags have ?v=)
+      if (have.has(rel) || allScripts.some(s => {
+        const u = s.src.replace(/\?.*$/, '');
+        return u.endsWith(rel);
+      })) return;
       const s = document.createElement('script');
-      s.src = rel;
+      s.src = rel + '?v=' + CACHE_BUST;
       s.async = false;
       document.head.appendChild(s);
     });
