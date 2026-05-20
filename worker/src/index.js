@@ -38,7 +38,7 @@
 // Pass 200: version stamp so brain-proof.html + worker-setup.html can detect
 // when the deployed worker is behind the repo source. Bump on every meaningful
 // behavior change. Read via /brain/health → worker_version field.
-const WORKER_VERSION = 'pass-201';
+const WORKER_VERSION = 'pass-206';
 
 const UNIVERSE = [
   'SPY','QQQ','IWM','DIA','AAPL','NVDA','TSLA','MSFT','META','AMZN','GOOGL','AMD',
@@ -860,11 +860,23 @@ async function runBootstrap(env) {
       dayKey: new Date(b.ts).getUTCFullYear() * 10000 + (new Date(b.ts).getUTCMonth() + 1) * 100 + new Date(b.ts).getUTCDate(),
       open: b.open, high: b.high, low: b.low, close: b.close, volume: b.volume
     }));
-    for (let i = 20; i < bars.length - 1; i++) {
+    // Pass 206: pivot the prediction problem to a tractable one.
+    // OLD: predict next-day direction at ±0.3% threshold. On liquid stocks
+    //      this is famously near-random — most days are noise around the
+    //      mean, and a 30bp threshold barely separates signal from drift.
+    //      Result: heldout_bss ≈ 0 (no edge).
+    // NEW: predict 5-day forward direction at ±1% threshold. Standard
+    //      swing-trade horizon. Trend persistence is materially stronger
+    //      at 5d than 1d, and a 1% threshold filters out random-walk
+    //      noise. Labels are sparser (fewer days qualify) but each one
+    //      carries real directional information for the brain to learn.
+    const FWD_DAYS = 5;
+    const LABEL_THRESHOLD = 0.01;
+    for (let i = 20; i < bars.length - FWD_DAYS; i++) {
       const today = bars[i];
-      const tomorrow = bars[i + 1];
-      const ret = (tomorrow.close - today.close) / today.close;
-      const label = ret > 0.003 ? 1 : (ret < -0.003 ? 0 : null);
+      const future = bars[i + FWD_DAYS];
+      const ret = (future.close - today.close) / today.close;
+      const label = ret > LABEL_THRESHOLD ? 1 : (ret < -LABEL_THRESHOLD ? 0 : null);
       if (label === null) continue;
       const features = richFeatures(bars, i);
       trainingExamples.push({ features, label, sym, ts: today.ts });
