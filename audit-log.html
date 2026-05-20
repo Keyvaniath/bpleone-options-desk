@@ -39,10 +39,16 @@
   </div>
 
   <div class="grid grid-4 mb-24">
-    <div class="tile" style="background:rgba(16,185,129,0.06);"><div class="lbl">Audit passes</div><div class="val" style="color:var(--green);">167</div></div>
-    <div class="tile" style="background:rgba(16,185,129,0.06);"><div class="lbl">Bugs fixed</div><div class="val" style="color:var(--green);">123+</div></div>
-    <div class="tile" style="background:rgba(220,38,38,0.06);"><div class="lbl">CRITICAL bugs</div><div class="val" style="color:var(--red);">21</div></div>
-    <div class="tile"><div class="lbl">Total commits</div><div class="val">73</div></div>
+    <div class="tile" style="background:rgba(16,185,129,0.06);"><div class="lbl">Audit passes</div><div class="val" style="color:var(--green);">169</div></div>
+    <div class="tile" style="background:rgba(16,185,129,0.06);"><div class="lbl">Bugs fixed</div><div class="val" style="color:var(--green);">125+</div></div>
+    <div class="tile" style="background:rgba(220,38,38,0.06);"><div class="lbl">CRITICAL bugs</div><div class="val" style="color:var(--red);">23</div></div>
+    <div class="tile"><div class="lbl">Total commits</div><div class="val">75</div></div>
+  </div>
+
+  <div style="padding:14px 18px;border-radius:10px;background:rgba(220,38,38,0.08);border-left:4px solid var(--red);margin-bottom:14px;font-size:13px;color:var(--text-secondary);line-height:1.6;">
+    <strong>CRITICAL Batch L (passes 168-169) — model-state race conditions:</strong><br>
+    <b>168:</b> auto-trainer.js loaded the model at function start, then did 30+s of async Stooq fetches with model.train() calls intermixed, then saved at end. Continuous-learner (every 30s) could load → train → save its OWN update during that window; auto-trainer's later save() then overwrote CL's gradient changes. Rough estimate: ~33% of auto-trainer's 4 daily runs collided with a CL save → ~16 CL training events silently lost per day. Fix: split into Phase 1 (async fetches gather examples into memory, NO model touches) + Phase 2 (one synchronous block: load → train all → save). JS single-thread guarantees atomicity from CL's perspective.<br>
+    <b>169:</b> auto-trainer.js had a dead check for window._historicalTrainerRunning — NOTHING ever set it. Bootstrap ran for minutes without claiming any lock. Wired the cross-module lock end-to-end: historical-bootstrap sets _historicalTrainerRunning (cleared in 4 exit paths), auto-trainer sets _autoTrainerRunning, continuous-learner now checks BOTH and defers its train+save block when either is true. Deferred resolutions stay unresolved in the journal so the next 30s tick (after the long-running trainer completes) reprocesses them against the freshest model state.
   </div>
 
   <div style="padding:14px 18px;border-radius:10px;background:rgba(220,38,38,0.08);border-left:4px solid var(--red);margin-bottom:14px;font-size:13px;color:var(--text-secondary);line-height:1.6;">
