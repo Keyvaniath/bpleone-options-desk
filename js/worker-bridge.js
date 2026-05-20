@@ -72,27 +72,42 @@
   // One-shot bootstrap fetch — call this when you want to seed the browser's
   // local view with the worker's authoritative state (e.g. after page load).
   // Imports the worker's journal into bpleone_pred_journal_v1 (mirror copy).
+  //
+  // Pass 198 defensive guards:
+  //   - Array.isArray() check on the local journal (corruption-safe)
+  //   - Array.isArray() check on s.journal (server-response-safe)
+  //   - Array length === 22 check on s.model.weights (model-format-safe)
+  // Previously a corrupted localStorage or malformed worker response would
+  // throw inside .map / .filter and the whole sync silently failed forever.
   async function syncFromWorker() {
     if (!isEnabled()) return { skipped: 'not-enabled' };
     const s = await state();
     if (s.error) return { error: s.error };
     if (typeof localStorage === 'undefined') return { error: 'no-localStorage' };
     try {
-      // Merge into local journal (don't overwrite — preserves any local-only entries)
-      const local = JSON.parse(localStorage.getItem('bpleone_pred_journal_v1') || '[]');
-      const localIds = new Set(local.map(e => e.id));
-      const merged = local.concat(s.journal.filter(e => !localIds.has(e.id)));
+      // Merge into local journal (don't overwrite — preserves any local-only entries).
+      // If local storage was corrupted (parsed to non-array), reset to []
+      // instead of crashing the whole sync.
+      let local;
+      try {
+        const parsed = JSON.parse(localStorage.getItem('bpleone_pred_journal_v1') || '[]');
+        local = Array.isArray(parsed) ? parsed : [];
+      } catch (e) { local = []; }
+      const localIds = new Set(local.map(e => e && e.id).filter(Boolean));
+      const serverJournal = Array.isArray(s.journal) ? s.journal : [];
+      const merged = local.concat(serverJournal.filter(e => e && e.id && !localIds.has(e.id)));
       // Cap and persist
       if (merged.length > 12000) merged.splice(0, merged.length - 12000);
       localStorage.setItem('bpleone_pred_journal_v1', JSON.stringify(merged));
       // Also mirror the worker's model into the local ModelStore key — flag
       // it as worker-sourced so the local trainer knows not to retrain from
-      // scratch (since worker is authoritative).
-      if (s.model && s.model.weights) {
+      // scratch (since worker is authoritative). Only mirror if the weight
+      // vector is a 22-element array (the production shape).
+      if (s.model && Array.isArray(s.model.weights) && s.model.weights.length === 22) {
         const m = {
           weights: s.model.weights,
-          bias: s.model.bias || 0,
-          n_trained: s.model.n_trained || 0,
+          bias: typeof s.model.bias === 'number' ? s.model.bias : 0,
+          n_trained: typeof s.model.n_trained === 'number' ? s.model.n_trained : 0,
           version: s.model.version || 1,
           source: 'worker'
         };
