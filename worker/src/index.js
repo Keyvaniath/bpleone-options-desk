@@ -191,16 +191,17 @@ const STOOQ_MAP = {
 async function fetchStooqHistorical(sym, days) {
   const stooqSym = STOOQ_MAP[sym];
   if (!stooqSym) return null;
-  // Stooq daily CSV: Date,Open,High,Low,Close,Volume
   const url = 'https://stooq.com/q/d/l/?s=' + encodeURIComponent(stooqSym) + '&i=d';
   try {
-    const r = await fetch(url);
+    const r = await fetch(url, {
+      headers: { 'User-Agent': 'Mozilla/5.0 (compatible; bpleone-brain/1.0)' }
+    });
     if (!r.ok) return null;
     const text = await r.text();
+    if (text.length < 50 || !text.includes('Date,Open')) return null;
     const lines = text.trim().split(/\r?\n/);
     if (lines.length < 2) return null;
     const out = [];
-    // Skip header, take last `days` rows
     const start = Math.max(1, lines.length - days);
     for (let i = start; i < lines.length; i++) {
       const cols = lines[i].split(',');
@@ -217,6 +218,50 @@ async function fetchStooqHistorical(sym, days) {
       });
     }
     return out.length > 0 ? out : null;
+  } catch (e) {
+    return null;
+  }
+}
+
+// Pass 189: Yahoo Finance v8 chart API. Works from Cloudflare Workers
+// (server-side, no CORS), no auth required, generous rate limits.
+// PRIMARY historical fetcher — Stooq + Finnhub are fallbacks.
+async function fetchYahooHistorical(sym, days) {
+  // Yahoo uses ticker symbols mostly as-is, except crypto needs -USD suffix
+  let yhSym = sym;
+  if (sym === 'BTC') yhSym = 'BTC-USD';
+  else if (sym === 'ETH') yhSym = 'ETH-USD';
+  else if (sym === 'VIX') yhSym = '^VIX';
+  const rangeStr = days > 365 ? '5y' : (days > 90 ? '1y' : (days > 30 ? '3mo' : '1mo'));
+  const url = 'https://query1.finance.yahoo.com/v8/finance/chart/' + encodeURIComponent(yhSym) + '?range=' + rangeStr + '&interval=1d';
+  try {
+    const r = await fetch(url, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
+        'Accept': 'application/json'
+      }
+    });
+    if (!r.ok) return null;
+    const j = await r.json();
+    const result = j && j.chart && j.chart.result && j.chart.result[0];
+    if (!result || !result.timestamp) return null;
+    const ts = result.timestamp;
+    const quote = result.indicators && result.indicators.quote && result.indicators.quote[0];
+    if (!quote || !quote.close) return null;
+    const out = [];
+    for (let i = 0; i < ts.length; i++) {
+      const c = quote.close[i];
+      if (c == null || !isFinite(c) || c <= 0) continue;
+      out.push({
+        ts: ts[i] * 1000,
+        close: c,
+        open: quote.open[i] || c,
+        high: quote.high[i] || c,
+        low: quote.low[i] || c,
+        volume: quote.volume[i] || 0
+      });
+    }
+    return out.length > 0 ? out.slice(-days) : null;
   } catch (e) {
     return null;
   }
@@ -247,8 +292,11 @@ async function fetchFinnhubCandles(env, sym, days) {
   }
 }
 
-// Try Stooq first (free, works), fall back to Finnhub (paid only)
+// Try Yahoo first (most reliable from Cloudflare Workers, no auth, no CORS
+// issue here because we're server-side). Falls back to Stooq, then Finnhub.
 async function fetchHistoricalBars(env, sym, days) {
+  const yahooResult = await fetchYahooHistorical(sym, days);
+  if (yahooResult && yahooResult.length > 0) return yahooResult;
   const stooqResult = await fetchStooqHistorical(sym, days);
   if (stooqResult && stooqResult.length > 0) return stooqResult;
   return await fetchFinnhubCandles(env, sym, days);
@@ -418,6 +466,34 @@ async function handleRequest(request, env, ctx) {
   if (path === '/brain/model') {
     const model = await kvGet(env, KV_KEYS.MODEL, newModel());
     return json(model);
+  }
+
+  if (path === '/brain/debug/fetch') {
+    // No auth — only returns metadata, useful for debugging which sources work
+    const sym = url.searchParams.get('sym') || 'AAPL';
+    const results = {};
+    // Test each source independently
+    try {
+      const yh = await fetchYahooHistorical(sym, 250);
+      results.yahoo = { ok: !!yh, count: yh ? yh.length : 0, first: yh ? yh[0] : null };
+    } catch (e) { results.yahoo = { error: String(e) }; }
+    try {
+      const sq = await fetchStooqHistorical(sym, 250);
+      results.stooq = { ok: !!sq, count: sq ? sq.length : 0, first: sq ? sq[0] : null };
+    } catch (e) { results.stooq = { error: String(e) }; }
+    // Raw Yahoo response status check
+    try {
+      let yhSym = sym;
+      if (sym === 'BTC') yhSym = 'BTC-USD';
+      else if (sym === 'ETH') yhSym = 'ETH-USD';
+      else if (sym === 'VIX') yhSym = '^VIX';
+      const r = await fetch('https://query1.finance.yahoo.com/v8/finance/chart/' + encodeURIComponent(yhSym) + '?range=1y&interval=1d', {
+        headers: { 'User-Agent': 'Mozilla/5.0' }
+      });
+      results.yahoo_raw_status = r.status;
+      results.yahoo_raw_body_first200 = (await r.text()).slice(0, 200);
+    } catch (e) { results.yahoo_raw_status = 'err:' + e.message; }
+    return json(results);
   }
 
   if (path === '/brain/bootstrap' && request.method === 'POST') {
