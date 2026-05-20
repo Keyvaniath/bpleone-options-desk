@@ -50,6 +50,8 @@ const KV_KEYS = {
   LAST_TICK: 'last_tick_v1',      // { ts, syms_updated, errors }
   ACC_LOG: 'acc_log_v1',          // rolling accuracy log
   WEIGHT_LEDGER: 'weight_ledger_v1',
+  HELDOUT: 'heldout_test_v1',     // out-of-sample test pairs from bootstrap
+  METRICS_CACHE: 'metrics_cache_v1',
 };
 
 const MAX_JOURNAL = 12000;
@@ -108,6 +110,18 @@ function extractFeatures(quote, marketSnap) {
   return f;
 }
 function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
+
+// Standard normal CDF via Abramowitz-Stegun approximation. Used for the
+// p-value calculation in /brain/metrics.
+function normalCdf(z) {
+  const a1 = 0.254829592, a2 = -0.284496736, a3 = 1.421413741;
+  const a4 = -1.453152027, a5 = 1.061405429, p = 0.3275911;
+  const sign = z < 0 ? -1 : 1;
+  const x = Math.abs(z) / Math.sqrt(2);
+  const t = 1.0 / (1.0 + p * x);
+  const y = 1.0 - ((((a5 * t + a4) * t + a3) * t + a2) * t + a1) * t * Math.exp(-x * x);
+  return 0.5 * (1.0 + sign * y);
+}
 function etHour() {
   const parts = new Intl.DateTimeFormat('en-US', {
     timeZone: 'America/New_York',
@@ -475,6 +489,83 @@ async function handleRequest(request, env, ctx) {
     return json(model);
   }
 
+  if (path === '/brain/metrics') {
+    // Pass 191: real signal-vs-noise metrics from the held-out test set
+    // and the live resolved journal. No auth required (read-only).
+    const heldout = await kvGet(env, KV_KEYS.HELDOUT, []);
+    const journal = await kvGet(env, KV_KEYS.JOURNAL, []);
+
+    // ---- Held-out test metrics (from bootstrap split) ----
+    let testMetrics = null;
+    if (heldout.length > 0) {
+      let correct = 0, brierSum = 0;
+      const bins = Array(10).fill(0).map(() => ({ n: 0, sum_y: 0, sum_p: 0 }));
+      for (const { p, y } of heldout) {
+        if ((p >= 0.5 ? 1 : 0) === y) correct++;
+        brierSum += (p - y) * (p - y);
+        const bin = Math.min(9, Math.floor(p * 10));
+        bins[bin].n++;
+        bins[bin].sum_y += y;
+        bins[bin].sum_p += p;
+      }
+      const brier = brierSum / heldout.length;
+      const bss = 1 - (brier / 0.25);
+      // ECE (expected calibration error)
+      let ece = 0;
+      for (const b of bins) {
+        if (b.n === 0) continue;
+        const actualRate = b.sum_y / b.n;
+        const meanProb = b.sum_p / b.n;
+        ece += (b.n / heldout.length) * Math.abs(actualRate - meanProb);
+      }
+      // Binomial test vs 50% (Wald approximation for large n)
+      const acc = correct / heldout.length;
+      const z = (acc - 0.5) / Math.sqrt(0.25 / heldout.length);
+      // Two-sided p-value via normal CDF approximation
+      const pValue = 2 * (1 - normalCdf(Math.abs(z)));
+      testMetrics = {
+        n: heldout.length,
+        accuracy: +acc.toFixed(4),
+        brier: +brier.toFixed(4),
+        bss: +bss.toFixed(4),
+        ece: +ece.toFixed(4),
+        z_score: +z.toFixed(3),
+        p_value: +pValue.toFixed(4),
+        significant: pValue < 0.05,
+        verdict: bss > 0.05 ? 'REAL SIGNAL' : (bss > 0 ? 'WEAK SIGNAL' : 'BELOW BASELINE')
+      };
+    }
+
+    // ---- Live journal metrics (from resolved captures) ----
+    const resolved = journal.filter(e => e.resolved && typeof e.resolved === 'object' && e.resolved.short && e.resolved.short !== false);
+    let liveMetrics = null;
+    if (resolved.length > 0) {
+      let correct = 0, brierSum = 0;
+      for (const e of resolved) {
+        if (e.resolved.short === 'correct') correct++;
+        const y = e.resolved.short === 'correct' ? (e.predProb >= 0.5 ? 1 : 0) : (e.predProb >= 0.5 ? 0 : 1);
+        brierSum += (e.predProb - y) * (e.predProb - y);
+      }
+      const total = resolved.length;
+      const acc = correct / total;
+      const brier = brierSum / total;
+      liveMetrics = {
+        n: total,
+        accuracy: +acc.toFixed(4),
+        brier: +brier.toFixed(4),
+        bss: +(1 - brier / 0.25).toFixed(4),
+        captures_pending: journal.length - total
+      };
+    }
+
+    return json({
+      heldout_test: testMetrics,
+      live_resolved: liveMetrics,
+      total_captures: journal.length,
+      timestamp: Date.now()
+    });
+  }
+
   if (path === '/brain/debug/fetch') {
     // No auth — only returns metadata, useful for debugging which sources work
     const sym = url.searchParams.get('sym') || 'AAPL';
@@ -523,7 +614,7 @@ async function handleRequest(request, env, ctx) {
     return json(r);
   }
 
-  return json({ error: 'not found', paths: ['/brain/health', '/brain/state', '/brain/journal', '/brain/model', '/brain/bootstrap (POST)', '/brain/tick (POST)'] }, 404);
+  return json({ error: 'not found', paths: ['/brain/health', '/brain/state', '/brain/journal', '/brain/model', '/brain/metrics', '/brain/debug/fetch?sym=X', '/brain/bootstrap (POST)', '/brain/tick (POST)'] }, 404);
 }
 
 async function runBootstrap(env) {
@@ -532,50 +623,133 @@ async function runBootstrap(env) {
   let symbolsFetched = 0;
   const errors = [];
 
+  // Pass 191: richer feature extractor for bootstrap. Uses 14 historical
+  // bars of context to compute real TA indicators (RSI, ATR, momentum,
+  // range position, SMA distance) instead of mostly-constant features.
+  function richFeatures(bars, i) {
+    const f = new Array(22).fill(0.5);
+    if (i < 14) return f;
+    const today = bars[i];
+    let gains = 0, losses = 0;
+    for (let k = i - 13; k <= i; k++) {
+      const d = bars[k].close - bars[k-1].close;
+      if (d > 0) gains += d; else losses -= d;
+    }
+    const rs = (gains + losses) > 0 ? gains / (gains + losses) : 0.5;
+    f[0] = clamp(rs, 0, 1);
+    f[1] = clamp(((today.high - today.low) / today.close) * 50, 0, 1);
+    let atrSum = 0;
+    for (let k = i - 13; k <= i; k++) atrSum += (bars[k].high - bars[k].low) / bars[k].close;
+    f[2] = clamp((atrSum / 14) * 100, 0, 1);
+    const chg = (today.close - bars[i-1].close) / bars[i-1].close;
+    f[5] = clamp((chg + 0.05) / 0.10, 0, 1);
+    if (i >= 5) {
+      const mom5 = (today.close - bars[i-5].close) / bars[i-5].close;
+      f[3] = clamp((mom5 + 0.10) / 0.20, 0, 1);
+    }
+    if (i >= 20) {
+      const mom20 = (today.close - bars[i-20].close) / bars[i-20].close;
+      f[4] = clamp((mom20 + 0.20) / 0.40, 0, 1);
+    }
+    let volSum = 0;
+    for (let k = i - 13; k <= i; k++) volSum += bars[k].volume || 0;
+    const avgVol = volSum / 14;
+    const rvol = avgVol > 0 ? (today.volume || 0) / avgVol : 1;
+    f[6] = clamp(rvol / 3, 0, 1);
+    let hi14 = -Infinity, lo14 = Infinity;
+    for (let k = i - 13; k <= i; k++) {
+      if (bars[k].high > hi14) hi14 = bars[k].high;
+      if (bars[k].low < lo14) lo14 = bars[k].low;
+    }
+    if (hi14 > lo14) f[7] = (today.close - lo14) / (hi14 - lo14);
+    let sma14 = 0;
+    for (let k = i - 13; k <= i; k++) sma14 += bars[k].close;
+    sma14 /= 14;
+    f[8] = clamp(((today.close - sma14) / sma14 + 0.10) / 0.20, 0, 1);
+    const dow = new Date(today.ts).getUTCDay();
+    f[19] = (dow % 5) / 5;
+    f[21] = 1;
+    return f;
+  }
+
   for (const sym of UNIVERSE) {
-    // Pass 188: use Stooq (free, works from server) instead of Finnhub
-    // /stock/candle (paid-only, 403 on free tier).
     const bars = await fetchHistoricalBars(env, sym, 250);
-    if (!bars || bars.length < 20) {
+    if (!bars || bars.length < 30) {
       errors.push({ sym, reason: 'no-bars' });
       continue;
     }
     symbolsFetched++;
-    // Build (features, label) pairs from consecutive bars
     for (let i = 20; i < bars.length - 1; i++) {
       const today = bars[i];
       const tomorrow = bars[i + 1];
       const ret = (tomorrow.close - today.close) / today.close;
       const label = ret > 0.003 ? 1 : (ret < -0.003 ? 0 : null);
       if (label === null) continue;
-      const fakeQ = {
-        symbol: sym,
-        last: today.close,
-        dayHigh: today.high,
-        dayLow: today.low,
-        changePct: i > 0 ? ((today.close - bars[i-1].close) / bars[i-1].close) * 100 : 0,
-      };
-      const features = extractFeatures(fakeQ, { vix: 18 });
-      trainingExamples.push({ features, label });
+      const features = richFeatures(bars, i);
+      trainingExamples.push({ features, label, sym });
     }
   }
 
-  // Train all examples
+  // Pass 191: 80/20 split for proper held-out test. Shuffle deterministically
+  // so the split is reproducible, train on the first 80%, then evaluate the
+  // trained model's predictions on the last 20% (which the model never saw).
+  // Store those (predProb, label) pairs in KV for /brain/metrics.
+  function seedShuffle(arr, seed) {
+    let s = seed;
+    const a = arr.slice();
+    for (let i = a.length - 1; i > 0; i--) {
+      s = (s * 9301 + 49297) % 233280;
+      const j = Math.floor((s / 233280) * (i + 1));
+      [a[i], a[j]] = [a[j], a[i]];
+    }
+    return a;
+  }
+  const shuffled = seedShuffle(trainingExamples, 42);
+  const splitIdx = Math.floor(shuffled.length * 0.8);
+  const trainSet = shuffled.slice(0, splitIdx);
+  const testSet = shuffled.slice(splitIdx);
+
+  // Train phase
   let lossSum = 0;
-  for (const ex of trainingExamples) {
+  for (const ex of trainSet) {
     const { loss } = trainStep(model, ex.features, ex.label);
     lossSum += loss;
   }
 
-  await kvPut(env, KV_KEYS.MODEL, model);
+  // Test phase — predict on held-out, store pairs for metrics
+  const heldout = [];
+  let testCorrect = 0;
+  let brierSum = 0;
+  for (const ex of testSet) {
+    const p = predict(model, ex.features);
+    heldout.push({ p, y: ex.label, sym: ex.sym });
+    if ((p >= 0.5 ? 1 : 0) === ex.label) testCorrect++;
+    brierSum += (p - ex.label) * (p - ex.label);
+  }
+  const testAcc = testSet.length > 0 ? testCorrect / testSet.length : null;
+  const brier = testSet.length > 0 ? brierSum / testSet.length : null;
+  // Baseline Brier: always predict 0.5 → (0.5 - y)^2 = 0.25 for binary
+  const brierBaseline = 0.25;
+  const bss = brier != null ? 1 - (brier / brierBaseline) : null;
+
+  await Promise.all([
+    kvPut(env, KV_KEYS.MODEL, model),
+    kvPut(env, KV_KEYS.HELDOUT, heldout)
+  ]);
 
   return {
     ok: true,
     symbolsFetched,
     trainingExamples: trainingExamples.length,
+    trainSize: trainSet.length,
+    testSize: testSet.length,
     errors: errors.length,
-    avgLoss: trainingExamples.length ? lossSum / trainingExamples.length : null,
-    final_n_trained: model.n_trained
+    avgLoss: trainSet.length ? lossSum / trainSet.length : null,
+    final_n_trained: model.n_trained,
+    heldout_test_accuracy: testAcc,
+    heldout_brier: brier,
+    heldout_bss: bss,
+    is_real_signal: bss != null && bss > 0.02
   };
 }
 
