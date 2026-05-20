@@ -144,7 +144,7 @@ Every `data-live="SYM:field"` element auto-updates via `Feed.subscribe`. All pag
 
 ## Audit baseline — `/audit-log.html`
 
-77+ audit passes have run on this codebase, finding 14+ CRITICAL bugs that were silently corrupting metrics or breaking entire safety chains. The running log is at **`/audit-log.html`** — read it before adding new code. Some highlights worth knowing:
+173+ audit passes have run on this codebase, finding **24 CRITICAL bugs** that were silently corrupting metrics or breaking entire safety chains. The running log is at **`/audit-log.html`** — read it before adding new code. Some highlights worth knowing:
 
 - **Pass 53**: EnsembleAgreement returned lowercase, 3 callers checked UPPERCASE → agreement-based sizing never fired
 - **Pass 60**: kNN returned P(direction-correct), blended as P(LONG) → wrong-direction neighbors voted UP
@@ -153,6 +153,8 @@ Every `data-live="SYM:field"` element auto-updates via `Feed.subscribe`. All pag
 - **Pass 76**: DriftPSI alias mismatch → drift-protection chain was inert across 5 callers
 - **Pass 76b**: 5 modules (AIClient, BS, DataProvider, Feed, Notify) declared with top-level `const` never auto-attached to window → defensive `window.X` access returned undefined
 - **Pass 78**: outlier-detector now decays old samples (EMA cap 500); bootstrap-ensemble removed dead `hashSeed`; ensemble-agreement unknown case NaN-guarded; continuous-learner per-horizon rMultiple typo
+- **Pass 119 + 163-170 (TZ-naive bug class)**: model.js feature[20] used local `getHours()` → for PT user (Brandon) every prediction had a wrong hour-of-session feature. Same bug class then found in 13+ MORE places (brain-monthly-calendar, daily-report, brain-weekly-report, daily-replay, time-of-day-brain, brain-questions, cohort-analysis, setup-compare, performance-attribution-pro, model-postmortem, continuous-learner.stats(), streak-tracker.trend(), ai-narrative). All now use `Intl.DateTimeFormat` with `America/New_York` or the `toLocaleString` re-parse trick. **Always use ET when bucketing market data — markets are ET-anchored. Local time only OK for user-personal things like quiet hours.**
+- **Pass 168-169 (race conditions)**: auto-trainer.js loaded model → async fetch loop → save; continuous-learner could ModelStore.load/train/save in between, then AT overwrote CL's gradient update. Fixed by splitting AT into Phase 1 (async fetches, no model touch) + Phase 2 (sync load/train/save). Also wired the cross-module `_historicalTrainerRunning` + `_autoTrainerRunning` flags so CL defers its save during long-running trainers.
 
 ---
 
