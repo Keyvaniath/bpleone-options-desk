@@ -17,7 +17,7 @@
 #      e.g. cd $HOME\bpleone-options-desk\worker
 #      (if you don't have it cloned, the script offers to do it)
 #   3. Run: .\deploy.ps1
-#   4. Follow prompts. ~5 minutes total.
+#   4. Follow prompts. 5 minutes total.
 # =============================================================
 
 $ErrorActionPreference = "Stop"
@@ -164,7 +164,7 @@ if ($deployOutput -match '(https://[a-z0-9-]+\.workers\.dev)') {
 # ============================================================
 # 6. Wait + verify health
 # ============================================================
-Write-Step "6. Wait for first cron tick (~75 seconds)"
+Write-Step "6. Wait for first cron tick (75 seconds)"
 Write-Host "  Cron fires every minute. Waiting for the first tick to populate state..." -ForegroundColor Yellow
 Start-Sleep -Seconds 75
 
@@ -184,7 +184,7 @@ try {
 # ============================================================
 Write-Step "7. Trigger 250-day historical bootstrap"
 Write-Host "  This pulls 250 days of Finnhub candles for 47 symbols and pre-trains the brain." -ForegroundColor Yellow
-Write-Host "  Takes ~30-60 seconds." -ForegroundColor Yellow
+Write-Host "  Takes 30 to 60 seconds." -ForegroundColor Yellow
 try {
   $bootstrap = Invoke-RestMethod -Uri "$workerUrl/brain/bootstrap" `
     -Method POST `
