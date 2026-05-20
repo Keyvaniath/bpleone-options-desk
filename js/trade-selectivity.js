@@ -43,14 +43,35 @@
     return { score: s, ok, msg: 'VIX ≈ ' + vixLevel.toFixed(1) + (s >= 80 ? ' (optimal)' : s >= 60 ? ' (elevated)' : ' (extreme — sit out)') };
   }
 
+  // Audit pass 119: get ET-localized hour/minute/dow regardless of user's
+  // timezone. Local getHours() was 3hrs off for PT users — selectivity
+  // tier would flag "outside primary US session" at 1pm PT (= 4pm ET close).
+  function etNow() {
+    try {
+      const parts = new Intl.DateTimeFormat('en-US', {
+        timeZone: 'America/New_York',
+        weekday: 'short', hour12: false, hour: '2-digit', minute: '2-digit'
+      }).formatToParts(new Date());
+      let hh = 0, mm = 0, wkd = '';
+      for (const p of parts) {
+        if (p.type === 'hour') hh = parseInt(p.value, 10) % 24;
+        if (p.type === 'minute') mm = parseInt(p.value, 10);
+        if (p.type === 'weekday') wkd = p.value;
+      }
+      const dowMap = { Sun:0, Mon:1, Tue:2, Wed:3, Thu:4, Fri:5, Sat:6 };
+      return { hour: hh, min: mm, dow: dowMap[wkd] != null ? dowMap[wkd] : new Date().getDay() };
+    } catch (e) {
+      const d = new Date();
+      return { hour: d.getHours(), min: d.getMinutes(), dow: d.getDay() };
+    }
+  }
+
   function signalSession() {
     // First 15min and last 15min of regular session = noise
-    const now = new Date();
-    const hour = now.getHours();
-    const min = now.getMinutes();
+    const et = etNow();
+    const hour = et.hour;
+    const min = et.min;
     const timeMin = hour * 60 + min;
-    // US market: 9:30-16:00 ET. Assuming server is in user's timezone.
-    // We can't know timezone reliably, so use rough hour-of-day signal.
     const isOpen = (hour > 9 || (hour === 9 && min >= 30)) && hour < 16;
     if (!isOpen) {
       return { score: 50, ok: null, msg: 'Outside primary US session (pre/post-market)' };
@@ -67,15 +88,14 @@
   }
 
   function signalDayOfWeek() {
-    const now = new Date();
-    const dow = now.getDay();
+    const et = etNow();
+    const dow = et.dow;
     // 0=Sun, 6=Sat. We assume US market closed weekends.
     if (dow === 0 || dow === 6) return { score: 30, ok: false, msg: 'Weekend — markets closed' };
     if (dow === 1) return { score: 85, ok: true, msg: 'Monday' };
     if (dow === 2 || dow === 3 || dow === 4) return { score: 95, ok: true, msg: 'Mid-week (most predictable)' };
     if (dow === 5) {
-      const hour = now.getHours();
-      if (hour >= 14) return { score: 60, ok: false, msg: 'Friday afternoon — weekend risk' };
+      if (et.hour >= 14) return { score: 60, ok: false, msg: 'Friday afternoon — weekend risk' };
       return { score: 80, ok: true, msg: 'Friday morning' };
     }
     return { score: 70, ok: true };

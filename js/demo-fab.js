@@ -54,8 +54,10 @@
     });
 
     updateVisibility();
-    // Recheck every 8s in case data state changes
-    setInterval(updateVisibility, 8000);
+    // Audit pass 116: defensive guard so if mount() is somehow called twice
+    // (e.g. page state-change retriggering init), we don't stack intervals.
+    if (window._demoFabInterval) return;
+    window._demoFabInterval = setInterval(updateVisibility, 8000);
   }
 
   function toast(msg) {

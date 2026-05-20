@@ -51,10 +51,16 @@ const Notify = (function() {
   // Subscribe to a synthetic signal feed (driven by Feed if available)
   function autoSubscribeSignals() {
     if (typeof Feed === 'undefined') return;
+    if (!supported()) return;   // pass 120: bail entirely if Notification API isn't available
+    // Audit pass 116: guard against double-subscribe if someone calls
+    // Notify.autoSubscribeSignals() manually after the auto-init also ran.
+    if (typeof window !== 'undefined' && window._notifyAutoSubInterval) return;
     // Fire a digest every ~60s with the top mover, only if granted
     let lastFiredFor = '';
-    setInterval(() => {
-      if (Notification.permission !== 'granted' || loadPrefs().muted) return;
+    const id = setInterval(() => {
+      // Pass 120: extra guard inside the interval — if Notification was
+      // polyfilled and later removed (some browser extensions), don't throw.
+      if (!supported() || Notification.permission !== 'granted' || loadPrefs().muted) return;
       if (typeof QUOTES === 'undefined') return;
       const sorted = Object.values(QUOTES).sort((a, b) => Math.abs(b.changePct) - Math.abs(a.changePct));
       const top = sorted[0];
@@ -67,6 +73,7 @@ const Notify = (function() {
            `Now $${top.last.toFixed(2)}. Tap to view signals.`,
            { tag: top.symbol, url: 'signals.html' });
     }, 60000);
+    if (typeof window !== 'undefined') window._notifyAutoSubInterval = id;
   }
 
   function setMuted(v) { const p = loadPrefs(); p.muted = !!v; savePrefs(p); }

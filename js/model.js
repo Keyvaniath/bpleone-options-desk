@@ -119,10 +119,31 @@ const FeatureExtractor = {
     features[19] = clamp(safeNum(marketSnap.coincident, 1) / 10, 0, 1);
 
     // 20: Hour of session (0-1)
+    // Audit pass 119 (CRITICAL for non-ET users): was new Date().getHours() —
+    // local time. For a user in PT, that's 3 hours behind ET. Market opens
+    // 6:30am PT = 9:30am ET; with local getHours() the feature reported
+    // hour=6.5, clamped to 0 ("before market open") even when ET market
+    // was active. Result: the entire 22-feature vector had a consistently
+    // wrong feature[20] for non-ET-time-zone users — directly corrupting
+    // every prediction the brain made for that user.
     const now = new Date(finding.ts || Date.now());
-    const hour = now.getHours() + now.getMinutes() / 60;
+    let etHour = 9.5;
+    try {
+      const parts = new Intl.DateTimeFormat('en-US', {
+        timeZone: 'America/New_York',
+        hour12: false, hour: '2-digit', minute: '2-digit'
+      }).formatToParts(now);
+      let hh = 0, mm = 0;
+      for (const p of parts) {
+        if (p.type === 'hour') hh = parseInt(p.value, 10) % 24;
+        if (p.type === 'minute') mm = parseInt(p.value, 10);
+      }
+      etHour = hh + mm / 60;
+    } catch (e) {
+      etHour = now.getHours() + now.getMinutes() / 60;  // last-resort fallback
+    }
     const sessStart = 9.5, sessEnd = 16;
-    features[20] = clamp((hour - sessStart) / (sessEnd - sessStart), 0, 1);
+    features[20] = clamp((etHour - sessStart) / (sessEnd - sessStart), 0, 1);
 
     // 21: bias
     features[21] = 1;
