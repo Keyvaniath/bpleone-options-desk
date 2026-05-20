@@ -39,10 +39,17 @@
   </div>
 
   <div class="grid grid-4 mb-24">
-    <div class="tile" style="background:rgba(16,185,129,0.06);"><div class="lbl">Audit passes</div><div class="val" style="color:var(--green);">201</div></div>
-    <div class="tile" style="background:rgba(16,185,129,0.06);"><div class="lbl">Bugs fixed</div><div class="val" style="color:var(--green);">150+</div></div>
-    <div class="tile" style="background:rgba(220,38,38,0.06);"><div class="lbl">CRITICAL bugs</div><div class="val" style="color:var(--red);">26</div></div>
+    <div class="tile" style="background:rgba(16,185,129,0.06);"><div class="lbl">Audit passes</div><div class="val" style="color:var(--green);">204</div></div>
+    <div class="tile" style="background:rgba(16,185,129,0.06);"><div class="lbl">Bugs fixed</div><div class="val" style="color:var(--green);">155+</div></div>
+    <div class="tile" style="background:rgba(220,38,38,0.06);"><div class="lbl">CRITICAL bugs</div><div class="val" style="color:var(--red);">27</div></div>
     <div class="tile"><div class="lbl">Total commits</div><div class="val">100+</div></div>
+  </div>
+
+  <div style="padding:14px 18px;border-radius:10px;background:rgba(220,38,38,0.08);border-left:4px solid var(--red);margin-bottom:14px;font-size:13px;color:var(--text-secondary);line-height:1.6;">
+    <strong>Batch R (passes 202-204) — silent feature-vector corruption (defense in depth):</strong>
+    14 call sites across 9 modules call <code>model.train(features, label)</code>. The pattern <code>f.features || extract(f)</code> was used in two places to prefer a stored feature snapshot — but <code>[] || x</code> evaluates to <code>[]</code> in JS (arrays are truthy regardless of length). A journal entry with an empty or stale-schema feature array would silently train on a partial-length vector, leaving the upper weights of the model PERMANENTLY un-updated.
+    <br><br>
+    <b>202:</b> caller-side fix in model.js trainBatch + predictForFinding. <b>203:</b> same pattern in multi-horizon trainHorizon (3 horizon models) and bootstrap-ensemble train + predict (K=5 bagged models). <b>204 (defense in depth):</b> moved the guard one layer deeper into <code>Model.train</code> and <code>Model.predict</code> themselves — every caller is now protected by a single guard, returning <code>{skipped: 'bad-features-length'}</code> instead of silently mistraining. Also catches non-finite labels which would NaN-ify the Adam moment buffers.
   </div>
 
   <div style="padding:14px 18px;border-radius:10px;background:rgba(124,58,237,0.08);border-left:4px solid var(--purple);margin-bottom:14px;font-size:13px;color:var(--text-secondary);line-height:1.6;">
