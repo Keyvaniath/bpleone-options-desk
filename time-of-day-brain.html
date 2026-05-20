@@ -102,15 +102,37 @@ buildNav('time-of-day-brain');
 
 function loadTrain() { try { return JSON.parse(localStorage.getItem('bpleone_train_v1') || '[]'); } catch(e) { return []; } }
 
+// Audit pass 164: bucket by ET clock time, since session labels below
+// (Pre-market 4-9:30, Open 9:30-11, Lunch 11:30-1:30, etc.) are all ET hours.
+// Local getHours() on a PT user produced bucket shifts of -3 hours.
+function etHourDowOf(ts) {
+  try {
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone: 'America/New_York',
+      hour12: false, hour: '2-digit', minute: '2-digit', weekday: 'short'
+    }).formatToParts(new Date(ts));
+    let hh = 0, wkd = 'Sun';
+    for (const p of parts) {
+      if (p.type === 'hour') hh = parseInt(p.value, 10) % 24;
+      if (p.type === 'weekday') wkd = p.value;
+    }
+    const dowMap = { Sun:0, Mon:1, Tue:2, Wed:3, Thu:4, Fri:5, Sat:6 };
+    return { hour: hh, dow: dowMap[wkd] != null ? dowMap[wkd] : 0 };
+  } catch (e) {
+    const d = new Date(ts);
+    return { hour: d.getHours(), dow: d.getDay() };
+  }
+}
+
 function compute() {
   const train = loadTrain();
   const byHour = Array(24).fill(0).map(() => ({ n:0, w:0, r:0 }));
   const byDow = Array(7).fill(0).map(() => ({ n:0, w:0, r:0 }));
   const byHourDow = {};
   train.forEach(t => {
-    const d = new Date(t.ts);
-    const h = d.getHours();
-    const w = d.getDay();
+    const et = etHourDowOf(t.ts);
+    const h = et.hour;
+    const w = et.dow;
     const r = t.y === 1 ? (t.r || 1.5) : -1.0;
     byHour[h].n++;
     byHour[h].r += r;

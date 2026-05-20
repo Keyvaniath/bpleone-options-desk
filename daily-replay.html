@@ -88,8 +88,31 @@
 <script src="js/high-conviction-alerts.js"></script>
 <script>buildNav('daily-replay');</script>
 <script>
+// Audit pass 164: ET-attributed day bucketing — markets are ET-anchored,
+// so a PT-evening trade (ET-morning next day) must show in the ET-next-day
+// view, not yesterday's local replay.
+function etDateKeyOfTs(ts) {
+  try {
+    const parts = new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'America/New_York',
+      year: 'numeric', month: '2-digit', day: '2-digit'
+    }).formatToParts(new Date(ts));
+    let y = 0, m = 0, d = 0;
+    for (const p of parts) {
+      if (p.type === 'year') y = +p.value;
+      if (p.type === 'month') m = +p.value;
+      if (p.type === 'day') d = +p.value;
+    }
+    return y + '-' + String(m).padStart(2, '0') + '-' + String(d).padStart(2, '0');
+  } catch (e) {
+    const dt = new Date(ts);
+    return dt.getFullYear() + '-' + String(dt.getMonth() + 1).padStart(2, '0') + '-' + String(dt.getDate()).padStart(2, '0');
+  }
+}
 let viewDay = new Date();
 viewDay.setHours(0, 0, 0, 0);
+// viewDayKey: the ET date-key currently being viewed
+function currentViewKey() { return etDateKeyOfTs(viewDay.getTime() + 12 * 3600000); }
 
 const JOURNAL_KEY = 'bpleone_pred_journal_v1';
 function loadJournal() { try { return JSON.parse(localStorage.getItem(JOURNAL_KEY) || '[]'); } catch (e) { return []; } }
@@ -106,32 +129,32 @@ function changeDay(d) {
 
 function render() {
   document.getElementById('day-title').textContent = viewDay.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
-  const dayStart = viewDay.getTime();
-  const dayEnd = dayStart + 86400000;
-  const isToday = (Math.floor(dayStart / 86400000) === Math.floor(Date.now() / 86400000));
+  const targetKey = currentViewKey();
+  const todayKey = etDateKeyOfTs(Date.now());
+  const isToday = targetKey === todayKey;
   document.getElementById('next-btn').style.opacity = isToday ? '0.3' : '1';
   document.getElementById('next-btn').style.pointerEvents = isToday ? 'none' : 'auto';
 
-  // Pull alerts (HighConvictionAlerts feed) within this day
+  // Pull alerts (HighConvictionAlerts feed) within this day (ET-attributed)
   let alerts = [];
   if (window.HighConvictionAlerts) {
-    alerts = window.HighConvictionAlerts.feed(200).filter(a => a.ts >= dayStart && a.ts < dayEnd);
+    alerts = window.HighConvictionAlerts.feed(200).filter(a => etDateKeyOfTs(a.ts) === targetKey);
   }
-  // Pull resolved trades from MoneyTracker for the day
+  // Pull resolved trades from MoneyTracker for the day (ET-attributed)
   let tradesForDay = [];
   if (window.MoneyTracker) {
     const s = window.MoneyTracker.summary();
     if (!s.empty && s.windows && s.windows.lifetime) {
-      tradesForDay = (s.windows.lifetime.trades || []).filter(t => t.ts >= dayStart && t.ts < dayEnd);
+      tradesForDay = (s.windows.lifetime.trades || []).filter(t => etDateKeyOfTs(t.ts) === targetKey);
     }
   }
-  // Pull AutoTrade open + closed trades for this day
+  // Pull AutoTrade open + closed trades for this day (ET-attributed)
   let autoOpened = [], autoClosed = [];
   if (window.AutoTrade) {
     const open = window.AutoTrade.openTrades();
     const closed = window.AutoTrade.closedTrades();
-    autoOpened = open.filter(t => t.openedAt >= dayStart && t.openedAt < dayEnd);
-    autoClosed = closed.filter(t => (t.openedAt >= dayStart && t.openedAt < dayEnd) || (t.closedAt >= dayStart && t.closedAt < dayEnd));
+    autoOpened = open.filter(t => etDateKeyOfTs(t.openedAt) === targetKey);
+    autoClosed = closed.filter(t => etDateKeyOfTs(t.openedAt) === targetKey || etDateKeyOfTs(t.closedAt) === targetKey);
   }
 
   // Build timeline (mix alerts + auto-trades + closed trades by ts)
