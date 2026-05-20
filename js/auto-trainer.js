@@ -168,6 +168,12 @@
     // Avoid running while a manual training session is happening
     if (window._historicalTrainerRunning) return;
     if (window._autoTrainerRunning) return;  // also block self-overlap
+    // Pass 199: defer when WorkerBridge is the authoritative brain. The
+    // Cloudflare Worker runs its own bootstrap + minutely tick training
+    // and is the source of truth. Browser-side auto-train would be wasted
+    // work (next worker sync overwrites it) AND would double-count any
+    // historical bars the worker already trained on.
+    if (window.WorkerBridge && typeof window.WorkerBridge.isEnabled === 'function' && window.WorkerBridge.isEnabled()) return;
     setLast(Date.now());  // claim the slot immediately to prevent concurrent runs
     // Audit pass 169: also set this flag so continuous-learner defers its own
     // save() during our async fetch window. Without it, CL's 30s tick saves

@@ -536,6 +536,22 @@
       return 0;
     }
 
+    // Pass 199: defer training when the Cloudflare Worker is the authoritative
+    // brain (user opted into WorkerBridge). The worker runs every minute on
+    // CF edge with its OWN journal in KV; it doesn't read this browser
+    // journal. If CL trained the locally-mirrored model here, the next
+    // WorkerBridge.syncFromWorker (every 60s) would overwrite those
+    // gradients anyway. Worse, we'd be training on a subset of resolutions
+    // the worker already handled — silent double-counting that biases the
+    // model toward whatever symbols the browser happened to see most.
+    // Capture + resolve above still run so brain-proof.html can still
+    // show evidence of the local loop working.
+    if (typeof window !== 'undefined' && window.WorkerBridge &&
+        typeof window.WorkerBridge.isEnabled === 'function' &&
+        window.WorkerBridge.isEnabled()) {
+      return 0;
+    }
+
     // Train on resolved entries with REWARD-SHAPED sample weights
     const state = loadState();
     const driftAdapt = state.driftAdapting || false;

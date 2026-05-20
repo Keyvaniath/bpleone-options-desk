@@ -308,6 +308,18 @@
     if (state.runningAt && Date.now() - state.runningAt < 5 * 60 * 1000) {
       return { skipped: true, reason: 'already-running', state };
     }
+    // Pass 199: defer when WorkerBridge is the authoritative brain. The
+    // Cloudflare Worker's /brain/bootstrap endpoint already trained on 250-day
+    // Yahoo Finance history server-side; running this browser-side bootstrap
+    // again would (a) re-train the worker-mirrored model with stale Stooq
+    // data, (b) get overwritten by next syncFromWorker anyway, (c) trip an
+    // OOD detector that compares live features to "bootstrap distribution".
+    // Skip silently — caller can pass opts.force = true to override.
+    if (!opts.force && typeof window !== 'undefined' && window.WorkerBridge &&
+        typeof window.WorkerBridge.isEnabled === 'function' &&
+        window.WorkerBridge.isEnabled()) {
+      return { skipped: true, reason: 'worker-bridge-authoritative', state };
+    }
     state.runningAt = Date.now();
     save(state);
 
