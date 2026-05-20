@@ -104,7 +104,7 @@ $ErrorActionPreference = 'Continue'
 $deployOutput = wrangler deploy 2>&1 | Out-String
 $ErrorActionPreference = $prevEAP
 Write-Host $deployOutput
-if ($deployOutput -match '(https://[a-z0-9-]+\.workers\.dev)') {
+if ($deployOutput -match '(https://[a-z0-9.\-]+\.workers\.dev)') {
   $workerUrl = $matches[1]
   Write-Ok ('Deployed to: ' + $workerUrl)
 } else {
