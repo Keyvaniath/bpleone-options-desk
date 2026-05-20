@@ -243,6 +243,13 @@ class Model {
 
   /** Returns {prob: 0..1, score: 0..100, contributions: Array} */
   predict(x) {
+    // Pass 204: malformed x previously produced sigmoid(0)=0.5 with no signal
+    // (empty array) or NaN-tainted z (wrong-length array → undefined weight).
+    // Sigmoid is NaN-safe (returns 0.5) but the contributions array would be
+    // littered with {feature: undefined, weight: undefined}. Refuse early.
+    if (!Array.isArray(x) || x.length !== this.weights.length) {
+      return { prob: 0.5, score: 50, z: 0, contributions: [], skipped: 'bad-features-length' };
+    }
     let z = 0;
     const contributions = [];
     for (let i = 0; i < x.length; i++) {
@@ -264,6 +271,17 @@ class Model {
    *  in constructor; deserialize() also restores them if present.
    */
   train(x, y) {
+    // Pass 204: defense-in-depth guard. 14 call sites in 9 modules call
+    // model.train(); rather than length-check at every caller, refuse here.
+    // Bad-length x previously made train() loop over a partial range, leaving
+    // upper weights perpetually un-updated. Bad y (non-finite) would NaN-ify
+    // the gradient and poison every weight via Adam's moment buffers.
+    if (!Array.isArray(x) || x.length !== this.weights.length) {
+      return { loss: 0, prob: 0.5, correct: false, skipped: 'bad-features-length' };
+    }
+    if (typeof y !== 'number' || !Number.isFinite(y)) {
+      return { loss: 0, prob: 0.5, correct: false, skipped: 'bad-label' };
+    }
     const { prob } = this.predict(x);
     let err = prob - y;
     // CONFIDENCE PENALTY: entropy regularization. Adds β × (prob - 0.5) to
