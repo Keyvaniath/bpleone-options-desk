@@ -101,23 +101,46 @@
     };
   }
 
+  // Audit pass 167: bucket the 14-day trend by ET-attributed date, since
+  // markets are ET-anchored. Was using local-midnight day boundaries which
+  // misattributed late-evening trades for PT users (Brandon).
+  function etDateKeyOfTs(ts) {
+    try {
+      const parts = new Intl.DateTimeFormat('en-CA', {
+        timeZone: 'America/New_York',
+        year: 'numeric', month: '2-digit', day: '2-digit'
+      }).formatToParts(new Date(ts));
+      let y = 0, m = 0, d = 0;
+      for (const p of parts) {
+        if (p.type === 'year') y = +p.value;
+        if (p.type === 'month') m = +p.value;
+        if (p.type === 'day') d = +p.value;
+      }
+      return y + '-' + String(m).padStart(2, '0') + '-' + String(d).padStart(2, '0');
+    } catch (e) {
+      const dt = new Date(ts);
+      return dt.getFullYear() + '-' + String(dt.getMonth() + 1).padStart(2, '0') + '-' + String(dt.getDate()).padStart(2, '0');
+    }
+  }
+
   function trend(days) {
     days = days || 14;
     const trades = getTrades();
     if (trades.length === 0) return [];
     const out = [];
-    const today = new Date(); today.setHours(0, 0, 0, 0);
+    // Build an array of last N ET-date keys
+    const todayMs = Date.now();
     for (let d = days - 1; d >= 0; d--) {
-      const day = new Date(today.getTime() - d * 86400000);
-      const tomorrow = new Date(day.getTime() + 86400000);
-      const dayTrades = trades.filter(t => t.ts >= day.getTime() && t.ts < tomorrow.getTime());
+      const dayMs = todayMs - d * 86400000;
+      const dayKey = etDateKeyOfTs(dayMs);
+      const dayTrades = trades.filter(t => etDateKeyOfTs(t.ts) === dayKey);
       const wins = dayTrades.filter(t => t.pnl > 0).length;
       const losses = dayTrades.filter(t => t.pnl < 0).length;
       const total = wins + losses;
       const pnl = dayTrades.reduce((s, t) => s + t.pnl, 0);
       out.push({
-        date: day.toISOString().slice(0, 10),
-        ts: day.getTime(),
+        date: dayKey,             // ET YYYY-MM-DD
+        ts: dayMs,                // approximate; date label is authoritative
         trades: dayTrades.length,
         winRate: total > 0 ? wins / total : null,
         wins, losses, pnl: +pnl.toFixed(2)

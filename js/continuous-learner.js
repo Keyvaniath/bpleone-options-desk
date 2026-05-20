@@ -680,9 +680,37 @@
     const unresolved = journal.filter(e => !isShortResolved(e)).length;
     const resolved = journal.filter(e => isShortResolved(e) && e.outcome !== 'flat' && e.outcome !== 'unrateable-stale-data').length;
     const flat = journal.filter(e => e.outcome === 'flat').length;
-    const today0 = new Date(); today0.setHours(0,0,0,0);
-    const capturedToday = journal.filter(e => e.ts >= today0.getTime()).length;
-    const resolvedToday = journal.filter(e => e.outcome && e.outcome !== 'flat' && e.ts >= today0.getTime() - 86400000).length;
+    // Audit pass 167: "captured today" should reflect ET trading day, not the
+    // user's local midnight. For PT user (Brandon) at PT 11pm = ET 2am, his
+    // PT-local "today" includes 3 hours that are already the ET next day.
+    // We use the same trick as time-of-day-pnl.html: build an ET-localized
+    // Date string, re-parse to local Date, then .getTime() — the ms offset
+    // is consistent with comparing to other ts values (all real Date.now()).
+    // Implementation: compute current ET date Y-M-D, build a local-ms anchor
+    // that's stable across the day (we use 5am LOCAL as ~ET midnight proxy
+    // OR use Intl ET-key match for exact attribution).
+    function etDateKeyOfTs(ts) {
+      try {
+        const parts = new Intl.DateTimeFormat('en-CA', {
+          timeZone: 'America/New_York',
+          year: 'numeric', month: '2-digit', day: '2-digit'
+        }).formatToParts(new Date(ts));
+        let y = 0, m = 0, d = 0;
+        for (const p of parts) {
+          if (p.type === 'year') y = +p.value;
+          if (p.type === 'month') m = +p.value;
+          if (p.type === 'day') d = +p.value;
+        }
+        return y + '-' + String(m).padStart(2, '0') + '-' + String(d).padStart(2, '0');
+      } catch (e) {
+        const dt = new Date(ts);
+        return dt.getFullYear() + '-' + String(dt.getMonth() + 1).padStart(2, '0') + '-' + String(dt.getDate()).padStart(2, '0');
+      }
+    }
+    const todayKey = etDateKeyOfTs(Date.now());
+    const yesterdayKey = etDateKeyOfTs(Date.now() - 86400000);
+    const capturedToday = journal.filter(e => etDateKeyOfTs(e.ts) === todayKey).length;
+    const resolvedToday = journal.filter(e => e.outcome && e.outcome !== 'flat' && (etDateKeyOfTs(e.ts) === todayKey || etDateKeyOfTs(e.ts) === yesterdayKey)).length;
     const rolling = accLog.slice(-ROLLING_WINDOW);
     const rollingAcc = rolling.length >= 5 ? rolling.filter(a => a.correct).length / rolling.length : null;
     const lifetimeAcc = accLog.length > 0 ? accLog.filter(a => a.correct).length / accLog.length : null;
