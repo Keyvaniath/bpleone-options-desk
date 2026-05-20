@@ -169,17 +169,28 @@
     if (window._historicalTrainerRunning) return;
     setLast(Date.now());  // claim the slot immediately to prevent concurrent runs
 
-    const model = window.ModelStore.load();
-    // Also train the per-horizon ensemble models if available
+    // Audit pass 168 (CRITICAL race condition fix): the original implementation
+    // loaded the model BEFORE the async Stooq fetch loop. Each loop iteration
+    // mutated the in-memory model object, and final save() happened after ALL
+    // fetches completed (~30+s of awaits). During this window, ContinuousLearner
+    // (which runs every 30s) could itself ModelStore.load() → train → save its
+    // own update; auto-trainer's later save() would then OVERWRITE CL's gradient
+    // changes. ~33% of auto-trainer runs collided with a CL save.
+    //
+    // Fix: do the async fetching FIRST (no model touch), then do the ENTIRE
+    // model load + train + save in a single synchronous block at the end.
+    // CL can't interleave a save inside synchronous JS code.
+
     const hasHorizons = typeof window.MultiHorizon !== 'undefined';
-    let trained = 0;
-    let trainedHorizons = { short: 0, mid: 0, long: 0 };
     let symsFetched = 0;
-    let lossSum = 0;
 
     // Track which bars we've already trained on so we don't double-train
     let alreadyTrained = {};
     try { alreadyTrained = JSON.parse(localStorage.getItem('bpleone_auto_train_seen_v1') || '{}'); } catch (e) {}
+
+    // Phase 1 (async): gather all training examples into memory. No model
+    // mutations yet. This is the slow part — Stooq fetches + parsing.
+    const pendingExamples = [];  // { features, label, weight, horizon, sym, date }
 
     for (const sym of UNIVERSE) {
       try {
@@ -197,8 +208,6 @@
           for (let k = Math.max(0, i - 13); k <= i; k++) atrSum += bars[k].high - bars[k].low;
           const atr = atrSum / Math.min(14, i + 1);
           const atrPct = atr / bars[i].close;
-
-          // Compute returns at three horizons + their reward-shaped weights
           const horizons = [
             { name: 'short', barsAhead: 1,  minMove: 0.3 * atrPct },
             { name: 'mid',   barsAhead: 5,  minMove: 1.0 * atrPct },
@@ -209,42 +218,52 @@
             if (!futClose) return;
             const ret = (futClose.close - bars[i].close) / bars[i].close;
             const label = ret > h.minMove ? 1 : (ret < -h.minMove ? 0 : null);
-            if (label === null) return;  // skip flat moves
+            if (label === null) return;
             const rMult = Math.abs(ret) / Math.max(0.001, h.minMove / 3);
             const w = Math.max(0.25, Math.min(4, rMult));
-            // Train the matching horizon model if MultiHorizon is loaded
-            if (hasHorizons) {
-              window.MultiHorizon.trainHorizon(h.name, features, label, w);
-              trainedHorizons[h.name]++;
-            }
-            // Train the main model on SHORT only (for backwards compat)
-            if (h.name === 'short') {
-              const { loss } = model.train(features, label);
-              lossSum += loss;
-              window.ModelStore.addTrainingRow(features, label, {
-                sym: sym,
-                setup: 'auto-train-' + bars[i].date,
-                dataSource: 'live',
-                priceSource: 'stooq',
-                historical: true,
-                autoTrained: true,
-                horizon: h.name,
-                sampleWeight: w
-              });
-              trained++;
-            }
+            pendingExamples.push({ features, label, weight: w, horizon: h.name, sym, date: bars[i].date });
           });
           alreadyTrained[sym] = bars[i].date;
         }
-        await new Promise(r => setTimeout(r, 300));  // be polite
+        await new Promise(r => setTimeout(r, 300));  // be polite to Stooq
       } catch (e) {
         // network error or CORS — skip silently in background
       }
     }
 
+    // Phase 2 (synchronous): apply all training in one uninterruptible block.
+    // CL can't interleave its load/save here — JS is single-threaded and we
+    // have no awaits between load() and save().
+    let trained = 0;
+    let trainedHorizons = { short: 0, mid: 0, long: 0 };
+    let lossSum = 0;
+    const model = window.ModelStore.load();  // freshest state, including any
+                                              // CL updates from the past 30s
+    for (const ex of pendingExamples) {
+      if (hasHorizons) {
+        window.MultiHorizon.trainHorizon(ex.horizon, ex.features, ex.label, ex.weight);
+        trainedHorizons[ex.horizon]++;
+      }
+      if (ex.horizon === 'short') {
+        const { loss } = model.train(ex.features, ex.label);
+        lossSum += loss;
+        window.ModelStore.addTrainingRow(ex.features, ex.label, {
+          sym: ex.sym,
+          setup: 'auto-train-' + ex.date,
+          dataSource: 'live',
+          priceSource: 'stooq',
+          historical: true,
+          autoTrained: true,
+          horizon: ex.horizon,
+          sampleWeight: ex.weight
+        });
+        trained++;
+      }
+    }
+
     if (trained > 0) {
       model.n_trained = (model.n_trained || 0) + trained;
-      window.ModelStore.save(model);
+      window.ModelStore.save(model);  // synchronous — atomic from JS's view
       try { localStorage.setItem('bpleone_auto_train_seen_v1', JSON.stringify(alreadyTrained)); } catch (e) {}
       try {
         window.dispatchEvent(new CustomEvent('bpleone:auto-trained', {
