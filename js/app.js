@@ -21,19 +21,37 @@
 
 // Auto-load companion modules on any page that includes this script.
 // Pages that already imported these get a no-op (idempotent).
+//
+// CRITICAL FIX (pass 176 — live-verified bug):
+// The original implementation ran SYNCHRONOUSLY when app.js evaluated. At that
+// point, only `<script>` tags BEFORE app.js in the HTML had been parsed —
+// any tags AFTER (which is most of them, including the model.js most pages
+// load explicitly) were invisible to the dedup check. Result: app.js injected
+// a SECOND copy of model.js, and the second eval threw
+// "SyntaxError: Identifier 'FEATURES' has already been declared". Found via
+// Chrome console on options.bpleone.com — affected 105 of 402 pages.
+// Fix: defer companion loading until DOMContentLoaded so the entire HTML
+// has been parsed and all explicit <script> tags are visible to the check.
 (function loadCompanions() {
-  const want = ['js/toast.js', 'js/command-palette.js', 'js/hotkeys.js', 'js/onboarding.js', 'js/recent-tickers.js', 'js/symbol-linker.js', 'js/model.js', 'js/brain-loop.js', 'js/data-mode-banner.js'];
-  const have = new Set([...document.querySelectorAll('script[src]')].map(s => {
-    try { return new URL(s.src, location.href).pathname.split('/').slice(-2).join('/'); } catch (e) { return s.src; }
-  }));
-  want.forEach(rel => {
-    const key = rel;
-    if (have.has(key) || [...document.querySelectorAll('script[src]')].some(s => s.src.endsWith(rel))) return;
-    const s = document.createElement('script');
-    s.src = rel;
-    s.async = false;
-    document.head.appendChild(s);
-  });
+  function inject() {
+    const want = ['js/toast.js', 'js/command-palette.js', 'js/hotkeys.js', 'js/onboarding.js', 'js/recent-tickers.js', 'js/symbol-linker.js', 'js/model.js', 'js/brain-loop.js', 'js/data-mode-banner.js'];
+    const allScripts = [...document.querySelectorAll('script[src]')];
+    const have = new Set(allScripts.map(s => {
+      try { return new URL(s.src, location.href).pathname.split('/').slice(-2).join('/'); } catch (e) { return s.src; }
+    }));
+    want.forEach(rel => {
+      if (have.has(rel) || allScripts.some(s => s.src.endsWith(rel))) return;
+      const s = document.createElement('script');
+      s.src = rel;
+      s.async = false;
+      document.head.appendChild(s);
+    });
+  }
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', inject, { once: true });
+  } else {
+    inject();
+  }
 })();
 
 const TICKER_SYMBOLS = ['SPY','QQQ','IWM','DIA','AAPL','NVDA','TSLA','MSFT','META','AMZN','GOOGL','AMD','BTC','ETH','VIX','GLD','TLT','USO','SMCI','PLTR','COIN'];
