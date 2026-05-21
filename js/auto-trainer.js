@@ -255,7 +255,12 @@
         window.MultiHorizon.trainHorizon(ex.horizon, ex.features, ex.label, ex.weight);
         trainedHorizons[ex.horizon]++;
       }
-      if (ex.horizon === 'short') {
+      // Pass 218c: align main-model training to MID (5-day) horizon —
+      // matches worker (pass 218) and bootstrap (pass 206, 5-day labels).
+      // Previously trained main model on SHORT (1-bar-ahead) labels,
+      // which was a different prediction problem from what the
+      // walk-forward audit and Platt calibration are fit against.
+      if (ex.horizon === 'mid') {
         const { loss } = model.train(ex.features, ex.label);
         lossSum += loss;
         window.ModelStore.addTrainingRow(ex.features, ex.label, {
