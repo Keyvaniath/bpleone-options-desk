@@ -38,7 +38,7 @@
 // Pass 200: version stamp so brain-proof.html + worker-setup.html can detect
 // when the deployed worker is behind the repo source. Bump on every meaningful
 // behavior change. Read via /brain/health → worker_version field.
-const WORKER_VERSION = 'pass-214';
+const WORKER_VERSION = 'pass-215';
 
 const UNIVERSE = [
   'SPY','QQQ','IWM','DIA','AAPL','NVDA','TSLA','MSFT','META','AMZN','GOOGL','AMD',
@@ -752,19 +752,31 @@ async function handleRequest(request, env, ctx) {
 
   if (path === '/brain/symbols') {
     // Pass 194: per-symbol breakdown — which symbols brain is good/bad at.
-    // Reads heldout test pairs and live resolved captures.
+    // Pass 215 (precision): COMBINE both random_split AND walk_forward
+    // heldout sets. Each split is ~1,100 examples / ~71 symbols ≈ ~15 per sym,
+    // which is too noisy for per-symbol BSS to mean anything (a single
+    // 3-for-3 lucky streak gives BSS=+0.5). Combining doubles per-symbol n
+    // to ~30 which is the minimum for stable directional inference.
+    // Also adds Wilson-interval-style CI on accuracy and exposes `stable`
+    // flag (n >= MIN_N_STABLE) so the UI can filter out noise rows.
+    const MIN_N_STABLE = 10;  // below this, per-sym stats are noise
     const heldoutRaw = await kvGet(env, KV_KEYS.HELDOUT, []);
     const journal = await kvGet(env, KV_KEYS.JOURNAL, []);
-    const heldout = Array.isArray(heldoutRaw) ? heldoutRaw : (heldoutRaw.walk_forward || heldoutRaw.random_split || []);
+    let pairs;
+    if (Array.isArray(heldoutRaw)) {
+      pairs = heldoutRaw;
+    } else {
+      const rs = Array.isArray(heldoutRaw.random_split) ? heldoutRaw.random_split : [];
+      const wf = Array.isArray(heldoutRaw.walk_forward) ? heldoutRaw.walk_forward : [];
+      pairs = rs.concat(wf);
+    }
     const bySym = {};
-    // Pass 201: guard against null/malformed entries in the heldout array.
-    // Destructuring `null` throws TypeError — would 500 the endpoint if KV
-    // ever returned a partially-corrupted heldout set.
-    for (const item of heldout) {
+    for (const item of pairs) {
       if (!item || typeof item !== 'object') continue;
       const { p, y, sym } = item;
       if (!sym) continue;
       if (typeof p !== 'number' || typeof y !== 'number') continue;
+      if (!Number.isFinite(p) || !Number.isFinite(y)) continue;
       if (!bySym[sym]) bySym[sym] = { n: 0, correct: 0, brierSum: 0 };
       bySym[sym].n++;
       if ((p >= 0.5 ? 1 : 0) === y) bySym[sym].correct++;
@@ -777,15 +789,37 @@ async function handleRequest(request, env, ctx) {
       liveBySym[e.sym].n++;
       if (e.resolved.short === 'correct') liveBySym[e.sym].correct++;
     }
+    // Wilson 95% lower-bound on accuracy. For symbols with small n, the
+    // lower bound is dramatically below the point estimate — gives the UI
+    // a way to rank by "conservatively edge-positive" instead of by raw
+    // BSS where a 3-for-3 streak looks identical to a 30-for-40 record.
+    function wilsonLower(correct, n) {
+      if (n === 0) return 0;
+      const p = correct / n;
+      const z = 1.96;  // 95% CI
+      const denom = 1 + (z * z) / n;
+      const center = p + (z * z) / (2 * n);
+      const margin = z * Math.sqrt((p * (1 - p) + (z * z) / (4 * n)) / n);
+      return Math.max(0, (center - margin) / denom);
+    }
     const rows = Object.entries(bySym).map(([sym, v]) => ({
       sym,
       heldout_n: v.n,
       heldout_acc: +(v.correct / v.n).toFixed(4),
+      heldout_acc_lower95: +wilsonLower(v.correct, v.n).toFixed(4),
       heldout_bss: +(1 - (v.brierSum / v.n) / 0.25).toFixed(4),
+      stable: v.n >= MIN_N_STABLE,  // pass 215: trustworthy sample size flag
       live_n: liveBySym[sym] ? liveBySym[sym].n : 0,
       live_acc: liveBySym[sym] && liveBySym[sym].n > 0 ? +(liveBySym[sym].correct / liveBySym[sym].n).toFixed(4) : null
     })).sort((a, b) => b.heldout_bss - a.heldout_bss);
-    return json({ symbols: rows, total: rows.length });
+    const stableCount = rows.filter(r => r.stable).length;
+    return json({
+      symbols: rows,
+      total: rows.length,
+      stable_count: stableCount,
+      min_n_stable: MIN_N_STABLE,
+      note: 'BSS is noise-dominated for symbols with n < ' + MIN_N_STABLE + '. UI should sort/filter by `stable` flag.'
+    });
   }
 
   if (path === '/brain/metrics') {

@@ -311,8 +311,16 @@ async function refreshSymbolSurface() {
     if (!j.symbols || j.symbols.length === 0) return;
     document.getElementById('symbols-card').style.display = 'block';
 
+    // Pass 215: only show symbols with stable=true (n >= MIN_N_STABLE) in
+    // the Top 5 / Bottom 5 cards. Below that threshold per-symbol BSS is
+    // noise — a 3-for-3 lucky streak gives the same BSS=+0.5 that a
+    // 30-for-40 real edge would.
+    const stable = (j.symbols || []).filter(s => s.stable === true);
+    const all = j.symbols || [];
+    const minN = j.min_n_stable || 10;
     // Sort by heldout_bss descending (best edges first)
-    const rows = j.symbols.slice().sort((a, b) => (b.heldout_bss || 0) - (a.heldout_bss || 0));
+    const rows = all.slice().sort((a, b) => (b.heldout_bss || 0) - (a.heldout_bss || 0));
+    const rowsStable = stable.slice().sort((a, b) => (b.heldout_bss || 0) - (a.heldout_bss || 0));
 
     function fmtBss(v) {
       if (v == null) return '--';
@@ -330,37 +338,46 @@ async function refreshSymbolSurface() {
       return 'var(--red)';
     }
 
-    // Top 5 — best edges (positive BSS)
-    const top5 = rows.slice(0, 5);
-    document.getElementById('sym-top5').innerHTML = top5.map(s =>
-      `<div><strong style="color:var(--accent);">${s.sym}</strong>
-        — BSS <span style="color:${bssColor(s.heldout_bss)};">${fmtBss(s.heldout_bss)}</span>
-        · acc ${fmtPct(s.heldout_acc)} on n=${s.heldout_n}</div>`
-    ).join('') || '<div style="color:var(--text-muted);">No positive-edge symbols yet</div>';
+    // Top 5 — best edges among STABLE symbols only
+    const top5 = rowsStable.slice(0, 5);
+    document.getElementById('sym-top5').innerHTML = top5.length > 0
+      ? top5.map(s =>
+          `<div><strong style="color:var(--accent);">${s.sym}</strong>
+            — BSS <span style="color:${bssColor(s.heldout_bss)};">${fmtBss(s.heldout_bss)}</span>
+            · acc ${fmtPct(s.heldout_acc)} on n=${s.heldout_n}</div>`
+        ).join('')
+      : `<div style="color:var(--text-muted);">No symbols yet with n &ge; ${minN} for stable BSS — keep training</div>`;
 
-    // Bottom 5 — worst (most negative BSS)
-    const bottom5 = rows.slice(-5).reverse();
-    document.getElementById('sym-bottom5').innerHTML = bottom5.map(s =>
-      `<div><strong style="color:var(--text);">${s.sym}</strong>
-        — BSS <span style="color:${bssColor(s.heldout_bss)};">${fmtBss(s.heldout_bss)}</span>
-        · acc ${fmtPct(s.heldout_acc)} on n=${s.heldout_n}</div>`
-    ).join('');
+    // Bottom 5 — worst stable BSS (need real evidence of underperformance)
+    const bottom5 = rowsStable.slice(-5).reverse();
+    document.getElementById('sym-bottom5').innerHTML = bottom5.length > 0
+      ? bottom5.map(s =>
+          `<div><strong style="color:var(--text);">${s.sym}</strong>
+            — BSS <span style="color:${bssColor(s.heldout_bss)};">${fmtBss(s.heldout_bss)}</span>
+            · acc ${fmtPct(s.heldout_acc)} on n=${s.heldout_n}</div>`
+        ).join('')
+      : `<div style="color:var(--text-muted);">No symbols yet with n &ge; ${minN} for stable BSS</div>`;
 
-    // Full table
+    // Full table — shows ALL symbols but dims (and adds NOISE label to)
+    // those with insufficient sample size so it's clear at a glance.
     const tbody = document.getElementById('sym-table-body');
     if (tbody) {
-      tbody.innerHTML = rows.map(s => `<tr style="border-bottom:1px solid rgba(255,255,255,0.04);">
-        <td style="padding:4px 8px;font-weight:700;color:var(--accent);">${s.sym}</td>
-        <td style="padding:4px 8px;text-align:right;">${s.heldout_n}</td>
-        <td style="padding:4px 8px;text-align:right;">${fmtPct(s.heldout_acc)}</td>
-        <td style="padding:4px 8px;text-align:right;color:${bssColor(s.heldout_bss)};">${fmtBss(s.heldout_bss)}</td>
-        <td style="padding:4px 8px;text-align:right;color:var(--text-muted);">${s.live_n || 0}</td>
-        <td style="padding:4px 8px;text-align:right;color:var(--text-muted);">${s.live_acc != null ? fmtPct(s.live_acc) : '--'}</td>
-      </tr>`).join('');
+      tbody.innerHTML = rows.map(s => {
+        const dim = s.stable ? '' : 'opacity:0.45;';
+        const noiseTag = s.stable ? '' : ' <span style="font-size:9px;color:var(--text-muted);">(noise)</span>';
+        return `<tr style="border-bottom:1px solid rgba(255,255,255,0.04);${dim}">
+          <td style="padding:4px 8px;font-weight:700;color:var(--accent);">${s.sym}${noiseTag}</td>
+          <td style="padding:4px 8px;text-align:right;">${s.heldout_n}</td>
+          <td style="padding:4px 8px;text-align:right;">${fmtPct(s.heldout_acc)}</td>
+          <td style="padding:4px 8px;text-align:right;color:${bssColor(s.heldout_bss)};">${fmtBss(s.heldout_bss)}</td>
+          <td style="padding:4px 8px;text-align:right;color:var(--text-muted);">${s.live_n || 0}</td>
+          <td style="padding:4px 8px;text-align:right;color:var(--text-muted);">${s.live_acc != null ? fmtPct(s.live_acc) : '--'}</td>
+        </tr>`;
+      }).join('');
     }
-    // Update the count in the <summary>
+    // Update the count: total + stable subset
     const summary = document.querySelector('#symbols-card details summary');
-    if (summary) summary.textContent = `Show full per-symbol table (${rows.length} symbols)`;
+    if (summary) summary.textContent = `Show full per-symbol table (${rows.length} symbols · ${rowsStable.length} stable at n ≥ ${minN})`;
   } catch (e) {}
 }
 
