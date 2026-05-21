@@ -38,7 +38,7 @@
 // Pass 200: version stamp so brain-proof.html + worker-setup.html can detect
 // when the deployed worker is behind the repo source. Bump on every meaningful
 // behavior change. Read via /brain/health → worker_version field.
-const WORKER_VERSION = 'pass-217';
+const WORKER_VERSION = 'pass-218';
 
 const UNIVERSE = [
   'SPY','QQQ','IWM','DIA','AAPL','NVDA','TSLA','MSFT','META','AMZN','GOOGL','AMD',
@@ -61,7 +61,14 @@ const KV_KEYS = {
   PLATT: 'platt_v1',               // pass 213: Platt calibration {a, b, fittedAt, n}
 };
 
-const MAX_JOURNAL = 12000;
+// Pass 218: bumped from 12,000 → 35,000. Live training triggers on the
+// MID (5-day) horizon now to match the bootstrap label scheme, which means
+// each capture lives in the journal for 5+ days before becoming
+// resolution-eligible. At ~4,600 captures/day during market hours, we
+// need at least 5 × 4,600 = 23,000 entries of headroom; 35,000 gives a
+// comfortable buffer for high-activity days and accounts for the rotating
+// 12-syms-per-minute capture cadence.
+const MAX_JOURNAL = 35000;
 const HORIZON_HOURS = { short: 24, mid: 120, long: 480 }; // 1d / 5d / 20d
 
 // ============================================================
@@ -641,8 +648,14 @@ async function tick(env) {
       else if ((predUp && wentUp) || (!predUp && wentDown)) outcome = 'correct';
       else outcome = 'wrong';
       entry.resolved[horizon] = outcome;
-      if (outcome !== 'flat' && horizon === 'short') {
-        // Train on short-horizon outcomes only (matches browser-side design)
+      // Pass 218 (CRITICAL): train on MID (5-day) horizon outcomes, not SHORT.
+      // The bootstrap labels are 5-day forward direction at ±1pp threshold
+      // (pass 206). Training the live loop on 1-day outcomes was producing a
+      // 1-day-direction model that disagreed with the 5-day-direction model
+      // the bootstrap fit. Two heads on different time horizons fighting each
+      // other on every capture/resolve cycle. Now both speak the same
+      // language: 5-day direction at ±1pp (HORIZON_MIN_MOVE.mid = 0.01).
+      if (outcome !== 'flat' && horizon === 'mid') {
         const label = outcome === 'correct' ? (predUp ? 1 : 0) : (predUp ? 0 : 1);
         trainStep(model, entry.features, label);
         trained++;
