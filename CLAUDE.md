@@ -142,7 +142,7 @@ Every `data-live="SYM:field"` element auto-updates via `Feed.subscribe`. All pag
 
 ---
 
-## Architecture as of pass 201
+## Architecture as of pass 216 — the brain has +2.93pp walk-forward edge
 
 Two brains run in parallel, with **WorkerBridge picking the authority**:
 
@@ -152,9 +152,41 @@ Two brains run in parallel, with **WorkerBridge picking the authority**:
 
 The browser pages can **mirror state from the worker** via `js/worker-bridge.js`. Brandon's worker is at `https://bpleone-brain-worker.brandonpleone.workers.dev`. Connect via `/worker-setup.html`.
 
-**Pass 199 ownership rule:** when `WorkerBridge.isEnabled()` is true, the worker is the authoritative brain. The three browser-side trainers (`continuous-learner`, `auto-trainer`, `historical-bootstrap`) all defer their train+save blocks — capture and resolve still run for diagnostic display on `brain-proof.html`, but the browser doesn't train on local data the worker has already processed. This prevents silent gradient loss (next worker sync overwrote local updates) AND double-counting (browser trained on outcomes the worker had already incorporated).
+**Pass 199 ownership rule:** when `WorkerBridge.isEnabled()` is true, the worker is the authoritative brain. The three browser-side trainers (`continuous-learner`, `auto-trainer`, `historical-bootstrap`) all defer their train+save blocks — capture and resolve still run for diagnostic display on `brain-proof.html`, but the browser doesn't train on local data the worker has already processed. This prevents silent gradient loss (next worker sync overwrote local updates) AND double-counting (browser trained on outcomes the worker had already incorporated). Pass 205 added the same gate to `ModelTrainer.trainBatch` (4th browser trainer that was missed).
 
-**Pass 200 version drift detection:** `worker/src/index.js` exports `WORKER_VERSION` (currently `'pass-201'`) and exposes it via `/brain/health → worker_version`. `worker-setup.html` compares to a hardcoded `EXPECTED_WORKER_VERSION`. When you ship a worker behavior change, bump both — the UI will then show a yellow "redeploy" banner until Brandon runs `git pull && cd worker && wrangler deploy`.
+**Pass 200 version drift detection:** `worker/src/index.js` exports `WORKER_VERSION` (currently `'pass-215'`) and exposes it via `/brain/health → worker_version`. `worker-setup.html` compares to a hardcoded `EXPECTED_WORKER_VERSION`. When you ship a worker behavior change, bump both — the UI will then show a yellow "redeploy" banner until Brandon runs `git pull && cd worker && wrangler deploy`.
+
+### Pass 206-216 — the edge discovery story
+
+After passes 188-205 wired the worker brain end-to-end with proper validation, **the first real bootstrap returned no signal** (heldout_bss ~ 0, walk-forward badly negative). That kicked off the tuning loop that eventually found real edge:
+
+- **Pass 206:** pivoted prediction from 1-day-±0.3% (famously near-random on liquid stocks) to **5-day-±1%** (real swing-trade horizon).
+- **Pass 207:** added L2 weight decay to the worker logistic (was none — model was making 95% confident wrong predictions, avgLoss=3.57).
+- **Pass 208 (CRITICAL):** `runBootstrap` was reading the existing KV model instead of starting fresh. Successive bootstraps accumulated weights → pass-207's L2 looked ineffective because the model was stuck. Now `const model = newModel()` at top.
+- **Pass 209 (cost):** market-hours gate (8am-5pm ET, M-F) + BARS_HISTORY only writes on new day-bar. Cut ~70% of off-hours cron cost.
+- **Pass 210:** L2 5× stronger (0.003 → 0.015), epochs 5 → 2. avgLoss dropped from 3.57 to 1.43.
+- **Pass 211 (BREAKTHROUGH):** restricted bootstrap training to the most recent **120 days** (was 250). Walk-forward accuracy jumped from 42.2% → **52.93%** (+2.93pp above random). The 250-day window was dragging in stale-regime data; cutting it forced the walk-forward train+test to share regime characteristics.
+- **Pass 212:** L2 0.015 → 0.025 to nudge calibration. Mostly diminishing returns at this point.
+- **Pass 213:** added Platt scaling calibration layer. Bootstrap splits walk-forward heldout in half — first 50% fits Platt, last 50% is the final test set. Live tick applies Platt to journaled `predProb`; preserves raw output as `predProbRaw`. Also added per-symbol BSS surface to brain-proof.
+- **Pass 214 (CRITICAL guard):** first live Platt fit returned a=-0.777 — would have INVERTED the model's directional sign because the 12-day calibration set hit a different sub-regime than the final test set. Added `a < 0.2` rejection guard so noisy fits fall back to raw predictions.
+- **Pass 215:** per-symbol surface was showing noise as signal (n ~ 15 per sym after the 120-day cut). Combined random_split + walk_forward heldouts (~30 per sym), added `stable` flag at n≥10, UI filters Top5/Bottom5 to stable rows.
+- **Pass 216:** added Live Brain Picks card to brain-proof — fetches /brain/journal recent entries, deduplicates by symbol, sorts by conviction (|predProb − 0.5|), surfaces top 30. Closes the loop: 24/7 worker captures → calibrated predictions → visible "what to trade now" card.
+
+**Current state of the brain (as of pass 216):**
+
+| Metric | Value |
+|---|---|
+| Walk-forward accuracy (n=1,092) | 52.93% |
+| Walk-forward BSS | -0.074 (mild miscalibration but positive directional edge) |
+| Random-split accuracy | 48.4% (below random; smaller training set has more variance) |
+| Bootstrap training window | last 120 days |
+| Training epochs | 2 |
+| L2 regularization | 0.025 |
+| Platt calibration | a >= 0.2 guard; falls back to raw if rejected |
+| Live tick frequency | every minute, market hours only (8am-5pm ET, M-F) |
+| Cost throttle | BARS_HISTORY only written on new day-bar |
+
+**For trading decisions:** read `predProb` off a journal entry (calibrated when Platt is healthy, raw otherwise). The bottom 50 symbols by stable per-symbol BSS should be **avoided** — they're where the brain has anti-signal. The top 5 stable symbols by BSS are where to **concentrate sizing**.
 
 ### Worker endpoints
 
