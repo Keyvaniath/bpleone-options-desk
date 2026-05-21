@@ -38,7 +38,7 @@
 // Pass 200: version stamp so brain-proof.html + worker-setup.html can detect
 // when the deployed worker is behind the repo source. Bump on every meaningful
 // behavior change. Read via /brain/health → worker_version field.
-const WORKER_VERSION = 'pass-211';
+const WORKER_VERSION = 'pass-212';
 
 const UNIVERSE = [
   'SPY','QQQ','IWM','DIA','AAPL','NVDA','TSLA','MSFT','META','AMZN','GOOGL','AMD',
@@ -96,15 +96,14 @@ function trainStep(model, features, label) {
   // L2=0.001 keeps weights bounded; the bias term and features[21] (the
   // constant-1 bias column) are exempt from decay so the intercept is free
   // to absorb the class prior. Matches the browser model.js pattern.
-  // Pass 210: bumped L2 from 0.003 → 0.015. Pass 209's bootstrap STILL
-  // produced avgLoss=3.57 (confident wrong predictions). L2 was still
-  // smaller than the gradient signal — features kept driving weights to
-  // large magnitudes despite the decay. 5x stronger forces the model
-  // toward the class prior (≈0.5) unless features have STRONG evidence.
-  // If BSS still goes negative at this L2, the conclusion is definitive:
-  // these technical features genuinely don't predict 5d direction, and
-  // the next step is feature engineering rather than model tuning.
-  const L2 = 0.015;
+  // Pass 212: bumped L2 0.015 → 0.025. Pass 211 produced a real
+  // walk-forward edge (52.9% accuracy, +2.9pp above random) but still
+  // overconfident — Brier 0.269 vs 0.25 baseline. The model's predictions
+  // were ~65-70% confident when reality only justifies ~55%. Stronger
+  // weight decay pulls peaked sigmoids back toward 0.5, lowering Brier
+  // (better calibration) without losing the directional edge already
+  // captured in the sign of the prediction.
+  const L2 = 0.025;
   for (let i = 0; i < 22; i++) {
     const decay = (i === 21) ? 0 : L2 * model.weights[i];
     model.weights[i] -= model.lr * (err * (features[i] || 0) + decay);
