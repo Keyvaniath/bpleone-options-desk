@@ -83,6 +83,44 @@
     </div>
   </div>
 
+  <!-- Pass 213: per-symbol BSS surface — which symbols the brain has real edge on -->
+  <div class="card mb-24" id="symbols-card" style="display:none;">
+    <div class="card-header"><div class="card-title">🎯 Per-Symbol Edge — Where the Brain Actually Has Signal</div></div>
+    <div style="font-size:12px;color:var(--text-secondary);line-height:1.6;margin-bottom:14px;">
+      The held-out test pairs broken down by symbol. Positive BSS = brain has edge on that name; negative = avoid trading it.
+      <strong>Concentrate position sizing on the green names; size down or skip the red ones.</strong>
+      Reads <code>/brain/symbols</code> on the worker.
+    </div>
+    <div class="grid grid-2 mb-12">
+      <div>
+        <div style="font-size:11px;color:var(--green);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px;font-weight:700;">✓ Top 5 — Brain has edge</div>
+        <div id="sym-top5" style="font-family:var(--font-mono);font-size:12px;line-height:1.7;"></div>
+      </div>
+      <div>
+        <div style="font-size:11px;color:var(--red);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px;font-weight:700;">✗ Bottom 5 — Avoid or size down</div>
+        <div id="sym-bottom5" style="font-family:var(--font-mono);font-size:12px;line-height:1.7;"></div>
+      </div>
+    </div>
+    <details style="margin-top:10px;">
+      <summary style="cursor:pointer;font-size:12px;color:var(--text-muted);font-weight:700;">Show full per-symbol table ({{TOTAL}} symbols)</summary>
+      <div style="overflow-x:auto;margin-top:10px;">
+        <table id="sym-table" style="width:100%;border-collapse:collapse;font-family:var(--font-mono);font-size:11px;">
+          <thead>
+            <tr style="border-bottom:1px solid var(--border);color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;font-size:10px;">
+              <th style="text-align:left;padding:6px 8px;">sym</th>
+              <th style="text-align:right;padding:6px 8px;">heldout n</th>
+              <th style="text-align:right;padding:6px 8px;">acc</th>
+              <th style="text-align:right;padding:6px 8px;">BSS</th>
+              <th style="text-align:right;padding:6px 8px;">live n</th>
+              <th style="text-align:right;padding:6px 8px;">live acc</th>
+            </tr>
+          </thead>
+          <tbody id="sym-table-body"></tbody>
+        </table>
+      </div>
+    </details>
+  </div>
+
   <!-- The "weight ledger" — snapshots every page-load, proves weights change -->
   <div class="card mb-24">
     <div class="card-header"><div class="card-title">📜 Weight Ledger — proves weights are changing over time</div></div>
@@ -261,9 +299,75 @@ async function refreshWorkerMetrics() {
   } catch (e) {}
 }
 
+// Pass 213: pull per-symbol BSS breakdown from /brain/symbols.
+async function refreshSymbolSurface() {
+  if (typeof WorkerBridge === 'undefined' || !WorkerBridge.isEnabled()) return;
+  const url = WorkerBridge.getUrl();
+  if (!url) return;
+  try {
+    const r = await fetch(url + '/brain/symbols');
+    if (!r.ok) return;
+    const j = await r.json();
+    if (!j.symbols || j.symbols.length === 0) return;
+    document.getElementById('symbols-card').style.display = 'block';
+
+    // Sort by heldout_bss descending (best edges first)
+    const rows = j.symbols.slice().sort((a, b) => (b.heldout_bss || 0) - (a.heldout_bss || 0));
+
+    function fmtBss(v) {
+      if (v == null) return '--';
+      const s = v >= 0 ? '+' : '';
+      return s + v.toFixed(3);
+    }
+    function fmtPct(v) {
+      if (v == null) return '--';
+      return (v * 100).toFixed(1) + '%';
+    }
+    function bssColor(v) {
+      if (v == null) return 'var(--text-muted)';
+      if (v >= 0.05) return 'var(--green)';
+      if (v > 0)     return 'var(--yellow)';
+      return 'var(--red)';
+    }
+
+    // Top 5 — best edges (positive BSS)
+    const top5 = rows.slice(0, 5);
+    document.getElementById('sym-top5').innerHTML = top5.map(s =>
+      `<div><strong style="color:var(--accent);">${s.sym}</strong>
+        — BSS <span style="color:${bssColor(s.heldout_bss)};">${fmtBss(s.heldout_bss)}</span>
+        · acc ${fmtPct(s.heldout_acc)} on n=${s.heldout_n}</div>`
+    ).join('') || '<div style="color:var(--text-muted);">No positive-edge symbols yet</div>';
+
+    // Bottom 5 — worst (most negative BSS)
+    const bottom5 = rows.slice(-5).reverse();
+    document.getElementById('sym-bottom5').innerHTML = bottom5.map(s =>
+      `<div><strong style="color:var(--text);">${s.sym}</strong>
+        — BSS <span style="color:${bssColor(s.heldout_bss)};">${fmtBss(s.heldout_bss)}</span>
+        · acc ${fmtPct(s.heldout_acc)} on n=${s.heldout_n}</div>`
+    ).join('');
+
+    // Full table
+    const tbody = document.getElementById('sym-table-body');
+    if (tbody) {
+      tbody.innerHTML = rows.map(s => `<tr style="border-bottom:1px solid rgba(255,255,255,0.04);">
+        <td style="padding:4px 8px;font-weight:700;color:var(--accent);">${s.sym}</td>
+        <td style="padding:4px 8px;text-align:right;">${s.heldout_n}</td>
+        <td style="padding:4px 8px;text-align:right;">${fmtPct(s.heldout_acc)}</td>
+        <td style="padding:4px 8px;text-align:right;color:${bssColor(s.heldout_bss)};">${fmtBss(s.heldout_bss)}</td>
+        <td style="padding:4px 8px;text-align:right;color:var(--text-muted);">${s.live_n || 0}</td>
+        <td style="padding:4px 8px;text-align:right;color:var(--text-muted);">${s.live_acc != null ? fmtPct(s.live_acc) : '--'}</td>
+      </tr>`).join('');
+    }
+    // Update the count in the <summary>
+    const summary = document.querySelector('#symbols-card details summary');
+    if (summary) summary.textContent = `Show full per-symbol table (${rows.length} symbols)`;
+  } catch (e) {}
+}
+
 function refresh() {
   // Auto-pull worker metrics every refresh too
   refreshWorkerMetrics();
+  refreshSymbolSurface();  // pass 213
   const journal = loadJournal();
   const now = Date.now();
 

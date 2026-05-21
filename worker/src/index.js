@@ -38,7 +38,7 @@
 // Pass 200: version stamp so brain-proof.html + worker-setup.html can detect
 // when the deployed worker is behind the repo source. Bump on every meaningful
 // behavior change. Read via /brain/health → worker_version field.
-const WORKER_VERSION = 'pass-212';
+const WORKER_VERSION = 'pass-213';
 
 const UNIVERSE = [
   'SPY','QQQ','IWM','DIA','AAPL','NVDA','TSLA','MSFT','META','AMZN','GOOGL','AMD',
@@ -58,6 +58,7 @@ const KV_KEYS = {
   HELDOUT: 'heldout_test_v1',     // out-of-sample test pairs from bootstrap
   METRICS_CACHE: 'metrics_cache_v1',
   BARS_HISTORY: 'bars_history_v1', // pass 193: per-symbol rolling bar history
+  PLATT: 'platt_v1',               // pass 213: Platt calibration {a, b, fittedAt, n}
 };
 
 const MAX_JOURNAL = 12000;
@@ -205,6 +206,46 @@ function extractRichFeatures(quote, history, marketSnap) {
 function clamp(v, lo, hi) {
   if (!isFinite(v)) return (lo + hi) / 2;
   return Math.max(lo, Math.min(hi, v));
+}
+
+// Pass 213: Platt scaling — sigmoid post-calibration applied to raw model
+// outputs. Maps an overconfident raw probability through y = sigmoid(a*logit(p) + b)
+// where (a, b) are fit on a calibration set. With a < 1 it pulls peaked outputs
+// toward 0.5; with b ≠ 0 it shifts the decision boundary off 50/50.
+function plattLogit(p) {
+  const eps = 1e-6;
+  const c = Math.max(eps, Math.min(1 - eps, p));
+  return Math.log(c / (1 - c));
+}
+function applyPlatt(rawProb, platt) {
+  if (!platt || typeof platt.a !== 'number' || typeof platt.b !== 'number') return rawProb;
+  if (!isFinite(rawProb)) return 0.5;
+  const z = platt.a * plattLogit(rawProb) + platt.b;
+  return sigmoid(z);
+}
+function fitPlatt(pairs) {
+  // Need at least ~30 pairs to estimate two parameters with any stability.
+  if (!Array.isArray(pairs) || pairs.length < 30) return null;
+  const data = pairs
+    .filter(it => it && typeof it.p === 'number' && Number.isFinite(it.p)
+             && typeof it.y === 'number' && Number.isFinite(it.y))
+    .map(it => ({ x: plattLogit(it.p), y: it.y }));
+  if (data.length < 30) return null;
+  let a = 1.0, b = 0.0;
+  const lr = 0.05;
+  const epochs = 200;
+  for (let epoch = 0; epoch < epochs; epoch++) {
+    let gradA = 0, gradB = 0;
+    for (const { x, y } of data) {
+      const pHat = sigmoid(a * x + b);
+      const err = pHat - y;
+      gradA += err * x;
+      gradB += err;
+    }
+    a -= lr * (gradA / data.length);
+    b -= lr * (gradB / data.length);
+  }
+  return { a, b, fittedAt: Date.now(), n: data.length };
 }
 
 // Standard normal CDF via Abramowitz-Stegun approximation. Used for the
@@ -459,11 +500,12 @@ async function tick(env) {
     return { ok: true, skipped: 'market-closed' };
   }
 
-  const [journal, model, lastTick, barsHistory] = await Promise.all([
+  const [journal, model, lastTick, barsHistory, platt] = await Promise.all([
     kvGet(env, KV_KEYS.JOURNAL, []),
     kvGet(env, KV_KEYS.MODEL, newModel()),
     kvGet(env, KV_KEYS.LAST_TICK, { ts: 0, syms_updated: 0, errors: 0 }),
-    kvGet(env, KV_KEYS.BARS_HISTORY, {})  // pass 193: per-sym recent bars
+    kvGet(env, KV_KEYS.BARS_HISTORY, {}),  // pass 193: per-sym recent bars
+    kvGet(env, KV_KEYS.PLATT, null)       // pass 213: Platt calibration params
   ]);
 
   // Pass 188: rotate through universe over multiple ticks to stay under
@@ -538,14 +580,20 @@ async function tick(env) {
 
     // Use rich features if we have enough history
     const features = extractRichFeatures(q, history, { vix });
-    const p = predict(model, features);
+    // Pass 213: capture BOTH raw and Platt-calibrated probabilities.
+    // predProb (calibrated) is the one downstream consumers should trade on;
+    // predProbRaw is preserved for diagnostics and re-calibration analysis.
+    const rawP = predict(model, features);
+    const p = applyPlatt(rawP, platt);
     journal.push({
       id: 'w-' + Date.now() + '-' + sym + '-' + Math.random().toString(36).slice(2, 6),
       ts: Date.now(),
       sym,
       entryPx: q.last,
       features,
-      predProb: p,
+      predProb: p,           // calibrated (Platt-applied) prob — trade on this
+      predProbRaw: rawP,     // raw model output — for diagnostics
+      plattApplied: !!platt && typeof platt.a === 'number',
       priceSource: 'finnhub-worker',
       regime: vix > 25 ? 'volatile_bear' : (q.changePct > 0 ? 'trending_bull' : 'choppy'),
       resolved: { short: false, mid: false, long: false },
@@ -1071,10 +1119,34 @@ async function runBootstrap(env) {
   const wfBrier = wfTestSet.length > 0 ? wfBrierSum / wfTestSet.length : null;
   const wfBss = wfBrier != null ? 1 - (wfBrier / 0.25) : null;
 
+  // Pass 213: Platt calibration. Walk-forward is split in half — first 50%
+  // (time-earlier) becomes the CALIBRATION set used to fit Platt (a, b);
+  // last 50% becomes the FINAL TEST set on which calibrated metrics are
+  // reported. This keeps the calibration honest — no train-on-test leakage.
+  // Platt also gets persisted to KV so live tick can apply it to new
+  // predictions before journaling. Live consumers (brain-proof, brain-bet,
+  // etc.) read `predProb` which is the calibrated probability.
+  const calibSplitIdx = Math.floor(walkForward.length / 2);
+  const calibSet = walkForward.slice(0, calibSplitIdx);
+  const finalTestSet = walkForward.slice(calibSplitIdx);
+  const platt = fitPlatt(calibSet);
+
+  // Apply Platt to the held-back final test set and report calibrated metrics.
+  let wfCalCorrect = 0, wfCalBrierSum = 0;
+  for (const pair of finalTestSet) {
+    const pCal = applyPlatt(pair.p, platt);
+    if ((pCal >= 0.5 ? 1 : 0) === pair.y) wfCalCorrect++;
+    wfCalBrierSum += (pCal - pair.y) * (pCal - pair.y);
+  }
+  const wfCalAcc = finalTestSet.length > 0 ? wfCalCorrect / finalTestSet.length : null;
+  const wfCalBrier = finalTestSet.length > 0 ? wfCalBrierSum / finalTestSet.length : null;
+  const wfCalBss = wfCalBrier != null ? 1 - (wfCalBrier / 0.25) : null;
+
   await Promise.all([
     kvPut(env, KV_KEYS.MODEL, model),
     kvPut(env, KV_KEYS.HELDOUT, { random_split: heldout, walk_forward: walkForward }),
-    kvPut(env, KV_KEYS.BARS_HISTORY, barsHistory)  // pass 193
+    kvPut(env, KV_KEYS.BARS_HISTORY, barsHistory),  // pass 193
+    kvPut(env, KV_KEYS.PLATT, platt)               // pass 213
   ]);
 
   return {
@@ -1092,8 +1164,17 @@ async function runBootstrap(env) {
     walk_forward_accuracy: wfAcc,
     walk_forward_brier: wfBrier,
     walk_forward_bss: wfBss,
+    // Pass 213: Platt-calibrated walk-forward metrics on the held-back
+    // 50% final test set. If wfCalBss > wfBss, Platt is reducing Brier
+    // (better calibration) without sacrificing directional accuracy.
+    platt: platt,
+    platt_calib_n: calibSet.length,
+    walk_forward_calibrated_accuracy: wfCalAcc,
+    walk_forward_calibrated_brier: wfCalBrier,
+    walk_forward_calibrated_bss: wfCalBss,
     is_real_signal: bss != null && bss > 0.02,
-    is_real_signal_walk_forward: wfBss != null && wfBss > 0.02
+    is_real_signal_walk_forward: wfBss != null && wfBss > 0.02,
+    is_real_signal_calibrated: wfCalBss != null && wfCalBss > 0.02
   };
 }
 
