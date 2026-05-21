@@ -38,7 +38,7 @@
 // Pass 200: version stamp so brain-proof.html + worker-setup.html can detect
 // when the deployed worker is behind the repo source. Bump on every meaningful
 // behavior change. Read via /brain/health → worker_version field.
-const WORKER_VERSION = 'pass-215';
+const WORKER_VERSION = 'pass-217';
 
 const UNIVERSE = [
   'SPY','QQQ','IWM','DIA','AAPL','NVDA','TSLA','MSFT','META','AMZN','GOOGL','AMD',
@@ -748,6 +748,47 @@ async function handleRequest(request, env, ctx) {
   if (path === '/brain/model') {
     const model = await kvGet(env, KV_KEYS.MODEL, newModel());
     return json(model);
+  }
+
+  if (path === '/brain/predict') {
+    // Pass 217: ad-hoc prediction for any symbol — useful for browser pages
+    // that want a live calibrated probability WITHOUT waiting for the next
+    // cron tick to capture it. Pulls fresh Finnhub quote, uses stored bar
+    // history for the rich features, applies the current model + Platt.
+    // Returns BOTH raw and calibrated probabilities so the caller can pick.
+    const sym = (url.searchParams.get('sym') || '').toUpperCase().trim();
+    if (!sym) return json({ error: 'missing ?sym=X' }, 400);
+    if (!UNIVERSE.includes(sym)) return json({ error: 'symbol not in universe', sym, universe_size: UNIVERSE.length }, 404);
+    const [model, barsHistory, platt] = await Promise.all([
+      kvGet(env, KV_KEYS.MODEL, newModel()),
+      kvGet(env, KV_KEYS.BARS_HISTORY, {}),
+      kvGet(env, KV_KEYS.PLATT, null)
+    ]);
+    const quote = await fetchFinnhubQuote(env, sym);
+    if (!quote) return json({ error: 'finnhub quote unavailable', sym }, 503);
+    // Snapshot vix from KV's bar history if available, else default
+    const vixBars = barsHistory.VIX;
+    const vix = (vixBars && vixBars.length > 0) ? vixBars[vixBars.length - 1].close : 18;
+    const history = barsHistory[sym] || [];
+    const features = extractRichFeatures(quote, history, { vix });
+    const rawProb = predict(model, features);
+    const calibratedProb = applyPlatt(rawProb, platt);
+    const conviction = Math.max(calibratedProb, 1 - calibratedProb);
+    const direction = calibratedProb >= 0.5 ? 'LONG' : 'SHORT';
+    return json({
+      sym,
+      quote: { last: quote.last, prevClose: quote.prevClose, changePct: quote.changePct, ts: quote.ts },
+      predProb: calibratedProb,
+      predProbRaw: rawProb,
+      plattApplied: !!platt && !platt.rejected && typeof platt.a === 'number' && platt.a >= 0.2,
+      conviction,
+      direction,
+      features,
+      bars_in_history: history.length,
+      vix,
+      model_n_trained: model.n_trained,
+      worker_version: WORKER_VERSION
+    });
   }
 
   if (path === '/brain/symbols') {
