@@ -38,7 +38,7 @@
 // Pass 200: version stamp so brain-proof.html + worker-setup.html can detect
 // when the deployed worker is behind the repo source. Bump on every meaningful
 // behavior change. Read via /brain/health → worker_version field.
-const WORKER_VERSION = 'pass-208';
+const WORKER_VERSION = 'pass-209';
 
 const UNIVERSE = [
   'SPY','QQQ','IWM','DIA','AAPL','NVDA','TSLA','MSFT','META','AMZN','GOOGL','AMD',
@@ -409,11 +409,53 @@ async function fetchHistoricalBars(env, sym, days) {
   return await fetchFinnhubCandles(env, sym, days);
 }
 
+// Pass 209: market-hours check. US equity regular session is 9:30am - 4:00pm ET,
+// Mon-Fri. Outside that window, Finnhub quotes barely move (post-market trades on
+// some names but most symbols are flat). The cron tick was firing 1,440 times/day
+// regardless, doing 4 KV reads + 3-4 KV writes + 12 Finnhub calls + a full
+// 12,000-entry journal parse/serialize each time. ~70% of those ticks ran during
+// closed market and accomplished nothing. Pre-market and after-hours allowance
+// is kept narrow (8am-5pm ET) since we mostly care about regular-session data.
+function isMarketLikelyOpen() {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/New_York',
+    weekday: 'short', hour12: false, hour: '2-digit', minute: '2-digit'
+  }).formatToParts(new Date());
+  let dow = '', hh = 0, mm = 0;
+  for (const p of parts) {
+    if (p.type === 'weekday') dow = p.value;
+    if (p.type === 'hour') hh = parseInt(p.value, 10) % 24;
+    if (p.type === 'minute') mm = parseInt(p.value, 10);
+  }
+  if (dow === 'Sat' || dow === 'Sun') return false;
+  const t = hh + mm / 60;
+  // 8:00am ET (pre-market activity starts) to 5:00pm ET (post-market close)
+  return t >= 8 && t < 17;
+}
+
 // ============================================================
 // Tick handler — runs every minute on cron
 // ============================================================
 async function tick(env) {
   const startTs = Date.now();
+
+  // Pass 209: market-hours early exit. Saves ~70% of daily cost.
+  // We still record a lastTick stamp so brain-proof's "lastTickAgo" doesn't
+  // show "never" overnight, but skip the heavy reads/writes/Finnhub calls.
+  if (!isMarketLikelyOpen()) {
+    await kvPut(env, KV_KEYS.LAST_TICK, {
+      ts: Date.now(),
+      syms_updated: 0,
+      errors: 0,
+      captured: 0,
+      resolved: 0,
+      trained: 0,
+      durationMs: Date.now() - startTs,
+      skipped_market_closed: true
+    });
+    return { ok: true, skipped: 'market-closed' };
+  }
+
   const [journal, model, lastTick, barsHistory] = await Promise.all([
     kvGet(env, KV_KEYS.JOURNAL, []),
     kvGet(env, KV_KEYS.MODEL, newModel()),
@@ -452,6 +494,13 @@ async function tick(env) {
 
   // Capture: one entry per symbol with valid quote (only this tick's slice)
   let captured = 0;
+  // Pass 209: only persist BARS_HISTORY when a brand-new day-bar gets pushed.
+  // Intraday updates (close/high/low changing within today's bar) still happen
+  // in-memory for THIS tick's predictions but don't trigger a fresh KV write.
+  // The features for the next tick are reconstructed from the live quote +
+  // last-saved bars, so we don't lose any signal — just stop paying for a
+  // 17,000-element BARS_HISTORY KV write 1,400 times/day.
+  let barsHistoryDirty = false;
   for (const sym of slice) {
     const q = byMap[sym];
     if (!q) continue;
@@ -463,13 +512,13 @@ async function tick(env) {
     const history = barsHistory[sym];
     const lastBar = history.length > 0 ? history[history.length - 1] : null;
     if (lastBar && lastBar.dayKey === dayKey) {
-      // Same day — update existing bar
+      // Same day — update existing bar in memory only; do NOT mark dirty
       lastBar.close = q.last;
       if (q.dayHigh && q.dayHigh > lastBar.high) lastBar.high = q.dayHigh;
       if (q.dayLow && q.dayLow < lastBar.low) lastBar.low = q.dayLow;
       lastBar.volume = q.volume || lastBar.volume || 0;
     } else {
-      // New day — push a new bar
+      // New day — push a new bar; this changes the persistent shape so flush
       history.push({
         ts: Date.now(),
         dayKey,
@@ -481,6 +530,7 @@ async function tick(env) {
       });
       // Cap history at 40 bars per symbol (enough for 20-day momentum)
       if (history.length > 40) history.splice(0, history.length - 40);
+      barsHistoryDirty = true;
     }
 
     // Use rich features if we have enough history
@@ -540,9 +590,13 @@ async function tick(env) {
   // trained on resolutions. Otherwise the cron tick could overwrite a
   // freshly-bootstrapped model (n_trained=8562) with a stale in-memory copy
   // due to Cloudflare KV's eventual-consistency window.
+  //
+  // Pass 209 (cost): only persist BARS_HISTORY when barsHistoryDirty
+  // (i.e., a new day-bar was pushed). Intraday close-updates stay in
+  // memory and are reconstructed from the live Finnhub quote next tick.
+  // Saves ~1,400 large-payload writes/day during market hours.
   const writes = [
     kvPut(env, KV_KEYS.JOURNAL, journal),
-    kvPut(env, KV_KEYS.BARS_HISTORY, barsHistory),  // pass 193
     kvPut(env, KV_KEYS.LAST_TICK, {
       ts: Date.now(),
       syms_updated: okCount,
@@ -551,12 +605,12 @@ async function tick(env) {
       resolved,
       trained,
       durationMs: Date.now() - startTs,
-      skipped_model_write: trained === 0
+      skipped_model_write: trained === 0,
+      skipped_bars_write: !barsHistoryDirty
     })
   ];
-  if (trained > 0) {
-    writes.push(kvPut(env, KV_KEYS.MODEL, model));
-  }
+  if (barsHistoryDirty) writes.push(kvPut(env, KV_KEYS.BARS_HISTORY, barsHistory));
+  if (trained > 0) writes.push(kvPut(env, KV_KEYS.MODEL, model));
   await Promise.all(writes);
 
   return { ok: true, captured, resolved, trained, syms: okCount, errors: errCount };
