@@ -38,7 +38,7 @@
 // Pass 200: version stamp so brain-proof.html + worker-setup.html can detect
 // when the deployed worker is behind the repo source. Bump on every meaningful
 // behavior change. Read via /brain/health → worker_version field.
-const WORKER_VERSION = 'pass-213';
+const WORKER_VERSION = 'pass-214';
 
 const UNIVERSE = [
   'SPY','QQQ','IWM','DIA','AAPL','NVDA','TSLA','MSFT','META','AMZN','GOOGL','AMD',
@@ -218,7 +218,13 @@ function plattLogit(p) {
   return Math.log(c / (1 - c));
 }
 function applyPlatt(rawProb, platt) {
-  if (!platt || typeof platt.a !== 'number' || typeof platt.b !== 'number') return rawProb;
+  // Pass 214: bail if Platt was rejected at fit time (a < 0.2 inversion guard)
+  // or if any required field is missing/non-finite. Returns raw probability —
+  // the brain's directional edge is preserved when calibration data was bad.
+  if (!platt || platt.rejected) return rawProb;
+  if (typeof platt.a !== 'number' || typeof platt.b !== 'number') return rawProb;
+  if (!isFinite(platt.a) || !isFinite(platt.b)) return rawProb;
+  if (platt.a < 0.2) return rawProb;  // belt-and-suspenders if stored Platt is stale
   if (!isFinite(rawProb)) return 0.5;
   const z = platt.a * plattLogit(rawProb) + platt.b;
   return sigmoid(z);
@@ -244,6 +250,19 @@ function fitPlatt(pairs) {
     }
     a -= lr * (gradA / data.length);
     b -= lr * (gradB / data.length);
+  }
+  // Pass 214 (CRITICAL guard): refuse Platt if a < 0.2. A reasonable
+  // calibration should compress the raw probability toward 0.5 (a in
+  // [0.4, 1.0]) or leave it alone. a <= 0 means the fit decided to
+  // INVERT the model's directional sign — that happens when the
+  // calibration set's regime is anti-correlated with the rest of the
+  // data (short-timescale regime shift). Applying it production would
+  // destroy whatever directional edge the raw model has.
+  // Pass 213 bootstrap exposed this: raw walk_forward acc was 52.93%
+  // but calibrated dropped to 48.9% because Platt fit a=-0.777.
+  // Better to ship NO calibration than wrong-direction calibration.
+  if (a < 0.2) {
+    return { rejected: true, reason: 'inverted-or-weak', fittedA: a, fittedB: b, n: data.length };
   }
   return { a, b, fittedAt: Date.now(), n: data.length };
 }
