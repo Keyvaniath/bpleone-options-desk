@@ -83,6 +83,22 @@
     </div>
   </div>
 
+  <!-- Pass 216: live brain picks — sorted by conviction. Worker captures every
+       minute during market hours; this surfaces the freshest, most confident calls. -->
+  <div class="card mb-24" id="livepicks-card" style="display:none;">
+    <div class="card-header"><div class="card-title">🧠 Live Brain Picks — Sorted by Conviction</div></div>
+    <div style="font-size:12px;color:var(--text-secondary);line-height:1.6;margin-bottom:14px;">
+      The Cloudflare worker captured these in the last 24h. Each symbol shown ONCE (most recent prediction).
+      <strong>Conviction = |predProb − 0.5|</strong> — how far from neutral. Higher = more confident.
+      Sort and filter: only shows predictions with conviction ≥ 0.05 (model has at least a small opinion).
+      <br><span style="color:var(--text-muted);font-size:11px;">Walk-forward edge of the underlying model: +2.93pp at 5d horizon. These are calibrated probabilities (Platt-applied when fit is healthy).</span>
+    </div>
+    <div id="livepicks-rows" style="font-family:var(--font-mono);font-size:12px;"></div>
+    <div id="livepicks-empty" style="display:none;color:var(--text-muted);font-size:12px;">
+      No high-conviction picks in the last 24h. Brain may be holding ~0.5 on everything (regime ambiguity).
+    </div>
+  </div>
+
   <!-- Pass 213: per-symbol BSS surface — which symbols the brain has real edge on -->
   <div class="card mb-24" id="symbols-card" style="display:none;">
     <div class="card-header"><div class="card-title">🎯 Per-Symbol Edge — Where the Brain Actually Has Signal</div></div>
@@ -381,10 +397,92 @@ async function refreshSymbolSurface() {
   } catch (e) {}
 }
 
+// Pass 216: live brain picks — sorted by conviction.
+async function refreshLivePicks() {
+  if (typeof WorkerBridge === 'undefined' || !WorkerBridge.isEnabled()) return;
+  const url = WorkerBridge.getUrl();
+  if (!url) return;
+  try {
+    const r = await fetch(url + '/brain/journal?n=500');
+    if (!r.ok) return;
+    const j = await r.json();
+    const entries = Array.isArray(j.journal) ? j.journal : [];
+    if (entries.length === 0) return;
+
+    // Filter to last 24h + valid predProb
+    const cutoff = Date.now() - 24 * 3600 * 1000;
+    const recent = entries.filter(e =>
+      e && typeof e.predProb === 'number' && Number.isFinite(e.predProb)
+        && e.ts && e.ts > cutoff
+        && e.sym
+    );
+    if (recent.length === 0) {
+      document.getElementById('livepicks-card').style.display = 'block';
+      document.getElementById('livepicks-empty').style.display = 'block';
+      document.getElementById('livepicks-rows').innerHTML = '';
+      return;
+    }
+
+    // Latest entry per symbol (entries arrive in time order; last wins)
+    const bySym = {};
+    for (const e of recent) {
+      const prev = bySym[e.sym];
+      if (!prev || e.ts > prev.ts) bySym[e.sym] = e;
+    }
+
+    // Filter conviction >= 0.05 (model has at least a small opinion)
+    const picks = Object.values(bySym)
+      .filter(e => Math.abs(e.predProb - 0.5) >= 0.05)
+      .sort((a, b) => Math.abs(b.predProb - 0.5) - Math.abs(a.predProb - 0.5));
+
+    document.getElementById('livepicks-card').style.display = 'block';
+
+    if (picks.length === 0) {
+      document.getElementById('livepicks-empty').style.display = 'block';
+      document.getElementById('livepicks-rows').innerHTML = '';
+      return;
+    }
+    document.getElementById('livepicks-empty').style.display = 'none';
+
+    function fmtAge(ts) {
+      const s = Math.floor((Date.now() - ts) / 1000);
+      if (s < 60) return s + 's ago';
+      if (s < 3600) return Math.floor(s / 60) + 'm ago';
+      if (s < 86400) return Math.floor(s / 3600) + 'h ago';
+      return Math.floor(s / 86400) + 'd ago';
+    }
+    function convictionTier(p) {
+      const a = Math.abs(p - 0.5);
+      if (a >= 0.15) return { label: 'HIGH', color: 'var(--green)' };
+      if (a >= 0.10) return { label: 'MED',  color: 'var(--yellow)' };
+      return                  { label: 'LOW',  color: 'var(--text-muted)' };
+    }
+
+    document.getElementById('livepicks-rows').innerHTML = picks.slice(0, 30).map(e => {
+      const dir = e.predProb >= 0.5 ? 'LONG' : 'SHORT';
+      const dirColor = e.predProb >= 0.5 ? 'var(--green)' : 'var(--red)';
+      const conv = convictionTier(e.predProb);
+      const probPct = (e.predProb * 100).toFixed(1) + '%';
+      const rawTag = (typeof e.predProbRaw === 'number' && e.plattApplied)
+        ? ` <span style="font-size:9px;color:var(--text-muted);">(raw ${(e.predProbRaw*100).toFixed(0)}%)</span>` : '';
+      const entryPx = typeof e.entryPx === 'number' ? e.entryPx.toFixed(2) : '--';
+      return `<div style="display:grid;grid-template-columns:60px 70px 100px 80px 80px 1fr;gap:10px;align-items:center;padding:7px 10px;border-bottom:1px solid rgba(255,255,255,0.04);">
+        <span style="font-weight:800;color:var(--accent);">${e.sym}</span>
+        <span style="color:${dirColor};font-weight:700;">${dir}</span>
+        <span>${probPct}${rawTag}</span>
+        <span style="color:${conv.color};font-weight:700;font-size:10px;">${conv.label}</span>
+        <span style="color:var(--text-muted);">@${entryPx}</span>
+        <span style="color:var(--text-muted);font-size:10px;">${fmtAge(e.ts)} · ${e.regime || ''}</span>
+      </div>`;
+    }).join('');
+  } catch (e) {}
+}
+
 function refresh() {
   // Auto-pull worker metrics every refresh too
   refreshWorkerMetrics();
   refreshSymbolSurface();  // pass 213
+  refreshLivePicks();      // pass 216
   const journal = loadJournal();
   const now = Date.now();
 
