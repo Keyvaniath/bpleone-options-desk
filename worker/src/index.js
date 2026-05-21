@@ -38,7 +38,7 @@
 // Pass 200: version stamp so brain-proof.html + worker-setup.html can detect
 // when the deployed worker is behind the repo source. Bump on every meaningful
 // behavior change. Read via /brain/health → worker_version field.
-const WORKER_VERSION = 'pass-209';
+const WORKER_VERSION = 'pass-210';
 
 const UNIVERSE = [
   'SPY','QQQ','IWM','DIA','AAPL','NVDA','TSLA','MSFT','META','AMZN','GOOGL','AMD',
@@ -96,11 +96,15 @@ function trainStep(model, features, label) {
   // L2=0.001 keeps weights bounded; the bias term and features[21] (the
   // constant-1 bias column) are exempt from decay so the intercept is free
   // to absorb the class prior. Matches the browser model.js pattern.
-  // Pass 208: bumped L2 from 0.001 → 0.003. Walk-forward (which already
-  // trained from a fresh model) only improved 0.008 BSS at L2=0.001 — the
-  // gradient signal still dominated weight decay. 3× stronger keeps weights
-  // bounded more aggressively over the 42k SGD steps of 5-epoch training.
-  const L2 = 0.003;
+  // Pass 210: bumped L2 from 0.003 → 0.015. Pass 209's bootstrap STILL
+  // produced avgLoss=3.57 (confident wrong predictions). L2 was still
+  // smaller than the gradient signal — features kept driving weights to
+  // large magnitudes despite the decay. 5x stronger forces the model
+  // toward the class prior (≈0.5) unless features have STRONG evidence.
+  // If BSS still goes negative at this L2, the conclusion is definitive:
+  // these technical features genuinely don't predict 5d direction, and
+  // the next step is feature engineering rather than model tuning.
+  const L2 = 0.015;
   for (let i = 0; i < 22; i++) {
     const decay = (i === 21) ? 0 : L2 * model.weights[i];
     model.weights[i] -= model.lr * (err * (features[i] || 0) + decay);
@@ -987,11 +991,16 @@ async function runBootstrap(env) {
   const wfTrainSet = timeSorted.slice(0, wfSplitIdx);
   const wfTestSet = timeSorted.slice(wfSplitIdx);
 
-  // Pass 195 (Cloudflare Pro unlocks 30s CPU budget per request — was 10ms
-  // on free). Do 5 epochs with re-shuffling each epoch for proper SGD.
-  // Empirically 5 epochs gives ~2-3pp accuracy improvement over 1 epoch
-  // on logistic regression with this feature set.
-  const N_EPOCHS = 5;
+  // Pass 195: 5 epochs with re-shuffling. Pass 210: cut to 2 epochs.
+  // 5 epochs × 8,400 examples = 42k SGD steps. At L2=0.003 (pass 208) that
+  // was still grow-the-weights-faster-than-decay territory — model ended
+  // up confident-wrong (avgLoss=3.57). Two effects:
+  //   1. Combined with L2=0.015 (pass 210), fewer SGD steps means decay
+  //      dominates earlier — predictions stay closer to the prior 0.5.
+  //   2. If the features have ZERO predictive signal, MORE epochs only
+  //      memorizes more in-sample noise. Fewer epochs is the right call
+  //      for an unfavorable signal-to-noise problem.
+  const N_EPOCHS = 2;
   let lossSum = 0;
   let totalSteps = 0;
   for (let epoch = 0; epoch < N_EPOCHS; epoch++) {
