@@ -307,8 +307,14 @@
           regime: entry.regime || 'choppy', ret
         });
 
-        // Short-horizon resolutions also drive the main loop
-        if (horizon === 'short') {
+        // Pass 218b: train the main model on MID (5-day) horizon resolutions,
+        // matching the worker (pass 218) and the bootstrap label scheme
+        // (pass 206, 5-day +/- 1pp). Previously this drove the main loop on
+        // SHORT (24h +/- 0.3pp) outcomes — different prediction problem from
+        // what the bootstrap fits. With WorkerBridge enabled (pass 199 defer)
+        // this code doesn't fire anyway, but defense-in-depth: a future user
+        // disabling the worker should still get a coherent brain.
+        if (horizon === 'mid') {
           entry.outcome = label === 1 ? 'correct' : 'wrong';
           entry.realizedRet = ret;
           entry.exitPx = q.last;
