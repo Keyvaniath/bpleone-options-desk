@@ -38,7 +38,7 @@
 // Pass 200: version stamp so brain-proof.html + worker-setup.html can detect
 // when the deployed worker is behind the repo source. Bump on every meaningful
 // behavior change. Read via /brain/health → worker_version field.
-const WORKER_VERSION = 'pass-210';
+const WORKER_VERSION = 'pass-211';
 
 const UNIVERSE = [
   'SPY','QQQ','IWM','DIA','AAPL','NVDA','TSLA','MSFT','META','AMZN','GOOGL','AMD',
@@ -927,6 +927,17 @@ async function runBootstrap(env) {
     return f;
   }
 
+  // Pass 211: still fetch 250 bars (so richFeatures has 14-day RSI lookback
+  // even for the oldest training example) but only TRAIN on the most recent
+  // BOOTSTRAP_DAYS of them. Pass 210's walk-forward verdict was -0.449
+  // because training on bars 9 months old produces a model fit to a
+  // bygone regime — recent 50 days are out-of-distribution. Restricting to
+  // the most recent 120 days means walk-forward train ≈ months 2-5 prior
+  // and walk-forward test ≈ the last month, both of which should share
+  // closer regime characteristics. If THIS still fails, the conclusion is
+  // definitive: the features genuinely don't predict 5d direction even
+  // when training distribution matches test distribution.
+  const BOOTSTRAP_DAYS = 120;
   for (const sym of UNIVERSE) {
     const bars = await fetchHistoricalBars(env, sym, 250);
     if (!bars || bars.length < 30) {
@@ -952,7 +963,12 @@ async function runBootstrap(env) {
     //      carries real directional information for the brain to learn.
     const FWD_DAYS = 5;
     const LABEL_THRESHOLD = 0.01;
-    for (let i = 20; i < bars.length - FWD_DAYS; i++) {
+    // Pass 211: training loop starts at max(20, bars.length - BOOTSTRAP_DAYS)
+    // instead of 20. Still need i >= 14 for richFeatures' RSI lookback;
+    // 20 is the safe floor. Older bars still feed richFeatures via the
+    // moving-window indices, just don't become training examples themselves.
+    const trainStart = Math.max(20, bars.length - BOOTSTRAP_DAYS);
+    for (let i = trainStart; i < bars.length - FWD_DAYS; i++) {
       const today = bars[i];
       const future = bars[i + FWD_DAYS];
       const ret = (future.close - today.close) / today.close;
