@@ -38,7 +38,7 @@
 // Pass 200: version stamp so brain-proof.html + worker-setup.html can detect
 // when the deployed worker is behind the repo source. Bump on every meaningful
 // behavior change. Read via /brain/health → worker_version field.
-const WORKER_VERSION = 'pass-218k';
+const WORKER_VERSION = 'pass-218n';
 
 const UNIVERSE = [
   'SPY','QQQ','IWM','DIA','AAPL','NVDA','TSLA','MSFT','META','AMZN','GOOGL','AMD',
@@ -1016,8 +1016,22 @@ async function handleRequest(request, env, ctx) {
     if (auth !== 'Bearer ' + env.ADMIN_TOKEN) {
       return json({ error: 'unauthorized' }, 401);
     }
+    // Pass 218n: optional ?clear=1 wipes the JOURNAL before bootstrap. Useful
+    // after a botched calibration period — the existing journal entries have
+    // predProb from a corrupted model and would still get resolved + trained
+    // on (using their bad predProb to determine direction). Clearing forces
+    // a fresh start: new model + fresh journal + fresh Platt fit. Safe
+    // because the BARS_HISTORY (needed for live richFeatures) and HELDOUT
+    // (used by /brain/metrics) are preserved; only the live capture log
+    // gets wiped.
+    let journalCleared = false;
+    if (url.searchParams.get('clear') === '1') {
+      await kvPut(env, KV_KEYS.JOURNAL, []);
+      journalCleared = true;
+    }
     // Pull 250 days of historical bars for each symbol, train on them
     const result = await runBootstrap(env);
+    result.journal_cleared = journalCleared;
     return json(result);
   }
 
