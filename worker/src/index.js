@@ -38,7 +38,7 @@
 // Pass 200: version stamp so brain-proof.html + worker-setup.html can detect
 // when the deployed worker is behind the repo source. Bump on every meaningful
 // behavior change. Read via /brain/health → worker_version field.
-const WORKER_VERSION = 'pass-218';
+const WORKER_VERSION = 'pass-218k';
 
 const UNIVERSE = [
   'SPY','QQQ','IWM','DIA','AAPL','NVDA','TSLA','MSFT','META','AMZN','GOOGL','AMD',
@@ -836,12 +836,22 @@ async function handleRequest(request, env, ctx) {
       if ((p >= 0.5 ? 1 : 0) === y) bySym[sym].correct++;
       bySym[sym].brierSum += (p - y) * (p - y);
     }
-    const live = (Array.isArray(journal) ? journal : []).filter(e => e && e.resolved && typeof e.resolved === 'object' && e.resolved.short && e.resolved.short !== false);
+    // Pass 218k: per-symbol live stats now key on MID resolution (5d) since
+    // that's what the brain actually trains on (pass 218). Falls back to
+    // SHORT for legacy entries from before pass 218. Skip 'flat' since it
+    // doesn't tell us anything directional.
+    function liveOutcomeOf(e) {
+      if (!e || !e.resolved || typeof e.resolved !== 'object') return null;
+      const o = e.resolved.mid || e.resolved.short;
+      if (!o || o === false || o === 'flat') return null;
+      return o;
+    }
+    const live = (Array.isArray(journal) ? journal : []).filter(e => liveOutcomeOf(e));
     const liveBySym = {};
     for (const e of live) {
       if (!liveBySym[e.sym]) liveBySym[e.sym] = { n: 0, correct: 0 };
       liveBySym[e.sym].n++;
-      if (e.resolved.short === 'correct') liveBySym[e.sym].correct++;
+      if (liveOutcomeOf(e) === 'correct') liveBySym[e.sym].correct++;
     }
     // Wilson 95% lower-bound on accuracy. For symbols with small n, the
     // lower bound is dramatically below the point estimate — gives the UI
@@ -933,13 +943,22 @@ async function handleRequest(request, env, ctx) {
     const walkForwardMetrics = computeMetrics(walkForwardSet);
 
     // ---- Live journal metrics (from resolved captures) ----
-    const resolved = journal.filter(e => e.resolved && typeof e.resolved === 'object' && e.resolved.short && e.resolved.short !== false);
+    // Pass 218k: prefer MID (5d) resolution since the brain trains on that
+    // post-pass-218. Fall back to SHORT for legacy entries. Skip 'flat'.
+    function liveResolvedOutcome(e) {
+      if (!e || !e.resolved || typeof e.resolved !== 'object') return null;
+      const o = e.resolved.mid || e.resolved.short;
+      if (!o || o === false || o === 'flat') return null;
+      return o;
+    }
+    const resolved = journal.filter(e => liveResolvedOutcome(e));
     let liveMetrics = null;
     if (resolved.length > 0) {
       let correct = 0, brierSum = 0;
       for (const e of resolved) {
-        if (e.resolved.short === 'correct') correct++;
-        const y = e.resolved.short === 'correct' ? (e.predProb >= 0.5 ? 1 : 0) : (e.predProb >= 0.5 ? 0 : 1);
+        const outcome = liveResolvedOutcome(e);
+        if (outcome === 'correct') correct++;
+        const y = outcome === 'correct' ? (e.predProb >= 0.5 ? 1 : 0) : (e.predProb >= 0.5 ? 0 : 1);
         brierSum += (e.predProb - y) * (e.predProb - y);
       }
       const total = resolved.length;
