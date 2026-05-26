@@ -83,6 +83,30 @@
     </div>
   </div>
 
+  <!-- Pass 218l: live-resolved tracking. After pass 218 the worker resolves
+       captures at MID (5d) horizon and trains on those outcomes — so this
+       card surfaces the FIRST honest post-deployment view of "is the brain
+       actually getting it right in production?" Walk-forward bootstrap was
+       the prediction; this is the realization. -->
+  <div class="card mb-24" id="live-resolved-card" style="display:none;">
+    <div class="card-header"><div class="card-title">📊 Live Resolutions — Post-Deployment Performance</div></div>
+    <div style="font-size:12px;color:var(--text-secondary);line-height:1.6;margin-bottom:14px;">
+      Captures that resolved at the brain's actual prediction horizon (5d).
+      <strong>This is the truth test after deployment.</strong> Walk-forward bootstrap showed +2.93pp edge;
+      this card shows whether the live brain holds up on real future data the model has never seen.
+    </div>
+    <div class="grid grid-4 mb-12">
+      <div class="proof-tile"><div class="lbl">Live resolved</div><div class="val" id="lr-n">—</div></div>
+      <div class="proof-tile"><div class="lbl">Accuracy</div><div class="val" id="lr-acc">—</div></div>
+      <div class="proof-tile"><div class="lbl">Brier</div><div class="val" id="lr-brier">—</div></div>
+      <div class="proof-tile"><div class="lbl">BSS</div><div class="val" id="lr-bss">—</div></div>
+    </div>
+    <div id="lr-verdict" style="padding:12px 16px;border-radius:8px;font-weight:800;text-align:center;font-size:14px;"></div>
+    <div style="font-size:11px;color:var(--text-muted);margin-top:10px;">
+      Captures pending resolution: <span id="lr-pending">—</span>. Resolutions take 5 trading days from capture.
+    </div>
+  </div>
+
   <!-- Pass 216: live brain picks — sorted by conviction. Worker captures every
        minute during market hours; this surfaces the freshest, most confident calls. -->
   <div class="card mb-24" id="livepicks-card" style="display:none;">
@@ -312,6 +336,41 @@ async function refreshWorkerMetrics() {
     document.getElementById('worker-metrics-card').style.display = 'block';
     if (j.heldout_test) renderMetricsTile(j.heldout_test, 'm', 'm-verdict');
     if (j.walk_forward_test) renderMetricsTile(j.walk_forward_test, 'wf', 'wf-verdict');
+
+    // Pass 218l: live resolutions tile — post-deployment truth test
+    if (j.live_resolved && j.live_resolved.n) {
+      const lr = j.live_resolved;
+      document.getElementById('live-resolved-card').style.display = 'block';
+      document.getElementById('lr-n').textContent = lr.n.toLocaleString();
+      document.getElementById('lr-acc').textContent = (lr.accuracy * 100).toFixed(1) + '%';
+      document.getElementById('lr-acc').style.color = lr.accuracy > 0.53 ? 'var(--green)' : (lr.accuracy < 0.47 ? 'var(--red)' : 'var(--text)');
+      document.getElementById('lr-brier').textContent = lr.brier.toFixed(4);
+      document.getElementById('lr-bss').textContent = (lr.bss >= 0 ? '+' : '') + lr.bss.toFixed(4);
+      document.getElementById('lr-bss').style.color = lr.bss > 0.05 ? 'var(--green)' : (lr.bss > 0 ? 'var(--yellow)' : 'var(--red)');
+      document.getElementById('lr-pending').textContent = (lr.captures_pending || 0).toLocaleString();
+      const v = document.getElementById('lr-verdict');
+      if (lr.n < 30) {
+        v.textContent = '⏳ Building sample — need n ≥ 30 for meaningful read (currently ' + lr.n + ')';
+        v.style.background = 'rgba(212,160,74,0.10)';
+        v.style.color = 'var(--yellow)';
+        v.style.border = '1px solid rgba(212,160,74,0.4)';
+      } else if (lr.bss > 0.02) {
+        v.textContent = '✓ POST-DEPLOYMENT EDGE CONFIRMED — BSS +' + lr.bss.toFixed(3) + ' on n=' + lr.n;
+        v.style.background = 'rgba(16,185,129,0.15)';
+        v.style.color = 'var(--green)';
+        v.style.border = '1px solid var(--green)';
+      } else if (lr.bss > -0.02) {
+        v.textContent = '~ At baseline — BSS ' + lr.bss.toFixed(3) + ' on n=' + lr.n + ' (brain neither beating nor lagging)';
+        v.style.background = 'rgba(245,158,11,0.15)';
+        v.style.color = 'var(--yellow)';
+        v.style.border = '1px solid var(--yellow)';
+      } else {
+        v.textContent = '✗ BELOW BASELINE on live data — BSS ' + lr.bss.toFixed(3) + ' on n=' + lr.n;
+        v.style.background = 'rgba(220,38,38,0.15)';
+        v.style.color = 'var(--red)';
+        v.style.border = '1px solid var(--red)';
+      }
+    }
   } catch (e) {}
 }
 
