@@ -497,9 +497,13 @@
         }
       });
 
-      // Mark flat outcomes legibly for the dashboard
-      if (entry.resolved.short && !entry.outcome) {
-        entry.outcome = entry.resolved.short;  // 'flat' / 'correct' / 'wrong'
+      // Mark flat outcomes legibly for the dashboard. Pass 218j: prefer mid
+      // (5d) resolution since that's the brain's actual prediction horizon.
+      // Fall back to short for legacy pre-pass-218 journal entries.
+      if (!entry.outcome) {
+        const r = entry.resolved;
+        if (r && r.mid) entry.outcome = r.mid;
+        else if (r && r.short) entry.outcome = r.short;
       }
     });
 
