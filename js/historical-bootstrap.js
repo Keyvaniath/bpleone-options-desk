@@ -371,14 +371,19 @@
         }
         symbolsFetched++;
         const recent = bars.slice(-BOOTSTRAP_DAYS);
-        // Need next-day close for outcome, so iterate up to recent.length - 1
-        for (let i = 14; i < recent.length - 1; i++) {
+        // Pass 218m: predict 5-day forward direction at +/- 1pp threshold
+        // (matches worker bootstrap from pass 206 and live training horizon
+        // from pass 218). Was 1-day +/- 0.3pp which is famously near-random
+        // on liquid stocks and conflicts with everything else in the system.
+        // FWD_DAYS=5 so we iterate up to recent.length - FWD_DAYS.
+        const FWD_DAYS = 5;
+        const LABEL_THRESHOLD = 0.01;
+        for (let i = 14; i < recent.length - FWD_DAYS; i++) {
           const features = featuresFromBar(recent, i, spyBars, spyBars ? Math.max(0, spyBars.length - recent.length + i) : -1);
           if (!features) continue;
-          const next = recent[i + 1];
-          const ret = (next.close - recent[i].close) / recent[i].close;
-          // Outcome label: predicted-LONG wins if ret > 0.3% (matches HORIZON_MIN_MOVE.short)
-          const label = ret > 0.003 ? 1 : (ret < -0.003 ? 0 : null);
+          const future = recent[i + FWD_DAYS];
+          const ret = (future.close - recent[i].close) / recent[i].close;
+          const label = ret > LABEL_THRESHOLD ? 1 : (ret < -LABEL_THRESHOLD ? 0 : null);
           if (label === null) continue;
 
           // Run the model's prediction BEFORE training to feed BSS/Sharpe correctly
