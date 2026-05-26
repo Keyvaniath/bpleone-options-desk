@@ -47,9 +47,15 @@
     enabled: false,
     bankroll: 10000,
     minConviction: 0.75,
-    stopPct: 0.01,         // 1% adverse = stop
-    targetPct: 0.025,      // 2.5% favorable = target (2.5R)
-    holdHours: 24,
+    // Pass 218d: targets/stops widened to match the brain's actual prediction
+    // horizon (5d at +/- 1pp = bootstrap label scheme). Was stopPct=0.01,
+    // targetPct=0.025, holdHours=24 — which closed paper trades at 24h before
+    // the brain's 5-day prediction had a chance to play out. The model is
+    // fit to predict 5-day forward direction, so paper trades need to live
+    // 5 days to honestly evaluate the brain's signal.
+    stopPct: 0.025,        // 2.5% adverse = stop (5d ATR-equivalent for liquid names)
+    targetPct: 0.05,       // 5% favorable = target (2R)
+    holdHours: 120,        // 5 trading days = brain's prediction horizon
     maxOpenPositions: 5,
     maxTotalRiskPct: 0.10, // 10% of bankroll
     kellyFraction: 0.25
