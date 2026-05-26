@@ -38,7 +38,13 @@
   const DEFAULTS = {
     bankroll: 10000,
     riskPct: 0.02,
-    stopRetAssumption: 0.01,   // 1% adverse move = full stop
+    // Pass 218g: stopRetAssumption widened to 2.5% to match the 5d-horizon
+    // auto-trade default (was 0.01 = 1% which was the 24h-hold assumption).
+    // Without this fix the rMultiple math undercounted full-stops: a 2% loss
+    // on a 2.5% stop should be -0.8R, but at stopRet=0.01 was -2R (clamped
+    // to -1R). Backward-compat: realizedRet pre-pass-218 still came from
+    // short-horizon resolutions which capped at smaller moves anyway.
+    stopRetAssumption: 0.025,  // 2.5% adverse move = full stop (5d horizon)
     maxRMultiple: 5,            // trail caps at 5R upside
     minConvictionToTrade: 0.55  // skip predictions below this
   };
@@ -72,13 +78,19 @@
   }
   function getConfig() { return loadConfig(); }
 
-  // Filter journal to entries resolved at short horizon with realizedRet set
+  // Filter journal to entries resolved at the brain's prediction horizon
+  // (MID = 5d post-pass-218) with realizedRet set. Backward-compat: also
+  // accept short-horizon resolutions for legacy journal entries that
+  // pre-date pass 218 — their realizedRet was set on short resolve.
   function resolvedEntries(journal) {
     return (journal || []).filter(e => {
       if (!e || !e.ts) return false;
       const r = e.resolved;
-      const isShortResolved = r && (r === true || (r.short && r.short !== false && r.short !== 'flat'));
-      return isShortResolved && typeof e.realizedRet === 'number' && typeof e.predProb === 'number';
+      if (!r) return false;
+      const isResolved = r === true
+        || (r.mid && r.mid !== false && r.mid !== 'flat')
+        || (r.short && r.short !== false && r.short !== 'flat');
+      return isResolved && typeof e.realizedRet === 'number' && typeof e.predProb === 'number';
     });
   }
 
