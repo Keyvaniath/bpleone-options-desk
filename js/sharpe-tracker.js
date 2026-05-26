@@ -35,7 +35,13 @@
   const KEY = 'bpleone_sharpe_v1';
   const MAX_LOG = 500;
   const DEFAULT_WINDOW = 200;
-  const DEFAULT_PERIODS_PER_YEAR = 252; // trading days per year — daily returns
+  // Pass 218h: post-pass-218 the brain trains on MID (5-day) horizon
+  // resolutions, so SharpeTracker.record() is being fed 5-day signed returns,
+  // not 1-day. Annualization factor is sqrt(periodsPerYear); going from
+  // 252 (daily) -> 50 (5-day) drops sqrt(252)/sqrt(50) = 2.24× over-report.
+  // Was 252 (correct for the pre-pass-218 daily-resolution era). Callers
+  // can still override via score(window, periodsPerYear) for ad-hoc analysis.
+  const DEFAULT_PERIODS_PER_YEAR = 50; // ~50 non-overlapping 5-day windows per year
 
   function load() {
     if (typeof localStorage === 'undefined') return { log: [] };
