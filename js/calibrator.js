@@ -68,6 +68,17 @@
       a -= lr * gradA;
       b -= lr * gradB;
     }
+    // Pass 219 (browser side, mirror of worker pass 214): reject inverted
+    // Platt fits. If `a < 0.2`, the calibration learned to flip the
+    // directional sign of the underlying model — that's either a fluke from
+    // noisy data or a regime-shift artifact. Applying it production would
+    // destroy directional edge. Save with rejected=true so calibrate()
+    // returns identity instead of using the inverted mapping.
+    if (a < 0.2) {
+      const rejected = { rejected: true, reason: 'inverted-or-weak', fittedA: a, fittedB: b, n: data.length, fittedAt: Date.now() };
+      saveParams(rejected);
+      return rejected;
+    }
     const params = { a, b, fittedAt: Date.now(), n: data.length };
     saveParams(params);
     return params;
@@ -75,7 +86,8 @@
 
   function calibrate(rawProb) {
     const params = loadParams();
-    if (!params) return rawProb;  // identity until fitted
+    if (!params || params.rejected) return rawProb;  // identity if rejected or unfit
+    if (typeof params.a !== 'number' || params.a < 0.2) return rawProb;
     const x = logit(rawProb);
     return sigmoid(params.a * x + params.b);
   }

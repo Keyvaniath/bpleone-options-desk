@@ -136,6 +136,16 @@
       a -= lr * gradA / data.length;
       b -= lr * gradB / data.length;
     }
+    // Pass 219 (mirror of worker pass 214): reject inverted Platt fits.
+    // Per-regime data is sparser than global, so this guard is even more
+    // important here — a single regime hitting a noisy 30-pair window
+    // could easily produce a < 0 and start inverting predictions for
+    // every capture classified into that regime.
+    if (a < 0.2) {
+      const rejected = { rejected: true, reason: 'inverted-or-weak', fittedA: a, fittedB: b, n: pairs.length, regime, fittedAt: Date.now() };
+      saveParams(regime, rejected);
+      return rejected;
+    }
     const params = { a, b, fittedAt: Date.now(), n: pairs.length, regime };
     saveParams(regime, params);
     return params;
