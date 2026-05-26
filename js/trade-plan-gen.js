@@ -56,8 +56,11 @@
     const conv = Math.max(entry.predProb, 1 - entry.predProb);
     const dir = entry.predProb >= 0.5 ? 'LONG' : 'SHORT';
     const entryPx = entry.entryPx || 0;
-    const stopPct = 0.01;
-    const targetPct = 0.025;
+    // Pass 218f: stop/target widened to 5d horizon (brain predicts 5-day
+    // forward direction at +/- 1pp). Was 1%/2.5%/24h which gets stopped out
+    // on routine 5d noise. Now 2.5%/5%/120h matches auto-trade.js defaults.
+    const stopPct = 0.025;
+    const targetPct = 0.05;
     const stop = dir === 'LONG' ? entryPx * (1 - stopPct) : entryPx * (1 + stopPct);
     const target = dir === 'LONG' ? entryPx * (1 + targetPct) : entryPx * (1 - targetPct);
     const rr = (targetPct / stopPct).toFixed(1);
@@ -79,7 +82,7 @@
     if (entry.oodScore > 0.6) risks.push('Inputs are out-of-distribution — size down or skip');
     if (entry.uncertaintyStd > 0.15) risks.push('High prediction uncertainty (' + entry.uncertaintyStd.toFixed(2) + ' MC std)');
     lines.push('Risks: ' + risks.join(' · '));
-    lines.push('Hold horizon: 1d (short) · Time-stop: 24h · Exit on stop/target/brain reversal/time-stop');
+    lines.push('Hold horizon: 5d (mid) · Time-stop: 120h · Exit on stop/target/brain reversal/time-stop');
     return lines.join('\n');
   }
 
@@ -93,7 +96,7 @@
       const features = entry.features ? JSON.stringify(entry.features.slice(0, 22)) : 'n/a';
       const prompt = 'You are a concise options trader. Given this brain signal, write a 4-line trade plan: ' +
         'line 1 = headline (symbol, direction, conviction%), ' +
-        'line 2 = entry/stop/target levels assuming 1% stop and 2.5R target, ' +
+        'line 2 = entry/stop/target levels assuming 2.5% stop and 2R target, ' +
         'line 3 = "why this setup" in 12 words max, ' +
         'line 4 = key risk in 10 words max. ' +
         'No fluff. No disclaimers. No bullet points.\n\n' +
