@@ -131,8 +131,15 @@ function rankOne(sym) {
   let atr = q.dayHigh && q.dayLow ? (q.dayHigh - q.dayLow) : q.last * 0.015;
   const side = u.direction === 'LONG' ? 'long' : 'short';
   const entry = q.last;
-  const stop = side === 'long' ? entry - 1.5 * atr : entry + 1.5 * atr;
-  const target = side === 'long' ? entry + 3 * atr : entry - 3 * atr;
+  // Pass 218e: stop/target widened to match the brain's 5-day prediction
+  // horizon. Previously 1.5x daily ATR for stop = stops out on routine 5d
+  // noise before the brain's directional signal can play out. For a 5-day
+  // hold, ~5d-natural-volatility is ~sqrt(5) x daily ATR ~ 2.2x daily ATR,
+  // so we need stops outside that natural range. 3x ATR stop + 6x ATR
+  // target preserves the 2R reward:risk while letting the brain's signal
+  // (5-day +/- 1pp at threshold) have room.
+  const stop = side === 'long' ? entry - 3 * atr : entry + 3 * atr;
+  const target = side === 'long' ? entry + 6 * atr : entry - 6 * atr;
   const risk = Math.abs(entry - stop);
   const reward = Math.abs(target - entry);
   const rr = risk > 0 ? reward / risk : 0;
