@@ -33,10 +33,14 @@
     try { return JSON.parse(localStorage.getItem('bpleone_pred_journal_v1') || '[]'); } catch (e) { return []; }
   }
 
+  // Pass 218i: also accept mid-horizon resolutions. After pass 218 the brain
+  // trains on mid (5d) outcomes, so the nearest-neighbor lookup should
+  // include those entries. Keeping the function name for backwards-compat
+  // with callers — semantic is now "resolved at ANY relevant horizon."
   function isShortResolved(e) {
-    if (!e.resolved) return false;
+    if (!e || !e.resolved) return false;
     if (typeof e.resolved === 'boolean') return e.resolved;
-    return !!e.resolved.short;
+    return !!e.resolved.mid || !!e.resolved.short;
   }
 
   // Get featureWeights from FeatureImportance if available

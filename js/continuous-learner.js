@@ -716,10 +716,13 @@
   }
 
   // -------- Stats summary --------
+  // Pass 218i: also accept mid-horizon resolutions. After pass 218 the brain
+  // trains on mid (5d) outcomes; stats functions should reflect entries
+  // resolved at the actual prediction horizon.
   function isShortResolved(e) {
-    if (!e.resolved) return false;
+    if (!e || !e.resolved) return false;
     if (typeof e.resolved === 'boolean') return e.resolved;
-    return !!e.resolved.short;
+    return !!e.resolved.mid || !!e.resolved.short;
   }
   function summary() {
     const journal = loadJournal();
