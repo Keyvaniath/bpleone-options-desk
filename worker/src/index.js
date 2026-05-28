@@ -38,7 +38,7 @@
 // Pass 200: version stamp so brain-proof.html + worker-setup.html can detect
 // when the deployed worker is behind the repo source. Bump on every meaningful
 // behavior change. Read via /brain/health → worker_version field.
-const WORKER_VERSION = 'pass-224';
+const WORKER_VERSION = 'pass-225';
 
 const UNIVERSE = [
   'SPY','QQQ','IWM','DIA','AAPL','NVDA','TSLA','MSFT','META','AMZN','GOOGL','AMD',
@@ -1460,7 +1460,14 @@ async function runBootstrap(env) {
     trainSize: trainSet.length,
     testSize: testSet.length,
     errors: errors.length,
-    avgLoss: trainSet.length ? lossSum / trainSet.length : null,
+    // Pass 225: divide by totalSteps (N_EPOCHS * trainSet.length), not
+    // trainSet.length. lossSum accumulates over every epoch, so dividing by one
+    // epoch's example count inflated avgLoss by the epoch count — which made it
+    // jump 1.43 -> 2.15 when champion C_heavy (3 epochs) won vs the old fixed
+    // 2-epoch config, despite identical true per-example loss (~0.72). With the
+    // champion's epochs now variable (2/3/4), this is the difference between a
+    // comparable metric and one that swings purely on epoch count.
+    avgLoss: totalSteps ? lossSum / totalSteps : null,
     final_n_trained: model.n_trained,
     // Pass 222: champion/challenger results
     champion: champion.cfg.name,
