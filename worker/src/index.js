@@ -38,7 +38,7 @@
 // Pass 200: version stamp so brain-proof.html + worker-setup.html can detect
 // when the deployed worker is behind the repo source. Bump on every meaningful
 // behavior change. Read via /brain/health → worker_version field.
-const WORKER_VERSION = 'pass-230';
+const WORKER_VERSION = 'pass-231';
 
 const UNIVERSE = [
   'SPY','QQQ','IWM','DIA','AAPL','NVDA','TSLA','MSFT','META','AMZN','GOOGL','AMD',
@@ -62,6 +62,7 @@ const KV_KEYS = {
   CLEAR_FLAG: 'journal_clear_flag_v1', // pass 221: tick-coordinated journal wipe
   CHAMPIONS: 'champions_v1',       // pass 222: champion/challenger leaderboard
   AUTO_BOOTSTRAP_TS: 'auto_bootstrap_ts_v1', // pass 228: last autonomous bootstrap time
+  SIGNALS: 'signals_v1',           // pass 231: unusual-volume + conviction scanner snapshot
 };
 
 // Pass 218: bumped from 12,000 → 35,000. Live training triggers on the
@@ -588,6 +589,47 @@ function isMarketLikelyOpen() {
 // ============================================================
 // Tick handler — runs every minute on cron
 // ============================================================
+// Pass 231: unusual-volume + brain-conviction signal for the scanner. This is
+// the equity-side "whale proxy": institutional accumulation/distribution shows
+// up as relative-volume (RVOL) surges, and we pair that with the brain's
+// 5-day directional conviction to emit a plain BUY / SELL / WATCH / HOLD call.
+// RVOL is time-of-day normalized: today's cumulative volume is projected to a
+// full session (vol / fraction-of-day-elapsed) before comparing to the trailing
+// average, so "2x normal by 11am" isn't undercounted. NOTE: this is volume +
+// price action on free data, NOT options-flow whale prints (those need a paid
+// OPRA feed). It's the real, honest TA version of unusual activity.
+function computeSignal(sym, q, history, predProb, dayKey) {
+  const prior = (Array.isArray(history) ? history : [])
+    .filter(b => b.dayKey !== dayKey && (b.volume || 0) > 0).slice(-20);
+  let rvol = null;
+  if (prior.length >= 5) {
+    const avgVol = prior.reduce((s, b) => s + (b.volume || 0), 0) / prior.length;
+    const curVol = q.volume || 0;
+    if (avgVol > 0 && curVol > 0) {
+      const frac = Math.max(0.1, Math.min(1, (etHour() - 9.5) / 6.5));  // fraction of RTH elapsed
+      rvol = (curVol / frac) / avgVol;
+    }
+  }
+  const conviction = Math.abs(predProb - 0.5) * 2;   // 0..1
+  const strongUp = predProb >= 0.55;
+  const strongDown = predProb <= 0.45;
+  const rv = rvol || 0;
+  let signal = 'HOLD', reason = 'no edge';
+  if (strongUp && rv >= 1.5) { signal = 'BUY'; reason = rv.toFixed(1) + '× normal volume + brain ' + Math.round(predProb * 100) + '% up (accumulation)'; }
+  else if (strongDown && rv >= 1.5) { signal = 'SELL'; reason = rv.toFixed(1) + '× normal volume + brain ' + Math.round((1 - predProb) * 100) + '% down (distribution)'; }
+  else if (rv >= 2.5) { signal = 'WATCH'; reason = rv.toFixed(1) + '× normal volume, direction unclear (' + Math.round(predProb * 100) + '% up)'; }
+  else if (strongUp) { signal = 'LEAN BUY'; reason = 'brain ' + Math.round(predProb * 100) + '% up, volume normal'; }
+  else if (strongDown) { signal = 'LEAN SELL'; reason = 'brain ' + Math.round((1 - predProb) * 100) + '% down, volume normal'; }
+  const rank = conviction * Math.min(rv || 1, 5);    // alpha rank = conviction x unusualness
+  return {
+    sym, last: q.last, changePct: +(q.changePct || 0).toFixed(2),
+    rvol: rvol != null ? +rvol.toFixed(2) : null,
+    predProb: +predProb.toFixed(4), dirUp: predProb >= 0.5,
+    conviction: +conviction.toFixed(3), signal, reason,
+    rank: +rank.toFixed(4), ts: Date.now()
+  };
+}
+
 async function tick(env) {
   const startTs = Date.now();
 
@@ -622,13 +664,15 @@ async function tick(env) {
     return { ok: true, skipped: 'market-closed', journal_cleared: !!clearFlag };
   }
 
-  let [journal, model, lastTick, barsHistory, platt] = await Promise.all([
+  let [journal, model, lastTick, barsHistory, platt, signalsSnap] = await Promise.all([
     kvGet(env, KV_KEYS.JOURNAL, []),  // re-read: reflects the clear above if it fired
     kvGet(env, KV_KEYS.MODEL, newModel()),
     kvGet(env, KV_KEYS.LAST_TICK, { ts: 0, syms_updated: 0, errors: 0 }),
     kvGet(env, KV_KEYS.BARS_HISTORY, {}),  // pass 193: per-sym recent bars
-    kvGet(env, KV_KEYS.PLATT, null)       // pass 213: Platt calibration params
+    kvGet(env, KV_KEYS.PLATT, null),      // pass 213: Platt calibration params
+    kvGet(env, KV_KEYS.SIGNALS, { updatedAt: 0, signals: {} })  // pass 231: scanner snapshot
   ]);
+  const signalsMap = (signalsSnap && signalsSnap.signals) ? signalsSnap.signals : {};
   const journalClearedThisTick = !!clearFlag;
 
   // Pass 188: rotate through universe over multiple ticks to stay under
@@ -712,6 +756,15 @@ async function tick(env) {
       barsHistoryDirty = true;
     }
 
+    // Pass 231: compute features + calibrated prob for EVERY in-slice symbol
+    // every tick, and refresh its scanner signal — so the unusual-volume scanner
+    // stays intraday-fresh (each symbol updates as it rotates, ~every 6 min).
+    // These are reused for the once-per-day journal capture below (no recompute).
+    const features = extractRichFeatures(q, history, { vix });
+    const rawP = predict(model, features);
+    const p = applyPlatt(rawP, platt);
+    signalsMap[sym] = computeSignal(sym, q, history, p, dayKey);
+
     // Pass 226/230: capture ONE journal entry per symbol per ET trading day,
     // taken LATE in the session (>= 3pm ET) so the snapshot's price, volume
     // (RVOL) and intraday range match the near-complete daily bar the model was
@@ -722,13 +775,6 @@ async function tick(env) {
     if (lastCap && lastCap.dayKey === dayKey) continue;  // already captured today
     if (etHour() < 15) continue;                          // wait for the near-close snapshot
 
-    // Use rich features if we have enough history
-    const features = extractRichFeatures(q, history, { vix });
-    // Pass 213: capture BOTH raw and Platt-calibrated probabilities.
-    // predProb (calibrated) is the one downstream consumers should trade on;
-    // predProbRaw is preserved for diagnostics and re-calibration analysis.
-    const rawP = predict(model, features);
-    const p = applyPlatt(rawP, platt);
     journal.push({
       id: 'w-' + Date.now() + '-' + sym + '-' + Math.random().toString(36).slice(2, 6),
       ts: Date.now(),
@@ -813,9 +859,13 @@ async function tick(env) {
   ];
   if (barsHistoryDirty) writes.push(kvPut(env, KV_KEYS.BARS_HISTORY, barsHistory));
   if (trained > 0) writes.push(kvPut(env, KV_KEYS.MODEL, model));
+  // Pass 231: persist the refreshed unusual-volume scanner snapshot (small —
+  // ~universe of one small object per symbol). Cap to recent entries so it
+  // can't grow unbounded if the universe changes.
+  writes.push(kvPut(env, KV_KEYS.SIGNALS, { updatedAt: Date.now(), signals: signalsMap }));
   await Promise.all(writes);
 
-  return { ok: true, captured, resolved, trained, syms: okCount, errors: errCount };
+  return { ok: true, captured, resolved, trained, syms: okCount, errors: errCount, signals: Object.keys(signalsMap).length };
 }
 
 // ============================================================
@@ -892,6 +942,32 @@ async function handleRequest(request, env, ctx) {
     const champs = await kvGet(env, KV_KEYS.CHAMPIONS, null);
     if (!champs) return json({ error: 'no champion data yet — run /brain/bootstrap', leaderboard: [] });
     return json(champs);
+  }
+
+  if (path === '/brain/signals') {
+    // Pass 231: unusual-volume + conviction scanner. Returns the per-symbol
+    // BUY / SELL / WATCH / HOLD calls refreshed by the cron tick as symbols
+    // rotate (~every 6 min). Optional ?signal=BUY filter, ?min_rvol=2 filter.
+    const snap = await kvGet(env, KV_KEYS.SIGNALS, { updatedAt: 0, signals: {} });
+    let arr = Object.values(snap.signals || {});
+    // Drop stale rows (a symbol not seen in >45 min — universe/rotation gap).
+    arr = arr.filter(s => s && (Date.now() - (s.ts || 0)) < 45 * 60 * 1000);
+    const wantSignal = (url.searchParams.get('signal') || '').toUpperCase();
+    if (wantSignal) arr = arr.filter(s => s.signal === wantSignal);
+    const minRvol = parseFloat(url.searchParams.get('min_rvol') || '0');
+    if (minRvol > 0) arr = arr.filter(s => (s.rvol || 0) >= minRvol);
+    // Actionable signals first (BUY/SELL), then by alpha rank (conviction x RVOL).
+    const order = { BUY: 0, SELL: 1, WATCH: 2, 'LEAN BUY': 3, 'LEAN SELL': 4, HOLD: 5 };
+    arr.sort((a, b) => ((order[a.signal] ?? 9) - (order[b.signal] ?? 9)) || ((b.rank || 0) - (a.rank || 0)));
+    const counts = arr.reduce((m, s) => { m[s.signal] = (m[s.signal] || 0) + 1; return m; }, {});
+    return json({
+      updatedAt: snap.updatedAt || 0,
+      ageSec: snap.updatedAt ? Math.floor((Date.now() - snap.updatedAt) / 1000) : null,
+      count: arr.length,
+      counts,
+      note: 'Unusual VOLUME (relative-volume surge) + brain conviction. Free-data TA proxy for institutional activity — NOT options-flow whale prints.',
+      signals: arr
+    });
   }
 
   if (path === '/brain/predict') {
@@ -1196,7 +1272,7 @@ async function handleRequest(request, env, ctx) {
     return json(r);
   }
 
-  return json({ error: 'not found', paths: ['/brain/health', '/brain/state', '/brain/journal', '/brain/model', '/brain/metrics', '/brain/debug/fetch?sym=X', '/brain/bootstrap (POST)', '/brain/tick (POST)'] }, 404);
+  return json({ error: 'not found', paths: ['/brain/health', '/brain/state', '/brain/journal', '/brain/model', '/brain/metrics', '/brain/symbols', '/brain/champions', '/brain/signals', '/brain/predict?sym=X', '/brain/debug/fetch?sym=X', '/brain/bootstrap (POST)', '/brain/tick (POST)'] }, 404);
 }
 
 async function runBootstrap(env) {

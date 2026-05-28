@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Alpha Scanner — Unusual Volume + Brain Signals — bpleone / trade</title>
+<meta name="description" content="Scans the universe for unusual relative-volume surges (the equity whale-proxy) and pairs them with the brain's 5-day conviction to emit plain BUY / SELL / WATCH signals.">
+<link rel="stylesheet" href="css/style.css?v=v178">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.sig-pill { display:inline-block;padding:3px 10px;border-radius:6px;font-family:var(--font-mono);font-weight:800;font-size:12px;letter-spacing:0.4px; }
+.sig-BUY { background:rgba(16,185,129,0.16);color:var(--green); }
+.sig-SELL { background:rgba(220,38,38,0.16);color:var(--red); }
+.sig-WATCH { background:rgba(234,179,8,0.16);color:var(--yellow); }
+.sig-LEANBUY { background:rgba(16,185,129,0.08);color:var(--green); }
+.sig-LEANSELL { background:rgba(220,38,38,0.08);color:var(--red); }
+.sig-HOLD { background:rgba(148,163,184,0.12);color:var(--text-muted); }
+.scan-table { width:100%;border-collapse:collapse;font-family:var(--font-mono);font-size:13px; }
+.scan-table th { text-align:left;padding:8px 10px;color:var(--text-muted);font-size:10px;text-transform:uppercase;letter-spacing:0.5px;border-bottom:1px solid var(--border); }
+.scan-table td { padding:9px 10px;border-bottom:1px solid rgba(255,255,255,0.04); }
+.scan-table tr:hover { background:rgba(0,212,255,0.04); }
+.rvol-bar { display:inline-block;height:8px;border-radius:4px;background:var(--accent);vertical-align:middle;margin-left:6px; }
+.filter-btn { padding:7px 14px;border-radius:7px;border:1px solid var(--border);background:transparent;color:var(--text-secondary);cursor:pointer;font-family:var(--font-mono);font-weight:700;font-size:12px;transition:all 0.15s; }
+.filter-btn.active { border-color:var(--accent);color:var(--accent);background:rgba(0,212,255,0.08); }
+.stat-chip { padding:14px 18px;border-radius:10px;background:var(--bg-elevated);text-align:center; }
+.stat-chip .n { font-family:var(--font-mono);font-size:28px;font-weight:800; }
+.stat-chip .l { font-size:10px;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);margin-top:4px; }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">📡 Alpha Scanner</div>
+      <div class="page-subtitle">Unusual <strong>relative-volume</strong> surges (the equity whale-proxy) crossed with the brain's 5-day conviction → plain <span style="color:var(--green);">BUY</span> / <span style="color:var(--red);">SELL</span> / <span style="color:var(--yellow);">WATCH</span> calls. Refreshed by the 24/7 worker as symbols rotate.</div>
+    </div>
+    <button class="action-btn" onclick="loadSignals()" style="padding:12px 22px;border-radius:8px;border:1px solid rgba(0,212,255,0.4);background:transparent;color:var(--accent);cursor:pointer;font-family:var(--font-mono);font-weight:700;">↻ Refresh</button>
+  </div>
+
+  <div class="grid grid-4 mb-24" id="stat-row">
+    <div class="stat-chip"><div class="n" id="c-buy" style="color:var(--green);">—</div><div class="l">Buy signals</div></div>
+    <div class="stat-chip"><div class="n" id="c-sell" style="color:var(--red);">—</div><div class="l">Sell / avoid</div></div>
+    <div class="stat-chip"><div class="n" id="c-watch" style="color:var(--yellow);">—</div><div class="l">Watch (vol surge)</div></div>
+    <div class="stat-chip"><div class="n" id="c-age">—</div><div class="l">Snapshot age</div></div>
+  </div>
+
+  <div class="flex gap-8 mb-16" id="filters">
+    <button class="filter-btn active" data-f="ACTIONABLE" onclick="setFilter('ACTIONABLE')">Actionable</button>
+    <button class="filter-btn" data-f="BUY" onclick="setFilter('BUY')">Buy</button>
+    <button class="filter-btn" data-f="SELL" onclick="setFilter('SELL')">Sell</button>
+    <button class="filter-btn" data-f="WATCH" onclick="setFilter('WATCH')">Watch</button>
+    <button class="filter-btn" data-f="ALL" onclick="setFilter('ALL')">All</button>
+  </div>
+
+  <div class="card">
+    <div class="card-header"><div class="card-title">Live signals</div><div class="mono" id="updated-at" style="font-size:11px;color:var(--text-muted);">—</div></div>
+    <div style="overflow-x:auto;">
+      <table class="scan-table">
+        <thead><tr>
+          <th>Symbol</th><th>Last</th><th>Day %</th><th>RVOL</th><th>Brain (5d)</th><th>Signal</th><th>Why</th>
+        </tr></thead>
+        <tbody id="scan-body"><tr><td colspan="7" style="padding:24px;text-align:center;color:var(--text-muted);">Loading signals…</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+
+  <div style="margin-top:18px;padding:14px 18px;border-radius:10px;background:rgba(148,163,184,0.06);border-left:3px solid var(--text-muted);font-size:12px;color:var(--text-muted);line-height:1.6;">
+    <strong>How to read this.</strong> <span style="color:var(--green);">BUY</span> = the brain leans up <em>and</em> volume is running well above normal (institutional accumulation footprint). <span style="color:var(--red);">SELL</span> = down-lean on heavy volume (distribution / avoid). <span style="color:var(--yellow);">WATCH</span> = big volume surge but the brain isn't directionally confident yet — something is happening, keep an eye on it. RVOL is time-of-day adjusted (today's volume projected to a full session vs the trailing average). The brain's edge is real but marginal (~53% walk-forward) — size accordingly.
+    <br><br>
+    <strong>What this is NOT.</strong> This is unusual <em>volume</em> + price action on free equity data — the honest TA proxy for institutional activity. It is <em>not</em> options-flow whale prints (sweeps/blocks/premium), which require a paid OPRA data feed. If you want true options flow, that's a data-subscription decision.
+  </div>
+</div>
+
+<script src="js/data-provider.js?v=v178"></script>
+<script src="js/ai-client.js?v=v178"></script>
+<script src="js/app.js?v=v178"></script>
+<script src="js/notify.js?v=v178"></script>
+<script src="js/live.js?v=v178"></script>
+<script src="js/worker-bridge.js?v=v178"></script>
+<script>
+buildNav('alpha-scanner');
+
+const WORKER = (window.WorkerBridge && WorkerBridge.getUrl && WorkerBridge.getUrl())
+  || 'https://bpleone-brain-worker.brandonpleone.workers.dev';
+
+let _allSignals = [];
+let _filter = 'ACTIONABLE';
+
+function pillClass(sig) {
+  return 'sig-pill sig-' + String(sig || 'HOLD').replace(/\s+/g, '');
+}
+function fmtVol(rvol) {
+  if (rvol == null) return '<span style="color:var(--text-muted);">—</span>';
+  const w = Math.min(60, Math.round(rvol * 14));
+  const col = rvol >= 2.5 ? 'var(--yellow)' : rvol >= 1.5 ? 'var(--accent)' : 'var(--text-muted)';
+  return '<span style="color:' + col + ';font-weight:700;">' + rvol.toFixed(1) + '×</span>'
+    + '<span class="rvol-bar" style="width:' + w + 'px;background:' + col + ';"></span>';
+}
+function fmtBrain(s) {
+  const pct = Math.round(s.predProb * 100);
+  const up = s.dirUp;
+  const shown = up ? pct : (100 - pct);
+  const col = up ? 'var(--green)' : 'var(--red)';
+  return '<span style="color:' + col + ';font-weight:700;">' + shown + '% ' + (up ? '↑' : '↓') + '</span>';
+}
+function setFilter(f) {
+  _filter = f;
+  document.querySelectorAll('.filter-btn').forEach(b => b.classList.toggle('active', b.dataset.f === f));
+  render();
+}
+function render() {
+  const body = document.getElementById('scan-body');
+  let rows = _allSignals.slice();
+  if (_filter === 'ACTIONABLE') rows = rows.filter(s => s.signal === 'BUY' || s.signal === 'SELL' || s.signal === 'WATCH');
+  else if (_filter !== 'ALL') rows = rows.filter(s => s.signal === _filter);
+  if (rows.length === 0) {
+    body.innerHTML = '<tr><td colspan="7" style="padding:24px;text-align:center;color:var(--text-muted);">No ' + (_filter === 'ALL' ? '' : _filter.toLowerCase() + ' ') + 'signals right now. The scanner refreshes as the worker rotates symbols (market hours).</td></tr>';
+    return;
+  }
+  body.innerHTML = rows.map(s => {
+    const chgCol = (s.changePct || 0) >= 0 ? 'var(--green)' : 'var(--red)';
+    return '<tr>'
+      + '<td style="font-weight:800;">' + s.sym + '</td>'
+      + '<td>$' + (s.last != null ? Number(s.last).toFixed(2) : '—') + '</td>'
+      + '<td style="color:' + chgCol + ';">' + ((s.changePct || 0) >= 0 ? '+' : '') + (s.changePct || 0).toFixed(2) + '%</td>'
+      + '<td>' + fmtVol(s.rvol) + '</td>'
+      + '<td>' + fmtBrain(s) + '</td>'
+      + '<td><span class="' + pillClass(s.signal) + '">' + s.signal + '</span></td>'
+      + '<td style="color:var(--text-secondary);font-size:12px;">' + (s.reason || '') + '</td>'
+      + '</tr>';
+  }).join('');
+}
+async function loadSignals() {
+  const body = document.getElementById('scan-body');
+  try {
+    const r = await fetch(WORKER + '/brain/signals', { cache: 'no-store' });
+    const j = await r.json();
+    _allSignals = Array.isArray(j.signals) ? j.signals : [];
+    const counts = j.counts || {};
+    document.getElementById('c-buy').textContent = counts.BUY || 0;
+    document.getElementById('c-sell').textContent = counts.SELL || 0;
+    document.getElementById('c-watch').textContent = counts.WATCH || 0;
+    const ageMin = j.ageSec != null ? Math.floor(j.ageSec / 60) : null;
+    document.getElementById('c-age').textContent = ageMin != null ? (ageMin + 'm') : '—';
+    document.getElementById('updated-at').textContent = j.updatedAt
+      ? ('updated ' + new Date(j.updatedAt).toLocaleTimeString() + ' · ' + (_allSignals.length) + ' symbols scanned')
+      : 'no snapshot yet';
+    render();
+  } catch (e) {
+    body.innerHTML = '<tr><td colspan="7" style="padding:24px;text-align:center;color:var(--red);">Could not reach the brain worker. Connect it on <a href="worker-setup.html" style="color:var(--accent);">worker-setup</a>.</td></tr>';
+  }
+}
+loadSignals();
+setInterval(loadSignals, 60000);
+</script>
+</body>
+</html>
