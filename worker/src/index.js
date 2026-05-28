@@ -38,7 +38,7 @@
 // Pass 200: version stamp so brain-proof.html + worker-setup.html can detect
 // when the deployed worker is behind the repo source. Bump on every meaningful
 // behavior change. Read via /brain/health → worker_version field.
-const WORKER_VERSION = 'pass-228';
+const WORKER_VERSION = 'pass-229';
 
 const UNIVERSE = [
   'SPY','QQQ','IWM','DIA','AAPL','NVDA','TSLA','MSFT','META','AMZN','GOOGL','AMD',
@@ -767,14 +767,19 @@ async function handleRequest(request, env, ctx) {
   const path = url.pathname;
 
   if (path === '/brain/health' || path === '/healthz') {
-    const lt = await kvGet(env, KV_KEYS.LAST_TICK, { ts: 0 });
+    const [lt, autoTs] = await Promise.all([
+      kvGet(env, KV_KEYS.LAST_TICK, { ts: 0 }),
+      kvGet(env, KV_KEYS.AUTO_BOOTSTRAP_TS, 0)   // pass 229: autonomous bootstrap observability
+    ]);
     const ageS = lt.ts ? Math.floor((Date.now() - lt.ts) / 1000) : null;
     return json({
       ok: true,
       lastTickAgo: ageS,
       lastTick: lt,
       healthy: ageS != null && ageS < 180,
-      worker_version: WORKER_VERSION  // pass 200
+      worker_version: WORKER_VERSION,  // pass 200
+      auto_bootstrap_ts: autoTs || 0,  // pass 229
+      auto_bootstrap_ago_h: autoTs ? +((Date.now() - autoTs) / 3600000).toFixed(2) : null
     });
   }
 
@@ -1530,33 +1535,32 @@ async function runBootstrap(env) {
   };
 }
 
-// Pass 228: autonomous weekly champion re-competition. The champion/challenger
-// bootstrap previously ran ONLY on a manual POST — so the brain only "tried new
-// things" when Brandon triggered it. This re-runs the full bootstrap (re-fetch
-// history, re-race the 4 configs, re-fit Platt, promote a fresh champion) every
-// ~7 days so the brain keeps adapting to regime shifts on its own.
+// Pass 228/229: autonomous weekly champion re-competition. The champion/
+// challenger bootstrap previously ran ONLY on a manual POST — so the brain only
+// "tried new things" when Brandon triggered it. This re-runs the full bootstrap
+// (re-fetch history, re-race the 4 configs, re-fit Platt, promote a fresh
+// champion) every ~7 days so the brain keeps adapting to regime shifts on its
+// own.
 //
-// Mechanics chosen for safety: it fires as a SELF-SUBREQUEST to /brain/bootstrap
-// rather than calling runBootstrap() inline. That gives the heavy bootstrap its
-// own request CPU budget instead of competing with the cron tick's, and reuses
-// the exact same audited path as the manual trigger. The KV timestamp is
-// claimed (written) BEFORE the kick, so a bootstrap still running when the next
-// 60s tick fires cannot be double-triggered. All failures are swallowed — a
-// missed auto-bootstrap just means the previous champion keeps running.
-const WORKER_SELF_URL = 'https://bpleone-brain-worker.brandonpleone.workers.dev';
+// Pass 229: call runBootstrap(env) INLINE rather than via a self-subrequest to
+// /brain/bootstrap. A Worker fetching its own workers.dev URL is unreliable
+// (same-script subrequest routing), and pass-228's self-fetch silently never
+// fired. Inline reuses the exact audited bootstrap path with no URL/token
+// dependency. The KV timestamp is claimed BEFORE the run so the next 60s tick
+// can't double-fire mid-run; on failure the claim is ROLLED BACK so a transient
+// error retries next tick instead of waiting a full week.
 const AUTO_BOOTSTRAP_INTERVAL_MS = 7 * 24 * 3600 * 1000;
 async function maybeAutoBootstrap(env) {
+  let claimed = false, prev = 0;
   try {
-    if (!env.ADMIN_TOKEN) return;  // can't self-authenticate without the secret
-    const last = await kvGet(env, KV_KEYS.AUTO_BOOTSTRAP_TS, 0);
-    if (Date.now() - (last || 0) < AUTO_BOOTSTRAP_INTERVAL_MS) return;
-    // Claim the slot first so a long-running bootstrap can't be double-fired.
-    await kvPut(env, KV_KEYS.AUTO_BOOTSTRAP_TS, Date.now());
-    await fetch(WORKER_SELF_URL + '/brain/bootstrap', {
-      method: 'POST',
-      headers: { 'Authorization': 'Bearer ' + env.ADMIN_TOKEN }
-    });
-  } catch (e) { /* best-effort; previous champion stays live on failure */ }
+    prev = await kvGet(env, KV_KEYS.AUTO_BOOTSTRAP_TS, 0);
+    if (Date.now() - (prev || 0) < AUTO_BOOTSTRAP_INTERVAL_MS) return;
+    await kvPut(env, KV_KEYS.AUTO_BOOTSTRAP_TS, Date.now());  // claim before running
+    claimed = true;
+    await runBootstrap(env);  // same path as the manual POST
+  } catch (e) {
+    if (claimed) { try { await kvPut(env, KV_KEYS.AUTO_BOOTSTRAP_TS, prev); } catch (e2) {} }
+  }
 }
 
 // ============================================================
