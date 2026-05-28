@@ -48,7 +48,13 @@
   // Each entry gets resolved at the SHORT horizon (1d) first for the main
   // rolling-accuracy loop, then again at MID (5d) and LONG (20d) for the
   // multi-horizon ensemble models.
-  const HORIZON_HOURS = { short: 24, mid: 5 * 24, long: 20 * 24 };
+  // Pass 226: horizons in CALENDAR hours sized to TRADING days (mirrors the
+  // worker). 5 trading days = 7 calendar days = exactly 5 weekdays for any entry
+  // day-of-week; 20 trading days = 4 weeks = 28 calendar days. Was 5*24/20*24
+  // (calendar days), which under-counted weekends so "5d" display resolutions
+  // fired at ~3 trading days. Display-only here (worker is the training brain),
+  // but keeps the UI's "5d"/"20d" labels honest and consistent with the worker.
+  const HORIZON_HOURS = { short: 24, mid: 7 * 24, long: 28 * 24 };
   // Audit pass 4 fix: was 5000 (~3 days at typical capture rate). Bumped
   // so 30-day window in money-made.html actually retains 30 days of data.
   // 12000 = ~25 days of captures at 48/hour during market hours. Each entry
