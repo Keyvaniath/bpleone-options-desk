@@ -38,7 +38,7 @@
 // Pass 200: version stamp so brain-proof.html + worker-setup.html can detect
 // when the deployed worker is behind the repo source. Bump on every meaningful
 // behavior change. Read via /brain/health → worker_version field.
-const WORKER_VERSION = 'pass-227';
+const WORKER_VERSION = 'pass-228';
 
 const UNIVERSE = [
   'SPY','QQQ','IWM','DIA','AAPL','NVDA','TSLA','MSFT','META','AMZN','GOOGL','AMD',
@@ -61,6 +61,7 @@ const KV_KEYS = {
   PLATT: 'platt_v1',               // pass 213: Platt calibration {a, b, fittedAt, n}
   CLEAR_FLAG: 'journal_clear_flag_v1', // pass 221: tick-coordinated journal wipe
   CHAMPIONS: 'champions_v1',       // pass 222: champion/challenger leaderboard
+  AUTO_BOOTSTRAP_TS: 'auto_bootstrap_ts_v1', // pass 228: last autonomous bootstrap time
 };
 
 // Pass 218: bumped from 12,000 → 35,000. Live training triggers on the
@@ -1529,6 +1530,35 @@ async function runBootstrap(env) {
   };
 }
 
+// Pass 228: autonomous weekly champion re-competition. The champion/challenger
+// bootstrap previously ran ONLY on a manual POST — so the brain only "tried new
+// things" when Brandon triggered it. This re-runs the full bootstrap (re-fetch
+// history, re-race the 4 configs, re-fit Platt, promote a fresh champion) every
+// ~7 days so the brain keeps adapting to regime shifts on its own.
+//
+// Mechanics chosen for safety: it fires as a SELF-SUBREQUEST to /brain/bootstrap
+// rather than calling runBootstrap() inline. That gives the heavy bootstrap its
+// own request CPU budget instead of competing with the cron tick's, and reuses
+// the exact same audited path as the manual trigger. The KV timestamp is
+// claimed (written) BEFORE the kick, so a bootstrap still running when the next
+// 60s tick fires cannot be double-triggered. All failures are swallowed — a
+// missed auto-bootstrap just means the previous champion keeps running.
+const WORKER_SELF_URL = 'https://bpleone-brain-worker.brandonpleone.workers.dev';
+const AUTO_BOOTSTRAP_INTERVAL_MS = 7 * 24 * 3600 * 1000;
+async function maybeAutoBootstrap(env) {
+  try {
+    if (!env.ADMIN_TOKEN) return;  // can't self-authenticate without the secret
+    const last = await kvGet(env, KV_KEYS.AUTO_BOOTSTRAP_TS, 0);
+    if (Date.now() - (last || 0) < AUTO_BOOTSTRAP_INTERVAL_MS) return;
+    // Claim the slot first so a long-running bootstrap can't be double-fired.
+    await kvPut(env, KV_KEYS.AUTO_BOOTSTRAP_TS, Date.now());
+    await fetch(WORKER_SELF_URL + '/brain/bootstrap', {
+      method: 'POST',
+      headers: { 'Authorization': 'Bearer ' + env.ADMIN_TOKEN }
+    });
+  } catch (e) { /* best-effort; previous champion stays live on failure */ }
+}
+
 // ============================================================
 // Cloudflare entry points
 // ============================================================
@@ -1539,5 +1569,7 @@ export default {
   async scheduled(event, env, ctx) {
     // Cron-triggered tick — runs every minute
     ctx.waitUntil(tick(env));
+    // Pass 228: weekly autonomous champion re-competition (gated; see above)
+    ctx.waitUntil(maybeAutoBootstrap(env));
   }
 };
