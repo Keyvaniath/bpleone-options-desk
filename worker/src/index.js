@@ -38,7 +38,7 @@
 // Pass 200: version stamp so brain-proof.html + worker-setup.html can detect
 // when the deployed worker is behind the repo source. Bump on every meaningful
 // behavior change. Read via /brain/health → worker_version field.
-const WORKER_VERSION = 'pass-218n';
+const WORKER_VERSION = 'pass-220';
 
 const UNIVERSE = [
   'SPY','QQQ','IWM','DIA','AAPL','NVDA','TSLA','MSFT','META','AMZN','GOOGL','AMD',
@@ -1269,24 +1269,48 @@ async function runBootstrap(env) {
   const calibSplitIdx = Math.floor(walkForward.length / 2);
   const calibSet = walkForward.slice(0, calibSplitIdx);
   const finalTestSet = walkForward.slice(calibSplitIdx);
-  const platt = fitPlatt(calibSet);
+  let platt = fitPlatt(calibSet);
 
-  // Apply Platt to the held-back final test set and report calibrated metrics.
-  let wfCalCorrect = 0, wfCalBrierSum = 0;
+  // Apply candidate Platt to the held-back final test set and measure.
+  let wfCalCorrect = 0, wfCalBrierSum = 0, rawBrierSum = 0;
   for (const pair of finalTestSet) {
     const pCal = applyPlatt(pair.p, platt);
     if ((pCal >= 0.5 ? 1 : 0) === pair.y) wfCalCorrect++;
     wfCalBrierSum += (pCal - pair.y) * (pCal - pair.y);
+    rawBrierSum += (pair.p - pair.y) * (pair.p - pair.y);  // raw, for comparison
   }
-  const wfCalAcc = finalTestSet.length > 0 ? wfCalCorrect / finalTestSet.length : null;
-  const wfCalBrier = finalTestSet.length > 0 ? wfCalBrierSum / finalTestSet.length : null;
-  const wfCalBss = wfCalBrier != null ? 1 - (wfCalBrier / 0.25) : null;
+  let wfCalAcc = finalTestSet.length > 0 ? wfCalCorrect / finalTestSet.length : null;
+  let wfCalBrier = finalTestSet.length > 0 ? wfCalBrierSum / finalTestSet.length : null;
+  let wfCalBss = wfCalBrier != null ? 1 - (wfCalBrier / 0.25) : null;
+  const rawFinalBrier = finalTestSet.length > 0 ? rawBrierSum / finalTestSet.length : null;
+
+  // Pass 220 (smarter guard): only KEEP the Platt fit if it actually improves
+  // the held-back final-test Brier vs raw. Pass 214 rejected inversions
+  // (a < 0.2), but a "valid" fit (a≈1, b≠0) can still HURT on regime-shifting
+  // data — the May-27 bootstrap showed a=1.03/b=0.22 dropping walk-forward
+  // accuracy from 51.7% (raw) to 47.2% (calibrated). Calibration should never
+  // make the held-back test WORSE. If it does, reject and ship identity.
+  if (platt && !platt.rejected && rawFinalBrier != null && wfCalBrier != null
+      && wfCalBrier >= rawFinalBrier) {
+    platt = {
+      rejected: true,
+      reason: 'no-improvement-on-final-test',
+      fittedA: platt.a, fittedB: platt.b, n: platt.n,
+      raw_final_brier: +rawFinalBrier.toFixed(4),
+      calibrated_final_brier: +wfCalBrier.toFixed(4),
+      fittedAt: Date.now()
+    };
+    // Recompute "calibrated" metrics as identity (since we're shipping raw)
+    wfCalAcc = wfAcc;
+    wfCalBrier = rawFinalBrier;
+    wfCalBss = rawFinalBrier != null ? 1 - (rawFinalBrier / 0.25) : null;
+  }
 
   await Promise.all([
     kvPut(env, KV_KEYS.MODEL, model),
     kvPut(env, KV_KEYS.HELDOUT, { random_split: heldout, walk_forward: walkForward }),
     kvPut(env, KV_KEYS.BARS_HISTORY, barsHistory),  // pass 193
-    kvPut(env, KV_KEYS.PLATT, platt)               // pass 213
+    kvPut(env, KV_KEYS.PLATT, platt)               // pass 213/220
   ]);
 
   return {
