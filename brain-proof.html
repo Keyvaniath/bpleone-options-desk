@@ -83,6 +83,36 @@
     </div>
   </div>
 
+  <!-- Pass 222: champion/challenger competition. Each bootstrap the brain
+       trains several model configs (different L2 + epochs), races them on a
+       held-out validation slice, and promotes the winner. This shows that
+       race + which config is currently champion. -->
+  <div class="card mb-24" id="champions-card" style="display:none;">
+    <div class="card-header"><div class="card-title">🏆 Champion / Challenger — the Brain Trying New Things</div></div>
+    <div style="font-size:12px;color:var(--text-secondary);line-height:1.6;margin-bottom:14px;">
+      Each bootstrap the brain trains 4 model variants (different regularization + training depth), races them on
+      data none of them trained on, and <strong>promotes the winner as the live model</strong>. The champion's config
+      then drives all live training until the next bootstrap unseats it. This is genuine autonomous experimentation —
+      the brain keeps what works and discards what doesn't.
+    </div>
+    <div id="champ-summary" style="font-family:var(--font-mono);font-size:13px;margin-bottom:12px;"></div>
+    <div style="overflow-x:auto;">
+      <table style="width:100%;border-collapse:collapse;font-family:var(--font-mono);font-size:12px;">
+        <thead>
+          <tr style="border-bottom:1px solid var(--border);color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;font-size:10px;">
+            <th style="text-align:left;padding:6px 8px;">config</th>
+            <th style="text-align:right;padding:6px 8px;">L2</th>
+            <th style="text-align:right;padding:6px 8px;">epochs</th>
+            <th style="text-align:right;padding:6px 8px;">val acc</th>
+            <th style="text-align:right;padding:6px 8px;">val BSS</th>
+            <th style="text-align:center;padding:6px 8px;">champion</th>
+          </tr>
+        </thead>
+        <tbody id="champ-table-body"></tbody>
+      </table>
+    </div>
+  </div>
+
   <!-- Pass 218l: live-resolved tracking. After pass 218 the worker resolves
        captures at MID (5d) horizon and trains on those outcomes — so this
        card surfaces the FIRST honest post-deployment view of "is the brain
@@ -537,11 +567,51 @@ async function refreshLivePicks() {
   } catch (e) {}
 }
 
+// Pass 222: champion/challenger leaderboard from /brain/champions.
+async function refreshChampions() {
+  if (typeof WorkerBridge === 'undefined' || !WorkerBridge.isEnabled()) return;
+  const url = WorkerBridge.getUrl();
+  if (!url) return;
+  try {
+    const r = await fetch(url + '/brain/champions');
+    if (!r.ok) return;
+    const j = await r.json();
+    if (!j.leaderboard || j.leaderboard.length === 0) return;
+    document.getElementById('champions-card').style.display = 'block';
+
+    const fmtBss = v => v == null ? '--' : (v >= 0 ? '+' : '') + v.toFixed(3);
+    const fmtPct = v => v == null ? '--' : (v * 100).toFixed(1) + '%';
+    const bssColor = v => v == null ? 'var(--text-muted)' : (v >= 0.05 ? 'var(--green)' : v > 0 ? 'var(--yellow)' : 'var(--red)');
+
+    const champConfig = j.champion_config || { l2: j.champion_l2, epochs: j.champion_epochs };
+    document.getElementById('champ-summary').innerHTML =
+      `Current champion: <strong style="color:var(--accent);">${j.champion}</strong> `
+      + `(L2 ${champConfig ? champConfig.l2 : '?'}, ${champConfig ? champConfig.epochs : '?'} epochs) · `
+      + `honest held-back BSS <span style="color:${bssColor(j.champion_final_bss)};">${fmtBss(j.champion_final_bss)}</span> `
+      + `on ${j.champion_final_n || '?'} samples`;
+
+    // Sort leaderboard by val_bss desc
+    const rows = j.leaderboard.slice().sort((a, b) => (b.val_bss || -Infinity) - (a.val_bss || -Infinity));
+    document.getElementById('champ-table-body').innerHTML = rows.map(c => {
+      const champ = c.is_champion;
+      return `<tr style="border-bottom:1px solid rgba(255,255,255,0.04);${champ ? 'background:rgba(0,212,255,0.06);' : ''}">
+        <td style="padding:5px 8px;font-weight:${champ ? '800' : '500'};color:${champ ? 'var(--accent)' : 'var(--text)'};">${c.name}</td>
+        <td style="padding:5px 8px;text-align:right;">${c.l2}</td>
+        <td style="padding:5px 8px;text-align:right;">${c.epochs}</td>
+        <td style="padding:5px 8px;text-align:right;">${fmtPct(c.val_acc)}</td>
+        <td style="padding:5px 8px;text-align:right;color:${bssColor(c.val_bss)};">${fmtBss(c.val_bss)}</td>
+        <td style="padding:5px 8px;text-align:center;">${champ ? '🏆' : ''}</td>
+      </tr>`;
+    }).join('');
+  } catch (e) {}
+}
+
 function refresh() {
   // Auto-pull worker metrics every refresh too
   refreshWorkerMetrics();
   refreshSymbolSurface();  // pass 213
   refreshLivePicks();      // pass 216
+  refreshChampions();      // pass 222
   const journal = loadJournal();
   const now = Date.now();
 

@@ -38,7 +38,7 @@
 // Pass 200: version stamp so brain-proof.html + worker-setup.html can detect
 // when the deployed worker is behind the repo source. Bump on every meaningful
 // behavior change. Read via /brain/health → worker_version field.
-const WORKER_VERSION = 'pass-221';
+const WORKER_VERSION = 'pass-222';
 
 const UNIVERSE = [
   'SPY','QQQ','IWM','DIA','AAPL','NVDA','TSLA','MSFT','META','AMZN','GOOGL','AMD',
@@ -60,6 +60,7 @@ const KV_KEYS = {
   BARS_HISTORY: 'bars_history_v1', // pass 193: per-symbol rolling bar history
   PLATT: 'platt_v1',               // pass 213: Platt calibration {a, b, fittedAt, n}
   CLEAR_FLAG: 'journal_clear_flag_v1', // pass 221: tick-coordinated journal wipe
+  CHAMPIONS: 'champions_v1',       // pass 222: champion/challenger leaderboard
 };
 
 // Pass 218: bumped from 12,000 → 35,000. Live training triggers on the
@@ -86,6 +87,7 @@ function newModel() {
     bias: 0,
     n_trained: 0,
     lr: 0.05,
+    l2: 0.025,          // pass 222: per-model L2; champion's value persists
     version: 1
   };
 }
@@ -112,7 +114,12 @@ function trainStep(model, features, label) {
   // weight decay pulls peaked sigmoids back toward 0.5, lowering Brier
   // (better calibration) without losing the directional edge already
   // captured in the sign of the prediction.
-  const L2 = 0.025;
+  // Pass 222: L2 is now read from the model itself (model.l2) so different
+  // champion/challenger configs can train with different regularization.
+  // Falls back to 0.025 (the pass-212 default) for older saved models that
+  // predate the model.l2 field. The CHAMPION's l2 persists in KV, so the
+  // live tick automatically trains with whatever L2 won the last competition.
+  const L2 = (typeof model.l2 === 'number' && model.l2 >= 0) ? model.l2 : 0.025;
   for (let i = 0; i < 22; i++) {
     const decay = (i === 21) ? 0 : L2 * model.weights[i];
     model.weights[i] -= model.lr * (err * (features[i] || 0) + decay);
@@ -779,6 +786,13 @@ async function handleRequest(request, env, ctx) {
     return json(model);
   }
 
+  if (path === '/brain/champions') {
+    // Pass 222: champion/challenger leaderboard from the last bootstrap.
+    const champs = await kvGet(env, KV_KEYS.CHAMPIONS, null);
+    if (!champs) return json({ error: 'no champion data yet — run /brain/bootstrap', leaderboard: [] });
+    return json(champs);
+  }
+
   if (path === '/brain/predict') {
     // Pass 217: ad-hoc prediction for any symbol — useful for browser pages
     // that want a live calibrated probability WITHOUT waiting for the next
@@ -1219,20 +1233,77 @@ async function runBootstrap(env) {
   const wfTrainSet = timeSorted.slice(0, wfSplitIdx);
   const wfTestSet = timeSorted.slice(wfSplitIdx);
 
-  // Pass 195: 5 epochs with re-shuffling. Pass 210: cut to 2 epochs.
-  // 5 epochs × 8,400 examples = 42k SGD steps. At L2=0.003 (pass 208) that
-  // was still grow-the-weights-faster-than-decay territory — model ended
-  // up confident-wrong (avgLoss=3.57). Two effects:
-  //   1. Combined with L2=0.015 (pass 210), fewer SGD steps means decay
-  //      dominates earlier — predictions stay closer to the prior 0.5.
-  //   2. If the features have ZERO predictive signal, MORE epochs only
-  //      memorizes more in-sample noise. Fewer epochs is the right call
-  //      for an unfavorable signal-to-noise problem.
-  const N_EPOCHS = 2;
+  // ============================================================
+  // Pass 222: CHAMPION / CHALLENGER competition.
+  // The brain no longer trains one fixed config — it trains several model
+  // variants (different L2 + epochs), races them on a held-out VALIDATION
+  // slice, and promotes the winner as champion. The champion's hyperparams
+  // (esp. l2) persist into the saved model so the live tick keeps training
+  // with whatever config last won. This is genuine autonomous experimentation:
+  // each bootstrap the brain "tries new things" and keeps what works.
+  //
+  // Honest evaluation: wfTestSet (the last 20% of time, never trained on) is
+  // split in half. The FIRST half is the VALIDATION set used to PICK the
+  // champion. The SECOND half (wfFinalTest, below) is reported as the
+  // champion's honest out-of-sample BSS — never used for selection, so no
+  // optimism bias in the headline number.
+  const CONFIGS = [
+    { name: 'A_balanced', l2: 0.025, epochs: 2 },  // pass-212 baseline
+    { name: 'B_light',    l2: 0.010, epochs: 2 },  // less regularization
+    { name: 'C_heavy',    l2: 0.050, epochs: 3 },  // more reg + an extra pass
+    { name: 'D_deep',     l2: 0.015, epochs: 4 },  // light reg, more epochs
+  ];
+  const champValSplit = Math.floor(wfTestSet.length / 2);
+  const wfVal = wfTestSet.slice(0, champValSplit);
+  const wfFinalTest = wfTestSet.slice(champValSplit);
+
+  function trainConfigModel(cfg, examples) {
+    const m = newModel();
+    m.l2 = cfg.l2;
+    for (let epoch = 0; epoch < cfg.epochs; epoch++) {
+      const epochSet = seedShuffle(examples, 1000 + epoch * 7);
+      for (const ex of epochSet) trainStep(m, ex.features, ex.label);
+    }
+    return m;
+  }
+  function scoreModel(m, pairs) {
+    if (!pairs || pairs.length === 0) return { acc: null, brier: null, bss: null, n: 0 };
+    let correct = 0, brierSum = 0;
+    for (const ex of pairs) {
+      const p = predict(m, ex.features);
+      if ((p >= 0.5 ? 1 : 0) === ex.label) correct++;
+      brierSum += (p - ex.label) * (p - ex.label);
+    }
+    const n = pairs.length;
+    const brier = brierSum / n;
+    return { acc: +(correct / n).toFixed(4), brier: +brier.toFixed(4), bss: +(1 - brier / 0.25).toFixed(4), n };
+  }
+
+  // Race every config on wfTrainSet → score on the validation slice.
+  const contenders = CONFIGS.map(cfg => {
+    const m = trainConfigModel(cfg, wfTrainSet);
+    const val = scoreModel(m, wfVal);
+    return { cfg, model: m, val };
+  });
+  // Champion = highest validation BSS (most edge on data it never trained on).
+  contenders.sort((a, b) => (b.val.bss == null ? -Infinity : b.val.bss) - (a.val.bss == null ? -Infinity : a.val.bss));
+  const champion = contenders[0];
+  const championFinal = scoreModel(champion.model, wfFinalTest);  // honest, selection-free
+  const leaderboard = contenders.map(c => ({
+    name: c.cfg.name, l2: c.cfg.l2, epochs: c.cfg.epochs,
+    val_bss: c.val.bss, val_acc: c.val.acc, val_n: c.val.n,
+    is_champion: c === champion
+  }));
+
+  // Pass 222: the PRODUCTION model is the champion CONFIG retrained on the
+  // random-split trainSet (the existing 80% used for the random-split
+  // heldout test below). Same config that won the time-ordered competition,
+  // trained on the larger random-split sample for the live model.
+  const N_EPOCHS = champion.cfg.epochs;
+  model.l2 = champion.cfg.l2;   // so the live tick trains with the champion's L2
   let lossSum = 0;
   let totalSteps = 0;
   for (let epoch = 0; epoch < N_EPOCHS; epoch++) {
-    // Re-shuffle each epoch (different seed)
     const epochSet = seedShuffle(trainSet, 42 + epoch);
     for (const ex of epochSet) {
       const { loss } = trainStep(model, ex.features, ex.label);
@@ -1267,7 +1338,10 @@ async function runBootstrap(env) {
   // training procedure so the two BSS values are directly comparable, and
   // walk-forward properly reflects how the production model behaves on
   // unseen future data.
+  // Pass 222: wfModel uses the CHAMPION config (same L2 the production model
+  // will run), so the walk-forward metrics reflect the deployed champion.
   const wfModel = newModel();
+  wfModel.l2 = champion.cfg.l2;
   for (let epoch = 0; epoch < N_EPOCHS; epoch++) {
     const wfEpochSet = seedShuffle(wfTrainSet, 142 + epoch);
     for (const ex of wfEpochSet) trainStep(wfModel, ex.features, ex.label);
@@ -1331,11 +1405,28 @@ async function runBootstrap(env) {
     wfCalBss = rawFinalBrier != null ? 1 - (rawFinalBrier / 0.25) : null;
   }
 
+  // Pass 222: persist the champion/challenger leaderboard for /brain/champions
+  // and the brain-proof UI. Records which config won, its honest held-back
+  // BSS, and the full field so you can see the competition each bootstrap.
+  const championRecord = {
+    fittedAt: Date.now(),
+    champion: champion.cfg.name,
+    champion_l2: champion.cfg.l2,
+    champion_epochs: champion.cfg.epochs,
+    champion_val_bss: champion.val.bss,
+    champion_final_bss: championFinal.bss,       // honest, never used for selection
+    champion_final_acc: championFinal.acc,
+    champion_final_n: championFinal.n,
+    leaderboard,
+    note: 'Champion picked by validation BSS; champion_final_* is on a held-back slice never used for selection.'
+  };
+
   await Promise.all([
     kvPut(env, KV_KEYS.MODEL, model),
     kvPut(env, KV_KEYS.HELDOUT, { random_split: heldout, walk_forward: walkForward }),
     kvPut(env, KV_KEYS.BARS_HISTORY, barsHistory),  // pass 193
-    kvPut(env, KV_KEYS.PLATT, platt)               // pass 213/220
+    kvPut(env, KV_KEYS.PLATT, platt),              // pass 213/220
+    kvPut(env, KV_KEYS.CHAMPIONS, championRecord)  // pass 222
   ]);
 
   return {
@@ -1347,6 +1438,12 @@ async function runBootstrap(env) {
     errors: errors.length,
     avgLoss: trainSet.length ? lossSum / trainSet.length : null,
     final_n_trained: model.n_trained,
+    // Pass 222: champion/challenger results
+    champion: champion.cfg.name,
+    champion_config: { l2: champion.cfg.l2, epochs: champion.cfg.epochs },
+    champion_final_bss: championFinal.bss,
+    champion_final_acc: championFinal.acc,
+    leaderboard,
     heldout_test_accuracy: testAcc,
     heldout_brier: brier,
     heldout_bss: bss,
