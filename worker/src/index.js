@@ -38,7 +38,7 @@
 // Pass 200: version stamp so brain-proof.html + worker-setup.html can detect
 // when the deployed worker is behind the repo source. Bump on every meaningful
 // behavior change. Read via /brain/health → worker_version field.
-const WORKER_VERSION = 'pass-226';
+const WORKER_VERSION = 'pass-227';
 
 const UNIVERSE = [
   'SPY','QQQ','IWM','DIA','AAPL','NVDA','TSLA','MSFT','META','AMZN','GOOGL','AMD',
@@ -886,13 +886,16 @@ async function handleRequest(request, env, ctx) {
       if ((p >= 0.5 ? 1 : 0) === y) bySym[sym].correct++;
       bySym[sym].brierSum += (p - y) * (p - y);
     }
-    // Pass 218k: per-symbol live stats now key on MID resolution (5d) since
-    // that's what the brain actually trains on (pass 218). Falls back to
-    // SHORT for legacy entries from before pass 218. Skip 'flat' since it
-    // doesn't tell us anything directional.
+    // Pass 218k/227: per-symbol live stats key on MID resolution (5d) ONLY —
+    // that's the horizon the brain trains and predicts on (pass 218/226). The
+    // pre-227 code fell back to SHORT (1d) "for legacy entries", but in practice
+    // that fired for EVERY entry younger than the 5d horizon (short resolves at
+    // 24h, mid at 168h), silently reporting 1-day outcomes and mixing horizons
+    // in one accuracy number. Mid-only keeps it honest; entries with no mid
+    // resolution yet are simply excluded until they mature. Skip 'flat'.
     function liveOutcomeOf(e) {
       if (!e || !e.resolved || typeof e.resolved !== 'object') return null;
-      const o = e.resolved.mid || e.resolved.short;
+      const o = e.resolved.mid;
       if (!o || o === false || o === 'flat') return null;
       return o;
     }
@@ -995,9 +998,12 @@ async function handleRequest(request, env, ctx) {
     // ---- Live journal metrics (from resolved captures) ----
     // Pass 218k: prefer MID (5d) resolution since the brain trains on that
     // post-pass-218. Fall back to SHORT for legacy entries. Skip 'flat'.
+    // Pass 227: MID (5d) only — the trained/predicted horizon. Was mid||short,
+    // which reported 1-day outcomes for any entry younger than the 5d horizon,
+    // mixing horizons in the live accuracy number. Honest = 5d-only.
     function liveResolvedOutcome(e) {
       if (!e || !e.resolved || typeof e.resolved !== 'object') return null;
-      const o = e.resolved.mid || e.resolved.short;
+      const o = e.resolved.mid;
       if (!o || o === false || o === 'flat') return null;
       return o;
     }
