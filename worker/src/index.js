@@ -38,7 +38,7 @@
 // Pass 200: version stamp so brain-proof.html + worker-setup.html can detect
 // when the deployed worker is behind the repo source. Bump on every meaningful
 // behavior change. Read via /brain/health → worker_version field.
-const WORKER_VERSION = 'pass-225';
+const WORKER_VERSION = 'pass-226';
 
 const UNIVERSE = [
   'SPY','QQQ','IWM','DIA','AAPL','NVDA','TSLA','MSFT','META','AMZN','GOOGL','AMD',
@@ -71,7 +71,15 @@ const KV_KEYS = {
 // comfortable buffer for high-activity days and accounts for the rotating
 // 12-syms-per-minute capture cadence.
 const MAX_JOURNAL = 35000;
-const HORIZON_HOURS = { short: 24, mid: 120, long: 480 }; // 1d / 5d / 20d
+// Pass 226: horizons in CALENDAR hours, sized so the effective TRADING-day
+// window matches the bootstrap labels (daily bars = trading days, FWD_DAYS=5).
+// mid was 120h (5 calendar days) — but weekends plus the market-hours resolve
+// gate made that only ~3 trading days for a mid-week entry, feeding the live
+// model outcomes from a SHORTER horizon than it was bootstrapped on (a milder
+// repeat of the pass-218 horizon bug). 7 calendar days = exactly 5 weekdays for
+// ANY entry day-of-week, so mid=168 gives a consistent ~5-trading-day resolve.
+// long likewise: 20 trading days = 4 weeks = 28 calendar days = 672h.
+const HORIZON_HOURS = { short: 24, mid: 168, long: 672 }; // ~1 / ~5 / ~20 TRADING days
 
 // ============================================================
 // Logistic model (server-side mirror of js/model.js)
@@ -598,8 +606,19 @@ async function tick(env) {
   for (const sym of slice) {
     const q = byMap[sym];
     if (!q) continue;
+    // Pass 226: capture at most ONCE PER SYMBOL PER ET TRADING DAY (was a
+    // 5-minute window). This brain predicts a 5-TRADING-day forward move
+    // (bootstrap FWD_DAYS=5 on daily bars), so capturing the same symbol every
+    // ~6 minutes produced ~90 near-identical rows/day that ALL resolve to the
+    // SAME 5-day outcome — i.e. the live trainer saw a single (symbol, week)
+    // observation ~90x, massively overweighting whichever names moved that
+    // week, and flooding the 35k journal so it held only ~5 days before
+    // eviction (too short for the 5-day horizon to even resolve safely). One
+    // capture per ET day matches the daily-bar cadence the model was
+    // bootstrapped on, makes each live sample a genuinely independent
+    // observation, and lets the journal hold ~a year of history.
     const lastCap = journal.filter(e => e.sym === sym).slice(-1)[0];
-    if (lastCap && (Date.now() - lastCap.ts) < 5 * 60 * 1000) continue;
+    if (lastCap && lastCap.dayKey === dayKey) continue;
 
     // Update bar history for this symbol
     if (!barsHistory[sym]) barsHistory[sym] = [];
@@ -646,6 +665,7 @@ async function tick(env) {
       priceSource: 'finnhub-worker',
       regime: vix > 25 ? 'volatile_bear' : (q.changePct > 0 ? 'trending_bull' : 'choppy'),
       resolved: { short: false, mid: false, long: false },
+      dayKey,                          // pass 226: ET trading day, for once-per-day dedup
       bars_in_history: history.length  // for debugging
     });
     captured++;
