@@ -38,7 +38,7 @@
 // Pass 200: version stamp so brain-proof.html + worker-setup.html can detect
 // when the deployed worker is behind the repo source. Bump on every meaningful
 // behavior change. Read via /brain/health → worker_version field.
-const WORKER_VERSION = 'pass-229';
+const WORKER_VERSION = 'pass-230';
 
 const UNIVERSE = [
   'SPY','QQQ','IWM','DIA','AAPL','NVDA','TSLA','MSFT','META','AMZN','GOOGL','AMD',
@@ -358,6 +358,71 @@ async function fetchFinnhubQuote(env, sym) {
   }
 }
 
+// Pass 230: live quote from Yahoo's v8 chart — returns the same shape as
+// fetchFinnhubQuote PLUS real volume. Finnhub's /quote endpoint has no volume
+// field, so before this the live RVOL feature (f[6]) was always fed 0 even
+// though the model trains on real volume from Yahoo history — a dead signal in
+// production. Yahoo's in-progress daily bar carries today's cumulative volume
+// (and is already the reliable historical source from this Worker).
+async function fetchYahooQuote(sym) {
+  let yhSym = sym;
+  if (sym === 'BTC') yhSym = 'BTC-USD';
+  else if (sym === 'ETH') yhSym = 'ETH-USD';
+  else if (sym === 'VIX') yhSym = '^VIX';
+  const url = 'https://query1.finance.yahoo.com/v8/finance/chart/' + encodeURIComponent(yhSym) + '?range=5d&interval=1d';
+  try {
+    const r = await fetch(url, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
+        'Accept': 'application/json'
+      }
+    });
+    if (!r.ok) return null;
+    const j = await r.json();
+    const result = j && j.chart && j.chart.result && j.chart.result[0];
+    if (!result || !result.timestamp) return null;
+    const meta = result.meta || {};
+    const q = result.indicators && result.indicators.quote && result.indicators.quote[0];
+    if (!q || !Array.isArray(q.close)) return null;
+    // Last non-null bar = today's in-progress session during market hours.
+    let i = q.close.length - 1;
+    while (i >= 0 && (q.close[i] == null || !isFinite(q.close[i]))) i--;
+    if (i < 0) return null;
+    const last = (typeof meta.regularMarketPrice === 'number' && meta.regularMarketPrice > 0)
+      ? meta.regularMarketPrice : q.close[i];
+    if (typeof last !== 'number' || last <= 0) return null;
+    const prevClose = (typeof meta.chartPreviousClose === 'number' && meta.chartPreviousClose > 0)
+      ? meta.chartPreviousClose : (i > 0 && q.close[i - 1] ? q.close[i - 1] : last);
+    const volume = (typeof meta.regularMarketVolume === 'number' && meta.regularMarketVolume > 0)
+      ? meta.regularMarketVolume : (q.volume[i] || 0);
+    return {
+      symbol: sym,
+      last,
+      prevClose,
+      dayHigh: q.high[i] || last,
+      dayLow: q.low[i] || last,
+      dayOpen: q.open[i] || last,
+      volume,                          // ← the whole point: real live volume
+      changePct: prevClose ? ((last - prevClose) / prevClose) * 100 : 0,
+      ts: Date.now(),
+      priceSource: 'yahoo',
+      liveAt: Date.now()
+    };
+  } catch (e) {
+    return null;
+  }
+}
+
+// Pass 230: live-quote resolver. Yahoo first (reliable from this Worker AND
+// carries volume), Finnhub as a price-only fallback so a Yahoo hiccup never
+// blanks the tick. The fallback path still has volume=0, but that's strictly
+// better than the prior Finnhub-only path that NEVER had volume.
+async function fetchLiveQuote(env, sym) {
+  const y = await fetchYahooQuote(sym);
+  if (y && typeof y.last === 'number' && y.last > 0) return y;
+  return await fetchFinnhubQuote(env, sym);
+}
+
 // Server-side historical fetcher. Tries Stooq first (free, no auth, no CORS
 // here because we're server-side). Falls back to Finnhub /stock/candle if a
 // paid Finnhub plan is configured. Pass 188: Finnhub free tier returns 403
@@ -574,8 +639,8 @@ async function tick(env) {
   const start = tickIndex * 12;
   const slice = UNIVERSE.slice(start, start + 12);
 
-  // Fetch the slice in parallel
-  const quotePromises = slice.map(s => fetchFinnhubQuote(env, s));
+  // Fetch the slice in parallel (pass 230: Yahoo-primary so we get real volume)
+  const quotePromises = slice.map(s => fetchLiveQuote(env, s));
   const quotes = await Promise.all(quotePromises);
   const byMap = {};
   let okCount = 0, errCount = 0;
@@ -618,10 +683,10 @@ async function tick(env) {
     // capture per ET day matches the daily-bar cadence the model was
     // bootstrapped on, makes each live sample a genuinely independent
     // observation, and lets the journal hold ~a year of history.
-    const lastCap = journal.filter(e => e.sym === sym).slice(-1)[0];
-    if (lastCap && lastCap.dayKey === dayKey) continue;
-
-    // Update bar history for this symbol
+    // Pass 230: update bar history EVERY tick (tracks today's GROWING volume +
+    // intraday high/low). This MUST run before the once-per-day capture guard
+    // below — otherwise the day-bar would freeze at first-capture-time volume
+    // and the unusual-volume scanner would never see intraday accumulation.
     if (!barsHistory[sym]) barsHistory[sym] = [];
     const history = barsHistory[sym];
     const lastBar = history.length > 0 ? history[history.length - 1] : null;
@@ -647,6 +712,16 @@ async function tick(env) {
       barsHistoryDirty = true;
     }
 
+    // Pass 226/230: capture ONE journal entry per symbol per ET trading day,
+    // taken LATE in the session (>= 3pm ET) so the snapshot's price, volume
+    // (RVOL) and intraday range match the near-complete daily bar the model was
+    // bootstrapped on (the bootstrap enters at each day's CLOSE). Capturing at
+    // the 8am pre-market open gave a thin pre-market price and ~0 volume — a
+    // train/serve skew on top of a bad entry. Bars (above) still update all day.
+    const lastCap = journal.filter(e => e.sym === sym).slice(-1)[0];
+    if (lastCap && lastCap.dayKey === dayKey) continue;  // already captured today
+    if (etHour() < 15) continue;                          // wait for the near-close snapshot
+
     // Use rich features if we have enough history
     const features = extractRichFeatures(q, history, { vix });
     // Pass 213: capture BOTH raw and Platt-calibrated probabilities.
@@ -663,7 +738,7 @@ async function tick(env) {
       predProb: p,           // calibrated (Platt-applied) prob — trade on this
       predProbRaw: rawP,     // raw model output — for diagnostics
       plattApplied: !!platt && typeof platt.a === 'number',
-      priceSource: 'finnhub-worker',
+      priceSource: (q.priceSource || 'finnhub') + '-worker',  // pass 230: yahoo or finnhub
       regime: vix > 25 ? 'volatile_bear' : (q.changePct > 0 ? 'trending_bull' : 'choppy'),
       resolved: { short: false, mid: false, long: false },
       dayKey,                          // pass 226: ET trading day, for once-per-day dedup
@@ -1057,6 +1132,12 @@ async function handleRequest(request, env, ctx) {
       const sq = await fetchStooqHistorical(sym, 250);
       results.stooq = { ok: !!sq, count: sq ? sq.length : 0, first: sq ? sq[0] : null };
     } catch (e) { results.stooq = { error: String(e) }; }
+    // Pass 230: verify the LIVE quote carries volume (the whole point of the
+    // Yahoo switch — Finnhub /quote never had it, so live RVOL was always 0).
+    try {
+      const lq = await fetchYahooQuote(sym);
+      results.live_quote = lq ? { last: lq.last, volume: lq.volume, has_volume: (lq.volume || 0) > 0, source: lq.priceSource } : { ok: false };
+    } catch (e) { results.live_quote = { error: String(e) }; }
     // Raw Yahoo response status check
     try {
       let yhSym = sym;
