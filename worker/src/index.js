@@ -38,7 +38,7 @@
 // Pass 200: version stamp so brain-proof.html + worker-setup.html can detect
 // when the deployed worker is behind the repo source. Bump on every meaningful
 // behavior change. Read via /brain/health → worker_version field.
-const WORKER_VERSION = 'pass-220';
+const WORKER_VERSION = 'pass-221';
 
 const UNIVERSE = [
   'SPY','QQQ','IWM','DIA','AAPL','NVDA','TSLA','MSFT','META','AMZN','GOOGL','AMD',
@@ -59,6 +59,7 @@ const KV_KEYS = {
   METRICS_CACHE: 'metrics_cache_v1',
   BARS_HISTORY: 'bars_history_v1', // pass 193: per-symbol rolling bar history
   PLATT: 'platt_v1',               // pass 213: Platt calibration {a, b, fittedAt, n}
+  CLEAR_FLAG: 'journal_clear_flag_v1', // pass 221: tick-coordinated journal wipe
 };
 
 // Pass 218: bumped from 12,000 → 35,000. Live training triggers on the
@@ -509,6 +510,19 @@ function isMarketLikelyOpen() {
 async function tick(env) {
   const startTs = Date.now();
 
+  // Pass 221: honor a pending journal-clear FIRST, before the market-hours
+  // gate. The bootstrap can't reliably clear the journal itself — a
+  // concurrent cron tick reads the old journal into memory before the
+  // bootstrap's write commits, then overwrites it on save (KV last-write-
+  // wins). So the bootstrap sets a flag and we apply it here. Doing this
+  // ABOVE the market gate means an off-hours clear request still gets
+  // honored within ~60s instead of waiting for the next market open.
+  const clearFlag = await kvGet(env, KV_KEYS.CLEAR_FLAG, null);
+  if (clearFlag) {
+    await kvPut(env, KV_KEYS.JOURNAL, []);
+    await kvPut(env, KV_KEYS.CLEAR_FLAG, null);  // consume the flag
+  }
+
   // Pass 209: market-hours early exit. Saves ~70% of daily cost.
   // We still record a lastTick stamp so brain-proof's "lastTickAgo" doesn't
   // show "never" overnight, but skip the heavy reads/writes/Finnhub calls.
@@ -521,18 +535,20 @@ async function tick(env) {
       resolved: 0,
       trained: 0,
       durationMs: Date.now() - startTs,
-      skipped_market_closed: true
+      skipped_market_closed: true,
+      journal_cleared: !!clearFlag
     });
-    return { ok: true, skipped: 'market-closed' };
+    return { ok: true, skipped: 'market-closed', journal_cleared: !!clearFlag };
   }
 
-  const [journal, model, lastTick, barsHistory, platt] = await Promise.all([
-    kvGet(env, KV_KEYS.JOURNAL, []),
+  let [journal, model, lastTick, barsHistory, platt] = await Promise.all([
+    kvGet(env, KV_KEYS.JOURNAL, []),  // re-read: reflects the clear above if it fired
     kvGet(env, KV_KEYS.MODEL, newModel()),
     kvGet(env, KV_KEYS.LAST_TICK, { ts: 0, syms_updated: 0, errors: 0 }),
     kvGet(env, KV_KEYS.BARS_HISTORY, {}),  // pass 193: per-sym recent bars
     kvGet(env, KV_KEYS.PLATT, null)       // pass 213: Platt calibration params
   ]);
+  const journalClearedThisTick = !!clearFlag;
 
   // Pass 188: rotate through universe over multiple ticks to stay under
   // Finnhub free tier's 60-calls/min rate limit. Browser pages may also be
@@ -1024,14 +1040,23 @@ async function handleRequest(request, env, ctx) {
     // because the BARS_HISTORY (needed for live richFeatures) and HELDOUT
     // (used by /brain/metrics) are preserved; only the live capture log
     // gets wiped.
-    let journalCleared = false;
+    let journalClearRequested = false;
     if (url.searchParams.get('clear') === '1') {
+      // Pass 221: don't write JOURNAL=[] directly — a concurrent cron tick
+      // races us and overwrites it (KV last-write-wins). Instead set a flag
+      // that the next tick honors inside its own atomic read-modify-write.
+      // Also write [] now as a best-effort head start; the flag guarantees
+      // the wipe even if this write loses the race.
       await kvPut(env, KV_KEYS.JOURNAL, []);
-      journalCleared = true;
+      await kvPut(env, KV_KEYS.CLEAR_FLAG, { requestedAt: Date.now() });
+      journalClearRequested = true;
     }
     // Pull 250 days of historical bars for each symbol, train on them
     const result = await runBootstrap(env);
-    result.journal_cleared = journalCleared;
+    result.journal_clear_requested = journalClearRequested;
+    result.journal_clear_note = journalClearRequested
+      ? 'Journal wipe flagged — the next cron tick (<=60s) applies it atomically.'
+      : undefined;
     return json(result);
   }
 
