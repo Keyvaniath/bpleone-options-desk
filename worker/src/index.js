@@ -38,7 +38,7 @@
 // Pass 200: version stamp so brain-proof.html + worker-setup.html can detect
 // when the deployed worker is behind the repo source. Bump on every meaningful
 // behavior change. Read via /brain/health → worker_version field.
-const WORKER_VERSION = 'pass-223';
+const WORKER_VERSION = 'pass-224';
 
 const UNIVERSE = [
   'SPY','QQQ','IWM','DIA','AAPL','NVDA','TSLA','MSFT','META','AMZN','GOOGL','AMD',
@@ -1377,16 +1377,24 @@ async function runBootstrap(env) {
   // Platt also gets persisted to KV so live tick can apply it to new
   // predictions before journaling. Live consumers (brain-proof, brain-bet,
   // etc.) read `predProb` which is the calibrated probability.
-  const calibSplitIdx = Math.floor(walkForward.length / 2);
-  const calibSet = walkForward.slice(0, calibSplitIdx);
-  const finalTestSet = walkForward.slice(calibSplitIdx);
+  // Pass 224: STRIDED calibration split (was contiguous), mirroring pass-223's
+  // champion split. Fitting Platt on the first contiguous half and testing the
+  // keep/reject guard on the second half made BOTH hostage to a single regime
+  // (the same 59%/47% split that fooled champion selection). Strided assignment
+  // makes the Platt fit span every regime and the improvement guard's decision
+  // representative — while the two sets stay disjoint (no train-on-test leak).
+  const calibSet = walkForward.filter((_, i) => i % 2 === 0);
+  const finalTestSet = walkForward.filter((_, i) => i % 2 === 1);
   let platt = fitPlatt(calibSet);
 
   // Apply candidate Platt to the held-back final test set and measure.
-  let wfCalCorrect = 0, wfCalBrierSum = 0, rawBrierSum = 0;
+  // Pass 224: also track RAW directional correctness on this same set, so the
+  // calibrated-vs-raw comparison reported below is apples-to-apples.
+  let wfCalCorrect = 0, wfCalBrierSum = 0, rawBrierSum = 0, rawFinalCorrect = 0;
   for (const pair of finalTestSet) {
     const pCal = applyPlatt(pair.p, platt);
     if ((pCal >= 0.5 ? 1 : 0) === pair.y) wfCalCorrect++;
+    if ((pair.p >= 0.5 ? 1 : 0) === pair.y) rawFinalCorrect++;
     wfCalBrierSum += (pCal - pair.y) * (pCal - pair.y);
     rawBrierSum += (pair.p - pair.y) * (pair.p - pair.y);  // raw, for comparison
   }
@@ -1394,6 +1402,8 @@ async function runBootstrap(env) {
   let wfCalBrier = finalTestSet.length > 0 ? wfCalBrierSum / finalTestSet.length : null;
   let wfCalBss = wfCalBrier != null ? 1 - (wfCalBrier / 0.25) : null;
   const rawFinalBrier = finalTestSet.length > 0 ? rawBrierSum / finalTestSet.length : null;
+  const rawFinalAcc = finalTestSet.length > 0 ? rawFinalCorrect / finalTestSet.length : null;
+  const rawFinalBss = rawFinalBrier != null ? 1 - (rawFinalBrier / 0.25) : null;
 
   // Pass 220 (smarter guard): only KEEP the Platt fit if it actually improves
   // the held-back final-test Brier vs raw. Pass 214 rejected inversions
@@ -1411,10 +1421,12 @@ async function runBootstrap(env) {
       calibrated_final_brier: +wfCalBrier.toFixed(4),
       fittedAt: Date.now()
     };
-    // Recompute "calibrated" metrics as identity (since we're shipping raw)
-    wfCalAcc = wfAcc;
+    // Recompute "calibrated" metrics as identity on the SAME final-test set
+    // (since we're shipping raw): they equal the raw-final-test metrics. Pass
+    // 224: use rawFinalAcc (this set), not wfAcc (the full set) — apples-to-apples.
+    wfCalAcc = rawFinalAcc;
     wfCalBrier = rawFinalBrier;
-    wfCalBss = rawFinalBrier != null ? 1 - (rawFinalBrier / 0.25) : null;
+    wfCalBss = rawFinalBss;
   }
 
   // Pass 222: persist the champion/challenger leaderboard for /brain/champions
@@ -1470,6 +1482,14 @@ async function runBootstrap(env) {
     walk_forward_calibrated_accuracy: wfCalAcc,
     walk_forward_calibrated_brier: wfCalBrier,
     walk_forward_calibrated_bss: wfCalBss,
+    // Pass 224: RAW metrics on the SAME held-back final-test set the calibrated
+    // metrics use (NOT the full wfTestSet that walk_forward_* report on) — so
+    // calibrated-vs-raw is a fair, same-set comparison. If calibrated_bss >
+    // raw_final_bss, Platt genuinely helped on its own held-back data.
+    walk_forward_raw_final_accuracy: rawFinalAcc,
+    walk_forward_raw_final_brier: rawFinalBrier != null ? +rawFinalBrier.toFixed(4) : null,
+    walk_forward_raw_final_bss: rawFinalBss != null ? +rawFinalBss.toFixed(4) : null,
+    walk_forward_final_test_n: finalTestSet.length,
     is_real_signal: bss != null && bss > 0.02,
     is_real_signal_walk_forward: wfBss != null && wfBss > 0.02,
     is_real_signal_calibrated: wfCalBss != null && wfCalBss > 0.02
