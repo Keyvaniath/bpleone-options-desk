@@ -114,13 +114,28 @@ function setFilter(f) {
 function render() {
   const body = document.getElementById('scan-body');
   let rows = _allSignals.slice();
-  if (_filter === 'ACTIONABLE') rows = rows.filter(s => s.signal === 'BUY' || s.signal === 'SELL' || s.signal === 'WATCH');
-  else if (_filter !== 'ALL') rows = rows.filter(s => s.signal === _filter);
+  let fallbackNote = '';
+  if (_filter === 'ACTIONABLE') {
+    rows = rows.filter(s => s.signal === 'BUY' || s.signal === 'SELL' || s.signal === 'WATCH');
+    // Never show an empty page: if nothing is actionable, surface the most
+    // active names (top by conviction x volume) so there's always a watchlist.
+    if (rows.length === 0 && _allSignals.length > 0) {
+      rows = _allSignals.slice().sort((a, b) => (b.rank || 0) - (a.rank || 0)).slice(0, 10);
+      fallbackNote = 'No high-conviction signals right now (the brain is being appropriately cautious). Showing the 10 most active names by volume × conviction — your watchlist.';
+    }
+  } else if (_filter !== 'ALL') {
+    rows = rows.filter(s => s.signal === _filter);
+  }
   if (rows.length === 0) {
-    body.innerHTML = '<tr><td colspan="7" style="padding:24px;text-align:center;color:var(--text-muted);">No ' + (_filter === 'ALL' ? '' : _filter.toLowerCase() + ' ') + 'signals right now. The scanner refreshes as the worker rotates symbols (market hours).</td></tr>';
+    body.innerHTML = '<tr><td colspan="7" style="padding:24px;text-align:center;color:var(--text-muted);">No ' + (_filter === 'ALL' ? '' : _filter.toLowerCase() + ' ') + 'signals right now. The scanner refreshes as the worker rotates symbols (market hours, ~6 min full cycle).</td></tr>';
     return;
   }
-  body.innerHTML = rows.map(s => {
+  if (fallbackNote) {
+    body.innerHTML = '<tr><td colspan="7" style="padding:10px 12px;background:rgba(234,179,8,0.06);color:var(--yellow);font-size:11px;">' + fallbackNote + '</td></tr>';
+  } else {
+    body.innerHTML = '';
+  }
+  body.innerHTML += rows.map(s => {
     const chgCol = (s.changePct || 0) >= 0 ? 'var(--green)' : 'var(--red)';
     return '<tr>'
       + '<td style="font-weight:800;">' + s.sym + '</td>'
