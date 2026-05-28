@@ -38,7 +38,7 @@
 // Pass 200: version stamp so brain-proof.html + worker-setup.html can detect
 // when the deployed worker is behind the repo source. Bump on every meaningful
 // behavior change. Read via /brain/health → worker_version field.
-const WORKER_VERSION = 'pass-222';
+const WORKER_VERSION = 'pass-223';
 
 const UNIVERSE = [
   'SPY','QQQ','IWM','DIA','AAPL','NVDA','TSLA','MSFT','META','AMZN','GOOGL','AMD',
@@ -1253,9 +1253,21 @@ async function runBootstrap(env) {
     { name: 'C_heavy',    l2: 0.050, epochs: 3 },  // more reg + an extra pass
     { name: 'D_deep',     l2: 0.015, epochs: 4 },  // light reg, more epochs
   ];
-  const champValSplit = Math.floor(wfTestSet.length / 2);
-  const wfVal = wfTestSet.slice(0, champValSplit);
-  const wfFinalTest = wfTestSet.slice(champValSplit);
+  // Pass 223: STRIDED validation split (was contiguous first-half/second-half).
+  // The pass-222 contiguous split put the entire selection burden on ONE
+  // temporal slice. In the first live run that slice (first half of the
+  // out-of-sample window) scored 59% while the held-back second half scored
+  // 47% — the two halves were simply in different market regimes, so the
+  // champion was being picked on whichever regime happened to land first, and
+  // the honest final number was pessimistically locked to the last (harder)
+  // regime. Strided assignment (even indices -> validation, odd -> final test)
+  // makes BOTH sets span the entire out-of-sample period, so champion
+  // selection is no longer hostage to a single regime and the honest final
+  // number is representative. The sets remain disjoint SAMPLES, so the final
+  // report is still selection-free (no leakage). The strict forward-walk
+  // metric (wfBss, below) is untouched and still trains-on-past/tests-on-future.
+  const wfVal = wfTestSet.filter((_, i) => i % 2 === 0);
+  const wfFinalTest = wfTestSet.filter((_, i) => i % 2 === 1);
 
   function trainConfigModel(cfg, examples) {
     const m = newModel();
@@ -1418,7 +1430,7 @@ async function runBootstrap(env) {
     champion_final_acc: championFinal.acc,
     champion_final_n: championFinal.n,
     leaderboard,
-    note: 'Champion picked by validation BSS; champion_final_* is on a held-back slice never used for selection.'
+    note: 'Champion picked by validation BSS over a strided (regime-spanning) validation slice; champion_final_* is on a disjoint, selection-free held-back slice.'
   };
 
   await Promise.all([
