@@ -38,7 +38,7 @@
 // Pass 200: version stamp so brain-proof.html + worker-setup.html can detect
 // when the deployed worker is behind the repo source. Bump on every meaningful
 // behavior change. Read via /brain/health → worker_version field.
-const WORKER_VERSION = 'pass-231';
+const WORKER_VERSION = 'pass-232';
 
 const UNIVERSE = [
   'SPY','QQQ','IWM','DIA','AAPL','NVDA','TSLA','MSFT','META','AMZN','GOOGL','AMD',
@@ -950,8 +950,12 @@ async function handleRequest(request, env, ctx) {
     // rotate (~every 6 min). Optional ?signal=BUY filter, ?min_rvol=2 filter.
     const snap = await kvGet(env, KV_KEYS.SIGNALS, { updatedAt: 0, signals: {} });
     let arr = Object.values(snap.signals || {});
-    // Drop stale rows (a symbol not seen in >45 min — universe/rotation gap).
-    arr = arr.filter(s => s && (Date.now() - (s.ts || 0)) < 45 * 60 * 1000);
+    // Keep up to ~4 days so the last session's scan persists after hours and
+    // over weekends (this is a 5-DAY swing scanner — last-close signals are
+    // still actionable pre-market). Only truly abandoned symbols (universe
+    // changes) age out. The client shows the snapshot age + a "market closed"
+    // banner when it's stale, so freshness is always transparent.
+    arr = arr.filter(s => s && (Date.now() - (s.ts || 0)) < 4 * 24 * 60 * 60 * 1000);
     const wantSignal = (url.searchParams.get('signal') || '').toUpperCase();
     if (wantSignal) arr = arr.filter(s => s.signal === wantSignal);
     const minRvol = parseFloat(url.searchParams.get('min_rvol') || '0');

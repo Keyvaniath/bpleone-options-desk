@@ -88,6 +88,7 @@ const WORKER = (window.WorkerBridge && WorkerBridge.getUrl && WorkerBridge.getUr
 
 let _allSignals = [];
 let _filter = 'ACTIONABLE';
+let _stale = false;
 
 function pillClass(sig) {
   return 'sig-pill sig-' + String(sig || 'HOLD').replace(/\s+/g, '');
@@ -130,11 +131,10 @@ function render() {
     body.innerHTML = '<tr><td colspan="7" style="padding:24px;text-align:center;color:var(--text-muted);">No ' + (_filter === 'ALL' ? '' : _filter.toLowerCase() + ' ') + 'signals right now. The scanner refreshes as the worker rotates symbols (market hours, ~6 min full cycle).</td></tr>';
     return;
   }
-  if (fallbackNote) {
-    body.innerHTML = '<tr><td colspan="7" style="padding:10px 12px;background:rgba(234,179,8,0.06);color:var(--yellow);font-size:11px;">' + fallbackNote + '</td></tr>';
-  } else {
-    body.innerHTML = '';
-  }
+  let noteHtml = '';
+  if (_stale) noteHtml += '<tr><td colspan="7" style="padding:10px 12px;background:rgba(234,179,8,0.10);color:var(--yellow);font-size:11px;">⏸ Market closed — values are from the last scan, not live. They refresh when the market reopens (8am–5pm ET).</td></tr>';
+  if (fallbackNote) noteHtml += '<tr><td colspan="7" style="padding:10px 12px;background:rgba(234,179,8,0.06);color:var(--yellow);font-size:11px;">' + fallbackNote + '</td></tr>';
+  body.innerHTML = noteHtml;
   body.innerHTML += rows.map(s => {
     const chgCol = (s.changePct || 0) >= 0 ? 'var(--green)' : 'var(--red)';
     return '<tr>'
@@ -158,11 +158,25 @@ async function loadSignals() {
     document.getElementById('c-buy').textContent = counts.BUY || 0;
     document.getElementById('c-sell').textContent = counts.SELL || 0;
     document.getElementById('c-watch').textContent = counts.WATCH || 0;
-    const ageMin = j.ageSec != null ? Math.floor(j.ageSec / 60) : null;
-    document.getElementById('c-age').textContent = ageMin != null ? (ageMin + 'm') : '—';
-    document.getElementById('updated-at').textContent = j.updatedAt
-      ? ('updated ' + new Date(j.updatedAt).toLocaleTimeString() + ' · ' + (_allSignals.length) + ' symbols scanned')
-      : 'no snapshot yet';
+    const ageSec = j.ageSec || 0;
+    const stale = j.updatedAt && ageSec > 1800;  // >30 min → market closed / scanner idle
+    const ageStr = !j.updatedAt ? '—'
+      : ageSec < 90 ? (ageSec + 's')
+      : ageSec < 5400 ? (Math.round(ageSec / 60) + 'm')
+      : (Math.round(ageSec / 360) / 10 + 'h');
+    document.getElementById('c-age').textContent = ageStr;
+    const ua = document.getElementById('updated-at');
+    if (!j.updatedAt) {
+      ua.textContent = 'no snapshot yet — connect the worker on worker-setup';
+      ua.style.color = 'var(--text-muted)';
+    } else if (stale) {
+      ua.innerHTML = '⏸ Market closed · last scan ' + ageStr + ' ago (' + new Date(j.updatedAt).toLocaleString() + ') — signals resume at next open';
+      ua.style.color = 'var(--yellow)';
+    } else {
+      ua.textContent = 'live · updated ' + new Date(j.updatedAt).toLocaleTimeString() + ' · ' + _allSignals.length + ' symbols';
+      ua.style.color = 'var(--text-muted)';
+    }
+    _stale = stale;
     render();
   } catch (e) {
     body.innerHTML = '<tr><td colspan="7" style="padding:24px;text-align:center;color:var(--red);">Could not reach the brain worker. Connect it on <a href="worker-setup.html" style="color:var(--accent);">worker-setup</a>.</td></tr>';
