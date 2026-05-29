@@ -49,6 +49,12 @@
     <div id="ts-body" style="padding:4px 16px 16px;font-size:12.5px;color:var(--text-secondary);line-height:1.7;">—</div>
   </details>
 
+  <div id="into-close" style="display:none;margin-bottom:16px;padding:14px 18px;border-radius:10px;background:rgba(168,85,247,0.10);border:1px solid rgba(168,85,247,0.4);">
+    <div style="font-weight:800;font-size:14px;color:#c084fc;margin-bottom:8px;">🔔 Large trades into the close <span id="ic-count" style="font-weight:500;color:var(--text-muted);font-size:12px;"></span></div>
+    <div id="ic-body" style="font-size:12.5px;color:var(--text-secondary);line-height:1.7;"></div>
+    <div style="font-size:11px;color:var(--text-muted);margin-top:8px;">Unusual volume hitting the tape in the final hour (3–4pm ET) — the free-data proxy for institutional positioning into the close. Up + heavy volume = accumulation; down + heavy = distribution.</div>
+  </div>
+
   <div class="grid grid-4 mb-24" id="stat-row">
     <div class="stat-chip"><div class="n" id="c-buy" style="color:var(--green);">—</div><div class="l">Buy signals</div></div>
     <div class="stat-chip"><div class="n" id="c-sell" style="color:var(--red);">—</div><div class="l">Sell / avoid</div></div>
@@ -204,6 +210,21 @@ async function loadSignals() {
       ua.style.color = 'var(--text-muted)';
     }
     _stale = stale;
+    // Pass 241: large-trades-into-the-close highlight
+    const ic = document.getElementById('into-close');
+    const icList = Array.isArray(j.into_close) ? j.into_close : [];
+    if (ic) {
+      if (!stale && icList.length > 0) {
+        document.getElementById('ic-count').textContent = '· ' + j.into_close_count + ' name' + (j.into_close_count === 1 ? '' : 's') + ' flagged';
+        document.getElementById('ic-body').innerHTML = icList.map(s => {
+          const col = (s.changePct || 0) >= 0 ? 'var(--green)' : 'var(--red)';
+          return '<div style="padding:3px 0;"><strong>' + s.sym + '</strong> <span style="color:' + col + ';">' + ((s.changePct||0)>=0?'+':'') + (s.changePct||0).toFixed(2) + '%</span> · <span style="color:#c084fc;font-weight:700;">' + (s.rvol||0).toFixed(1) + '× vol</span> — ' + (s.closeNote || '') + '</div>';
+        }).join('');
+        ic.style.display = 'block';
+      } else {
+        ic.style.display = 'none';
+      }
+    }
     render();
   } catch (e) {
     body.innerHTML = '<tr><td colspan="7" style="padding:24px;text-align:center;color:var(--red);">Could not reach the brain worker. Connect it on <a href="worker-setup.html" style="color:var(--accent);">worker-setup</a>.</td></tr>';

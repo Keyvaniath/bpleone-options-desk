@@ -38,7 +38,7 @@
 // Pass 200: version stamp so brain-proof.html + worker-setup.html can detect
 // when the deployed worker is behind the repo source. Bump on every meaningful
 // behavior change. Read via /brain/health → worker_version field.
-const WORKER_VERSION = 'pass-240';
+const WORKER_VERSION = 'pass-241';
 
 const UNIVERSE = [
   'SPY','QQQ','IWM','DIA','AAPL','NVDA','TSLA','MSFT','META','AMZN','GOOGL','AMD',
@@ -705,12 +705,33 @@ function computeSignal(sym, q, history, predProb, dayKey) {
   else if (strongUp) { signal = 'LEAN BUY'; reason = 'brain ' + Math.round(predProb * 100) + '% up, volume normal'; }
   else if (strongDown) { signal = 'LEAN SELL'; reason = 'brain ' + Math.round((1 - predProb) * 100) + '% down, volume normal'; }
   const rank = conviction * Math.min(rv || 1, 5);    // alpha rank = conviction x unusualness
+
+  // Pass 241: "large trades before close" detector. In the final trading hour
+  // (>= 3pm ET) heavy projected volume means big size is still hitting the tape
+  // late in the session — the free-data proxy for institutional positioning
+  // into the close (the honest equivalent of an MOC/closing-imbalance read).
+  // intoClose fires when power-hour RVOL is unusually high; direction comes from
+  // the day's move (price up into heavy volume = accumulation; down = distribution).
+  const h = etHour();
+  const powerHour = h >= 15 && h < 16.25;   // 3:00-4:15pm ET (incl. a little post-close slack)
+  let intoClose = false, closeNote = null;
+  if (powerHour && rv >= 2) {
+    intoClose = true;
+    const chg = q.changePct || 0;
+    const dir = chg >= 0.3 ? 'accumulation (price up into heavy close volume)'
+              : chg <= -0.3 ? 'distribution (price down into heavy close volume)'
+              : 'churning (heavy close volume, flat price)';
+    closeNote = rv.toFixed(1) + '× normal volume in the final hour — ' + dir;
+  }
+
   return {
     sym, last: q.last, changePct: +(q.changePct || 0).toFixed(2),
     rvol: rvol != null ? +rvol.toFixed(2) : null,
     predProb: +predProb.toFixed(4), dirUp: predProb >= 0.5,
     conviction: +conviction.toFixed(3), signal, reason,
-    rank: +rank.toFixed(4), ts: Date.now()
+    rank: +rank.toFixed(4),
+    powerHour, intoClose, closeNote,   // pass 241: large-trades-before-close
+    ts: Date.now()
   };
 }
 
@@ -1201,9 +1222,14 @@ async function handleRequest(request, env, ctx) {
     const order = { BUY: 0, SELL: 1, WATCH: 2, 'LEAN BUY': 3, 'LEAN SELL': 4, HOLD: 5 };
     arr.sort((a, b) => ((order[a.signal] ?? 9) - (order[b.signal] ?? 9)) || ((b.rank || 0) - (a.rank || 0)));
     const counts = arr.reduce((m, s) => { m[s.signal] = (m[s.signal] || 0) + 1; return m; }, {});
+    // Pass 241: large-trades-before-close — names with unusual volume in the
+    // final trading hour, ranked by RVOL (most institutional-looking first).
+    const intoClose = arr.filter(s => s.intoClose).sort((a, b) => (b.rvol || 0) - (a.rvol || 0));
     return json({
       updatedAt: snap.updatedAt || 0,
       ageSec: snap.updatedAt ? Math.floor((Date.now() - snap.updatedAt) / 1000) : null,
+      into_close_count: intoClose.length,
+      into_close: intoClose.slice(0, 20),
       count: arr.length,
       counts,
       regime,                                          // pass 236: bullish / neutral / bearish
