@@ -109,7 +109,17 @@
     return skip.some(p => path.endsWith(p));
   }
 
+  // Pass 239 (NO FAKE NUMBERS): the demo FAB injects 50 synthetic trades + 30
+  // alerts + 12 auto-trades. On a customer-facing product that is fake data, so
+  // the FAB is OFF by default. It only mounts when the user explicitly opts into
+  // demo mode (localStorage bpleone_demo_mode='1') — e.g. to preview empty
+  // states. Real users never see it.
+  function demoModeOn() {
+    try { return localStorage.getItem('bpleone_demo_mode') === '1'; } catch (e) { return false; }
+  }
+
   function init() {
+    if (!demoModeOn()) return;   // pass 239: never on a live customer page
     if (shouldSkip()) return;
     // Wait briefly so DemoData has time to load
     setTimeout(mount, 1500);
