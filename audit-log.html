@@ -39,14 +39,15 @@
   </div>
 
   <div class="grid grid-4 mb-24">
-    <div class="tile" style="background:rgba(16,185,129,0.06);"><div class="lbl">Audit passes</div><div class="val" style="color:var(--green);">233</div></div>
+    <div class="tile" style="background:rgba(16,185,129,0.06);"><div class="lbl">Audit passes</div><div class="val" style="color:var(--green);">235</div></div>
     <div class="tile" style="background:rgba(16,185,129,0.06);"><div class="lbl">Bugs fixed</div><div class="val" style="color:var(--green);">190+</div></div>
     <div class="tile" style="background:rgba(220,38,38,0.06);"><div class="lbl">CRITICAL bugs</div><div class="val" style="color:var(--red);">34</div></div>
     <div class="tile"><div class="lbl">Total commits</div><div class="val">164+</div></div>
   </div>
 
   <div style="padding:14px 18px;border-radius:10px;background:rgba(0,212,255,0.08);border-left:4px solid var(--accent);margin-bottom:14px;font-size:13px;color:var(--text-secondary);line-height:1.6;">
-    <strong>Batch Y (passes 230-233) — alpha: unusual-volume scanner + buy/sell signals + live-data proof:</strong>
+    <strong>Batch Y (passes 230-235) — alpha: unusual-volume scanner + buy/sell signals + live-data proof + per-symbol sharpening:</strong>
+    <b>234/235:</b> guarded per-symbol recalibration — a small per-symbol logit shift = logit(symbol's 5d up-rate) - logit(its mean predicted prob), shrunk by sample count and capped, so the heavily-regularized model differentiates between symbols (it was clustering every prediction ~0.46). Kept only if it doesn't worsen held-back walk-forward Brier (it improved it: 0.286 -> 0.264 on 66 symbols, accuracy held at 53.2%). 235 fixed a double-calibration the verification caught (Platt must be fit on the symBias-adjusted chain, not raw, or both stack a base-rate shift). Net: real per-symbol differentiation, guard-proven not to hurt the edge.
     <b>233:</b> "make sure the data is live" — verified the whole path (worker ticking, model trained on 13,194 real Yahoo examples, live quotes e.g. AAPL $312/44.6M vol) and added a self-verifying live-status bar to the scanner (LIVE/market-closed, brain trained-count, worker version, last-tick age, data source) + /brain/health enrichment, so liveness is undeniable on the page rather than undermined by the site-wide local-brain "untrained" banner.
     Brandon asked for whale-style unusual-activity scanning. <b>230 (real volume):</b> the live RVOL feature was a DEAD signal — Finnhub /quote has no volume field, so it was fed 0 every tick even though the model trains on real volume from Yahoo history. Added fetchYahooQuote (carries today's cumulative volume) + a Yahoo-primary live-quote resolver; volume now flows (verified: NVDA 89M, TSLA 23M shares). Also moved the once-per-day capture to near close (>=3pm ET) instead of the 8am pre-market open, so the snapshot matches the daily bar the bootstrap enters on. <b>231 (the scanner):</b> each tick now computes a time-of-day-normalized RVOL × the brain's 5-day conviction → a plain BUY / SELL / WATCH / HOLD per symbol, served by GET /brain/signals and rendered on the new <code>alpha-scanner.html</code> (color-coded, auto-refresh, plain-English "why" per row). <b>Honest scope:</b> this is unusual VOLUME + price action on free equity data — the real TA proxy for institutional activity — NOT options-flow whale prints (sweeps/blocks/premium), which need a paid OPRA feed. The page says so. Verified live: /brain/signals returns real per-symbol signals as the worker rotates.
   </div>
