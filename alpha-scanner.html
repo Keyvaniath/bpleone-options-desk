@@ -40,6 +40,8 @@
     <button class="action-btn" onclick="loadSignals()" style="padding:12px 22px;border-radius:8px;border:1px solid rgba(0,212,255,0.4);background:transparent;color:var(--accent);cursor:pointer;font-family:var(--font-mono);font-weight:700;">↻ Refresh</button>
   </div>
 
+  <div id="live-status" style="margin-bottom:16px;padding:10px 14px;border-radius:8px;background:var(--bg-elevated);font-family:var(--font-mono);font-size:12px;color:var(--text-muted);">Checking live data feed…</div>
+
   <div class="grid grid-4 mb-24" id="stat-row">
     <div class="stat-chip"><div class="n" id="c-buy" style="color:var(--green);">—</div><div class="l">Buy signals</div></div>
     <div class="stat-chip"><div class="n" id="c-sell" style="color:var(--red);">—</div><div class="l">Sell / avoid</div></div>
@@ -182,7 +184,30 @@ async function loadSignals() {
     body.innerHTML = '<tr><td colspan="7" style="padding:24px;text-align:center;color:var(--red);">Could not reach the brain worker. Connect it on <a href="worker-setup.html" style="color:var(--accent);">worker-setup</a>.</td></tr>';
   }
 }
+async function loadHealth() {
+  const el = document.getElementById('live-status');
+  if (!el) return;
+  try {
+    const r = await fetch(WORKER + '/brain/health', { cache: 'no-store' });
+    const h = await r.json();
+    const tickAgo = h.lastTickAgo;
+    const live = h.market_open && tickAgo != null && tickAgo < 180;
+    const dot = live ? '🟢' : (h.healthy ? '🟡' : '🔴');
+    const state = h.market_open ? (live ? 'LIVE' : 'connecting…') : 'market closed';
+    const trained = (h.model_trained || 0).toLocaleString();
+    el.innerHTML = dot + ' <strong style="color:' + (live ? 'var(--green)' : 'var(--yellow)') + ';">' + state + '</strong>'
+      + ' &middot; brain trained on <strong style="color:var(--text);">' + trained + '</strong> real examples'
+      + ' &middot; worker <span style="color:var(--text-secondary);">' + (h.worker_version || '?') + '</span>'
+      + ' &middot; last tick ' + (tickAgo != null ? tickAgo + 's ago' : '—')
+      + ' &middot; data: <span style="color:var(--text-secondary);">' + (h.data_source || '?') + '</span>';
+    el.style.color = 'var(--text-secondary)';
+  } catch (e) {
+    el.innerHTML = '🔴 <strong style="color:var(--red);">Brain worker unreachable</strong> — connect it on <a href="worker-setup.html" style="color:var(--accent);">worker-setup</a>';
+  }
+}
+loadHealth();
 loadSignals();
+setInterval(loadHealth, 60000);
 setInterval(loadSignals, 60000);
 </script>
 </body>

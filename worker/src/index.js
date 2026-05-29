@@ -38,7 +38,7 @@
 // Pass 200: version stamp so brain-proof.html + worker-setup.html can detect
 // when the deployed worker is behind the repo source. Bump on every meaningful
 // behavior change. Read via /brain/health → worker_version field.
-const WORKER_VERSION = 'pass-232';
+const WORKER_VERSION = 'pass-233';
 
 const UNIVERSE = [
   'SPY','QQQ','IWM','DIA','AAPL','NVDA','TSLA','MSFT','META','AMZN','GOOGL','AMD',
@@ -854,7 +854,8 @@ async function tick(env) {
       trained,
       durationMs: Date.now() - startTs,
       skipped_model_write: trained === 0,
-      skipped_bars_write: !barsHistoryDirty
+      skipped_bars_write: !barsHistoryDirty,
+      journalTotal: journal.length   // pass 233: for /brain/health liveness UI
     })
   ];
   if (barsHistoryDirty) writes.push(kvPut(env, KV_KEYS.BARS_HISTORY, barsHistory));
@@ -892,9 +893,10 @@ async function handleRequest(request, env, ctx) {
   const path = url.pathname;
 
   if (path === '/brain/health' || path === '/healthz') {
-    const [lt, autoTs] = await Promise.all([
+    const [lt, autoTs, model] = await Promise.all([
       kvGet(env, KV_KEYS.LAST_TICK, { ts: 0 }),
-      kvGet(env, KV_KEYS.AUTO_BOOTSTRAP_TS, 0)   // pass 229: autonomous bootstrap observability
+      kvGet(env, KV_KEYS.AUTO_BOOTSTRAP_TS, 0),   // pass 229: autonomous bootstrap observability
+      kvGet(env, KV_KEYS.MODEL, null)             // pass 233: expose trained count for liveness UI
     ]);
     const ageS = lt.ts ? Math.floor((Date.now() - lt.ts) / 1000) : null;
     return json({
@@ -904,7 +906,12 @@ async function handleRequest(request, env, ctx) {
       healthy: ageS != null && ageS < 180,
       worker_version: WORKER_VERSION,  // pass 200
       auto_bootstrap_ts: autoTs || 0,  // pass 229
-      auto_bootstrap_ago_h: autoTs ? +((Date.now() - autoTs) / 3600000).toFixed(2) : null
+      auto_bootstrap_ago_h: autoTs ? +((Date.now() - autoTs) / 3600000).toFixed(2) : null,
+      // Pass 233: data-liveness summary for the scanner status bar
+      model_trained: model && typeof model.n_trained === 'number' ? model.n_trained : 0,
+      journal_total: typeof lt.journalTotal === 'number' ? lt.journalTotal : null,
+      market_open: isMarketLikelyOpen(),
+      data_source: 'yahoo-live (~15m delayed)'
     });
   }
 
