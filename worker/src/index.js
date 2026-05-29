@@ -38,7 +38,7 @@
 // Pass 200: version stamp so brain-proof.html + worker-setup.html can detect
 // when the deployed worker is behind the repo source. Bump on every meaningful
 // behavior change. Read via /brain/health → worker_version field.
-const WORKER_VERSION = 'pass-234';
+const WORKER_VERSION = 'pass-235';
 
 const UNIVERSE = [
   'SPY','QQQ','IWM','DIA','AAPL','NVDA','TSLA','MSFT','META','AMZN','GOOGL','AMD',
@@ -1594,30 +1594,39 @@ async function runBootstrap(env) {
     for (const ex of wfEpochSet) trainStep(wfModel, ex.features, ex.label);
   }
   // Pass 234: candidate per-symbol bias from the wf TRAIN set (past), evaluated
-  // on the wf TEST set (future) — honest, no leakage.
+  // on the wf TEST set (future) — honest, no leakage. We compute BOTH raw and
+  // bias-adjusted predictions, decide whether to keep the bias (guard), then
+  // build walkForward from the KEPT prediction so Platt (fit downstream from
+  // walkForward) calibrates the SAME distribution production uses. Pass 234b:
+  // this is the fix for double-calibration — earlier Platt was fit on raw
+  // outputs but applied after symBias live, stacking two base-rate shifts and
+  // pushing every symbol bearish (~0.35). Now the chain raw->symBias->Platt is
+  // consistent end to end.
   const candidateSymBias = computeSymBias(wfModel, wfTrainSet);
   const biasProbe = { symBias: candidateSymBias };
-  const walkForward = [];
-  let wfCorrect = 0, wfBrierSum = 0;
-  let wfBiasedCorrect = 0, wfBiasedBrierSum = 0;
+  const wfRows = [];
+  let wfCorrect = 0, wfBrierSum = 0, wfBiasedCorrect = 0, wfBiasedBrierSum = 0;
   for (const ex of wfTestSet) {
     const p = predict(wfModel, ex.features);
     const pB = applySymBias(p, ex.sym, biasProbe);
-    walkForward.push({ p, y: ex.label, sym: ex.sym, ts: ex.ts });
+    wfRows.push({ p, pB, y: ex.label, sym: ex.sym, ts: ex.ts });
     if ((p >= 0.5 ? 1 : 0) === ex.label) wfCorrect++;
     wfBrierSum += (p - ex.label) * (p - ex.label);
     if ((pB >= 0.5 ? 1 : 0) === ex.label) wfBiasedCorrect++;
     wfBiasedBrierSum += (pB - ex.label) * (pB - ex.label);
   }
-  const wfAcc = wfTestSet.length > 0 ? wfCorrect / wfTestSet.length : null;
-  const wfBrier = wfTestSet.length > 0 ? wfBrierSum / wfTestSet.length : null;
-  const wfBss = wfBrier != null ? 1 - (wfBrier / 0.25) : null;
-  // Pass 234 GUARD: keep the per-symbol bias only if it doesn't worsen held-back
-  // Brier (same discipline as the pass-220 Platt guard). Otherwise ship none.
+  const rawWfBrier = wfTestSet.length > 0 ? wfBrierSum / wfTestSet.length : null;
   const wfBiasedBrier = wfTestSet.length > 0 ? wfBiasedBrierSum / wfTestSet.length : null;
+  // GUARD: keep the per-symbol bias only if it doesn't worsen held-back Brier
+  // (same discipline as the pass-220 Platt guard). Otherwise ship none.
   const symBiasCount = Object.keys(candidateSymBias).length;
-  const symBiasKept = symBiasCount > 0 && wfBiasedBrier != null && wfBrier != null && wfBiasedBrier <= wfBrier + 1e-9;
+  const symBiasKept = symBiasCount > 0 && wfBiasedBrier != null && rawWfBrier != null && wfBiasedBrier <= rawWfBrier + 1e-9;
   model.symBias = symBiasKept ? candidateSymBias : {};
+  // walkForward = the production-chain prediction (raw -> symBias if kept).
+  const walkForward = wfRows.map(r => ({ p: symBiasKept ? r.pB : r.p, y: r.y, sym: r.sym, ts: r.ts }));
+  const wfAcc = wfTestSet.length > 0 ? (symBiasKept ? wfBiasedCorrect : wfCorrect) / wfTestSet.length : null;
+  const wfBrier = symBiasKept ? wfBiasedBrier : rawWfBrier;
+  const wfBss = wfBrier != null ? 1 - (wfBrier / 0.25) : null;
   const wfBiasedAcc = wfTestSet.length > 0 ? wfBiasedCorrect / wfTestSet.length : null;
 
   // Pass 213: Platt calibration. Walk-forward is split in half — first 50%
