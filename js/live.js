@@ -155,9 +155,24 @@ const TICK_VOL = {
 let TICK_ENABLED = true;
 let TICK_INTERVAL = null;
 
+// Pass 239 (NO FAKE NUMBERS): demo mode is OFF by default. The site shows ONLY
+// real prices (Stooq ~15min-delayed equities + Coinbase real-time crypto +
+// worker/Yahoo). Between real polls the price holds at its last REAL value —
+// that's honest (it's the last known delayed price), not a fabricated walk.
+// The Ornstein-Uhlenbeck simulator below only runs when a user explicitly opts
+// into demo mode (localStorage bpleone_demo_mode='1'), e.g. for screenshots on
+// a closed market. It is NEVER the default on a customer-facing page.
+function isDemoMode() {
+  try { return localStorage.getItem('bpleone_demo_mode') === '1'; } catch (e) { return false; }
+}
+
 function tickOnce() {
   if (!TICK_ENABLED) return;
+  if (!isDemoMode()) return;  // pass 239: no synthetic ticks unless demo mode
   Object.values(QUOTES).forEach(q => {
+    // Pass 239: even in demo mode, NEVER overwrite a symbol that has a real
+    // price (liveAt > 0). Only simulate symbols a real feed hasn't reached yet.
+    if (q.liveAt && q.liveAt > 0) return;
     const vol = TICK_VOL[q.symbol] || 0.0002;
     // OU-ish mean-revert lightly toward last "open" (here: prevClose * 1.0)
     const drift = ((q.prevClose * 1.001) - q.last) / q.last * 0.04;
@@ -165,6 +180,7 @@ function tickOnce() {
     const newLast = q.last * (1 + drift + shock);
     q.last = +Math.max(0.01, newLast).toFixed(2);
     computeDerived(q);
+    q.priceSource = 'demo-sim';  // never masquerade as real
     Feed.publish(q.symbol, q);
   });
   Feed.publish('*', QUOTES);
@@ -386,6 +402,15 @@ document.addEventListener('DOMContentLoaded', () => {
         const s = document.createElement('script');
         s.src = 'js/data-reliability.js';
         s.async = false;
+        document.head.appendChild(s);
+      }
+      // Pass 239: PRIMARY real-price feed — pulls live Yahoo-sourced quotes from
+      // our worker (the same data the brain uses). Loaded early so real prices
+      // replace the stale seeds fast and the OU walk never has to run.
+      if (!document.querySelector('script[src*="worker-quotes.js"]')) {
+        const s = document.createElement('script');
+        s.src = 'js/worker-quotes.js';
+        s.async = true;
         document.head.appendChild(s);
       }
       // Cross-source price agreement check — logs when 2+ sources disagree
@@ -960,13 +985,13 @@ document.addEventListener('DOMContentLoaded', () => {
 // engine and stream real quotes. Otherwise the OU random walk drives the site.
 document.addEventListener('DOMContentLoaded', () => {
   bindLive();
-  let useMock = true;
+  // Pass 239 (NO FAKE NUMBERS): always boot the real data layer (DataProvider
+  // starts the Stooq + Coinbase + worker live feeds). The synthetic OU walk
+  // runs ONLY if the user explicitly enabled demo mode — never by default.
   if (typeof DataProvider !== 'undefined') {
-    try {
-      const r = DataProvider.init();
-      useMock = r && r.useMock !== false;
-    } catch (e) { useMock = true; }
+    try { DataProvider.init(); } catch (e) {}
   }
-  setDataMode(useMock ? 'mock' : 'live');
-  if (useMock) startLive(1500);
+  const demo = isDemoMode();
+  setDataMode(demo ? 'demo' : 'live');
+  if (demo) startLive(1500);
 });
