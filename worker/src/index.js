@@ -38,7 +38,7 @@
 // Pass 200: version stamp so brain-proof.html + worker-setup.html can detect
 // when the deployed worker is behind the repo source. Bump on every meaningful
 // behavior change. Read via /brain/health → worker_version field.
-const WORKER_VERSION = 'pass-236';
+const WORKER_VERSION = 'pass-237';
 
 const UNIVERSE = [
   'SPY','QQQ','IWM','DIA','AAPL','NVDA','TSLA','MSFT','META','AMZN','GOOGL','AMD',
@@ -1012,13 +1012,16 @@ async function handleRequest(request, env, ctx) {
         s.rel_rank = +rank.toFixed(3);
         s.rel_excess = +(s.predProb - universeMean).toFixed(4);
         const rv = s.rvol || 0;
-        if (rank >= 0.80 && rv >= 1.3) { s.signal = 'BUY'; s.reason = 'top ' + Math.max(1, Math.round((1 - rank) * 100)) + '% relative strength + ' + rv.toFixed(1) + '× volume'; }
-        else if (rank <= 0.20 && rv >= 1.3) { s.signal = 'SELL'; s.reason = 'bottom ' + Math.max(1, Math.round(rank * 100)) + '% relative strength + ' + rv.toFixed(1) + '× volume'; }
-        else if (rv >= 2.0) { s.signal = 'WATCH'; s.reason = rv.toFixed(1) + '× volume surge, mid-pack strength'; }
-        else if (rank >= 0.80) { s.signal = 'LEAN BUY'; s.reason = 'top relative strength, volume normal'; }
-        else if (rank <= 0.20) { s.signal = 'LEAN SELL'; s.reason = 'bottom relative strength, volume normal'; }
+        const volNote = rv >= 1.5 ? ' + ' + rv.toFixed(1) + '× volume' : '';
+        // Rank drives the call (cross-sectional); volume is a conviction modifier.
+        if (rank >= 0.85) { s.signal = 'BUY'; s.reason = 'top ' + Math.max(1, Math.round((1 - rank) * 100)) + '% relative strength' + volNote; }
+        else if (rank <= 0.15) { s.signal = 'SELL'; s.reason = 'bottom ' + Math.max(1, Math.round(rank * 100)) + '% relative strength' + volNote; }
+        else if (rv >= 2.5) { s.signal = 'WATCH'; s.reason = rv.toFixed(1) + '× volume surge, mid-pack strength'; }
+        else if (rank >= 0.70) { s.signal = 'LEAN BUY'; s.reason = 'upper-third relative strength' + volNote; }
+        else if (rank <= 0.30) { s.signal = 'LEAN SELL'; s.reason = 'lower-third relative strength' + volNote; }
         else { s.signal = 'HOLD'; s.reason = 'mid-pack relative strength'; }
-        s.rank = +(Math.abs(rank - 0.5) * 2 * Math.min(rv || 1, 5)).toFixed(4);
+        // Sort key: distance from the pack x a volume boost (so volume-confirmed extremes rank first).
+        s.rank = +(Math.abs(rank - 0.5) * 2 * (1 + Math.min(rv || 1, 4) / 4)).toFixed(4);
       }
     }
     const wantSignal = (url.searchParams.get('signal') || '').toUpperCase();
