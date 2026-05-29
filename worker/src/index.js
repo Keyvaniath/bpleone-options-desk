@@ -38,7 +38,7 @@
 // Pass 200: version stamp so brain-proof.html + worker-setup.html can detect
 // when the deployed worker is behind the repo source. Bump on every meaningful
 // behavior change. Read via /brain/health → worker_version field.
-const WORKER_VERSION = 'pass-237';
+const WORKER_VERSION = 'pass-238';
 
 const UNIVERSE = [
   'SPY','QQQ','IWM','DIA','AAPL','NVDA','TSLA','MSFT','META','AMZN','GOOGL','AMD',
@@ -985,6 +985,55 @@ async function handleRequest(request, env, ctx) {
     return json(champs);
   }
 
+  if (path === '/brain/learning') {
+    // Pass 238: honest, human-readable training status. Answers "is the brain
+    // training, and how would I know?" The brain learns in TWO stages:
+    //   1) FOUNDATION — historical bootstrap (model.n_trained gradient steps).
+    //   2) LIVE SELF-LEARNING — each daily prediction is scored against the
+    //      actual 5-trading-day (7 calendar day) outcome, then trained on.
+    // This reports both, plus a 1-DAY "early read" (short-horizon directional
+    // accuracy) as a leading indicator so you get feedback in ~1 day instead
+    // of waiting the full 7 for the first 5-day resolution.
+    const [model, journal, champs] = await Promise.all([
+      kvGet(env, KV_KEYS.MODEL, newModel()),
+      kvGet(env, KV_KEYS.JOURNAL, []),
+      kvGet(env, KV_KEYS.CHAMPIONS, null)
+    ]);
+    const now = Date.now();
+    const clean = journal.filter(e => typeof e.dayKey === 'number');  // post-pass-226 captures
+    let shortN = 0, shortHit = 0, midN = 0, midHit = 0, oldestCleanMs = 0;
+    for (const e of clean) {
+      const age = now - (e.ts || now);
+      if (age > oldestCleanMs) oldestCleanMs = age;
+      const r = e.resolved || {};
+      if (r.short && r.short !== false && r.short !== 'flat') { shortN++; if (r.short === 'correct') shortHit++; }
+      if (r.mid && r.mid !== false && r.mid !== 'flat') { midN++; if (r.mid === 'correct') midHit++; }
+    }
+    const oldestDays = oldestCleanMs / 86400000;
+    const daysToFirstMid = Math.max(0, +(HORIZON_HOURS.mid / 24 - oldestDays).toFixed(1));
+    return json({
+      // Stage 1 — foundation (historical)
+      foundation_trained: model.n_trained || 0,
+      foundation_l2: model.l2,
+      sym_bias_symbols: model.symBias ? Object.keys(model.symBias).length : 0,
+      last_champion: champs ? champs.champion : null,
+      // Stage 2 — live self-learning
+      live_captures_clean: clean.length,
+      live_captures_total: journal.length,
+      mid_resolved: midN,
+      mid_accuracy: midN > 0 ? +(midHit / midN).toFixed(4) : null,
+      mid_learning_active: midN > 0,
+      days_to_first_mid_resolution: daysToFirstMid,
+      oldest_capture_days: +oldestDays.toFixed(1),
+      // Early read — 1-day directional accuracy (leading indicator, NOT trained on)
+      early_read_1d_resolved: shortN,
+      early_read_1d_accuracy: shortN > 0 ? +(shortHit / shortN).toFixed(4) : null,
+      // Signal pipeline explainer
+      how_it_signals: 'model weights -> predProb per symbol -> cross-sectional rank -> BUY/SELL/WATCH on /brain/signals',
+      worker_version: WORKER_VERSION
+    });
+  }
+
   if (path === '/brain/signals') {
     // Pass 231/236: CROSS-SECTIONAL relative-strength scanner. The cron tick
     // stores each symbol's absolute predProb + RVOL; here we rank every name
@@ -1346,7 +1395,7 @@ async function handleRequest(request, env, ctx) {
     return json(r);
   }
 
-  return json({ error: 'not found', paths: ['/brain/health', '/brain/state', '/brain/journal', '/brain/model', '/brain/metrics', '/brain/symbols', '/brain/champions', '/brain/signals', '/brain/predict?sym=X', '/brain/debug/fetch?sym=X', '/brain/bootstrap (POST)', '/brain/tick (POST)'] }, 404);
+  return json({ error: 'not found', paths: ['/brain/health', '/brain/state', '/brain/journal', '/brain/model', '/brain/metrics', '/brain/symbols', '/brain/champions', '/brain/learning', '/brain/signals', '/brain/predict?sym=X', '/brain/debug/fetch?sym=X', '/brain/bootstrap (POST)', '/brain/tick (POST)'] }, 404);
 }
 
 async function runBootstrap(env) {
