@@ -493,10 +493,11 @@ document.addEventListener('DOMContentLoaded', () => {
         s.async = false;
         document.head.appendChild(s);
       }
-      // Demo FAB — floating "Generate demo data" button on every page when journal empty.
+      // Demo FAB — gated behind demo mode (pass 239). Versioned src so returning
+      // users get the GATED build instead of a stale-cached ungated copy.
       if (!document.querySelector('script[src*="demo-fab.js"]')) {
         const s = document.createElement('script');
-        s.src = 'js/demo-fab.js';
+        s.src = 'js/demo-fab.js?v=v180';
         s.async = true;
         document.head.appendChild(s);
       }
