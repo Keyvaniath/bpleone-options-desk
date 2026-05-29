@@ -413,6 +413,14 @@ document.addEventListener('DOMContentLoaded', () => {
         s.async = true;
         document.head.appendChild(s);
       }
+      // Pass 240: customer auth client — renders the Log in / Account pill on
+      // every page and validates the session against the worker.
+      if (!document.querySelector('script[src*="js/auth.js"]')) {
+        const s = document.createElement('script');
+        s.src = 'js/auth.js';
+        s.async = true;
+        document.head.appendChild(s);
+      }
       // Cross-source price agreement check — logs when 2+ sources disagree
       // on the same symbol within 60s. Catches cases where individual ticks
       // pass validation but ONE source is silently wrong.

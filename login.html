@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Log in / Sign up (free) — bpleone / trade</title>
+<meta name="description" content="Create a free bpleone account — save your watchlist, alert preferences, and personalized signals. Free while in beta.">
+<link rel="stylesheet" href="css/style.css?v=v179">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.auth-wrap { max-width:420px;margin:32px auto; }
+.auth-card { background:var(--bg-elevated);border:1px solid var(--border);border-radius:14px;padding:26px; }
+.auth-tabs { display:flex;gap:6px;margin-bottom:20px; }
+.auth-tab { flex:1;padding:10px;border-radius:8px;border:1px solid var(--border);background:transparent;color:var(--text-secondary);cursor:pointer;font-weight:700;font-size:13px; }
+.auth-tab.active { border-color:var(--accent);color:var(--accent);background:rgba(0,212,255,0.08); }
+.auth-field { margin-bottom:14px; }
+.auth-field label { display:block;font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;font-weight:700;margin-bottom:6px; }
+.auth-field input { width:100%;padding:12px 14px;background:#0a0a0a;border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:14px;box-sizing:border-box; }
+.auth-field input:focus { outline:none;border-color:var(--accent); }
+.auth-btn { width:100%;padding:13px;border-radius:8px;border:none;cursor:pointer;font-weight:800;font-size:14px;background:linear-gradient(135deg,#00d4ff,#0094c7);color:#000; }
+.auth-btn:disabled { opacity:0.6;cursor:not-allowed; }
+.auth-msg { margin-top:14px;font-size:13px;text-align:center;min-height:18px; }
+.auth-msg.err { color:var(--red); }
+.auth-msg.ok { color:var(--green); }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="auth-wrap">
+    <div style="text-align:center;margin-bottom:18px;">
+      <div style="font-size:24px;font-weight:900;">📈 bpleone <span style="color:var(--accent);">/ trade</span></div>
+      <div style="font-size:13px;color:var(--text-secondary);margin-top:6px;">Free account — live TA signals, your watchlist, alerts. <strong style="color:var(--green);">Free while in beta.</strong></div>
+    </div>
+    <div class="auth-card">
+      <div class="auth-tabs">
+        <button class="auth-tab active" id="tab-login" onclick="setTab('login')">Log in</button>
+        <button class="auth-tab" id="tab-register" onclick="setTab('register')">Sign up</button>
+      </div>
+      <div class="auth-field">
+        <label for="email">Email</label>
+        <input type="email" id="email" autocomplete="email" placeholder="you@email.com" />
+      </div>
+      <div class="auth-field">
+        <label for="password">Password <span id="pw-hint" style="text-transform:none;color:var(--text-muted);font-weight:400;"></span></label>
+        <input type="password" id="password" autocomplete="current-password" placeholder="••••••••" />
+      </div>
+      <button class="auth-btn" id="submit-btn" onclick="submitAuth()">Log in</button>
+      <div class="auth-msg" id="auth-msg"></div>
+    </div>
+    <div style="font-size:11px;color:var(--text-muted);text-align:center;margin-top:16px;line-height:1.6;">
+      Your password is hashed (PBKDF2) before storage — we never see or keep it in plain text. We store only your email + saved preferences. Everything on the site is free right now.
+    </div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js?v=v179"></script>
+<script src="js/app.js?v=v179"></script>
+<script src="js/worker-bridge.js?v=v179"></script>
+<script src="js/auth.js?v=v179"></script>
+<script>
+buildNav('login');
+let mode = 'login';
+
+function setTab(m) {
+  mode = m;
+  document.getElementById('tab-login').classList.toggle('active', m === 'login');
+  document.getElementById('tab-register').classList.toggle('active', m === 'register');
+  document.getElementById('submit-btn').textContent = m === 'login' ? 'Log in' : 'Create free account';
+  document.getElementById('pw-hint').textContent = m === 'register' ? '(min 8 characters)' : '';
+  document.getElementById('password').setAttribute('autocomplete', m === 'login' ? 'current-password' : 'new-password');
+  msg('', '');
+}
+function msg(text, cls) {
+  const el = document.getElementById('auth-msg');
+  el.textContent = text; el.className = 'auth-msg ' + (cls || '');
+}
+async function submitAuth() {
+  const email = document.getElementById('email').value.trim();
+  const pw = document.getElementById('password').value;
+  if (!email || !pw) { msg('Enter your email and password.', 'err'); return; }
+  const btn = document.getElementById('submit-btn');
+  btn.disabled = true; msg(mode === 'login' ? 'Logging in…' : 'Creating account…', '');
+  const r = mode === 'login' ? await Auth.login(email, pw) : await Auth.register(email, pw);
+  btn.disabled = false;
+  if (r && r.ok) {
+    msg('✓ Success — redirecting…', 'ok');
+    setTimeout(() => { location.href = 'my-account.html'; }, 600);
+  } else {
+    msg((r && r.error) || 'Something went wrong.', 'err');
+  }
+}
+// Enter key submits
+document.getElementById('password').addEventListener('keydown', e => { if (e.key === 'Enter') submitAuth(); });
+// If already logged in, go to account
+window.addEventListener('bpleone:auth', e => { if (e.detail && e.detail.email) location.href = 'my-account.html'; });
+</script>
+</body>
+</html>

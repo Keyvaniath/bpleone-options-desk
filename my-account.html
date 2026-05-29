@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>My Account — bpleone / trade</title>
+<meta name="description" content="Your bpleone account — watchlist, alert preferences, session. Free while in beta.">
+<link rel="stylesheet" href="css/style.css?v=v179">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.acct-card { background:var(--bg-elevated);border:1px solid var(--border);border-radius:12px;padding:22px;margin-bottom:16px; }
+.acct-row { display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid rgba(255,255,255,0.05); }
+.acct-row:last-child { border-bottom:none; }
+.wl-input { padding:10px 12px;background:#0a0a0a;border:1px solid var(--border);border-radius:8px;color:var(--text);font-family:var(--font-mono);font-size:13px;width:200px; }
+.wl-chip { display:inline-block;padding:5px 10px;margin:3px;border-radius:7px;background:rgba(0,212,255,0.1);color:var(--accent);font-family:var(--font-mono);font-weight:700;font-size:12px; }
+.wl-chip button { background:none;border:none;color:var(--red);cursor:pointer;margin-left:6px;font-weight:800; }
+.btn { padding:10px 18px;border-radius:8px;border:none;cursor:pointer;font-weight:700;font-size:13px; }
+.btn-go { background:linear-gradient(135deg,#00d4ff,#0094c7);color:#000; }
+.btn-warn { background:rgba(220,38,38,0.16);color:var(--red);border:1px solid rgba(220,38,38,0.4); }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header"><div><div class="page-title">👤 My Account</div><div class="page-subtitle">Free while in beta — your watchlist & alert preferences sync to your account.</div></div></div>
+
+  <div id="signed-out" style="display:none;">
+    <div class="acct-card" style="text-align:center;">
+      <div style="font-size:15px;margin-bottom:14px;">You're not logged in.</div>
+      <a href="login.html" class="btn btn-go" style="text-decoration:none;">Log in / Sign up — free</a>
+    </div>
+  </div>
+
+  <div id="signed-in" style="display:none;">
+    <div class="acct-card">
+      <div class="acct-row"><span style="color:var(--text-muted);">Email</span><strong id="acct-email" class="mono">—</strong></div>
+      <div class="acct-row"><span style="color:var(--text-muted);">Member since</span><span id="acct-since" class="mono">—</span></div>
+      <div class="acct-row"><span style="color:var(--text-muted);">Plan</span><span style="color:var(--green);font-weight:700;">Free (beta)</span></div>
+    </div>
+
+    <div class="acct-card">
+      <div class="card-title" style="margin-bottom:12px;">⭐ My Watchlist</div>
+      <div style="font-size:12px;color:var(--text-muted);margin-bottom:12px;">Symbols you follow. Saved to your account and used to highlight signals on the Alpha Scanner.</div>
+      <div id="wl-chips" style="margin-bottom:12px;"></div>
+      <div class="flex gap-8">
+        <input type="text" id="wl-add" class="wl-input" placeholder="Add symbol (e.g. NVDA)" maxlength="6" />
+        <button class="btn btn-go" onclick="addSym()">Add</button>
+      </div>
+      <div id="wl-saved" style="font-size:11px;color:var(--text-muted);margin-top:8px;"></div>
+    </div>
+
+    <div class="acct-card">
+      <div class="card-title" style="margin-bottom:12px;">🔔 Alert preferences</div>
+      <label style="display:flex;align-items:center;gap:10px;font-size:13px;cursor:pointer;">
+        <input type="checkbox" id="pref-buyonly" onchange="savePrefs()" /> Only notify me on BUY/SELL signals (skip WATCH/HOLD)
+      </label>
+      <label style="display:flex;align-items:center;gap:10px;font-size:13px;cursor:pointer;margin-top:10px;">
+        <input type="checkbox" id="pref-watchlist" onchange="savePrefs()" /> Only notify me about my watchlist symbols
+      </label>
+    </div>
+
+    <div class="acct-card" style="text-align:center;">
+      <button class="btn btn-warn" onclick="doLogout()">Log out</button>
+    </div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js?v=v179"></script>
+<script src="js/app.js?v=v179"></script>
+<script src="js/worker-bridge.js?v=v179"></script>
+<script src="js/auth.js?v=v179"></script>
+<script>
+buildNav('my-account');
+let _prefs = {};
+
+function fmtDate(ms) { try { return ms ? new Date(ms).toLocaleDateString() : '—'; } catch (e) { return '—'; } }
+
+function renderWatchlist() {
+  const wl = Array.isArray(_prefs.watchlist) ? _prefs.watchlist : [];
+  document.getElementById('wl-chips').innerHTML = wl.length
+    ? wl.map(s => '<span class="wl-chip">' + s + '<button onclick="removeSym(\'' + s + '\')">×</button></span>').join('')
+    : '<span style="color:var(--text-muted);font-size:12px;">No symbols yet — add a few above.</span>';
+}
+function addSym() {
+  const inp = document.getElementById('wl-add');
+  const s = (inp.value || '').trim().toUpperCase().replace(/[^A-Z0-9.]/g, '');
+  if (!s) return;
+  const wl = Array.isArray(_prefs.watchlist) ? _prefs.watchlist : [];
+  if (!wl.includes(s)) wl.push(s);
+  _prefs.watchlist = wl.slice(0, 50);
+  inp.value = '';
+  renderWatchlist(); savePrefs();
+}
+function removeSym(s) {
+  _prefs.watchlist = (_prefs.watchlist || []).filter(x => x !== s);
+  renderWatchlist(); savePrefs();
+}
+async function savePrefs() {
+  _prefs.buyOnly = document.getElementById('pref-buyonly').checked;
+  _prefs.watchlistOnly = document.getElementById('pref-watchlist').checked;
+  const saved = document.getElementById('wl-saved');
+  saved.textContent = 'Saving…';
+  const r = await Auth.savePrefs(_prefs);
+  saved.textContent = (r && r.ok) ? '✓ Saved to your account' : ('Save failed: ' + ((r && r.error) || '?'));
+  setTimeout(() => { saved.textContent = ''; }, 2500);
+}
+async function doLogout() { await Auth.logout(); location.href = 'login.html'; }
+
+function applyState(s) {
+  const inUser = s && s.email;
+  document.getElementById('signed-in').style.display = inUser ? 'block' : 'none';
+  document.getElementById('signed-out').style.display = inUser ? 'none' : 'block';
+  if (inUser) {
+    document.getElementById('acct-email').textContent = s.email;
+    _prefs = s.prefs || {};
+    document.getElementById('pref-buyonly').checked = !!_prefs.buyOnly;
+    document.getElementById('pref-watchlist').checked = !!_prefs.watchlistOnly;
+    renderWatchlist();
+    if (typeof Auth.token === 'function' && Auth.token()) {
+      fetch(Auth.workerUrl() + '/auth/me', { headers: { 'Authorization': 'Bearer ' + Auth.token() }, cache: 'no-store' })
+        .then(r => r.json()).then(j => { if (j && j.createdAt) document.getElementById('acct-since').textContent = fmtDate(j.createdAt); }).catch(() => {});
+    }
+  }
+}
+Auth.onChange(applyState);
+</script>
+</body>
+</html>

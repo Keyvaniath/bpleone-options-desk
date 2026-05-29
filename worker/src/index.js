@@ -38,7 +38,7 @@
 // Pass 200: version stamp so brain-proof.html + worker-setup.html can detect
 // when the deployed worker is behind the repo source. Bump on every meaningful
 // behavior change. Read via /brain/health → worker_version field.
-const WORKER_VERSION = 'pass-238';
+const WORKER_VERSION = 'pass-240';
 
 const UNIVERSE = [
   'SPY','QQQ','IWM','DIA','AAPL','NVDA','TSLA','MSFT','META','AMZN','GOOGL','AMD',
@@ -361,6 +361,57 @@ async function kvGet(env, key, fallback) {
 }
 async function kvPut(env, key, value) {
   try { await env.BRAIN_KV.put(key, JSON.stringify(value)); } catch (e) {}
+}
+async function kvPutTTL(env, key, value, ttlSec) {
+  try { await env.BRAIN_KV.put(key, JSON.stringify(value), { expirationTtl: ttlSec }); } catch (e) {}
+}
+async function kvDelete(env, key) {
+  try { await env.BRAIN_KV.delete(key); } catch (e) {}
+}
+
+// ============================================================
+// Pass 240: customer auth (email + password). Cost = $0 (Cloudflare free tier).
+// Passwords are NEVER stored plaintext — PBKDF2-HMAC-SHA256, 100k iterations,
+// per-user random salt, hash stored as hex. Sessions are cryptographically
+// random bearer tokens kept in KV with a TTL. HTTPS only (Cloudflare). This is
+// a customer-facing signup system; it does not gate content (everything stays
+// free), it enables saved watchlists / alerts / "my account".
+// ============================================================
+function bufToHex(buf) {
+  const b = new Uint8Array(buf); let s = '';
+  for (let i = 0; i < b.length; i++) s += b[i].toString(16).padStart(2, '0');
+  return s;
+}
+function randomHex(nBytes) {
+  const a = new Uint8Array(nBytes);
+  crypto.getRandomValues(a);
+  return bufToHex(a.buffer);
+}
+async function pbkdf2Hash(password, saltHex) {
+  const enc = new TextEncoder();
+  const key = await crypto.subtle.importKey('raw', enc.encode(password), { name: 'PBKDF2' }, false, ['deriveBits']);
+  const salt = new Uint8Array(saltHex.match(/.{2}/g).map(h => parseInt(h, 16)));
+  const bits = await crypto.subtle.deriveBits({ name: 'PBKDF2', salt, iterations: 100000, hash: 'SHA-256' }, key, 256);
+  return bufToHex(bits);
+}
+// Constant-time string compare so a timing side-channel can't leak the hash.
+function timingSafeEqualHex(a, b) {
+  if (typeof a !== 'string' || typeof b !== 'string' || a.length !== b.length) return false;
+  let diff = 0;
+  for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  return diff === 0;
+}
+function normEmail(e) { return String(e || '').trim().toLowerCase(); }
+function validEmail(e) { return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e) && e.length <= 254; }
+const SESSION_TTL_SEC = 60 * 60 * 24 * 30; // 30 days
+
+async function getSessionEmail(env, request) {
+  const auth = request.headers.get('Authorization') || '';
+  const m = auth.match(/^Bearer\s+(.+)$/i);
+  if (!m) return null;
+  const sess = await kvGet(env, 'session:' + m[1], null);
+  if (!sess || !sess.email) return null;
+  return sess.email;
 }
 
 // ============================================================
@@ -926,6 +977,76 @@ async function handleRequest(request, env, ctx) {
   const url = new URL(request.url);
   const path = url.pathname;
 
+  // ===== Pass 240: customer auth routes =====
+  if (path === '/auth/register' && request.method === 'POST') {
+    let body; try { body = await request.json(); } catch (e) { return json({ error: 'bad json' }, 400); }
+    const email = normEmail(body && body.email);
+    const password = String((body && body.password) || '');
+    if (!validEmail(email)) return json({ error: 'invalid email' }, 400);
+    if (password.length < 8) return json({ error: 'password must be at least 8 characters' }, 400);
+    const existing = await kvGet(env, 'user:' + email, null);
+    if (existing) return json({ error: 'account already exists — try logging in' }, 409);
+    const salt = randomHex(16);
+    const hash = await pbkdf2Hash(password, salt);
+    const user = { email, salt, hash, createdAt: Date.now() };
+    await kvPut(env, 'user:' + email, user);
+    const token = randomHex(32);
+    await kvPutTTL(env, 'session:' + token, { email, createdAt: Date.now() }, SESSION_TTL_SEC);
+    return json({ ok: true, token, email });
+  }
+
+  if (path === '/auth/login' && request.method === 'POST') {
+    let body; try { body = await request.json(); } catch (e) { return json({ error: 'bad json' }, 400); }
+    const email = normEmail(body && body.email);
+    const password = String((body && body.password) || '');
+    if (!validEmail(email) || !password) return json({ error: 'email and password required' }, 400);
+    // Per-email throttle: max 8 failed attempts / 15 min (brute-force guard).
+    const tkey = 'auththrottle:' + email;
+    const tries = (await kvGet(env, tkey, 0)) || 0;
+    if (tries >= 8) return json({ error: 'too many attempts — wait 15 minutes' }, 429);
+    const user = await kvGet(env, 'user:' + email, null);
+    let okPw = false;
+    if (user && user.salt && user.hash) {
+      const h = await pbkdf2Hash(password, user.salt);
+      okPw = timingSafeEqualHex(h, user.hash);
+    }
+    if (!user || !okPw) {
+      await kvPutTTL(env, tkey, tries + 1, 900);
+      return json({ error: 'invalid email or password' }, 401);
+    }
+    await kvDelete(env, tkey);
+    const token = randomHex(32);
+    await kvPutTTL(env, 'session:' + token, { email, createdAt: Date.now() }, SESSION_TTL_SEC);
+    return json({ ok: true, token, email });
+  }
+
+  if (path === '/auth/me') {
+    const email = await getSessionEmail(env, request);
+    if (!email) return json({ authenticated: false }, 200);
+    const user = await kvGet(env, 'user:' + email, null);
+    return json({ authenticated: true, email, createdAt: user ? user.createdAt : null, prefs: (user && user.prefs) || {} });
+  }
+
+  if (path === '/auth/logout' && request.method === 'POST') {
+    const auth = request.headers.get('Authorization') || '';
+    const m = auth.match(/^Bearer\s+(.+)$/i);
+    if (m) await kvDelete(env, 'session:' + m[1]);
+    return json({ ok: true });
+  }
+
+  if (path === '/auth/prefs' && request.method === 'POST') {
+    // Save per-user preferences (watchlist, alert settings). Auth required.
+    const email = await getSessionEmail(env, request);
+    if (!email) return json({ error: 'not authenticated' }, 401);
+    let body; try { body = await request.json(); } catch (e) { return json({ error: 'bad json' }, 400); }
+    const user = await kvGet(env, 'user:' + email, null);
+    if (!user) return json({ error: 'user not found' }, 404);
+    user.prefs = (body && typeof body.prefs === 'object') ? body.prefs : {};
+    user.prefsUpdatedAt = Date.now();
+    await kvPut(env, 'user:' + email, user);
+    return json({ ok: true, prefs: user.prefs });
+  }
+
   if (path === '/brain/health' || path === '/healthz') {
     const [lt, autoTs, model] = await Promise.all([
       kvGet(env, KV_KEYS.LAST_TICK, { ts: 0 }),
@@ -1395,7 +1516,7 @@ async function handleRequest(request, env, ctx) {
     return json(r);
   }
 
-  return json({ error: 'not found', paths: ['/brain/health', '/brain/state', '/brain/journal', '/brain/model', '/brain/metrics', '/brain/symbols', '/brain/champions', '/brain/learning', '/brain/signals', '/brain/predict?sym=X', '/brain/debug/fetch?sym=X', '/brain/bootstrap (POST)', '/brain/tick (POST)'] }, 404);
+  return json({ error: 'not found', paths: ['/brain/health', '/brain/state', '/brain/journal', '/brain/model', '/brain/metrics', '/brain/symbols', '/brain/champions', '/brain/learning', '/brain/signals', '/brain/predict?sym=X', '/brain/debug/fetch?sym=X', '/brain/bootstrap (POST)', '/brain/tick (POST)', '/auth/register (POST)', '/auth/login (POST)', '/auth/me', '/auth/logout (POST)', '/auth/prefs (POST)'] }, 404);
 }
 
 async function runBootstrap(env) {
