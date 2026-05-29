@@ -40,7 +40,9 @@
     <button class="action-btn" onclick="loadSignals()" style="padding:12px 22px;border-radius:8px;border:1px solid rgba(0,212,255,0.4);background:transparent;color:var(--accent);cursor:pointer;font-family:var(--font-mono);font-weight:700;">↻ Refresh</button>
   </div>
 
-  <div id="live-status" style="margin-bottom:16px;padding:10px 14px;border-radius:8px;background:var(--bg-elevated);font-family:var(--font-mono);font-size:12px;color:var(--text-muted);">Checking live data feed…</div>
+  <div id="live-status" style="margin-bottom:12px;padding:10px 14px;border-radius:8px;background:var(--bg-elevated);font-family:var(--font-mono);font-size:12px;color:var(--text-muted);">Checking live data feed…</div>
+
+  <div id="regime-banner" style="margin-bottom:16px;padding:12px 16px;border-radius:8px;display:none;font-size:13px;line-height:1.5;"></div>
 
   <div class="grid grid-4 mb-24" id="stat-row">
     <div class="stat-chip"><div class="n" id="c-buy" style="color:var(--green);">—</div><div class="l">Buy signals</div></div>
@@ -70,7 +72,7 @@
   </div>
 
   <div style="margin-top:18px;padding:14px 18px;border-radius:10px;background:rgba(148,163,184,0.06);border-left:3px solid var(--text-muted);font-size:12px;color:var(--text-muted);line-height:1.6;">
-    <strong>How to read this.</strong> <span style="color:var(--green);">BUY</span> = the brain leans up <em>and</em> volume is running well above normal (institutional accumulation footprint). <span style="color:var(--red);">SELL</span> = down-lean on heavy volume (distribution / avoid). <span style="color:var(--yellow);">WATCH</span> = big volume surge but the brain isn't directionally confident yet — something is happening, keep an eye on it. RVOL is time-of-day adjusted (today's volume projected to a full session vs the trailing average). The brain's edge is real but marginal (~53% walk-forward) — size accordingly.
+    <strong>How to read this.</strong> Signals are <strong>cross-sectional relative strength</strong> — each name is ranked against the current universe, not an absolute line, so the list stays balanced in any regime. <span style="color:var(--green);">BUY</span> = strongest of the pack + volume confirmation. <span style="color:var(--red);">SELL</span> = weakest of the pack + volume (distribution / avoid / short). <span style="color:var(--yellow);">WATCH</span> = big volume surge, mid-pack strength — something's happening. Check the <strong>regime banner</strong> up top: in a bearish tape a "BUY" is the <em>relatively</em> strongest name (may still fall), so favor cash/shorts; in a bullish tape BUYs are outright longs. The "Brain 5D" column shows each name's absolute P(up) for context. RVOL is time-of-day adjusted. The brain's edge is real but marginal (~53% walk-forward) — size accordingly.
     <br><br>
     <strong>What this is NOT.</strong> This is unusual <em>volume</em> + price action on free equity data — the honest TA proxy for institutional activity. It is <em>not</em> options-flow whale prints (sweeps/blocks/premium), which require a paid OPRA data feed. If you want true options flow, that's a data-subscription decision.
   </div>
@@ -160,6 +162,24 @@ async function loadSignals() {
     document.getElementById('c-buy').textContent = counts.BUY || 0;
     document.getElementById('c-sell').textContent = counts.SELL || 0;
     document.getElementById('c-watch').textContent = counts.WATCH || 0;
+    // Pass 236: regime banner — context for the cross-sectional signals
+    const rb = document.getElementById('regime-banner');
+    if (rb && j.regime && j.regime !== 'unknown') {
+      const mp = Math.round((j.universe_mean_prob || 0.5) * 100);
+      const cfg = {
+        bullish: { c: 'var(--green)', bg: 'rgba(16,185,129,0.10)', t: 'BULLISH', m: 'The brain is net-bullish on the tape — favor the long (BUY) names below.' },
+        bearish: { c: 'var(--red)', bg: 'rgba(220,38,38,0.10)', t: 'BEARISH', m: 'The brain is net-bearish — favor cash / shorts. "BUY" rows are RELATIVE strength (strongest of the pack) and can still fall in a down tape.' },
+        neutral: { c: 'var(--yellow)', bg: 'rgba(234,179,8,0.10)', t: 'NEUTRAL', m: 'Mixed tape — the long/short split is balanced; trade the strongest vs the weakest.' }
+      }[j.regime];
+      if (cfg) {
+        rb.style.display = 'block';
+        rb.style.background = cfg.bg;
+        rb.style.borderLeft = '4px solid ' + cfg.c;
+        rb.innerHTML = 'Brain regime: <strong style="color:' + cfg.c + ';">' + cfg.t + '</strong> '
+          + '<span style="color:var(--text-muted);">(avg 5d outlook ' + mp + '% up across ' + _allSignals.length + ' names)</span><br>'
+          + '<span style="color:var(--text-secondary);font-size:12px;">' + cfg.m + ' Signals are cross-sectional relative strength — each name ranked vs the universe, so the list stays balanced in any regime.</span>';
+      }
+    } else if (rb) { rb.style.display = 'none'; }
     const ageSec = j.ageSec || 0;
     const stale = j.updatedAt && ageSec > 1800;  // >30 min → market closed / scanner idle
     const ageStr = !j.updatedAt ? '—'

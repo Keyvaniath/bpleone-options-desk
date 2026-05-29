@@ -38,7 +38,7 @@
 // Pass 200: version stamp so brain-proof.html + worker-setup.html can detect
 // when the deployed worker is behind the repo source. Bump on every meaningful
 // behavior change. Read via /brain/health → worker_version field.
-const WORKER_VERSION = 'pass-235';
+const WORKER_VERSION = 'pass-236';
 
 const UNIVERSE = [
   'SPY','QQQ','IWM','DIA','AAPL','NVDA','TSLA','MSFT','META','AMZN','GOOGL','AMD',
@@ -986,22 +986,45 @@ async function handleRequest(request, env, ctx) {
   }
 
   if (path === '/brain/signals') {
-    // Pass 231: unusual-volume + conviction scanner. Returns the per-symbol
-    // BUY / SELL / WATCH / HOLD calls refreshed by the cron tick as symbols
-    // rotate (~every 6 min). Optional ?signal=BUY filter, ?min_rvol=2 filter.
+    // Pass 231/236: CROSS-SECTIONAL relative-strength scanner. The cron tick
+    // stores each symbol's absolute predProb + RVOL; here we rank every name
+    // against the CURRENT universe instead of an absolute 0.5 line. Why: the
+    // absolute P(up) drifts with the market regime — in a down tape every name
+    // clusters bearish, so absolute BUY/SELL thresholds collapse to "all SELL"
+    // (and "all HOLD" in a flat tape). Ranking each name vs its peers always
+    // yields a balanced, actionable long/short list. We still surface the
+    // absolute P(up) per row AND an overall regime read, so it stays honest:
+    // a relative "BUY" in a bearish tape is the STRONGEST name, not a promise
+    // it rises — the regime banner tells you whether to favor longs or cash.
     const snap = await kvGet(env, KV_KEYS.SIGNALS, { updatedAt: 0, signals: {} });
-    let arr = Object.values(snap.signals || {});
-    // Keep up to ~4 days so the last session's scan persists after hours and
-    // over weekends (this is a 5-DAY swing scanner — last-close signals are
-    // still actionable pre-market). Only truly abandoned symbols (universe
-    // changes) age out. The client shows the snapshot age + a "market closed"
-    // banner when it's stale, so freshness is always transparent.
-    arr = arr.filter(s => s && (Date.now() - (s.ts || 0)) < 4 * 24 * 60 * 60 * 1000);
+    let arr = Object.values(snap.signals || {})
+      .filter(s => s && (Date.now() - (s.ts || 0)) < 4 * 24 * 60 * 60 * 1000);  // ~4d retention
+
+    const withProb = arr.filter(s => typeof s.predProb === 'number');
+    const n = withProb.length;
+    const sorted = withProb.map(s => s.predProb).sort((a, b) => a - b);
+    const universeMean = n ? sorted.reduce((a, b) => a + b, 0) / n : 0.5;
+    const regime = n < 8 ? 'unknown' : (universeMean >= 0.52 ? 'bullish' : universeMean <= 0.48 ? 'bearish' : 'neutral');
+    if (n >= 8) {
+      for (const s of withProb) {
+        let below = 0; for (const q of sorted) { if (q < s.predProb) below++; }
+        const rank = n > 1 ? below / (n - 1) : 0.5;   // 0 = weakest .. 1 = strongest in universe
+        s.rel_rank = +rank.toFixed(3);
+        s.rel_excess = +(s.predProb - universeMean).toFixed(4);
+        const rv = s.rvol || 0;
+        if (rank >= 0.80 && rv >= 1.3) { s.signal = 'BUY'; s.reason = 'top ' + Math.max(1, Math.round((1 - rank) * 100)) + '% relative strength + ' + rv.toFixed(1) + '× volume'; }
+        else if (rank <= 0.20 && rv >= 1.3) { s.signal = 'SELL'; s.reason = 'bottom ' + Math.max(1, Math.round(rank * 100)) + '% relative strength + ' + rv.toFixed(1) + '× volume'; }
+        else if (rv >= 2.0) { s.signal = 'WATCH'; s.reason = rv.toFixed(1) + '× volume surge, mid-pack strength'; }
+        else if (rank >= 0.80) { s.signal = 'LEAN BUY'; s.reason = 'top relative strength, volume normal'; }
+        else if (rank <= 0.20) { s.signal = 'LEAN SELL'; s.reason = 'bottom relative strength, volume normal'; }
+        else { s.signal = 'HOLD'; s.reason = 'mid-pack relative strength'; }
+        s.rank = +(Math.abs(rank - 0.5) * 2 * Math.min(rv || 1, 5)).toFixed(4);
+      }
+    }
     const wantSignal = (url.searchParams.get('signal') || '').toUpperCase();
     if (wantSignal) arr = arr.filter(s => s.signal === wantSignal);
     const minRvol = parseFloat(url.searchParams.get('min_rvol') || '0');
     if (minRvol > 0) arr = arr.filter(s => (s.rvol || 0) >= minRvol);
-    // Actionable signals first (BUY/SELL), then by alpha rank (conviction x RVOL).
     const order = { BUY: 0, SELL: 1, WATCH: 2, 'LEAN BUY': 3, 'LEAN SELL': 4, HOLD: 5 };
     arr.sort((a, b) => ((order[a.signal] ?? 9) - (order[b.signal] ?? 9)) || ((b.rank || 0) - (a.rank || 0)));
     const counts = arr.reduce((m, s) => { m[s.signal] = (m[s.signal] || 0) + 1; return m; }, {});
@@ -1010,7 +1033,9 @@ async function handleRequest(request, env, ctx) {
       ageSec: snap.updatedAt ? Math.floor((Date.now() - snap.updatedAt) / 1000) : null,
       count: arr.length,
       counts,
-      note: 'Unusual VOLUME (relative-volume surge) + brain conviction. Free-data TA proxy for institutional activity — NOT options-flow whale prints.',
+      regime,                                          // pass 236: bullish / neutral / bearish
+      universe_mean_prob: +universeMean.toFixed(4),    // avg 5d P(up) across the scanned universe
+      note: 'Cross-sectional relative strength: each name ranked vs the current universe (regime-robust). Absolute P(up 5d) shown per row. Unusual VOLUME + brain conviction; free-data TA proxy, NOT options-flow whale prints.',
       signals: arr
     });
   }
