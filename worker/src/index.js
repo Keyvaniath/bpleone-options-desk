@@ -38,7 +38,7 @@
 // Pass 200: version stamp so brain-proof.html + worker-setup.html can detect
 // when the deployed worker is behind the repo source. Bump on every meaningful
 // behavior change. Read via /brain/health → worker_version field.
-const WORKER_VERSION = 'pass-233';
+const WORKER_VERSION = 'pass-234';
 
 const UNIVERSE = [
   'SPY','QQQ','IWM','DIA','AAPL','NVDA','TSLA','MSFT','META','AMZN','GOOGL','AMD',
@@ -254,6 +254,39 @@ function applyPlatt(rawProb, platt) {
   const z = platt.a * plattLogit(rawProb) + platt.b;
   return sigmoid(z);
 }
+
+// Pass 234: per-symbol recalibration bias. The heavily-regularized global model
+// differentiates weakly between symbols (every prediction pulled toward ~0.5),
+// so the scanner rarely crosses BUY/SELL. This learns a small per-symbol LOGIT
+// shift = logit(symbol's actual up-rate) - logit(symbol's mean predicted prob),
+// shrunk hard by sample count and capped, so each symbol's AVERAGE prediction
+// matches its own historical 5-day base rate. It's an honest recalibration (not
+// a fabricated signal) and is GUARDED in runBootstrap — kept only if it doesn't
+// worsen held-back walk-forward Brier. Increases signal flow without abandoning
+// the regularization that made the edge honest.
+function computeSymBias(model, examples) {
+  const K = 40, CAP = 0.4, agg = {};
+  for (const ex of examples) {
+    const s = ex && ex.sym; if (!s) continue;
+    if (!agg[s]) agg[s] = { n: 0, sumY: 0, sumP: 0 };
+    agg[s].n++; agg[s].sumY += ex.label; agg[s].sumP += predict(model, ex.features);
+  }
+  const bias = {};
+  for (const s in agg) {
+    const a = agg[s];
+    if (a.n < 10) continue;  // too few samples to recalibrate
+    let b = (plattLogit(a.sumY / a.n) - plattLogit(a.sumP / a.n)) * (a.n / (a.n + K));
+    b = Math.max(-CAP, Math.min(CAP, b));
+    if (Math.abs(b) > 0.02) bias[s] = +b.toFixed(4);  // skip negligible
+  }
+  return bias;
+}
+function applySymBias(p, sym, model) {
+  const b = model && model.symBias && model.symBias[sym];
+  if (!b || !isFinite(p)) return p;
+  return sigmoid(plattLogit(p) + b);
+}
+
 function fitPlatt(pairs) {
   // Need at least ~30 pairs to estimate two parameters with any stability.
   if (!Array.isArray(pairs) || pairs.length < 30) return null;
@@ -761,8 +794,9 @@ async function tick(env) {
     // stays intraday-fresh (each symbol updates as it rotates, ~every 6 min).
     // These are reused for the once-per-day journal capture below (no recompute).
     const features = extractRichFeatures(q, history, { vix });
-    const rawP = predict(model, features);
-    const p = applyPlatt(rawP, platt);
+    const rawP = predict(model, features);                 // pure global model output
+    const adjP = applySymBias(rawP, sym, model);            // pass 234: per-symbol recalibration
+    const p = applyPlatt(adjP, platt);                      // pass 213: global calibration -> final
     signalsMap[sym] = computeSignal(sym, q, history, p, dayKey);
 
     // Pass 226/230: capture ONE journal entry per symbol per ET trading day,
@@ -995,15 +1029,16 @@ async function handleRequest(request, env, ctx) {
       kvGet(env, KV_KEYS.BARS_HISTORY, {}),
       kvGet(env, KV_KEYS.PLATT, null)
     ]);
-    const quote = await fetchFinnhubQuote(env, sym);
-    if (!quote) return json({ error: 'finnhub quote unavailable', sym }, 503);
+    const quote = await fetchLiveQuote(env, sym);  // pass 234: Yahoo-primary (carries volume)
+    if (!quote) return json({ error: 'live quote unavailable', sym }, 503);
     // Snapshot vix from KV's bar history if available, else default
     const vixBars = barsHistory.VIX;
     const vix = (vixBars && vixBars.length > 0) ? vixBars[vixBars.length - 1].close : 18;
     const history = barsHistory[sym] || [];
     const features = extractRichFeatures(quote, history, { vix });
     const rawProb = predict(model, features);
-    const calibratedProb = applyPlatt(rawProb, platt);
+    const adjProb = applySymBias(rawProb, sym, model);  // pass 234: per-symbol recalibration
+    const calibratedProb = applyPlatt(adjProb, platt);
     const conviction = Math.max(calibratedProb, 1 - calibratedProb);
     const direction = calibratedProb >= 0.5 ? 'LONG' : 'SHORT';
     return json({
@@ -1558,17 +1593,32 @@ async function runBootstrap(env) {
     const wfEpochSet = seedShuffle(wfTrainSet, 142 + epoch);
     for (const ex of wfEpochSet) trainStep(wfModel, ex.features, ex.label);
   }
+  // Pass 234: candidate per-symbol bias from the wf TRAIN set (past), evaluated
+  // on the wf TEST set (future) — honest, no leakage.
+  const candidateSymBias = computeSymBias(wfModel, wfTrainSet);
+  const biasProbe = { symBias: candidateSymBias };
   const walkForward = [];
   let wfCorrect = 0, wfBrierSum = 0;
+  let wfBiasedCorrect = 0, wfBiasedBrierSum = 0;
   for (const ex of wfTestSet) {
     const p = predict(wfModel, ex.features);
+    const pB = applySymBias(p, ex.sym, biasProbe);
     walkForward.push({ p, y: ex.label, sym: ex.sym, ts: ex.ts });
     if ((p >= 0.5 ? 1 : 0) === ex.label) wfCorrect++;
     wfBrierSum += (p - ex.label) * (p - ex.label);
+    if ((pB >= 0.5 ? 1 : 0) === ex.label) wfBiasedCorrect++;
+    wfBiasedBrierSum += (pB - ex.label) * (pB - ex.label);
   }
   const wfAcc = wfTestSet.length > 0 ? wfCorrect / wfTestSet.length : null;
   const wfBrier = wfTestSet.length > 0 ? wfBrierSum / wfTestSet.length : null;
   const wfBss = wfBrier != null ? 1 - (wfBrier / 0.25) : null;
+  // Pass 234 GUARD: keep the per-symbol bias only if it doesn't worsen held-back
+  // Brier (same discipline as the pass-220 Platt guard). Otherwise ship none.
+  const wfBiasedBrier = wfTestSet.length > 0 ? wfBiasedBrierSum / wfTestSet.length : null;
+  const symBiasCount = Object.keys(candidateSymBias).length;
+  const symBiasKept = symBiasCount > 0 && wfBiasedBrier != null && wfBrier != null && wfBiasedBrier <= wfBrier + 1e-9;
+  model.symBias = symBiasKept ? candidateSymBias : {};
+  const wfBiasedAcc = wfTestSet.length > 0 ? wfBiasedCorrect / wfTestSet.length : null;
 
   // Pass 213: Platt calibration. Walk-forward is split in half — first 50%
   // (time-earlier) becomes the CALIBRATION set used to fit Platt (a, b);
@@ -1697,6 +1747,12 @@ async function runBootstrap(env) {
     walk_forward_raw_final_brier: rawFinalBrier != null ? +rawFinalBrier.toFixed(4) : null,
     walk_forward_raw_final_bss: rawFinalBss != null ? +rawFinalBss.toFixed(4) : null,
     walk_forward_final_test_n: finalTestSet.length,
+    // Pass 234: per-symbol recalibration bias (guarded)
+    sym_bias_count: symBiasKept ? symBiasCount : 0,
+    sym_bias_candidates: symBiasCount,
+    sym_bias_kept: symBiasKept,
+    walk_forward_biased_accuracy: wfBiasedAcc,
+    walk_forward_biased_brier: wfBiasedBrier != null ? +wfBiasedBrier.toFixed(4) : null,
     is_real_signal: bss != null && bss > 0.02,
     is_real_signal_walk_forward: wfBss != null && wfBss > 0.02,
     is_real_signal_calibrated: wfCalBss != null && wfCalBss > 0.02
