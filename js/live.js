@@ -421,6 +421,14 @@ document.addEventListener('DOMContentLoaded', () => {
         s.async = true;
         document.head.appendChild(s);
       }
+      // Pass 242: sample-data honesty banner — stamps an "illustrative, not live"
+      // notice on the handful of pages that simulate paid-feed data.
+      if (!document.querySelector('script[src*="sample-data-banner.js"]')) {
+        const s = document.createElement('script');
+        s.src = 'js/sample-data-banner.js';
+        s.async = true;
+        document.head.appendChild(s);
+      }
       // Cross-source price agreement check — logs when 2+ sources disagree
       // on the same symbol within 60s. Catches cases where individual ticks
       // pass validation but ONE source is silently wrong.
