@@ -1011,4 +1011,17 @@ document.addEventListener('DOMContentLoaded', () => {
   const demo = isDemoMode();
   setDataMode(demo ? 'demo' : 'live');
   if (demo) startLive(1500);
+  // Pass 243 (CRITICAL — "data not live"): EAGER-load the real-price feed
+  // IMMEDIATELY, not in the 5-second lazy block below. The 5s delay meant
+  // custom one-time renders (e.g. morning-brief's pulse) painted seed values
+  // and never saw the real worker-yahoo prices that landed 6s later. Loading
+  // now gets real prices into QUOTES within ~1s; worker-quotes re-publishes
+  // Feed + a 'bpleone:quotes' event so pages can re-render. (The lazy block's
+  // existence-guard makes its later attempt a no-op.)
+  ['js/worker-quotes.js', 'js/auth.js'].forEach(src => {
+    if (!document.querySelector('script[src*="' + src + '"]')) {
+      const s = document.createElement('script'); s.src = src + '?v=v181'; s.async = true;
+      document.head.appendChild(s);
+    }
+  });
 });

@@ -76,6 +76,10 @@
       if (typeof Feed !== 'undefined') Feed.publish('*', QUOTES);
       // Flip the global data mode to live the moment real worker prices land.
       try { if (typeof setDataMode === 'function') setDataMode('live'); } catch (e) {}
+      // Pass 243: emit both events. 'bpleone:quotes' is the canonical "real
+      // prices updated — re-render" signal that custom one-time renders listen
+      // for (Feed only auto-updates [data-live] elements, not JS-built widgets).
+      try { window.dispatchEvent(new CustomEvent('bpleone:quotes', { detail: { applied, at: lastOk } })); } catch (e) {}
       try { window.dispatchEvent(new CustomEvent('bpleone:worker-quotes', { detail: { applied, at: lastOk } })); } catch (e) {}
     }
   }
@@ -91,10 +95,11 @@
   window.WorkerQuotes = { start, pollOnce, status };
 
   if (typeof document !== 'undefined') {
+    // Pass 243: start IMMEDIATELY (was 800ms) so real prices land ASAP.
     if (document.readyState === 'complete' || document.readyState === 'interactive') {
-      setTimeout(start, 800);
+      start();
     } else {
-      document.addEventListener('DOMContentLoaded', () => setTimeout(start, 800));
+      document.addEventListener('DOMContentLoaded', start);
     }
   }
 })();

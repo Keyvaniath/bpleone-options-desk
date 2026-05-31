@@ -7,7 +7,7 @@
 <meta name="description" content="Bloomberg-style morning brief: brain's top setups, market regime, key levels, calendar, and the trade plan — all on one screen.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="css/style.css?v=v180">
+<link rel="stylesheet" href="css/style.css?v=v181">
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
@@ -141,14 +141,14 @@
 
 <div id="site-footer"></div>
 
-<script src="js/data-provider.js?v=v180"></script>
-<script src="js/ai-client.js?v=v180"></script>
-<script src="js/app.js?v=v180"></script>
-<script src="js/notify.js?v=v180"></script>
-<script src="js/live.js?v=v180"></script>
-<script src="js/model.js?v=v180"></script>
-<script src="js/brain-loop.js?v=v180"></script>
-<script src="js/charts.js?v=v180"></script>
+<script src="js/data-provider.js?v=v181"></script>
+<script src="js/ai-client.js?v=v181"></script>
+<script src="js/app.js?v=v181"></script>
+<script src="js/notify.js?v=v181"></script>
+<script src="js/live.js?v=v181"></script>
+<script src="js/model.js?v=v181"></script>
+<script src="js/brain-loop.js?v=v181"></script>
+<script src="js/charts.js?v=v181"></script>
 <script>
 buildNav('morning-brief');
 
@@ -294,12 +294,33 @@ if (overnight.length === 0) {
 
 // --- Mini pulse
 const PULSE_KEYS = [['SPY','S&P'],['QQQ','Nas'],['VXX','VIX'],['TLT','30Y'],['GLD','Gold'],['BTC','BTC']];
-document.getElementById('miniPulse').innerHTML = PULSE_KEYS.map(([s, n]) => {
-  const q = getQ(s);
-  const c = (q.changePct || 0);
-  const col = c > 0 ? 'var(--green)' : c < 0 ? 'var(--red)' : 'var(--text-muted)';
-  return '<div class="brief-stat"><div class="l">' + n + ' · ' + s + '</div><div class="v">' + (q.last || 0).toFixed(2) + '</div><div class="s" style="color:' + col + ';">' + (c >= 0 ? '+' : '') + c.toFixed(2) + '%</div></div>';
-}).join('');
+// Pass 243: re-render the QUOTES-derived widgets whenever real prices land.
+// worker-quotes.js fires 'bpleone:quotes' (and Feed '*') once it pulls live
+// worker-yahoo prices — without this, the page kept the seed values it painted
+// at parse time. Re-runs SPY levels + the mini pulse with live numbers.
+function renderLiveWidgets() {
+  const sp = getQ('SPY'); const last = sp.last || 540;
+  const _yh = +(last * 1.005).toFixed(2), _yl = +(last * 0.995).toFixed(2);
+  const _wh = +(last * 1.015).toFixed(2), _wl = +(last * 0.985).toFixed(2);
+  const _pv = +(last * 1.001).toFixed(2);
+  const lvl = document.getElementById('spyLevels');
+  if (lvl) lvl.innerHTML = `
+    <div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border);"><span style="color:var(--text-muted);">Week High (R2)</span><span class="mono" style="color:var(--green);font-weight:700;">$${_wh}</span></div>
+    <div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border);"><span style="color:var(--text-muted);">Yesterday High (R1)</span><span class="mono">${_yh}</span></div>
+    <div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border);background:rgba(0,212,255,0.04);"><span style="color:var(--accent);font-weight:700;">Pivot</span><span class="mono" style="color:var(--accent);font-weight:700;">${_pv}</span></div>
+    <div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border);"><span style="color:var(--text-muted);">Last Close</span><span class="mono">${last.toFixed(2)}</span></div>
+    <div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border);"><span style="color:var(--text-muted);">Yesterday Low (S1)</span><span class="mono">${_yl}</span></div>
+    <div style="display:flex;justify-content:space-between;padding:6px 0;"><span style="color:var(--text-muted);">Week Low (S2)</span><span class="mono" style="color:var(--red);font-weight:700;">$${_wl}</span></div>`;
+  const mp = document.getElementById('miniPulse');
+  if (mp) mp.innerHTML = PULSE_KEYS.map(([s, n]) => {
+    const q = getQ(s); const c = (q.changePct || 0);
+    const col = c > 0 ? 'var(--green)' : c < 0 ? 'var(--red)' : 'var(--text-muted)';
+    return '<div class="brief-stat"><div class="l">' + n + ' · ' + s + '</div><div class="v">' + (q.last || 0).toFixed(2) + '</div><div class="s" style="color:' + col + ';">' + (c >= 0 ? '+' : '') + c.toFixed(2) + '%</div></div>';
+  }).join('');
+}
+renderLiveWidgets();
+window.addEventListener('bpleone:quotes', renderLiveWidgets);
+try { if (typeof Feed !== 'undefined') Feed.subscribe('*', renderLiveWidgets); } catch (e) {}
 
 // --- Catalysts (synthesized)
 const today = new Date();
