@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Owner Checklist — bpleone / trade</title>
+<meta name="description" content="Live system health + the exact actions the owner must take (Cloudflare, GitHub, monitoring). Auto-checks the worker.">
+<link rel="stylesheet" href="css/style.css?v=v181">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.hc-row { display:flex;justify-content:space-between;align-items:center;padding:12px 0;border-bottom:1px solid var(--border);font-family:var(--font-mono);font-size:13px; }
+.hc-row:last-child { border-bottom:none; }
+.hc-val { font-weight:800; }
+.todo { border-left:4px solid var(--border);background:var(--bg-elevated);border-radius:10px;padding:18px 20px;margin-bottom:14px; }
+.todo.now { border-left-color:var(--red); }
+.todo.soon { border-left-color:var(--yellow); }
+.todo.opt { border-left-color:var(--accent); }
+.todo.done { border-left-color:var(--green);opacity:0.75; }
+.todo h3 { margin:0 0 6px;font-size:15px;font-weight:800; }
+.todo .why { font-size:12.5px;color:var(--text-secondary);line-height:1.6;margin-bottom:10px; }
+.todo .steps { font-size:12px;color:var(--text-secondary);line-height:1.7; }
+.code-blob { background:#0a0a0a;border:1px solid var(--border);border-radius:6px;padding:10px 12px;font-family:var(--font-mono);font-size:11.5px;overflow-x:auto;color:#0fa;line-height:1.7;margin:6px 0;white-space:pre-wrap;word-break:break-all; }
+.pill { display:inline-block;padding:2px 9px;border-radius:20px;font-size:10px;font-weight:800;letter-spacing:0.5px;text-transform:uppercase; }
+.pill.now { background:rgba(220,38,38,0.18);color:var(--red); }
+.pill.soon { background:rgba(245,158,11,0.18);color:var(--yellow); }
+.pill.opt { background:rgba(0,212,255,0.14);color:var(--accent); }
+.pill.done { background:rgba(16,185,129,0.16);color:var(--green); }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header"><div><div class="page-title">🛠 Owner Checklist</div><div class="page-subtitle">Live system health + the exact things only <strong>you</strong> can do (Cloudflare login, deploys, monitoring). Auto-checks the worker every load.</div></div></div>
+
+  <!-- LIVE HEALTH -->
+  <div class="card mb-24">
+    <div class="card-header"><div class="card-title">📡 Live system health</div><div class="mono" id="hc-updated" style="font-size:11px;color:var(--text-muted);">checking…</div></div>
+    <div class="hc-row"><span style="color:var(--text-muted);">Worker reachable</span><span class="hc-val" id="hc-up">—</span></div>
+    <div class="hc-row"><span style="color:var(--text-muted);">Deployed version</span><span class="hc-val" id="hc-ver">—</span></div>
+    <div class="hc-row"><span style="color:var(--text-muted);">Cron ticking</span><span class="hc-val" id="hc-tick">—</span></div>
+    <div class="hc-row"><span style="color:var(--text-muted);">Brain trained on</span><span class="hc-val" id="hc-trained">—</span></div>
+    <div class="hc-row"><span style="color:var(--text-muted);">Live self-learning</span><span class="hc-val" id="hc-learn">—</span></div>
+    <div class="hc-row"><span style="color:var(--text-muted);">Real price feed</span><span class="hc-val" id="hc-quotes">—</span></div>
+    <div class="hc-row"><span style="color:var(--text-muted);">Last weekly auto-retrain</span><span class="hc-val" id="hc-auto">—</span></div>
+  </div>
+
+  <div id="todo-list"></div>
+
+  <div style="margin-top:10px;padding:14px 18px;border-radius:10px;background:rgba(148,163,184,0.06);border-left:3px solid var(--text-muted);font-size:12px;color:var(--text-muted);line-height:1.6;">
+    Everything below the red items is optional polish — the site already runs free + self-sustaining on Cloudflare's free tier once the pending deploy lands. This page re-checks live, so items flip to ✓ as you complete them.
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js?v=v181"></script>
+<script src="js/app.js?v=v181"></script>
+<script src="js/worker-bridge.js?v=v181"></script>
+<script>
+buildNav('owner-checklist');
+const WORKER = (window.WorkerBridge && WorkerBridge.getUrl && WorkerBridge.getUrl()) || 'https://bpleone-brain-worker.brandonpleone.workers.dev';
+const EXPECTED_VERSION = 'pass-244';  // bump when the worker code advances
+
+const TODOS = [
+  { id:'deploy', sev:'now', title:'Re-authorize Cloudflare + deploy the latest worker',
+    why:'Your local Wrangler login expired, so the newest worker code (incl. the KV-write reduction that keeps the brain on the FREE tier) is committed to GitHub but not yet live. Deploying gets it running.',
+    steps:`<div class="code-blob">cd C:\\Users\\Owner\\bpleone-options-desk\\worker
+git pull
+npx wrangler login        # opens a browser to re-authorize
+npx wrangler deploy</div>This page's "Deployed version" will flip to <b>${EXPECTED_VERSION}</b> once it's live.`,
+    check:(h)=> h && h.worker_version === EXPECTED_VERSION },
+
+  { id:'token', sev:'now', title:'Rotate the worker ADMIN_TOKEN',
+    why:'The ADMIN_TOKEN (used to trigger /brain/bootstrap) was shared during setup. Rotate it so only you hold it. It is NOT needed for normal operation — the cron runs on its own.',
+    steps:`<div class="code-blob">cd C:\\Users\\Owner\\bpleone-options-desk\\worker
+npx wrangler secret put ADMIN_TOKEN
+# paste a fresh long random string when prompted</div>Generate one in the browser console: <code>crypto.randomUUID()+crypto.randomUUID()</code>` },
+
+  { id:'kv', sev:'soon', title:'Confirm Cloudflare KV is on the free tier and healthy',
+    why:'The worker stores everything in one KV namespace (BRAIN_KV). After the pending deploy, writes are ~660/day — under the free 1,000/day cap. Just confirm no overage warnings.',
+    steps:`In your Cloudflare tab → <b>Workers &amp; Pages → KV</b> → BRAIN_KV. Check daily writes &lt; 1,000. (Workers &amp; Pages → your worker → Metrics shows requests too — should be well under 100k/day.)` },
+
+  { id:'uptime', sev:'soon', title:'Set up free uptime monitoring on the worker',
+    why:'So you get an email/text if the 24/7 brain ever goes down, instead of finding out days later.',
+    steps:`Sign up free at <b>uptimerobot.com</b> (or cron-job.org). Add an HTTP monitor for:<div class="code-blob">https://bpleone-brain-worker.brandonpleone.workers.dev/brain/health</div>Alert if the response doesn't contain <code>"healthy":true</code> (during market hours) — or simply if it returns non-200.` },
+
+  { id:'ghpages', sev:'soon', title:'Confirm GitHub Pages is deploying from main + custom domain',
+    why:'The site (options.bpleone.com) auto-deploys from the main branch. Verify the custom domain + HTTPS are green so pushes go live automatically.',
+    steps:`GitHub tab → repo <b>Keyvaniath/bpleone-options-desk</b> → Settings → Pages. Confirm: Source = "Deploy from a branch / main", Custom domain = <code>options.bpleone.com</code>, "Enforce HTTPS" checked.` },
+
+  { id:'actions', sev:'soon', title:'Keep an eye on GitHub Actions minutes',
+    why:'Each push triggers a Pages build. You hit ~90% of the monthly free minutes before. Heavy site-wide pushes (cache-token bumps) are the main consumer.',
+    steps:`GitHub tab → your profile → Settings → Billing → "Actions". If it climbs, batch pushes (fewer, larger commits). Resets monthly.` },
+
+  { id:'provider', sev:'opt', title:'(Optional) Add a real-time / options data provider',
+    why:'Equity prices are Yahoo ~15-min delayed (free, fine for the 5-day brain). For real-time quotes or true options-flow / dark-pool data, a paid feed (Polygon, Tradier, or Unusual Whales API) is required. Only do this if you want sub-minute data or real options flow.',
+    steps:`Cheapest path: a Finnhub/Polygon key in <a href="settings.html" style="color:var(--accent);">settings.html</a> for the browser, and <code>wrangler secret put FINNHUB_API_KEY</code> for the worker. Options flow / dark pool are a separate paid subscription decision.` },
+
+  { id:'hub', sev:'opt', title:'(Optional) Verify the Squarespace hub tile links here',
+    why:'So bpleone.com shows a live tile into options.bpleone.com.',
+    steps:`See <a href="SQUARESPACE-FIX.md" style="color:var(--accent);">SQUARESPACE-FIX.md</a> / squarespace-preview.html for the one-click tile source.` }
+];
+
+function renderTodos(health) {
+  const order = { now:0, soon:1, opt:2 };
+  const html = TODOS.map(t => {
+    const done = t.check ? !!t.check(health) : false;
+    const sev = done ? 'done' : t.sev;
+    const label = done ? 'done' : (t.sev === 'now' ? 'do now' : t.sev === 'soon' ? 'soon' : 'optional');
+    return { sev, html:
+      '<div class="todo ' + sev + '">' +
+        '<h3>' + (done ? '✓ ' : '') + t.title + ' <span class="pill ' + sev + '">' + label + '</span></h3>' +
+        '<div class="why">' + t.why + '</div>' +
+        (done ? '' : '<div class="steps">' + t.steps + '</div>') +
+      '</div>', ord: done ? 3 : order[t.sev] };
+  }).sort((a,b)=>a.ord-b.ord).map(x=>x.html).join('');
+  document.getElementById('todo-list').innerHTML = html;
+}
+
+async function check() {
+  let health = null, learning = null, signals = null;
+  try { health = await (await fetch(WORKER + '/brain/health', {cache:'no-store'})).json(); } catch (e) {}
+  try { learning = await (await fetch(WORKER + '/brain/learning', {cache:'no-store'})).json(); } catch (e) {}
+  try { signals = await (await fetch(WORKER + '/brain/signals', {cache:'no-store'})).json(); } catch (e) {}
+  const set = (id, txt, col) => { const el = document.getElementById(id); if (el) { el.textContent = txt; if (col) el.style.color = col; } };
+  if (!health) {
+    set('hc-up', '✗ unreachable', 'var(--red)');
+    document.getElementById('hc-updated').textContent = 'worker not responding';
+  } else {
+    set('hc-up', '✓ yes', 'var(--green)');
+    const verOk = health.worker_version === EXPECTED_VERSION;
+    set('hc-ver', health.worker_version + (verOk ? ' ✓' : ' — deploy ' + EXPECTED_VERSION), verOk ? 'var(--green)' : 'var(--yellow)');
+    const ta = health.lastTickAgo;
+    set('hc-tick', health.market_open ? (ta != null && ta < 180 ? '✓ live (' + ta + 's ago)' : 'stale ' + ta + 's') : 'market closed (idle — correct)', health.market_open ? (ta < 180 ? 'var(--green)' : 'var(--yellow)') : 'var(--text-muted)');
+    set('hc-trained', (health.model_trained || 0).toLocaleString() + ' historical examples', 'var(--green)');
+    set('hc-auto', health.auto_bootstrap_ago_h != null ? health.auto_bootstrap_ago_h + 'h ago (re-races weekly)' : 'pending', 'var(--text-secondary)');
+    document.getElementById('hc-updated').textContent = 'checked ' + new Date().toLocaleTimeString();
+  }
+  if (learning) {
+    set('hc-learn', learning.mid_learning_active ? '✓ active (' + learning.mid_resolved + ' resolved)' : 'starts in ~' + (learning.days_to_first_mid_resolution ?? '?') + 'd (' + (learning.live_captures_clean||0) + ' captured)', learning.mid_learning_active ? 'var(--green)' : 'var(--yellow)');
+  }
+  if (signals) {
+    const real = (signals.signals || []).some(s => s.last > 0);
+    const fresh = signals.ageSec != null && signals.ageSec < 3600;
+    set('hc-quotes', real ? ('✓ real (' + (signals.count||0) + ' symbols' + (fresh ? ', live' : ', last close') + ')') : '✗ none', real ? 'var(--green)' : 'var(--red)');
+  }
+  renderTodos(health);
+}
+renderTodos(null);
+check();
+setInterval(check, 60000);
+</script>
+</body>
+</html>
