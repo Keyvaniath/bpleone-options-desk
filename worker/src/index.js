@@ -38,7 +38,7 @@
 // Pass 200: version stamp so brain-proof.html + worker-setup.html can detect
 // when the deployed worker is behind the repo source. Bump on every meaningful
 // behavior change. Read via /brain/health → worker_version field.
-const WORKER_VERSION = 'pass-244';
+const WORKER_VERSION = 'pass-246';
 
 const UNIVERSE = [
   'SPY','QQQ','IWM','DIA','AAPL','NVDA','TSLA','MSFT','META','AMZN','GOOGL','AMD',
@@ -1489,6 +1489,11 @@ async function handleRequest(request, env, ctx) {
       const lq = await fetchYahooQuote(sym);
       results.live_quote = lq ? { last: lq.last, volume: lq.volume, has_volume: (lq.volume || 0) > 0, source: lq.priceSource } : { ok: false };
     } catch (e) { results.live_quote = { error: String(e) }; }
+    // Pass 246: probe Finnhub too, so we can compare which source is ACCURATE.
+    try {
+      const fq = await fetchFinnhubQuote(env, sym);
+      results.finnhub_quote = fq ? { last: fq.last, prevClose: fq.prevClose, changePct: fq.changePct } : { ok: false, note: 'finnhub returned null (key missing/invalid or symbol unsupported)' };
+    } catch (e) { results.finnhub_quote = { error: String(e) }; }
     // Raw Yahoo response status check
     try {
       let yhSym = sym;
