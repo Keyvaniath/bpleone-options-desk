@@ -1020,7 +1020,7 @@ document.addEventListener('DOMContentLoaded', () => {
   // existence-guard makes its later attempt a no-op.)
   ['js/worker-quotes.js', 'js/auth.js'].forEach(src => {
     if (!document.querySelector('script[src*="' + src + '"]')) {
-      const s = document.createElement('script'); s.src = src + '?v=v181'; s.async = true;
+      const s = document.createElement('script'); s.src = src + '?v=v182'; s.async = true;
       document.head.appendChild(s);
     }
   });

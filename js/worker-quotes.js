@@ -68,6 +68,9 @@
       q.priceSource = 'worker-yahoo';
       q.liveAt = s.ts || Date.now();
       q.ts = Date.now();
+      q.fresh = true;   // pass 247: mark as a real/live quote — pages like the
+                        // Dashboard filter on q.fresh and were showing empty
+                        // because the worker feed never set it.
       if (typeof Feed !== 'undefined') Feed.publish(s.sym, q);
       applied++;
     }
