@@ -38,7 +38,7 @@
 // Pass 200: version stamp so brain-proof.html + worker-setup.html can detect
 // when the deployed worker is behind the repo source. Bump on every meaningful
 // behavior change. Read via /brain/health → worker_version field.
-const WORKER_VERSION = 'pass-241';
+const WORKER_VERSION = 'pass-244';
 
 const UNIVERSE = [
   'SPY','QQQ','IWM','DIA','AAPL','NVDA','TSLA','MSFT','META','AMZN','GOOGL','AMD',
@@ -755,17 +755,19 @@ async function tick(env) {
   // We still record a lastTick stamp so brain-proof's "lastTickAgo" doesn't
   // show "never" overnight, but skip the heavy reads/writes/Finnhub calls.
   if (!isMarketLikelyOpen()) {
-    await kvPut(env, KV_KEYS.LAST_TICK, {
-      ts: Date.now(),
-      syms_updated: 0,
-      errors: 0,
-      captured: 0,
-      resolved: 0,
-      trained: 0,
-      durationMs: Date.now() - startTs,
-      skipped_market_closed: true,
-      journal_cleared: !!clearFlag
-    });
+    // Pass 244 (KV BUDGET — self-sustaining on free tier): the cron fires every
+    // minute, but writing LAST_TICK every minute while the market is CLOSED
+    // burned ~900 writes/day off-hours + ~2,880/weekend — blowing past the free
+    // KV cap of 1,000 writes/day, after which writes silently fail and the brain
+    // stops persisting. Nothing changes off-hours, so only refresh the heartbeat
+    // twice an hour (at :00 and :30). Cuts off-hours writes ~900 -> ~48/day.
+    const minNow = new Date().getUTCMinutes();
+    if (minNow % 30 === 0 || clearFlag) {
+      await kvPut(env, KV_KEYS.LAST_TICK, {
+        ts: Date.now(), syms_updated: 0, errors: 0, captured: 0, resolved: 0, trained: 0,
+        durationMs: Date.now() - startTs, skipped_market_closed: true, journal_cleared: !!clearFlag
+      });
+    }
     return { ok: true, skipped: 'market-closed', journal_cleared: !!clearFlag };
   }
 
@@ -949,28 +951,31 @@ async function tick(env) {
   // (i.e., a new day-bar was pushed). Intraday close-updates stay in
   // memory and are reconstructed from the live Finnhub quote next tick.
   // Saves ~1,400 large-payload writes/day during market hours.
-  const writes = [
-    kvPut(env, KV_KEYS.JOURNAL, journal),
-    kvPut(env, KV_KEYS.LAST_TICK, {
-      ts: Date.now(),
-      syms_updated: okCount,
-      errors: errCount,
-      captured,
-      resolved,
-      trained,
-      durationMs: Date.now() - startTs,
-      skipped_model_write: trained === 0,
-      skipped_bars_write: !barsHistoryDirty,
-      journalTotal: journal.length   // pass 233: for /brain/health liveness UI
-    })
-  ];
+  // Pass 244 (KV BUDGET): the cron runs every minute, but we don't need to
+  // PERSIST every minute. Free-tier KV is 1,000 writes/day; writing JOURNAL +
+  // LAST_TICK + SIGNALS every minute = ~1,620/day in market hours alone. So:
+  //   - JOURNAL: only when its contents actually changed (capture/resolve/train).
+  //   - LAST_TICK: heartbeat — every 2 min (or whenever something changed). The
+  //     /brain/health "healthy" gate is ageS < 180s, so 2-min cadence is safe.
+  //   - SIGNALS: every 3 min (the scanner is a ~15-min-delayed product; the
+  //     browser polls it every 25s and tolerates 3-min-old snapshots).
+  // Data is never lost: any tick that captures/resolves/trains writes JOURNAL.
+  const minNow = Math.floor(Date.now() / 60000);
+  const changed = (captured > 0 || resolved > 0 || trained > 0);
+  const writes = [];
+  if (changed) writes.push(kvPut(env, KV_KEYS.JOURNAL, journal));
+  if (changed || minNow % 2 === 0) {
+    writes.push(kvPut(env, KV_KEYS.LAST_TICK, {
+      ts: Date.now(), syms_updated: okCount, errors: errCount,
+      captured, resolved, trained, durationMs: Date.now() - startTs,
+      skipped_model_write: trained === 0, skipped_bars_write: !barsHistoryDirty,
+      journalTotal: journal.length
+    }));
+  }
   if (barsHistoryDirty) writes.push(kvPut(env, KV_KEYS.BARS_HISTORY, barsHistory));
   if (trained > 0) writes.push(kvPut(env, KV_KEYS.MODEL, model));
-  // Pass 231: persist the refreshed unusual-volume scanner snapshot (small —
-  // ~universe of one small object per symbol). Cap to recent entries so it
-  // can't grow unbounded if the universe changes.
-  writes.push(kvPut(env, KV_KEYS.SIGNALS, { updatedAt: Date.now(), signals: signalsMap }));
-  await Promise.all(writes);
+  if (minNow % 3 === 0) writes.push(kvPut(env, KV_KEYS.SIGNALS, { updatedAt: Date.now(), signals: signalsMap }));
+  if (writes.length) await Promise.all(writes);
 
   return { ok: true, captured, resolved, trained, syms: okCount, errors: errCount, signals: Object.keys(signalsMap).length };
 }
