@@ -38,7 +38,7 @@
 // Pass 200: version stamp so brain-proof.html + worker-setup.html can detect
 // when the deployed worker is behind the repo source. Bump on every meaningful
 // behavior change. Read via /brain/health → worker_version field.
-const WORKER_VERSION = 'pass-246';
+const WORKER_VERSION = 'pass-248';
 
 const UNIVERSE = [
   'SPY','QQQ','IWM','DIA','AAPL','NVDA','TSLA','MSFT','META','AMZN','GOOGL','AMD',
@@ -441,6 +441,90 @@ async function fetchFinnhubQuote(env, sym) {
   } catch (e) {
     return null;
   }
+}
+
+// ============================================================
+// Pass 248: REAL news + insider feeds (free tier, no per-customer key).
+// The worker holds the Finnhub key as a secret, so these work for every
+// visitor without anyone pasting a key into the browser. Both endpoints are
+// on Finnhub's FREE tier (general/company news + SEC Form 3/4/5 insider
+// transactions). Responses are edge-cached via caches.default (see routes),
+// which costs ZERO KV writes and shields the 60-call/min rate limit.
+// ============================================================
+function normalizeNewsItem(n) {
+  return {
+    headline: String(n.headline || ''),
+    summary: String(n.summary || ''),
+    source: String(n.source || ''),
+    url: String(n.url || ''),
+    // Finnhub returns datetime in SECONDS; the browser pages expect ms.
+    datetime: (Number(n.datetime) || 0) * 1000,
+    related: String(n.related || ''),
+    category: String(n.category || ''),
+    image: String(n.image || '')
+  };
+}
+
+async function fetchFinnhubNews(env, category) {
+  if (!env.FINNHUB_API_KEY) return null;
+  const cat = ['general', 'forex', 'crypto', 'merger'].includes(category) ? category : 'general';
+  const url = 'https://finnhub.io/api/v1/news?category=' + cat + '&token=' + encodeURIComponent(env.FINNHUB_API_KEY);
+  try {
+    const r = await fetch(url);
+    if (!r.ok) return null;
+    const j = await r.json();
+    if (!Array.isArray(j)) return null;
+    return j.filter(n => n && n.headline && n.url).slice(0, 80).map(normalizeNewsItem);
+  } catch (e) { return null; }
+}
+
+async function fetchFinnhubCompanyNews(env, sym, days) {
+  if (!env.FINNHUB_API_KEY) return null;
+  const now = Date.now();
+  const toStr = new Date(now).toISOString().slice(0, 10);
+  const fromStr = new Date(now - (days || 14) * 86400000).toISOString().slice(0, 10);
+  const url = 'https://finnhub.io/api/v1/company-news?symbol=' + encodeURIComponent(sym) +
+    '&from=' + fromStr + '&to=' + toStr + '&token=' + encodeURIComponent(env.FINNHUB_API_KEY);
+  try {
+    const r = await fetch(url);
+    if (!r.ok) return null;
+    const j = await r.json();
+    if (!Array.isArray(j)) return null;
+    return j.filter(n => n && n.headline && n.url).slice(0, 80).map(normalizeNewsItem);
+  } catch (e) { return null; }
+}
+
+// SEC Form 3/4/5 insider transactions via Finnhub (free tier). transactionCode:
+// P = open-market purchase, S = open-market sale, A = grant/award, M = option
+// exercise, G = gift, F = tax withholding. We surface buy/sell by the sign of
+// `change` (shares delta) and compute an approximate USD value.
+async function fetchFinnhubInsider(env, sym) {
+  if (!env.FINNHUB_API_KEY) return null;
+  const url = 'https://finnhub.io/api/v1/stock/insider-transactions?symbol=' +
+    encodeURIComponent(sym) + '&token=' + encodeURIComponent(env.FINNHUB_API_KEY);
+  try {
+    const r = await fetch(url);
+    if (!r.ok) return null;
+    const j = await r.json();
+    const data = j && Array.isArray(j.data) ? j.data : [];
+    return data.map(d => {
+      const change = Number(d.change) || 0;
+      const price = Number(d.transactionPrice) || 0;
+      const code = String(d.transactionCode || '');
+      return {
+        name: String(d.name || ''),
+        share: Number(d.share) || 0,        // shares held after the transaction
+        change,                              // + = acquired, - = disposed
+        filingDate: String(d.filingDate || ''),
+        transactionDate: String(d.transactionDate || ''),
+        transactionCode: code,
+        transactionPrice: price,
+        value: Math.round(Math.abs(change) * price),
+        side: change > 0 ? 'BUY' : change < 0 ? 'SELL' : 'FLAT',
+        openMarket: code === 'P' || code === 'S'   // P/S are the high-signal open-market trades
+      };
+    }).sort((a, b) => (b.filingDate || '').localeCompare(a.filingDate || '')).slice(0, 100);
+  } catch (e) { return null; }
 }
 
 // Pass 230: live quote from Yahoo's v8 chart — returns the same shape as
@@ -1242,6 +1326,122 @@ async function handleRequest(request, env, ctx) {
       note: 'Cross-sectional relative strength: each name ranked vs the current universe (regime-robust). Absolute P(up 5d) shown per row. Unusual VOLUME + brain conviction; free-data TA proxy, NOT options-flow whale prints.',
       signals: arr
     });
+  }
+
+  // ===== Pass 248: REAL news feed (Finnhub via worker key — free for all) =====
+  if (path === '/brain/news') {
+    const cache = caches.default;
+    const cacheKey = new Request(url.toString(), { method: 'GET' });
+    const hit = await cache.match(cacheKey);
+    if (hit) return hit;
+    const sym = (url.searchParams.get('symbol') || '').toUpperCase().trim();
+    const category = (url.searchParams.get('category') || 'general').toLowerCase();
+    let items;
+    if (sym) items = await fetchFinnhubCompanyNews(env, sym, 14);
+    else items = await fetchFinnhubNews(env, category);
+    const resp = json({
+      ok: Array.isArray(items),
+      source: 'finnhub',
+      symbol: sym || null,
+      category: sym ? null : category,
+      count: Array.isArray(items) ? items.length : 0,
+      items: items || [],
+      note: Array.isArray(items) ? undefined : 'finnhub returned no data (key missing/invalid or rate-limited)'
+    });
+    // Edge-cache 5 min: news doesn't change every second, and this shields the
+    // 60-call/min free limit no matter how many customers hit it.
+    resp.headers.set('Cache-Control', 'public, max-age=300');
+    ctx.waitUntil(cache.put(cacheKey, resp.clone()));
+    return resp;
+  }
+
+  // ===== Pass 248: REAL insider transactions (SEC Form 3/4/5 via Finnhub) =====
+  if (path === '/brain/insider') {
+    const sym = (url.searchParams.get('symbol') || '').toUpperCase().trim();
+    if (!sym) return json({ ok: false, error: 'symbol required (e.g. ?symbol=NVDA)' }, 400);
+    const cache = caches.default;
+    const cacheKey = new Request(url.toString(), { method: 'GET' });
+    const hit = await cache.match(cacheKey);
+    if (hit) return hit;
+    const txns = await fetchFinnhubInsider(env, sym);
+    const arr = Array.isArray(txns) ? txns : [];
+    const buys = arr.filter(t => t.side === 'BUY');
+    const sells = arr.filter(t => t.side === 'SELL');
+    const openMarket = arr.filter(t => t.openMarket);
+    const resp = json({
+      ok: Array.isArray(txns),
+      source: 'finnhub/sec-form4',
+      symbol: sym,
+      count: arr.length,
+      buy_count: buys.length,
+      sell_count: sells.length,
+      open_market_count: openMarket.length,
+      net_open_market_value: openMarket.reduce((s, t) => s + (t.side === 'BUY' ? t.value : -t.value), 0),
+      transactions: arr,
+      note: Array.isArray(txns)
+        ? 'SEC Form 3/4/5 filings. Open-market P (buy) / S (sell) carry the signal; A/M/G/F are grants, exercises, gifts, tax-withholding.'
+        : 'finnhub returned no insider data (key missing/invalid or symbol unsupported)'
+    });
+    // Insider filings update slowly (legal lag) — cache 1h.
+    resp.headers.set('Cache-Control', 'public, max-age=3600');
+    ctx.waitUntil(cache.put(cacheKey, resp.clone()));
+    return resp;
+  }
+
+  // ===== Pass 248: aggregated market-wide insider feed (one cached call) =====
+  // The browser "Insider Trades Live" page wants a cross-symbol feed; rather
+  // than fan out 16 calls from every visitor's browser, the worker assembles
+  // it once, computes buy-clusters, and edge-caches the whole thing for 1h.
+  if (path === '/brain/insider-feed') {
+    const cache = caches.default;
+    const cacheKey = new Request(url.toString(), { method: 'GET' });
+    const hit = await cache.match(cacheKey);
+    if (hit) return hit;
+    const DEFAULT_BASKET = ['NVDA', 'TSLA', 'AAPL', 'MSFT', 'META', 'AMZN', 'GOOGL', 'AMD', 'PLTR', 'COIN', 'AVGO', 'JPM', 'GS', 'DIS', 'NFLX', 'UBER'];
+    const reqSyms = (url.searchParams.get('symbols') || '').toUpperCase().split(',').map(s => s.trim()).filter(Boolean);
+    const syms = (reqSyms.length ? reqSyms : DEFAULT_BASKET).slice(0, 20);
+    const results = await Promise.all(syms.map(s =>
+      fetchFinnhubInsider(env, s).then(t => ({ sym: s, txns: t })).catch(() => ({ sym: s, txns: null }))
+    ));
+    let all = [];
+    for (const r of results) {
+      if (!Array.isArray(r.txns)) continue;
+      r.txns.slice(0, 12).forEach(t => all.push(Object.assign({}, t, { sym: r.sym })));   // most-recent 12 per symbol
+    }
+    all.sort((a, b) => (b.filingDate || '').localeCompare(a.filingDate || ''));
+    all = all.slice(0, 150);
+    // Buy clusters: a symbol with >=2 distinct insiders making OPEN-MARKET buys
+    // is the classic bullish tell (multiple insiders putting cash in at once).
+    const clusterBuys = all.filter(t => t.side === 'BUY' && t.openMarket);
+    const bySym = {};
+    clusterBuys.forEach(t => {
+      const c = (bySym[t.sym] = bySym[t.sym] || { sym: t.sym, buyers: new Set(), value: 0, count: 0 });
+      c.buyers.add(t.name); c.value += t.value; c.count++;
+    });
+    const clusters = Object.values(bySym)
+      .filter(c => c.buyers.size >= 2)
+      .map(c => ({ sym: c.sym, buyers: c.buyers.size, count: c.count, value: c.value }))
+      .sort((a, b) => b.value - a.value);
+    const buys = all.filter(t => t.side === 'BUY');
+    const sells = all.filter(t => t.side === 'SELL');
+    const okSyms = results.filter(r => Array.isArray(r.txns)).length;
+    const resp = json({
+      ok: all.length > 0,
+      source: 'finnhub/sec-form4',
+      symbols: syms,
+      symbols_with_data: okSyms,
+      count: all.length,
+      buy_count: buys.length,
+      sell_count: sells.length,
+      buy_value: buys.reduce((s, t) => s + t.value, 0),
+      sell_value: sells.reduce((s, t) => s + t.value, 0),
+      clusters,
+      transactions: all,
+      note: 'Real SEC Form 3/4/5 across a liquid basket. Open-market P (buy) / S (sell) carry the signal; A/M/G/F are grants/exercises/gifts/tax.'
+    });
+    resp.headers.set('Cache-Control', 'public, max-age=3600');
+    ctx.waitUntil(cache.put(cacheKey, resp.clone()));
+    return resp;
   }
 
   if (path === '/brain/predict') {

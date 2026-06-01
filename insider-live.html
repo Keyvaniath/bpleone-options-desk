@@ -7,7 +7,7 @@
 <meta name="description" content="Live Form 4 insider buys and sells with cluster detection and bullish signal scoring.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="css/style.css?v=v182">
+<link rel="stylesheet" href="css/style.css?v=v183">
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
 <style>
@@ -24,8 +24,8 @@
 <div class="container">
   <div class="page-header">
     <div>
-      <div class="page-title">🏛 Insider Trades Live</div>
-      <div class="page-subtitle">Form 4 buys + sells · cluster detection · <span id="market-clock">--</span></div>
+      <div class="page-title">🏛 Insider Trades Live <span class="feat-badge feat-live">REAL · SEC Form 4</span></div>
+      <div class="page-subtitle">Real SEC Form 3/4/5 filings via the bpleone brain — no API key needed · open-market buys/sells carry the signal · <span id="market-clock">--</span></div>
     </div>
     <div class="flex gap-8"><button class="btn btn-secondary" id="refreshBtn">🔄</button></div>
   </div>
@@ -51,13 +51,13 @@
       <button class="btn btn-ghost" data-flt="buy" style="padding:4px 10px;font-size:11px;">BUYS</button>
       <button class="btn btn-ghost" data-flt="sell" style="padding:4px 10px;font-size:11px;">SELLS</button>
       <button class="btn btn-ghost" data-flt="big" style="padding:4px 10px;font-size:11px;">≥$500k</button>
-      <button class="btn btn-ghost" data-flt="ceo" style="padding:4px 10px;font-size:11px;">CEO/CFO</button>
+      <button class="btn btn-ghost" data-flt="open" style="padding:4px 10px;font-size:11px;">OPEN-MKT</button>
     </div>
   </div>
 
   <div class="card" style="padding:0;">
     <div class="ins-row" style="background:var(--bg-elevated);font-size:9px;color:var(--text-muted);font-weight:800;letter-spacing:0.5px;">
-      <div>DATE</div><div>SYM</div><div>SIDE</div><div>INSIDER</div><div>TITLE</div><div>SHARES</div><div>$ VALUE</div><div>NOTE</div>
+      <div>FILED</div><div>SYM</div><div>SIDE</div><div>INSIDER</div><div>CODE</div><div>SHARES</div><div>$ VALUE</div><div>NOTE</div>
     </div>
     <div id="insBody"></div>
   </div>
@@ -65,55 +65,69 @@
 
 <div id="site-footer"></div>
 
-<script src="js/data-provider.js?v=v182"></script>
-<script src="js/ai-client.js?v=v182"></script>
-<script src="js/app.js?v=v182"></script>
-<script src="js/notify.js?v=v182"></script>
-<script src="js/live.js?v=v182"></script>
+<script src="js/data-provider.js?v=v183"></script>
+<script src="js/ai-client.js?v=v183"></script>
+<script src="js/app.js?v=v183"></script>
+<script src="js/notify.js?v=v183"></script>
+<script src="js/live.js?v=v183"></script>
 <script>
 buildNav('insider-live');
 
-const SYMS = ['NVDA','TSLA','AAPL','MSFT','META','AMZN','GOOGL','AMD','PLTR','COIN','SMCI','NFLX','MSTR','SHOP','UBER','HOOD','SOFI','PANW','SNOW','AVGO','DIS','BA','GS','JPM','PFE','MRNA','LULU','TGT'];
-const NAMES = ['J. Smith','M. Patel','R. Johnson','S. Williams','D. Chen','A. Rodriguez','L. Kim','T. Anderson','C. Garcia','B. Martinez','E. Singh','P. Nakamura'];
-const TITLES = ['CEO','CFO','COO','Director','President','EVP Sales','EVP Eng','GC','Director','10% Holder'];
+// Pass 248: REAL SEC Form 3/4/5 data from the bpleone brain worker (which
+// holds the Finnhub key as a server-side secret). One cached call returns a
+// market-wide feed + server-computed buy-clusters. No fabricated rows.
+const INSIDER_WORKER = (function () {
+  try { if (typeof WorkerBridge !== 'undefined' && WorkerBridge.getUrl) { const u = WorkerBridge.getUrl(); if (u) return u; } } catch (e) {}
+  return 'https://bpleone-brain-worker.brandonpleone.workers.dev';
+})();
 
-function getQ(s) { return (typeof QUOTES !== 'undefined' && QUOTES[s]) ? QUOTES[s] : { last: 100 }; }
+// SEC transaction codes → plain-English note. P/S are the open-market trades
+// that actually carry signal; the rest are grants, exercises, gifts, tax.
+const CODE_NOTE = {
+  P: '⭐ Open-market purchase', S: 'Open-market sale', A: 'Grant / award',
+  M: 'Option exercise', G: 'Gift', F: 'Tax withholding', C: 'Conversion',
+  X: 'Option exercise', D: 'Disposition to issuer'
+};
 
-function generate() {
-  const trades = [];
-  for (let i = 0; i < 45; i++) {
-    const sym = SYMS[Math.floor(Math.random() * SYMS.length)];
-    const q = getQ(sym);
-    const side = Math.random() > 0.7 ? 'BUY' : 'SELL';
-    const name = NAMES[Math.floor(Math.random() * NAMES.length)];
-    const title = TITLES[Math.floor(Math.random() * TITLES.length)];
-    const shares = Math.floor(500 + Math.random() * 80000);
-    const value = shares * q.last;
-    const ageHrs = Math.floor(Math.random() * 24);
-    const note = side === 'BUY' ? (title === 'CEO' || title === 'CFO' ? '⭐ Top executive · strong signal' : 'Direct purchase') : 'Pre-planned 10b5-1';
-    trades.push({ sym, side, name, title, shares, value, ageHrs, ts: Date.now() - ageHrs * 3600000 });
-  }
-  return trades.sort((a, b) => b.ts - a.ts);
+let data = [];
+let clusters = [];
+let flt = 'all';
+let loaded = false;
+
+function fmtFiled(dStr) {
+  if (!dStr) return '—';
+  const t = Date.parse(dStr + 'T00:00:00Z');
+  if (isNaN(t)) return dStr;
+  const days = Math.floor((Date.now() - t) / 86400000);
+  if (days <= 0) return 'today';
+  if (days === 1) return '1d ago';
+  if (days < 30) return days + 'd ago';
+  return new Date(t).toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
 }
 
-let data = generate();
-let flt = 'all';
+async function fetchFeed() {
+  document.getElementById('insBody').innerHTML = '<div style="padding:30px;text-align:center;color:var(--text-muted);font-size:13px;">⏳ Loading real SEC filings…</div>';
+  try {
+    const r = await fetch(INSIDER_WORKER + '/brain/insider-feed', { cache: 'no-store' });
+    const j = await r.json();
+    data = (j && Array.isArray(j.transactions)) ? j.transactions : [];
+    clusters = (j && Array.isArray(j.clusters)) ? j.clusters : [];
+    loaded = true;
+    if (!j || !j.ok || !data.length) {
+      document.getElementById('insBody').innerHTML = '<div style="padding:30px;text-align:center;color:var(--text-muted);font-size:13px;">No insider filings returned. <button class="btn btn-primary" style="margin-left:8px;" onclick="fetchFeed()">Retry</button></div>';
+    }
+  } catch (e) {
+    data = []; clusters = [];
+    document.getElementById('insBody').innerHTML = '<div style="padding:30px;text-align:center;color:var(--red);font-size:13px;">Failed to load: ' + e.message + ' <button class="btn btn-primary" style="margin-left:8px;" onclick="fetchFeed()">Retry</button></div>';
+  }
+  paint(); paintClusters();
+}
 
 function paintClusters() {
-  // Find symbols with 3+ buys in last 14 days
-  const cutoff = Date.now() - 14 * 24 * 3600 * 1000;
-  const buys = data.filter(t => t.side === 'BUY' && t.ts > cutoff);
-  const bySym = {};
-  buys.forEach(t => {
-    if (!bySym[t.sym]) bySym[t.sym] = { sym: t.sym, count: 0, value: 0, insiders: new Set() };
-    bySym[t.sym].count++;
-    bySym[t.sym].value += t.value;
-    bySym[t.sym].insiders.add(t.name);
-  });
-  const clusters = Object.values(bySym).filter(c => c.count >= 3).sort((a, b) => b.value - a.value);
   const el = document.getElementById('clustersBody');
-  if (clusters.length === 0) {
-    el.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-muted);font-size:12px;">No buy clusters detected in the last 14 days.</div>';
+  if (!clusters.length) {
+    el.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-muted);font-size:12px;">' +
+      (loaded ? 'No open-market buy clusters in the current basket — insiders are net-selling this window (an honest read, not a missing feed).' : 'Loading…') + '</div>';
   } else {
     el.innerHTML = '';
     clusters.forEach(c => {
@@ -122,9 +136,9 @@ function paintClusters() {
       card.style.cursor = 'pointer';
       card.onclick = () => { window.location.href = 'trade-coach.html?sym=' + c.sym; };
       card.innerHTML = '<div style="display:flex;justify-content:space-between;align-items:center;">'
-        + '<div><strong style="font-size:15px;">' + c.sym + '</strong> · ' + c.count + ' insider buys · ' + c.insiders.size + ' distinct buyers</div>'
+        + '<div><strong style="font-size:15px;">' + c.sym + '</strong> · ' + c.count + ' open-market buys · ' + c.buyers + ' distinct buyers</div>'
         + '<div class="mono" style="color:var(--green);font-weight:700;">$' + (c.value / 1e6).toFixed(2) + 'M</div></div>'
-        + '<div style="font-size:12px;color:var(--text-muted);margin-top:6px;">Cluster signal: 64% hit-rate over 3 months historically. Add to watchlist for follow-up.</div>';
+        + '<div style="font-size:12px;color:var(--text-muted);margin-top:6px;">Multiple insiders buying in the open market — a classic bullish tell. Tap to open the coach.</div>';
       el.appendChild(card);
     });
   }
@@ -136,48 +150,52 @@ function paint() {
   if (flt === 'buy') rows = data.filter(d => d.side === 'BUY');
   else if (flt === 'sell') rows = data.filter(d => d.side === 'SELL');
   else if (flt === 'big') rows = data.filter(d => d.value >= 500000);
-  else if (flt === 'ceo') rows = data.filter(d => d.title === 'CEO' || d.title === 'CFO');
+  else if (flt === 'open') rows = data.filter(d => d.openMarket);
 
   const body = document.getElementById('insBody');
-  body.innerHTML = '';
-  rows.forEach(t => {
-    const cls = t.side === 'BUY' ? 'buy' : 'sell';
-    const sideCol = t.side === 'BUY' ? 'var(--green)' : 'var(--red)';
-    const valStr = t.value >= 1e6 ? '$' + (t.value / 1e6).toFixed(2) + 'M' : '$' + (t.value / 1e3).toFixed(0) + 'k';
-    const date = t.ageHrs < 1 ? 'Just now' : t.ageHrs + 'h ago';
-    const row = document.createElement('div');
-    row.className = 'ins-row ' + cls;
-    row.innerHTML = '<div style="color:var(--text-muted);">' + date + '</div>'
-      + '<div><strong>' + t.sym + '</strong></div>'
-      + '<div style="color:' + sideCol + ';font-weight:700;">' + t.side + '</div>'
-      + '<div style="font-family:Inter;color:var(--text-secondary);">' + t.name + '</div>'
-      + '<div style="font-family:Inter;color:var(--text-muted);font-size:10px;">' + t.title + '</div>'
-      + '<div>' + t.shares.toLocaleString() + '</div>'
-      + '<div style="color:' + sideCol + ';font-weight:700;">' + valStr + '</div>'
-      + '<div style="font-family:Inter;color:var(--text-muted);font-size:11px;">' + t.note + '</div>';
-    row.onclick = () => { window.location.href = 'trade-coach.html?sym=' + t.sym; };
-    body.appendChild(row);
-  });
+  if (loaded && data.length) {
+    body.innerHTML = '';
+    rows.forEach(t => {
+      const cls = t.side === 'BUY' ? 'buy' : 'sell';
+      const sideCol = t.side === 'BUY' ? 'var(--green)' : 'var(--red)';
+      const v = Math.abs(t.value || 0);
+      const valStr = v >= 1e6 ? '$' + (v / 1e6).toFixed(2) + 'M' : v >= 1e3 ? '$' + (v / 1e3).toFixed(0) + 'k' : (v ? '$' + v.toFixed(0) : '—');
+      const note = CODE_NOTE[t.transactionCode] || ('Code ' + (t.transactionCode || '?'));
+      const row = document.createElement('div');
+      row.className = 'ins-row ' + cls;
+      row.innerHTML = '<div style="color:var(--text-muted);">' + fmtFiled(t.filingDate) + '</div>'
+        + '<div><strong>' + t.sym + '</strong></div>'
+        + '<div style="color:' + sideCol + ';font-weight:700;">' + t.side + '</div>'
+        + '<div style="font-family:Inter;color:var(--text-secondary);">' + (t.name || '—') + '</div>'
+        + '<div style="font-family:var(--font-mono);color:var(--text-muted);">' + (t.transactionCode || '—') + '</div>'
+        + '<div>' + Math.abs(t.change || 0).toLocaleString() + '</div>'
+        + '<div style="color:' + sideCol + ';font-weight:700;">' + valStr + '</div>'
+        + '<div style="font-family:Inter;color:var(--text-muted);font-size:11px;">' + note + '</div>';
+      row.onclick = () => { window.location.href = 'trade-coach.html?sym=' + t.sym; };
+      body.appendChild(row);
+    });
+    if (!rows.length) body.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-muted);font-size:12px;">No rows match this filter.</div>';
+  }
 
   const buys = data.filter(d => d.side === 'BUY');
   const sells = data.filter(d => d.side === 'SELL');
-  const buyVal = buys.reduce((a, d) => a + d.value, 0);
-  const sellVal = sells.reduce((a, d) => a + d.value, 0);
+  const buyVal = buys.reduce((a, d) => a + Math.abs(d.value || 0), 0);
+  const sellVal = sells.reduce((a, d) => a + Math.abs(d.value || 0), 0);
   document.getElementById('kpiBuys').textContent = buys.length;
   document.getElementById('kpiBuysDollar').textContent = '$' + (buyVal / 1e6).toFixed(2) + 'M';
   document.getElementById('kpiSells').textContent = sells.length;
   document.getElementById('kpiSellsDollar').textContent = '$' + (sellVal / 1e6).toFixed(2) + 'M';
-  document.getElementById('kpiRatio').textContent = (sells.length > 0 ? (buys.length / sells.length).toFixed(2) : 'n/a');
+  document.getElementById('kpiRatio').textContent = (sells.length > 0 ? (buys.length / sells.length).toFixed(2) : (buys.length ? 'all buys' : 'n/a'));
 }
 
-paint(); paintClusters();
 document.querySelectorAll('[data-flt]').forEach(b => b.addEventListener('click', () => {
   document.querySelectorAll('[data-flt]').forEach(x => x.classList.remove('btn-active'));
   b.classList.add('btn-active');
   flt = b.dataset.flt;
   paint();
 }));
-document.getElementById('refreshBtn').addEventListener('click', () => { data = generate(); paint(); paintClusters(); });
+document.getElementById('refreshBtn').addEventListener('click', fetchFeed);
+fetchFeed();
 </script>
 </body>
 </html>

@@ -7,7 +7,7 @@
 <meta name="description" content="Live market news pulled from Finnhub. Filter by ticker, category, source. Sentiment scoring per headline.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="css/style.css?v=v182">
+<link rel="stylesheet" href="css/style.css?v=v183">
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
 <style>
@@ -36,7 +36,7 @@
   <div class="page-header">
     <div>
       <div class="page-title">News & Sentiment <span class="feat-badge feat-live">REAL</span></div>
-      <div class="page-subtitle">Live headlines from Finnhub · per-ticker filtering · keyword sentiment scoring · <span id="market-clock">--</span></div>
+      <div class="page-subtitle">Live headlines via the bpleone brain — no API key needed · per-ticker filtering · keyword sentiment scoring · <span id="market-clock">--</span></div>
     </div>
     <div class="flex gap-8">
       <input id="symInput" placeholder="Symbol (or blank for general)" autocomplete="off" style="background:var(--bg-elevated);border:1px solid var(--border);border-radius:8px;padding:7px 12px;color:var(--text-primary);font-size:13px;font-family:var(--font-mono);width:180px;text-transform:uppercase;">
@@ -87,11 +87,11 @@
 
 <div id="site-footer"></div>
 
-<script src="js/data-provider.js?v=v182"></script>
-<script src="js/ai-client.js?v=v182"></script>
-<script src="js/app.js?v=v182"></script>
-<script src="js/notify.js?v=v182"></script>
-<script src="js/live.js?v=v182"></script>
+<script src="js/data-provider.js?v=v183"></script>
+<script src="js/ai-client.js?v=v183"></script>
+<script src="js/app.js?v=v183"></script>
+<script src="js/notify.js?v=v183"></script>
+<script src="js/live.js?v=v183"></script>
 <script>
 buildNav('news');
 
@@ -130,7 +130,7 @@ function showError(msg, hint) {
     <div class="icon">⚠</div>
     <div style="color:var(--red);font-weight:700;margin-bottom:6px;">${msg}</div>
     <div style="font-size:13px;">${hint || ''}</div>
-    <a href="settings.html" class="btn btn-primary" style="margin-top:14px;">Open Settings</a>
+    <button class="btn btn-primary" style="margin-top:14px;" onclick="load()">Retry</button>
   </div>`;
 }
 
@@ -143,6 +143,14 @@ function fmtTime(ms) {
   return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) + ' · ' + d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
 }
 
+// Pass 248: news now comes from the bpleone brain worker, which holds the
+// Finnhub key as a server-side secret. No per-visitor API key, no Settings
+// step — it's live and free for every customer.
+const NEWS_WORKER = (function () {
+  try { if (typeof WorkerBridge !== 'undefined' && WorkerBridge.getUrl) { const u = WorkerBridge.getUrl(); if (u) return u; } } catch (e) {}
+  return 'https://bpleone-brain-worker.brandonpleone.workers.dev';
+})();
+
 async function load() {
   activeSym = ($('symInput').value || '').trim().toUpperCase();
   renderQuick();
@@ -150,20 +158,18 @@ async function load() {
   $('tickerLink').href = 'ticker.html?sym=' + (activeSym || 'SPY');
   $('newsList').innerHTML = '<div class="empty-card"><div class="icon">⏳</div><div>Loading headlines…</div></div>';
 
-  if (typeof DataProvider === 'undefined' || DataProvider.getConfig().provider !== 'finnhub' || !DataProvider.getConfig().apiKey) {
-    showError('Finnhub key required', 'News is pulled live from Finnhub. Open Settings → Market Data, paste your Finnhub key, and enable the feed.');
-    return;
-  }
-
   let items;
   try {
-    if (activeSym) {
-      items = await DataProvider.getCompanyNews(activeSym, Date.now() - 14 * 86400000, Date.now());
-    } else {
-      items = await DataProvider.getMarketNews(activeCat);
+    const qs = activeSym ? ('symbol=' + encodeURIComponent(activeSym)) : ('category=' + encodeURIComponent(activeCat));
+    const r = await fetch(NEWS_WORKER + '/brain/news?' + qs, { cache: 'no-store' });
+    const j = await r.json();
+    items = (j && Array.isArray(j.items)) ? j.items : [];
+    if (!j || !j.ok) {
+      showError('News feed temporarily unavailable', (j && j.note) || 'The brain worker did not return headlines. Try again in a few seconds.');
+      return;
     }
   } catch (e) {
-    showError('Failed to fetch news: ' + e.message);
+    showError('Failed to fetch news: ' + e.message, 'The brain worker may be waking up — try again in a few seconds.');
     return;
   }
   render(items || []);
