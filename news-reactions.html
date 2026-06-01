@@ -7,7 +7,7 @@
 <meta name="description" content="Catalyst-to-reaction tracker. Logs every news headline + measures the symbol's 1h/1d/1w move. Learns which headline types reliably move price.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="css/style.css?v=v182">
+<link rel="stylesheet" href="css/style.css?v=v183">
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
 <style>
@@ -113,19 +113,19 @@
     <div id="newsBody"></div>
     <div id="newsEmpty" class="empty" style="display:none;">
       No headlines tracked yet. Click <strong>"Pull latest headlines"</strong> above.
-      (Requires a Finnhub API key — see <a href="settings.html" style="color:var(--accent);">Settings</a>.)
+      (Live via the bpleone brain — no API key needed.)
     </div>
   </div>
 </div>
 
 <div id="site-footer"></div>
-<script src="js/data-provider.js?v=v182"></script>
-<script src="js/ai-client.js?v=v182"></script>
-<script src="js/app.js?v=v182"></script>
-<script src="js/notify.js?v=v182"></script>
-<script src="js/live.js?v=v182"></script>
-<script src="js/ta.js?v=v182"></script>
-<script src="js/learn.js?v=v182"></script>
+<script src="js/data-provider.js?v=v183"></script>
+<script src="js/ai-client.js?v=v183"></script>
+<script src="js/app.js?v=v183"></script>
+<script src="js/notify.js?v=v183"></script>
+<script src="js/live.js?v=v183"></script>
+<script src="js/ta.js?v=v183"></script>
+<script src="js/learn.js?v=v183"></script>
 <script>buildNav('news');</script>
 
 <script>
@@ -139,14 +139,12 @@
   }
   function save(s) { try { localStorage.setItem(KEY, JSON.stringify(s)); } catch (e) {} }
 
-  function getFinnhubKey() {
-    try {
-      const raw = localStorage.getItem('bpleone_data_v1');
-      if (!raw) return null;
-      const c = JSON.parse(raw);
-      return c.provider === 'finnhub' ? c.apiKey : null;
-    } catch (e) { return null; }
-  }
+  // Pass 248: headlines come from the bpleone brain worker (Finnhub key held
+  // server-side) — no per-visitor key needed.
+  const NEWS_WORKER = (function () {
+    try { if (typeof WorkerBridge !== 'undefined' && WorkerBridge.getUrl) { const u = WorkerBridge.getUrl(); if (u) return u; } } catch (e) {}
+    return 'https://bpleone-brain-worker.brandonpleone.workers.dev';
+  })();
 
   // Keyword-based classifier — fast, deterministic, no LLM needed
   function classify(headline) {
@@ -180,37 +178,28 @@
   }
 
   async function fetchHeadlines() {
-    const key = getFinnhubKey();
-    if (!key) {
-      document.getElementById('status').textContent = '⚠ Need a Finnhub key in Settings to pull headlines.';
-      return [];
-    }
     const all = [];
-    const today = new Date().toISOString().slice(0, 10);
-    const weekAgo = new Date(Date.now() - 7 * 86400000).toISOString().slice(0, 10);
     document.getElementById('status').textContent = 'Pulling…';
     for (const sym of UNIVERSE) {
       try {
-        const url = `https://finnhub.io/api/v1/company-news?symbol=${sym}&from=${weekAgo}&to=${today}&token=${key}`;
-        const res = await fetch(url);
-        const list = await res.json();
-        if (Array.isArray(list)) {
-          list.slice(0, 8).forEach(n => {
-            const cls = classify(n.headline || '');
-            all.push({
-              id: 'n_' + n.id + '_' + sym,
-              sym,
-              ts: (n.datetime || 0) * 1000,
-              headline: n.headline,
-              url: n.url,
-              source: n.source,
-              cats: cls.cats,
-              bias: cls.bias,
-              priceAt: null,
-              reaction: null
-            });
+        const res = await fetch(NEWS_WORKER + '/brain/news?symbol=' + encodeURIComponent(sym), { cache: 'no-store' });
+        const j = await res.json();
+        const list = (j && Array.isArray(j.items)) ? j.items : [];
+        list.slice(0, 8).forEach(n => {
+          const cls = classify(n.headline || '');
+          all.push({
+            id: 'n_' + sym + '_' + (n.datetime || 0),   // worker has no Finnhub id; datetime+sym is unique enough
+            sym,
+            ts: n.datetime || 0,                          // worker already returns ms
+            headline: n.headline,
+            url: n.url,
+            source: n.source,
+            cats: cls.cats,
+            bias: cls.bias,
+            priceAt: null,
+            reaction: null
           });
-        }
+        });
       } catch (e) { /* skip this sym */ }
     }
     document.getElementById('status').textContent = '✓ pulled ' + all.length + ' headlines';
