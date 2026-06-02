@@ -61,15 +61,15 @@
 <script>
 buildNav('owner-checklist');
 const WORKER = (window.WorkerBridge && WorkerBridge.getUrl && WorkerBridge.getUrl()) || 'https://bpleone-brain-worker.brandonpleone.workers.dev';
-const EXPECTED_VERSION = 'pass-244';  // bump when the worker code advances
+const EXPECTED_VERSION = 'pass-251';  // bump when the worker code advances
 
 const TODOS = [
   { id:'deploy', sev:'now', title:'Re-authorize Cloudflare + deploy the latest worker',
     why:'Your local Wrangler login expired, so the newest worker code (incl. the KV-write reduction that keeps the brain on the FREE tier) is committed to GitHub but not yet live. Deploying gets it running.',
     steps:`<div class="code-blob">cd C:\\Users\\Owner\\bpleone-options-desk\\worker
 git pull
-npx wrangler login        # opens a browser to re-authorize
-npx wrangler deploy</div>This page's "Deployed version" will flip to <b>${EXPECTED_VERSION}</b> once it's live.`,
+npx wrangler login                          # opens a browser to re-authorize
+npx wrangler deploy --config wrangler.toml  # --config = always the real brain worker</div>This page's "Deployed version" will flip to <b>${EXPECTED_VERSION}</b> once it's live.`,
     check:(h)=> h && h.worker_version === EXPECTED_VERSION },
 
   { id:'token', sev:'now', title:'Rotate the worker ADMIN_TOKEN',
@@ -82,9 +82,9 @@ npx wrangler secret put ADMIN_TOKEN
     why:'The worker stores everything in one KV namespace (BRAIN_KV). After the pending deploy, writes are ~660/day — under the free 1,000/day cap. Just confirm no overage warnings.',
     steps:`In your Cloudflare tab → <b>Workers &amp; Pages → KV</b> → BRAIN_KV. Check daily writes &lt; 1,000. (Workers &amp; Pages → your worker → Metrics shows requests too — should be well under 100k/day.)` },
 
-  { id:'uptime', sev:'soon', title:'Set up free uptime monitoring on the worker',
-    why:'So you get an email/text if the 24/7 brain ever goes down, instead of finding out days later.',
-    steps:`Sign up free at <b>uptimerobot.com</b> (or cron-job.org). Add an HTTP monitor for:<div class="code-blob">https://bpleone-brain-worker.brandonpleone.workers.dev/brain/health</div>Alert if the response doesn't contain <code>"healthy":true</code> (during market hours) — or simply if it returns non-200.` },
+  { id:'uptime', sev:'soon', title:'Uptime monitoring — now AUTOMATIC (no setup needed)',
+    why:'A free GitHub Action (.github/workflows/brain-health.yml) pings the worker every 30 min and emails you (repo owner) if the brain is ever not self-sustaining. It checks the market-aware "self_sustaining" flag, so it will NOT false-alarm overnight/weekends. The worker also self-heals: if its model is ever wiped, it auto-re-bootstraps within ~3h.',
+    steps:`Already wired — just confirm GitHub Actions email notifications are on (GitHub → Settings → Notifications → Actions). Optional second monitor: uptimerobot.com watching <div class="code-blob">https://bpleone-brain-worker.brandonpleone.workers.dev/brain/health</div>alert if the response lacks <code>"self_sustaining":true</code> (NOT "healthy" — that one throttles off-hours by design).` },
 
   { id:'ghpages', sev:'soon', title:'Confirm GitHub Pages is deploying from main + custom domain',
     why:'The site (options.bpleone.com) auto-deploys from the main branch. Verify the custom domain + HTTPS are green so pushes go live automatically.',

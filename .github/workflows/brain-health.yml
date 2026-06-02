@@ -1,0 +1,40 @@
+name: Brain health monitor
+
+# Pass 251 — free, external self-sustaining watchdog. Pings the brain worker's
+# /brain/health every 30 min and FAILS the run (which emails the repo owner via
+# GitHub's default Actions notifications) only if the brain is genuinely not
+# self-sustaining. Uses the market-aware `self_sustaining` flag — NOT the strict
+# `healthy` flag — so off-hours heartbeat throttling never triggers a false alarm.
+# Retries 3x before alerting to absorb transient blips (worker cold start, network).
+
+on:
+  schedule:
+    - cron: '*/30 * * * *'   # every 30 minutes
+  workflow_dispatch: {}       # allow manual run from the Actions tab
+
+permissions:
+  contents: read
+
+jobs:
+  health:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check the brain is live + self-sustaining
+        run: |
+          URL="https://bpleone-brain-worker.brandonpleone.workers.dev/brain/health"
+          resp='{}'
+          for i in 1 2 3; do
+            resp=$(curl -fsS --max-time 30 "$URL" 2>/dev/null || echo '{}')
+            echo "Attempt $i: $resp"
+            if printf '%s' "$resp" | grep -q '"self_sustaining":true'; then
+              echo "OK — brain is live, self-sustaining, and learning."
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "::error title=Brain is NOT self-sustaining::$resp"
+          echo "The brain worker reported it is not self-sustaining (or was unreachable)."
+          echo "Check https://bpleone-brain-worker.brandonpleone.workers.dev/brain/health"
+          echo "and the Cloudflare dashboard. Self-healing should re-bootstrap within ~3h;"
+          echo "if it persists, redeploy: cd worker && npx wrangler deploy --config wrangler.toml"
+          exit 1

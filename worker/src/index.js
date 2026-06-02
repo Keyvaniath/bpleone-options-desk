@@ -38,7 +38,7 @@
 // Pass 200: version stamp so brain-proof.html + worker-setup.html can detect
 // when the deployed worker is behind the repo source. Bump on every meaningful
 // behavior change. Read via /brain/health → worker_version field.
-const WORKER_VERSION = 'pass-248';
+const WORKER_VERSION = 'pass-251';
 
 const UNIVERSE = [
   'SPY','QQQ','IWM','DIA','AAPL','NVDA','TSLA','MSFT','META','AMZN','GOOGL','AMD',
@@ -1164,18 +1164,32 @@ async function handleRequest(request, env, ctx) {
       kvGet(env, KV_KEYS.MODEL, null)             // pass 233: expose trained count for liveness UI
     ]);
     const ageS = lt.ts ? Math.floor((Date.now() - lt.ts) / 1000) : null;
+    const marketOpen = isMarketLikelyOpen();
+    const trained = model && typeof model.n_trained === 'number' ? model.n_trained : 0;
+    // Pass 251: market-aware self-sustaining check. Off-hours the heartbeat is
+    // throttled to ~30 min (pass 244 cost fix), so a large lastTickAgo at night
+    // or on weekends is NORMAL — not a failure. The uptime monitor watches
+    // self_sustaining (NOT the strict `healthy` flag) to avoid nightly false alarms.
+    const tickFresh = ageS != null && (marketOpen ? ageS < 300 : ageS < 2400);
+    const issues = [];
+    if (ageS == null) issues.push('no cron tick recorded yet — worker may not be deployed/scheduled');
+    else if (!tickFresh) issues.push('last tick ' + ageS + 's ago — cron may be stalled');
+    if (trained <= 0) issues.push('model missing or untrained — watchdog will auto-recover within ~3h');
+    const selfSustaining = tickFresh && trained > 0;
     return json({
       ok: true,
       lastTickAgo: ageS,
       lastTick: lt,
-      healthy: ageS != null && ageS < 180,
+      healthy: ageS != null && ageS < 180,           // strict (market-hours) — kept for back-compat
+      self_sustaining: selfSustaining,                 // pass 251: market-aware — MONITOR THIS, not `healthy`
+      issues,                                          // pass 251: human-readable problems (empty array = all good)
       worker_version: WORKER_VERSION,  // pass 200
       auto_bootstrap_ts: autoTs || 0,  // pass 229
       auto_bootstrap_ago_h: autoTs ? +((Date.now() - autoTs) / 3600000).toFixed(2) : null,
       // Pass 233: data-liveness summary for the scanner status bar
-      model_trained: model && typeof model.n_trained === 'number' ? model.n_trained : 0,
+      model_trained: trained,
       journal_total: typeof lt.journalTotal === 'number' ? lt.journalTotal : null,
-      market_open: isMarketLikelyOpen(),
+      market_open: marketOpen,
       data_source: 'yahoo-live (~15m delayed)'
     });
   }
@@ -2217,9 +2231,24 @@ async function runBootstrap(env) {
 // can't double-fire mid-run; on failure the claim is ROLLED BACK so a transient
 // error retries next tick instead of waiting a full week.
 const AUTO_BOOTSTRAP_INTERVAL_MS = 7 * 24 * 3600 * 1000;
+const RECOVERY_COOLDOWN_MS = 3 * 3600 * 1000;  // pass 251: at most one recovery attempt / 3h
 async function maybeAutoBootstrap(env) {
   let claimed = false, prev = 0;
   try {
+    // Pass 251 self-healing watchdog: if the model is ever missing or untrained
+    // (a bad deploy, a wiped/corrupted KV value), recover IMMEDIATELY instead of
+    // waiting up to 7 days for the scheduled re-competition. Throttled to every
+    // 3h via a dedicated cooldown so a persistent failure can't spam bootstraps
+    // (and the Yahoo rate limit) every minute.
+    const model = await kvGet(env, KV_KEYS.MODEL, null);
+    const needsRecovery = !model || !(model.n_trained > 0);
+    if (needsRecovery) {
+      const recTs = await kvGet(env, 'recovery_ts_v1', 0);
+      if (Date.now() - (recTs || 0) < RECOVERY_COOLDOWN_MS) return;
+      await kvPut(env, 'recovery_ts_v1', Date.now());  // claim before running
+      await runBootstrap(env);
+      return;
+    }
     prev = await kvGet(env, KV_KEYS.AUTO_BOOTSTRAP_TS, 0);
     if (Date.now() - (prev || 0) < AUTO_BOOTSTRAP_INTERVAL_MS) return;
     await kvPut(env, KV_KEYS.AUTO_BOOTSTRAP_TS, Date.now());  // claim before running
