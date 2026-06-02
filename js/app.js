@@ -439,7 +439,7 @@ function buildNav(activePage) {
     + '<div class="nav-dropdown">'
     + '<a href="alpha-scanner.html">📡 Alpha Scanner <span class="feat-badge feat-new" style="font-size:8px;padding:0 5px;">NEW</span></a>'
     + '<a href="smart-money-confluence.html">🐳 Smart-Money Confluence <span class="feat-badge feat-live" style="font-size:8px;padding:0 5px;">REAL</span></a>'
-    + '<a href="algo-signals.html">⚡ Algo Signals <span class="feat-badge feat-live" style="font-size:8px;padding:0 5px;">LIVE</span></a>'
+    + '<a href="algo-signals.html">⚡ Algo Signals <span class="feat-badge" style="font-size:8px;padding:0 5px;background:rgba(234,179,8,0.15);color:#fbbf24;">SAMPLE</span></a>'
     + '<a href="confluence-scanner.html">🎯 Confluence Scanner</a>'
     + '<a href="mean-reversion-scanner.html">🔄 Mean-Rev Scanner</a>'
     + '<a href="trend-strength.html">📈 Trend Strength</a>'

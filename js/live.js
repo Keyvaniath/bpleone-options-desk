@@ -425,7 +425,7 @@ document.addEventListener('DOMContentLoaded', () => {
       // notice on the handful of pages that simulate paid-feed data.
       if (!document.querySelector('script[src*="sample-data-banner.js"]')) {
         const s = document.createElement('script');
-        s.src = 'js/sample-data-banner.js';
+        s.src = 'js/sample-data-banner.js?v=v184';
         s.async = true;
         document.head.appendChild(s);
       }
