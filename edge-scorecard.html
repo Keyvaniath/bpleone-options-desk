@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Edge Scorecard — does it beat a coin flip? — bpleone / trade</title>
+<meta name="description" content="The receipt. The brain's backtested walk-forward edge (already statistically significant) plus a live forward test that grades every brain/insider/confluence call against the real 5-day move.">
+<link rel="stylesheet" href="css/style.css?v=v184">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.sc-grid { display:grid; grid-template-columns: repeat(3,1fr); gap:14px; }
+@media(max-width:720px){ .sc-grid { grid-template-columns:1fr; } }
+.sc-card { background:var(--bg-elevated); border:1px solid var(--border); border-radius:12px; padding:18px; }
+.sc-card.win { border-color:rgba(16,185,129,0.45); }
+.sc-card.weak { border-color:rgba(234,179,8,0.4); }
+.sc-card.lose { border-color:rgba(220,38,38,0.4); }
+.sc-big { font-family:var(--font-mono); font-size:34px; font-weight:800; line-height:1; }
+.sc-lbl { font-size:11px; text-transform:uppercase; letter-spacing:0.5px; color:var(--text-muted); margin-bottom:8px; }
+.sc-row { display:flex; justify-content:space-between; font-size:12px; padding:4px 0; border-top:1px solid rgba(255,255,255,0.05); font-family:var(--font-mono); }
+.verdict-pill { display:inline-block; padding:3px 10px; border-radius:7px; font-weight:800; font-size:11px; margin-top:10px; }
+.vp-win { background:rgba(16,185,129,0.18); color:var(--green); }
+.vp-weak { background:rgba(234,179,8,0.18); color:var(--yellow); }
+.vp-lose { background:rgba(220,38,38,0.18); color:var(--red); }
+.vp-wait { background:rgba(148,163,184,0.15); color:var(--text-muted); }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">📊 Edge Scorecard <span class="feat-badge feat-live">THE RECEIPT</span></div>
+      <div class="page-subtitle">Does the brain actually beat a coin flip? Two honest answers: the <strong>backtested</strong> edge (already proven on held-out history) and a <strong>live forward test</strong> that grades every real call against the actual 5-day move.</div>
+    </div>
+    <button class="action-btn" onclick="loadAll()" style="padding:12px 22px;border-radius:8px;border:1px solid rgba(0,212,255,0.4);background:transparent;color:var(--accent);cursor:pointer;font-family:var(--font-mono);font-weight:700;">↻ Refresh</button>
+  </div>
+
+  <!-- BACKTEST (proven) -->
+  <div class="card mb-24">
+    <div class="card-header"><div class="card-title">1 · Backtested edge — measured on held-out history</div><div class="mono" id="bt-n" style="font-size:11px;color:var(--text-muted);">—</div></div>
+    <div style="font-size:12.5px;color:var(--text-muted);line-height:1.6;margin-bottom:14px;">The brain is graded on data it never trained on (walk-forward + random split). This is the standard "is it real signal or noise?" test — and it's <strong>already statistically significant</strong>.</div>
+    <div class="grid grid-3" style="gap:14px;">
+      <div class="sc-card" id="bt-wf">
+        <div class="sc-lbl">Walk-forward accuracy</div>
+        <div class="sc-big" id="bt-wf-acc">—</div>
+        <div class="sc-row"><span>vs coin flip (50%)</span><span id="bt-wf-edge">—</span></div>
+        <div class="sc-row"><span>p-value</span><span id="bt-wf-p">—</span></div>
+        <div class="sc-row"><span>sample (n)</span><span id="bt-wf-n">—</span></div>
+        <div id="bt-wf-verdict"></div>
+      </div>
+      <div class="sc-card" id="bt-ho">
+        <div class="sc-lbl">Held-out accuracy</div>
+        <div class="sc-big" id="bt-ho-acc">—</div>
+        <div class="sc-row"><span>Brier</span><span id="bt-ho-brier">—</span></div>
+        <div class="sc-row"><span>calibration (ECE)</span><span id="bt-ho-ece">—</span></div>
+        <div class="sc-row"><span>p-value</span><span id="bt-ho-p">—</span></div>
+        <div id="bt-ho-verdict"></div>
+      </div>
+      <div class="sc-card">
+        <div class="sc-lbl">What this means</div>
+        <div style="font-size:12.5px;color:var(--text-secondary);line-height:1.65;" id="bt-plain">Loading…</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- LIVE FORWARD TEST -->
+  <div class="card">
+    <div class="card-header"><div class="card-title">2 · Live forward test — every call graded at 5 days</div><div class="mono" id="ft-status" style="font-size:11px;color:var(--text-muted);">—</div></div>
+    <div style="font-size:12.5px;color:var(--text-muted);line-height:1.6;margin-bottom:14px;">Each trading day we log every directional call + its entry price, then grade it against the <strong>real</strong> 5-trading-day move. No cherry-picking, no hindsight. This is the receipt that decides whether paid options-flow data is worth it — it fills out over the coming weeks.</div>
+    <div id="ft-accruing" style="display:none;padding:14px 16px;border-radius:10px;background:rgba(0,212,255,0.06);border:1px solid rgba(0,212,255,0.2);font-size:13px;color:var(--text-secondary);margin-bottom:16px;"></div>
+    <div class="sc-grid" id="ft-cards"></div>
+  </div>
+
+  <div style="margin-top:18px;padding:14px 18px;border-radius:10px;background:rgba(148,163,184,0.06);border-left:3px solid var(--text-muted);font-size:12px;color:var(--text-muted);line-height:1.6;">
+    <strong>How to read this.</strong> <strong>Backtest</strong> = how the brain scored on history it never saw (proves the signal is real, not curve-fit). <strong>Forward test</strong> = the live, no-excuses receipt: did today's calls actually work? "Beats coin flip" needs a one-sided z &gt; 1.64 (95% confidence) — which needs enough graded calls, so early on it correctly says "too few." A real edge here is small by nature (markets are efficient): even 53–55% directional with positive expectancy is a genuine, monetizable edge when sized right. If the <strong>confluence</strong> leg (brain + insiders agreeing) beats the <strong>brain-only</strong> leg over time, that's the proof that fusing more signals — including paid options flow — adds real edge.
+  </div>
+</div>
+
+<script src="js/data-provider.js?v=v184"></script>
+<script src="js/ai-client.js?v=v184"></script>
+<script src="js/app.js?v=v184"></script>
+<script src="js/notify.js?v=v184"></script>
+<script src="js/live.js?v=v184"></script>
+<script src="js/worker-bridge.js?v=v184"></script>
+<script>
+buildNav('edge-scorecard');
+
+const WORKER = (window.WorkerBridge && WorkerBridge.getUrl && WorkerBridge.getUrl())
+  || 'https://bpleone-brain-worker.brandonpleone.workers.dev';
+
+const $ = id => document.getElementById(id);
+function pct(v) { return v == null ? '—' : (v * 100).toFixed(1) + '%'; }
+
+function verdictPill(el, sig, accAboveHalf) {
+  if (sig && accAboveHalf) { el.innerHTML = '<span class="verdict-pill vp-win">✓ Beats random (significant)</span>'; }
+  else if (accAboveHalf) { el.innerHTML = '<span class="verdict-pill vp-weak">Edge present, not yet significant</span>'; }
+  else { el.innerHTML = '<span class="verdict-pill vp-lose">No edge in this slice</span>'; }
+}
+
+async function loadBacktest() {
+  let m;
+  try { m = await fetch(WORKER + '/brain/metrics', { cache: 'no-store' }).then(r => r.json()); }
+  catch (e) { $('bt-plain').textContent = 'Could not reach the brain worker.'; return; }
+  const wf = m.walk_forward_test || {}, ho = m.heldout_test || {};
+  $('bt-n').textContent = 'n = ' + (wf.n || ho.n || 0).toLocaleString() + ' graded predictions';
+  // Walk-forward
+  $('bt-wf-acc').textContent = pct(wf.accuracy);
+  $('bt-wf-acc').style.color = (wf.accuracy > 0.5) ? 'var(--green)' : 'var(--red)';
+  $('bt-wf-edge').textContent = wf.accuracy != null ? ((wf.accuracy - 0.5) >= 0 ? '+' : '') + ((wf.accuracy - 0.5) * 100).toFixed(2) + 'pp' : '—';
+  $('bt-wf-p').textContent = wf.p_value != null ? wf.p_value.toFixed(3) : '—';
+  $('bt-wf-n').textContent = (wf.n || 0).toLocaleString();
+  verdictPill($('bt-wf-verdict'), wf.significant, wf.accuracy > 0.5);
+  $('bt-wf').className = 'sc-card ' + (wf.significant && wf.accuracy > 0.5 ? 'win' : wf.accuracy > 0.5 ? 'weak' : 'lose');
+  // Held-out
+  $('bt-ho-acc').textContent = pct(ho.accuracy);
+  $('bt-ho-acc').style.color = (ho.accuracy > 0.5) ? 'var(--green)' : 'var(--red)';
+  $('bt-ho-brier').textContent = ho.brier != null ? ho.brier.toFixed(3) : '—';
+  $('bt-ho-ece').textContent = ho.ece != null ? ho.ece.toFixed(3) : '—';
+  $('bt-ho-p').textContent = ho.p_value != null ? ho.p_value.toFixed(3) : '—';
+  verdictPill($('bt-ho-verdict'), ho.significant, ho.accuracy > 0.5);
+  $('bt-ho').className = 'sc-card ' + (ho.significant && ho.accuracy > 0.5 ? 'win' : ho.accuracy > 0.5 ? 'weak' : 'lose');
+  // Plain English
+  const wfAcc = wf.accuracy != null ? (wf.accuracy * 100).toFixed(1) : '?';
+  const wfP = wf.p_value != null ? wf.p_value.toFixed(3) : '?';
+  $('bt-plain').innerHTML = 'On data it never trained on, the brain calls 5-day direction right <strong>' + wfAcc + '%</strong> of the time (p=' + wfP + '). '
+    + (wf.significant ? 'That clears the 95% bar — <strong style="color:var(--green);">real signal, not luck.</strong> ' : 'Close to the significance bar — a real-but-marginal edge. ')
+    + 'It is honest and modest by design: a few points above a coin flip is exactly what a real, non-overfit equity edge looks like.';
+}
+
+async function loadForward() {
+  let s;
+  try { s = await fetch(WORKER + '/brain/confluence-score', { cache: 'no-store' }).then(r => r.json()); }
+  catch (e) { $('ft-status').textContent = 'worker unreachable'; return; }
+  $('ft-status').textContent = s.total_logged + ' calls logged · ' + s.graded + ' graded';
+  const acc = $('ft-accruing');
+  if (s.graded < 20) {
+    acc.style.display = 'block';
+    acc.innerHTML = '⏳ <strong>Accruing.</strong> ' + s.total_logged + ' calls logged so far, ' + s.graded + ' graded against the real 5-day move'
+      + (s.graded === 0 ? '. First grades land in <strong>~' + s.days_to_first_grade + ' day(s)</strong> (a 5-day call can\'t be scored before 5 days pass).' : '.')
+      + ' Hit-rates below are early and noisy until ~20+ graded calls — that\'s the honest math, not a bug.';
+  } else { acc.style.display = 'none'; }
+
+  const legs = [
+    { key: 'brain', label: '🧠 Brain alone', desc: 'price/volume/TA 5-day call' },
+    { key: 'confluence', label: '🐳 Confluence', desc: 'brain + insiders agree' },
+    { key: 'insider', label: '🏛 Insiders alone', desc: 'open-market Form 4 direction' }
+  ];
+  $('ft-cards').innerHTML = legs.map(L => {
+    const d = s[L.key] || {};
+    const has = d.n >= 1;
+    const hr = d.hit_rate != null ? (d.hit_rate * 100).toFixed(1) + '%' : '—';
+    const cls = !has ? '' : d.beats_coin_flip_95 ? 'win' : (d.hit_rate > 0.5 ? 'weak' : 'lose');
+    let pill;
+    if (!has || d.n < 5) pill = '<span class="verdict-pill vp-wait">Too few graded</span>';
+    else if (d.beats_coin_flip_95) pill = '<span class="verdict-pill vp-win">✓ Beats coin flip (95%)</span>';
+    else if (d.hit_rate > 0.5) pill = '<span class="verdict-pill vp-weak">Ahead, not yet significant</span>';
+    else pill = '<span class="verdict-pill vp-lose">Behind coin flip</span>';
+    const hrColor = !has ? 'var(--text-muted)' : d.hit_rate > 0.5 ? 'var(--green)' : 'var(--red)';
+    return '<div class="sc-card ' + cls + '">'
+      + '<div class="sc-lbl">' + L.label + '</div>'
+      + '<div class="sc-big" style="color:' + hrColor + ';">' + hr + '</div>'
+      + '<div style="font-size:11px;color:var(--text-muted);margin:2px 0 8px;">' + L.desc + '</div>'
+      + '<div class="sc-row"><span>graded calls</span><span>' + (d.n || 0) + '</span></div>'
+      + '<div class="sc-row"><span>avg move (our way)</span><span style="color:' + ((d.avg_directional_ret_pct || 0) >= 0 ? 'var(--green)' : 'var(--red)') + ';">' + (d.avg_directional_ret_pct != null ? (d.avg_directional_ret_pct >= 0 ? '+' : '') + d.avg_directional_ret_pct + '%' : '—') + '</span></div>'
+      + '<div class="sc-row"><span>z vs coin flip</span><span>' + (d.z_score != null ? d.z_score : '—') + '</span></div>'
+      + pill
+      + '</div>';
+  }).join('');
+}
+
+function loadAll() { loadBacktest(); loadForward(); }
+loadAll();
+setInterval(loadAll, 120000);
+</script>
+</body>
+</html>

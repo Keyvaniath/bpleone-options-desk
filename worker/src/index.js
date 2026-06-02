@@ -38,7 +38,7 @@
 // Pass 200: version stamp so brain-proof.html + worker-setup.html can detect
 // when the deployed worker is behind the repo source. Bump on every meaningful
 // behavior change. Read via /brain/health → worker_version field.
-const WORKER_VERSION = 'pass-251';
+const WORKER_VERSION = 'pass-252';
 
 const UNIVERSE = [
   'SPY','QQQ','IWM','DIA','AAPL','NVDA','TSLA','MSFT','META','AMZN','GOOGL','AMD',
@@ -1458,6 +1458,46 @@ async function handleRequest(request, env, ctx) {
     return resp;
   }
 
+  // ===== Pass 252: live edge scorecard — the receipt =====
+  if (path === '/brain/confluence-score') {
+    const log = await kvGet(env, 'confluence_log_v1', []);
+    const resolved = log.filter(e => e && e.resolved && typeof e.ret === 'number');
+    // Grade a leg: dirFn(e) -> +1 (bullish call) / -1 (bearish call) / 0 (no call).
+    // A call is a HIT if the realized 5-day move went the called direction.
+    function score(entries, dirFn) {
+      const calls = entries.map(e => ({ dir: dirFn(e), ret: e.ret })).filter(c => c.dir !== 0);
+      const n = calls.length;
+      const hits = calls.filter(c => (c.dir > 0 && c.ret > 0) || (c.dir < 0 && c.ret < 0)).length;
+      // Directional return: + when the move went our way. Mean across calls.
+      const avgDirRet = n ? calls.reduce((a, c) => a + c.ret * c.dir, 0) / n : null;
+      // One-sided z vs a 50% coin flip (binomial normal approx).
+      const z = n >= 5 ? (hits - n * 0.5) / Math.sqrt(n * 0.25) : null;
+      return {
+        n, hits,
+        hit_rate: n ? +(hits / n).toFixed(4) : null,
+        avg_directional_ret_pct: avgDirRet != null ? +avgDirRet.toFixed(3) : null,
+        z_score: z != null ? +z.toFixed(2) : null,
+        beats_coin_flip_95: z != null && z > 1.64
+      };
+    }
+    const confDir = e => (e.brainDir !== 0 && e.insDir !== 0 && Math.sign(e.brainDir) === Math.sign(e.insDir)) ? e.brainDir : 0;
+    const pending = log.filter(e => e && !e.resolved);
+    const oldestPendingTs = pending.reduce((m, e) => Math.min(m, e.ts || Infinity), Infinity);
+    const daysToFirst = (resolved.length === 0 && isFinite(oldestPendingTs))
+      ? Math.max(0, Math.ceil((oldestPendingTs + 7 * 86400000 - Date.now()) / 86400000)) : 0;
+    return json({
+      ok: true,
+      total_logged: log.length,
+      graded: resolved.length,
+      pending: pending.length,
+      days_to_first_grade: daysToFirst,
+      brain: score(resolved, e => e.brainDir),
+      insider: score(resolved, e => e.insDir),
+      confluence: score(resolved, confDir),
+      note: 'Live FORWARD test: each daily directional call graded against the real 5-trading-day move. Hit = direction correct. beats_coin_flip_95 = one-sided z>1.64. Small N early — this fills out over weeks. The brain’s BACKtested edge is in /brain/metrics.'
+    });
+  }
+
   if (path === '/brain/predict') {
     // Pass 217: ad-hoc prediction for any symbol — useful for browser pages
     // that want a live calibrated probability WITHOUT waiting for the next
@@ -2260,6 +2300,90 @@ async function maybeAutoBootstrap(env) {
 }
 
 // ============================================================
+// Pass 252 — EDGE SCORECARD (the receipt). A live FORWARD test: each trading
+// day we snapshot every brain/insider directional call + its entry price, then
+// 5 trading days (~7 calendar days) later grade it against the REAL move. The
+// /brain/confluence-score endpoint reports the hit-rate vs a coin flip, split by
+// brain-only / insider-only / confluence (both agree). This is what tells us
+// whether the signals actually beat random in the wild — and whether paying for
+// options-flow data would add edge. Self-contained + gated like the watchdog so
+// it never burdens the core tick (1 KV write/day to snapshot; resolution capped
+// at 6 Yahoo fetches/tick).
+// ============================================================
+function etDayKeyNow() {
+  const et = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/New_York' }));
+  return et.getUTCFullYear() * 10000 + (et.getUTCMonth() + 1) * 100 + et.getUTCDate();
+}
+
+// Net open-market insider direction per symbol across a liquid basket (once/day).
+async function insiderBiasMap(env) {
+  const BASKET = ['NVDA', 'TSLA', 'AAPL', 'MSFT', 'META', 'AMZN', 'GOOGL', 'AMD', 'PLTR', 'COIN', 'AVGO', 'JPM', 'GS', 'DIS', 'NFLX', 'UBER'];
+  const map = {};
+  const results = await Promise.all(BASKET.map(s =>
+    fetchFinnhubInsider(env, s).then(t => ({ s, t })).catch(() => ({ s, t: null }))
+  ));
+  for (const r of results) {
+    if (!Array.isArray(r.t)) continue;
+    let buy = 0, sell = 0;
+    for (const x of r.t) {
+      if (!x.openMarket) continue;
+      if (x.side === 'BUY') buy += x.value || 0;
+      else if (x.side === 'SELL') sell += x.value || 0;
+    }
+    const net = buy - sell;
+    map[r.s] = net > 0 ? 1 : net < 0 ? -1 : 0;
+  }
+  return map;
+}
+
+async function maybeConfluenceScorecard(env) {
+  try {
+    const dayKey = etDayKeyNow();
+    // ---- SNAPSHOT once per ET WEEKDAY, using the day's finalized signals (an
+    // end-of-day entry — same cadence as the brain's daily capture). Gated on
+    // signal freshness rather than exact market-open so it reliably fires once a
+    // day (including just after the close) and never on weekends.
+    const etDow = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/New_York' })).getUTCDay();
+    const isWeekday = etDow >= 1 && etDow <= 5;
+    const snapDay = await kvGet(env, 'confluence_snap_day_v1', 0);
+    if (snapDay !== dayKey && isWeekday) {
+      const snap = await kvGet(env, KV_KEYS.SIGNALS, { signals: {} });
+      const sigFresh = snap.updatedAt && (Date.now() - snap.updatedAt) < 12 * 3600 * 1000;
+      const signals = Object.values(snap.signals || {}).filter(s => s && typeof s.predProb === 'number' && s.last > 0);
+      if (sigFresh && signals.length >= 8) {
+        const insMap = await insiderBiasMap(env);
+        const log = await kvGet(env, 'confluence_log_v1', []);
+        for (const s of signals) {
+          const brainDir = s.predProb >= 0.52 ? 1 : s.predProb <= 0.48 ? -1 : 0;
+          const insDir = insMap[s.sym] || 0;
+          if (brainDir === 0 && insDir === 0) continue;     // no call to grade
+          log.push({ dayKey, ts: Date.now(), sym: s.sym, entry: s.last, brainDir, insDir, predProb: +s.predProb.toFixed(4), resolved: false });
+        }
+        await kvPut(env, 'confluence_log_v1', log.slice(-4000));  // cap to bound KV size
+        await kvPut(env, 'confluence_snap_day_v1', dayKey);
+        return;  // don't also resolve this tick — bound the work
+      }
+    }
+    // ---- RESOLVE (bounded): grade calls that are >= 5 trading days (~7 calendar) old.
+    const log = await kvGet(env, 'confluence_log_v1', []);
+    const now = Date.now();
+    let resolvedCount = 0, dirty = false;
+    for (const e of log) {
+      if (e.resolved || (now - e.ts) < 7 * 86400000) continue;
+      if (resolvedCount >= 6) break;                        // cap Yahoo fetches/tick
+      const q = await fetchYahooQuote(e.sym);
+      resolvedCount++;
+      if (!q || !q.last) continue;
+      e.exit = +q.last.toFixed(2);
+      e.ret = +(((q.last - e.entry) / e.entry) * 100).toFixed(3);  // 5-day % move
+      e.resolved = true;
+      dirty = true;
+    }
+    if (dirty) await kvPut(env, 'confluence_log_v1', log);
+  } catch (e) { /* never let the scorecard break the cron */ }
+}
+
+// ============================================================
 // Cloudflare entry points
 // ============================================================
 export default {
@@ -2271,5 +2395,7 @@ export default {
     ctx.waitUntil(tick(env));
     // Pass 228: weekly autonomous champion re-competition (gated; see above)
     ctx.waitUntil(maybeAutoBootstrap(env));
+    // Pass 252: live edge scorecard — snapshot daily, grade at 5 days
+    ctx.waitUntil(maybeConfluenceScorecard(env));
   }
 };
