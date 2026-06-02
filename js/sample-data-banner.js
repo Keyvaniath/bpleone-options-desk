@@ -35,7 +35,10 @@
     'strike-chaser': 'options volume / unusual activity', 'sector-flow': 'sector fund flows',
     'sentiment-heat': 'social/news sentiment scoring', 'daily-stats': 'market-internals & options stats',
     'live-watcher': 'the level-1 bid/ask & time-and-sales tape',
-    'algo-signals': 'this algorithmic signal feed (the live version is the Alpha Scanner)'
+    'algo-signals': 'this algorithmic signal feed (the live version is the Alpha Scanner)',
+    'breadth-pro': 'market breadth (advance/decline, McClellan, new highs/lows)',
+    'risk-radar': 'cross-asset risk gauges (skew, VVIX, credit spread)',
+    'candlestick-scanner': 'candlestick pattern detections'
   };
 
   function currentPage() {
