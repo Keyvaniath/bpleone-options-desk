@@ -38,7 +38,7 @@
 // Pass 200: version stamp so brain-proof.html + worker-setup.html can detect
 // when the deployed worker is behind the repo source. Bump on every meaningful
 // behavior change. Read via /brain/health → worker_version field.
-const WORKER_VERSION = 'pass-254';
+const WORKER_VERSION = 'pass-257';
 
 const UNIVERSE = [
   'SPY','QQQ','IWM','DIA','AAPL','NVDA','TSLA','MSFT','META','AMZN','GOOGL','AMD',
@@ -1544,15 +1544,42 @@ async function handleRequest(request, env, ctx) {
     });
     const ALPHA_MIN_CONV = 0.05;  // |P(up)-0.5| >= 0.05 -> a genuine lean, not noise
     const alpha = sigs.filter(s => s._conv >= ALPHA_MIN_CONV).slice(0, 8).map(fmt);
+    // Best Long = the single most bullish name right now, so there is ALWAYS an
+    // actionable long idea even when the top-conviction pick is a DOWN call (in a
+    // bearish tape the highest-conviction signal is often a short). We surface the
+    // highest P(up) name; `weak` flags that even the best lean is below the 0.52 UP
+    // threshold (i.e. no real long edge today — size down or sit out).
+    const longs = sigs.slice().sort((a, b) => b.predProb - a.predProb);
+    const bestLongSig = longs.length ? longs[0] : null;
+    const best_long = bestLongSig
+      ? Object.assign(fmt(bestLongSig), { weak: bestLongSig.predProb < 0.52 })
+      : null;
     return json({
       ok: true,
       updatedAt: snap.updatedAt || 0,
       ageSec: snap.updatedAt ? Math.floor((Date.now() - snap.updatedAt) / 1000) : null,
       universe_size: sigs.length,
       pick_of_day: sigs.length ? fmt(sigs[0]) : null,
-      alpha,
-      note: 'Pick of the Day = the brain’s single highest-conviction 5-day call right now. Alpha = its top high-conviction leans. Records for these are in /brain/confluence-score (potd + alpha). The full universe is background training, not broadcast.'
+      best_long,
+      note: 'Pick of the Day = the brain’s single highest-conviction 5-day call right now (can be UP or DOWN). Best Long = the single most bullish name, so there is always an actionable long even in a bearish tape (weak=true means no real long edge today). Alpha = its top high-conviction leans. Records for these are in /brain/confluence-score (potd + alpha). The full universe is background training, not broadcast.'
     });
+  }
+
+  if (path === '/brain/digest-now' && request.method === 'POST') {
+    // Pass 257: force-send today's Pick of the Day to the configured Discord
+    // webhook RIGHT NOW (bypasses the morning/once-a-day gates). Lets Brandon
+    // confirm his webhook works without waiting until 9am. Admin-token gated.
+    const auth = request.headers.get('Authorization') || '';
+    if (auth !== 'Bearer ' + env.ADMIN_TOKEN) return json({ error: 'unauthorized' }, 401);
+    const webhook = (env.DISCORD_WEBHOOK_URL || '').trim();
+    if (!isDiscordWebhook(webhook)) {
+      return json({ ok: false, error: 'DISCORD_WEBHOOK_URL secret not set or invalid. Run: cd worker && npx wrangler secret put DISCORD_WEBHOOK_URL --config wrangler.toml' }, 400);
+    }
+    const snap = await kvGet(env, KV_KEYS.SIGNALS, { signals: {} });
+    const picks = digestPicksFromSnap(snap);
+    if (!picks) return json({ ok: false, error: 'not enough fresh signals to build a pick yet (need >=8)' }, 503);
+    const res = await postDiscordDigest(env, picks);
+    return json({ ok: res.ok, status: res.status || null, potd: picks.potd.sym, best_long: picks.bestLong.sym, note: res.ok ? 'posted to Discord' : 'discord post failed' });
   }
 
   if (path === '/brain/predict') {
@@ -2393,6 +2420,92 @@ async function insiderBiasMap(env) {
   return map;
 }
 
+// ============================================================
+// Pass 257: daily delivery of the Pick of the Day to Discord
+// ============================================================
+// Webhook URL comes from the DISCORD_WEBHOOK_URL secret (Brandon sets it via
+// `wrangler secret put DISCORD_WEBHOOK_URL`). If absent, every function here is a
+// silent no-op, so the worker is safe to deploy before the secret exists.
+function isDiscordWebhook(u) {
+  return typeof u === 'string' && /^https:\/\/(?:ptb\.|canary\.)?discord(?:app)?\.com\/api\/webhooks\//.test(u.trim());
+}
+
+// Pick of the Day + Best Long from the current finalized signals snapshot.
+// Mirrors the /brain/picks logic so the Discord post and the website agree.
+function digestPicksFromSnap(snap) {
+  const sigs = Object.values((snap && snap.signals) || {})
+    .filter(s => s && typeof s.predProb === 'number' && s.last > 0);
+  if (sigs.length < 8) return null;
+  sigs.forEach(s => { s._conv = Math.abs(s.predProb - 0.5); });
+  const potd = sigs.slice().sort((a, b) => b._conv - a._conv)[0];
+  const bestLong = sigs.slice().sort((a, b) => b.predProb - a.predProb)[0];
+  return { potd, bestLong, count: sigs.length };
+}
+
+function digestDirWord(s) {
+  return s.predProb >= 0.52 ? 'LONG' : s.predProb <= 0.48 ? 'SHORT' : 'NEUTRAL';
+}
+
+async function postDiscordDigest(env, picks) {
+  const webhook = (env.DISCORD_WEBHOOK_URL || '').trim();
+  if (!isDiscordWebhook(webhook) || !picks) return { ok: false, reason: 'no_webhook_or_picks' };
+  const { potd, bestLong } = picks;
+  const pct = s => Math.round(s.predProb * 100);
+  const dateLabel = new Date().toLocaleDateString('en-US', { timeZone: 'America/New_York', weekday: 'short', month: 'short', day: 'numeric' });
+  const fields = [{
+    name: 'Pick of the Day',
+    value: '**' + potd.sym + '** — ' + digestDirWord(potd) + '  (P up ' + pct(potd) + '%, conviction ' + (potd._conv * 2).toFixed(2) + ', entry $' + (+potd.last).toFixed(2) + ')',
+    inline: false
+  }];
+  // Only show Best Long separately when the POTD is not already a long.
+  if (bestLong.sym !== potd.sym || digestDirWord(potd) !== 'LONG') {
+    const weak = bestLong.predProb < 0.52;
+    fields.push({
+      name: 'Best Long',
+      value: '**' + bestLong.sym + '** — P up ' + pct(bestLong) + '%' + (weak ? '  (weak: no strong long edge today)' : '  (entry $' + (+bestLong.last).toFixed(2) + ')'),
+      inline: false
+    });
+  }
+  const body = {
+    username: 'bpleone / trade',
+    embeds: [{
+      title: 'Brain Pick — ' + dateLabel,
+      description: 'The 24/7 brain’s highest-conviction 5-day call. Full track record + today’s shortlist at the link.',
+      url: 'https://options.bpleone.com/pick-of-day.html',
+      color: 0x10b981,
+      fields,
+      footer: { text: 'bpleone / trade — calibrated 5-day model. Educational, not financial advice.' }
+    }]
+  };
+  try {
+    const resp = await fetch(webhook, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+    return { ok: resp.ok || resp.status === 204, status: resp.status };
+  } catch (e) {
+    return { ok: false, reason: 'fetch_failed', error: String((e && e.message) || e) };
+  }
+}
+
+async function maybeDailyDigest(env) {
+  try {
+    if (!isDiscordWebhook((env.DISCORD_WEBHOOK_URL || '').trim())) return;   // not configured -> no-op
+    const nowEt = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/New_York' }));
+    const etDow = nowEt.getUTCDay();
+    const etHour = nowEt.getUTCHours();
+    if (etDow < 1 || etDow > 5) return;             // weekdays only
+    if (etHour < 9 || etHour >= 12) return;         // morning window (~9:00-11:59 ET)
+    const dayKey = etDayKeyNow();
+    const sentDay = await kvGet(env, 'discord_potd_day_v1', 0);
+    if (sentDay === dayKey) return;                 // already delivered today
+    const snap = await kvGet(env, KV_KEYS.SIGNALS, { signals: {} });
+    const sigFresh = snap.updatedAt && (Date.now() - snap.updatedAt) < 6 * 3600 * 1000;
+    if (!sigFresh) return;                          // wait for a fresh snapshot
+    const picks = digestPicksFromSnap(snap);
+    if (!picks) return;                             // not enough signals yet
+    const res = await postDiscordDigest(env, picks);
+    if (res.ok) await kvPut(env, 'discord_potd_day_v1', dayKey);  // mark sent only on success
+  } catch (e) { /* never let delivery break the cron */ }
+}
+
 async function maybeConfluenceScorecard(env) {
   try {
     const dayKey = etDayKeyNow();
@@ -2454,5 +2567,7 @@ export default {
     ctx.waitUntil(maybeAutoBootstrap(env));
     // Pass 252: live edge scorecard — snapshot daily, grade at 5 days
     ctx.waitUntil(maybeConfluenceScorecard(env));
+    // Pass 257: daily delivery — post Pick of the Day to Discord (weekday AM, once)
+    ctx.waitUntil(maybeDailyDigest(env));
   }
 };

@@ -44,6 +44,9 @@
 
   <div id="potd-hero" class="potd-hero"><div style="color:var(--text-muted);">Loading today's pick…</div></div>
 
+  <!-- Best long — always an actionable long idea, even when the #1 pick is a fade -->
+  <div id="best-long-band" style="display:none;margin:-6px 0 22px;"></div>
+
   <!-- Records -->
   <div class="grid grid-2 mb-24">
     <div class="rec-card">
@@ -67,6 +70,14 @@
 
   <div style="padding:14px 18px;border-radius:10px;background:rgba(148,163,184,0.06);border-left:3px solid var(--text-muted);font-size:12px;color:var(--text-muted);line-height:1.6;">
     <strong>How this works.</strong> The brain makes a 5-trading-day directional call on every name it watches, but most are low-conviction noise. This page surfaces only the <strong>high-conviction</strong> ones — the single <strong>Pick of the Day</strong> (its strongest call) and the <strong>Alpha</strong> shortlist — and tracks <em>their</em> record specifically: each is logged with its entry price and graded against the real move 5 days later. A <span style="color:var(--green);">UP</span> call is a lean-long; a <span style="color:var(--red);">DOWN</span> call is a lean-short / avoid. The records start small and fill in over the coming weeks — that's the honest forward test. Full statistical detail on the <a href="edge-scorecard.html" style="color:var(--accent);">Edge Scorecard</a>.
+  </div>
+
+  <!-- Growth: free signup CTA -->
+  <div id="signup-cta" style="margin-top:22px;padding:24px;border-radius:14px;border:1px solid rgba(0,212,255,0.35);background:linear-gradient(135deg,rgba(0,212,255,0.08),rgba(0,212,255,0.01));text-align:center;">
+    <div style="font-size:19px;font-weight:800;margin-bottom:6px;">Get the Pick of the Day every market morning — free</div>
+    <div style="font-size:13px;color:var(--text-secondary);max-width:580px;margin:0 auto 16px;line-height:1.6;">Create a free account to follow the brain's daily call and its live, graded track record. No card, no spam — just the single highest-conviction idea and the honest record of how it does.</div>
+    <a href="login.html?signup=1" style="display:inline-block;padding:13px 28px;border-radius:9px;background:var(--accent);color:#001016;font-weight:800;text-decoration:none;font-family:var(--font-mono);">Create free account →</a>
+    <a href="edge-scorecard.html" style="display:inline-block;padding:13px 20px;color:var(--accent);text-decoration:none;font-weight:700;">See the proof first</a>
   </div>
 </div>
 
@@ -132,6 +143,30 @@ async function loadAll() {
       + '</div>'
       + (p.reason ? '<div style="font-size:12px;color:var(--text-muted);margin-top:14px;">Why: ' + p.reason + '</div>' : '');
   }
+  // Best long — always-actionable long even when the #1 pick is a fade
+  const bl = picks && picks.best_long;
+  const blBand = $('best-long-band');
+  if (bl && p && bl.sym === p.sym && p.dir === 'UP') {
+    blBand.style.display = 'none';   // POTD already IS the best long — no need to repeat
+  } else if (bl) {
+    blBand.style.display = 'block';
+    const weak = !!bl.weak;
+    const accent = weak ? 'var(--yellow)' : 'var(--green)';
+    const bdr = weak ? 'rgba(234,179,8,0.4)' : 'rgba(16,185,129,0.4)';
+    const bg = weak ? 'rgba(234,179,8,0.06)' : 'rgba(16,185,129,0.06)';
+    blBand.innerHTML =
+      '<div style="padding:16px 18px;border-radius:12px;border:1px solid ' + bdr + ';background:' + bg + ';display:flex;align-items:center;gap:18px;flex-wrap:wrap;">'
+      + '<div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:1px;font-weight:800;">📈 Best long right now</div>'
+      + '<div style="font-family:var(--font-mono);font-size:26px;font-weight:900;">' + bl.sym + '</div>'
+      + '<div style="font-family:var(--font-mono);font-size:15px;color:' + accent + ';font-weight:800;">' + bl.pct_up + '% chance up</div>'
+      + '<div style="font-family:var(--font-mono);font-size:13px;color:var(--text-secondary);">entry $' + Number(bl.last).toFixed(2) + '</div>'
+      + '<div style="font-size:12px;color:var(--text-muted);flex:1;min-width:220px;">' + (weak
+          ? 'The brain isn\'t bullish on anything today — this is just the <em>least bearish</em> name. No real long edge; size down or sit out.'
+          : 'The single most bullish name the brain sees — your actionable long even when the #1 call above is a fade.') + '</div>'
+      + '</div>';
+  } else {
+    blBand.style.display = 'none';
+  }
   // Regime note when everything leans one way
   const rn = $('regime-note');
   const alpha = (picks && Array.isArray(picks.alpha)) ? picks.alpha : [];
@@ -162,6 +197,10 @@ async function loadAll() {
 }
 loadAll();
 setInterval(loadAll, 90000);
+// Hide the signup CTA for already-logged-in users
+function hideCtaIfAuthed() { try { if (window.Auth && Auth.isLoggedIn && Auth.isLoggedIn()) { const c = $('signup-cta'); if (c) c.style.display = 'none'; } } catch (_) {} }
+hideCtaIfAuthed();
+window.addEventListener('bpleone:auth', hideCtaIfAuthed);
 </script>
 </body>
 </html>
