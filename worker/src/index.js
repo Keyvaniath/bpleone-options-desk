@@ -38,7 +38,7 @@
 // Pass 200: version stamp so brain-proof.html + worker-setup.html can detect
 // when the deployed worker is behind the repo source. Bump on every meaningful
 // behavior change. Read via /brain/health → worker_version field.
-const WORKER_VERSION = 'pass-253';
+const WORKER_VERSION = 'pass-254';
 
 const UNIVERSE = [
   'SPY','QQQ','IWM','DIA','AAPL','NVDA','TSLA','MSFT','META','AMZN','GOOGL','AMD',
@@ -1481,6 +1481,18 @@ async function handleRequest(request, env, ctx) {
       };
     }
     const confDir = e => (e.brainDir !== 0 && e.insDir !== 0 && Math.sign(e.brainDir) === Math.sign(e.insDir)) ? e.brainDir : 0;
+    // Pass 254: ALPHA (high-conviction) + POTD (single best per day) subsets.
+    // These are what we BROADCAST + grade; the full 72-name universe is just
+    // background training noise (the brain is often "bearish on everything").
+    const convOf = e => Math.abs((e.predProb || 0.5) - 0.5);
+    const byDayR = {};
+    resolved.forEach(e => { (byDayR[e.dayKey] = byDayR[e.dayKey] || []).push(e); });
+    const potdResolved = [], alphaResolved = [];
+    Object.values(byDayR).forEach(day => {
+      const s = day.slice().sort((a, b) => convOf(b) - convOf(a));
+      if (s[0]) potdResolved.push(s[0]);          // single highest-conviction call that day
+      s.slice(0, 8).forEach(e => alphaResolved.push(e));  // top-8 conviction = the "alpha" set
+    });
     const pending = log.filter(e => e && !e.resolved);
     const oldestPendingTs = pending.reduce((m, e) => Math.min(m, e.ts || Infinity), Infinity);
     const daysToFirst = (resolved.length === 0 && isFinite(oldestPendingTs))
@@ -1491,7 +1503,9 @@ async function handleRequest(request, env, ctx) {
       graded: resolved.length,
       pending: pending.length,
       days_to_first_grade: daysToFirst,
-      brain: score(resolved, e => e.brainDir),
+      potd: score(potdResolved, e => e.brainDir),     // pass 254: Pick-of-the-Day record (broadcast)
+      alpha: score(alphaResolved, e => e.brainDir),   // pass 254: high-conviction record (broadcast)
+      brain: score(resolved, e => e.brainDir),         // full universe (background training)
       insider: score(resolved, e => e.insDir),
       confluence: score(resolved, confDir),
       // Pass 253: per-trade resolved calls so the Money Made page can show a REAL
@@ -1502,6 +1516,42 @@ async function handleRequest(request, env, ctx) {
         conf: (e.brainDir !== 0 && e.insDir !== 0 && Math.sign(e.brainDir) === Math.sign(e.insDir))
       })),
       note: 'Live FORWARD test: each daily directional call graded against the real 5-trading-day move. Hit = direction correct. beats_coin_flip_95 = one-sided z>1.64. Small N early — this fills out over weeks. The brain’s BACKtested edge is in /brain/metrics.'
+    });
+  }
+
+  // ===== Pass 254: today's broadcast picks — the single Pick of the Day + the
+  // high-conviction Alpha list (from the live signal universe, ranked by how far
+  // the brain's 5-day P(up) is from a coin flip). This is the public face; the
+  // full universe stays in the background. =====
+  if (path === '/brain/picks') {
+    const snap = await kvGet(env, KV_KEYS.SIGNALS, { updatedAt: 0, signals: {} });
+    const sigs = Object.values(snap.signals || {})
+      .filter(s => s && typeof s.predProb === 'number' && s.last > 0)
+      .filter(s => (Date.now() - (s.ts || 0)) < 4 * 24 * 60 * 60 * 1000);
+    sigs.forEach(s => { s._conv = Math.abs(s.predProb - 0.5); });
+    sigs.sort((a, b) => b._conv - a._conv);
+    const fmt = s => ({
+      sym: s.sym,
+      last: s.last,
+      predProb: +s.predProb.toFixed(4),
+      dir: s.predProb >= 0.5 ? 'UP' : 'DOWN',
+      conviction: +(s._conv * 2).toFixed(3),   // 0..1 (0 = coin flip, 1 = certain)
+      pct_up: Math.round(s.predProb * 100),
+      changePct: s.changePct != null ? +(+s.changePct).toFixed(2) : null,
+      rvol: s.rvol != null ? +(+s.rvol).toFixed(2) : null,
+      signal: s.signal || null,
+      reason: s.reason || null
+    });
+    const ALPHA_MIN_CONV = 0.05;  // |P(up)-0.5| >= 0.05 -> a genuine lean, not noise
+    const alpha = sigs.filter(s => s._conv >= ALPHA_MIN_CONV).slice(0, 8).map(fmt);
+    return json({
+      ok: true,
+      updatedAt: snap.updatedAt || 0,
+      ageSec: snap.updatedAt ? Math.floor((Date.now() - snap.updatedAt) / 1000) : null,
+      universe_size: sigs.length,
+      pick_of_day: sigs.length ? fmt(sigs[0]) : null,
+      alpha,
+      note: 'Pick of the Day = the brain’s single highest-conviction 5-day call right now. Alpha = its top high-conviction leans. Records for these are in /brain/confluence-score (potd + alpha). The full universe is background training, not broadcast.'
     });
   }
 
