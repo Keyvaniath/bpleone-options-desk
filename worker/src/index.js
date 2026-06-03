@@ -38,7 +38,7 @@
 // Pass 200: version stamp so brain-proof.html + worker-setup.html can detect
 // when the deployed worker is behind the repo source. Bump on every meaningful
 // behavior change. Read via /brain/health → worker_version field.
-const WORKER_VERSION = 'pass-252';
+const WORKER_VERSION = 'pass-253';
 
 const UNIVERSE = [
   'SPY','QQQ','IWM','DIA','AAPL','NVDA','TSLA','MSFT','META','AMZN','GOOGL','AMD',
@@ -1494,6 +1494,13 @@ async function handleRequest(request, env, ctx) {
       brain: score(resolved, e => e.brainDir),
       insider: score(resolved, e => e.insDir),
       confluence: score(resolved, confDir),
+      // Pass 253: per-trade resolved calls so the Money Made page can show a REAL
+      // dollar track record from the 24/7 worker (not the tab-only browser brain).
+      recent_resolved: resolved.slice(-80).reverse().map(e => ({
+        sym: e.sym, ts: e.ts, dayKey: e.dayKey,
+        dir: e.brainDir, ret: e.ret, predProb: e.predProb,
+        conf: (e.brainDir !== 0 && e.insDir !== 0 && Math.sign(e.brainDir) === Math.sign(e.insDir))
+      })),
       note: 'Live FORWARD test: each daily directional call graded against the real 5-trading-day move. Hit = direction correct. beats_coin_flip_95 = one-sided z>1.64. Small N early — this fills out over weeks. The brain’s BACKtested edge is in /brain/metrics.'
     });
   }
