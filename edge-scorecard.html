@@ -69,6 +69,8 @@
   <div class="card">
     <div class="card-header"><div class="card-title">2 · Live forward test — every call graded at 5 days</div><div class="mono" id="ft-status" style="font-size:11px;color:var(--text-muted);">—</div></div>
     <div style="font-size:12.5px;color:var(--text-muted);line-height:1.6;margin-bottom:14px;">Each trading day we log every directional call + its entry price, then grade it against the <strong>real</strong> 5-trading-day move. No cherry-picking, no hindsight. This is the receipt that decides whether paid options-flow data is worth it — it fills out over the coming weeks.</div>
+    <!-- Pass 262: self-computing verdict — is fusing signals (and paying for flow data) worth it? -->
+    <div id="verdict-banner" style="padding:14px 16px;border-radius:10px;margin-bottom:16px;font-size:13px;line-height:1.6;border:1px solid var(--border);background:var(--bg-elevated);"><strong>Verdict:</strong> loading…</div>
     <div id="ft-accruing" style="display:none;padding:14px 16px;border-radius:10px;background:rgba(0,212,255,0.06);border:1px solid rgba(0,212,255,0.2);font-size:13px;color:var(--text-secondary);margin-bottom:16px;"></div>
     <div class="sc-grid" id="ft-cards"></div>
   </div>
@@ -134,6 +136,19 @@ async function loadForward() {
   try { s = await fetch(WORKER + '/brain/confluence-score', { cache: 'no-store' }).then(r => r.json()); }
   catch (e) { $('ft-status').textContent = 'worker unreachable'; return; }
   $('ft-status').textContent = s.total_logged + ' calls logged · ' + s.graded + ' graded';
+  // Pass 262: self-computing verdict — is fusing signals (brain + insiders) worth paying for flow data?
+  const vb = document.getElementById('verdict-banner');
+  if (vb && s.verdict) {
+    const v = s.verdict;
+    let bg = 'var(--bg-elevated)', bd = 'var(--border)', col = 'var(--text-secondary)';
+    if (v.ready) {
+      if (v.fusing_worth_it) { bg = 'rgba(16,185,129,0.10)'; bd = 'rgba(16,185,129,0.45)'; col = 'var(--text-primary)'; }
+      else if (v.confluence_beats_coin_flip_95) { bg = 'rgba(234,179,8,0.10)'; bd = 'rgba(234,179,8,0.45)'; col = 'var(--text-primary)'; }
+      else { bg = 'rgba(220,38,38,0.10)'; bd = 'rgba(220,38,38,0.45)'; col = 'var(--text-primary)'; }
+    }
+    vb.style.background = bg; vb.style.borderColor = bd; vb.style.color = col;
+    vb.innerHTML = '<strong>Verdict — is fusing signals worth it?</strong> ' + (v.headline || '');
+  }
   const acc = $('ft-accruing');
   if (s.graded < 20) {
     acc.style.display = 'block';

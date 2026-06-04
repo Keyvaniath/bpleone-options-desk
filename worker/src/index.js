@@ -38,7 +38,7 @@
 // Pass 200: version stamp so brain-proof.html + worker-setup.html can detect
 // when the deployed worker is behind the repo source. Bump on every meaningful
 // behavior change. Read via /brain/health → worker_version field.
-const WORKER_VERSION = 'pass-261';
+const WORKER_VERSION = 'pass-262';
 
 const UNIVERSE = [
   'SPY','QQQ','IWM','DIA','AAPL','NVDA','TSLA','MSFT','META','AMZN','GOOGL','AMD',
@@ -1561,17 +1561,57 @@ async function handleRequest(request, env, ctx) {
     const oldestPendingTs = pending.reduce((m, e) => Math.min(m, e.ts || Infinity), Infinity);
     const daysToFirst = (resolved.length === 0 && isFinite(oldestPendingTs))
       ? Math.max(0, Math.ceil((oldestPendingTs + 7 * 86400000 - Date.now()) / 86400000)) : 0;
+    const brainLeg = score(resolved, e => e.brainDir);
+    const insiderLeg = score(resolved, e => e.insDir);
+    const confluenceLeg = score(resolved, confDir);
+    const potdLeg = score(potdResolved, e => e.brainDir);
+    const alphaLeg = score(alphaResolved, e => e.brainDir);
+    // Pass 262: self-computing VERDICT on whether fusing signals (brain + insider
+    // AGREEMENT) is worth it — the real test of whether paying for richer flow data
+    // would pay off. Reports itself in plain English the moment there are enough
+    // graded confluence calls; no external scheduler needed (the worker grades 24/7).
+    const VERDICT_MIN_N = 20;
+    const vpct = x => (x == null ? 'n/a' : (x * 100).toFixed(1) + '%');
+    let verdict;
+    if (confluenceLeg.n < VERDICT_MIN_N) {
+      verdict = {
+        ready: false,
+        graded: confluenceLeg.n,
+        need: VERDICT_MIN_N,
+        headline: 'Confluence forward-test still accruing — ' + confluenceLeg.n + ' of ' + VERDICT_MIN_N + ' confluence calls graded. No verdict yet; it fills in over the coming weeks (each call grades 5 trading days after it is made).'
+      };
+    } else {
+      const cHit = confluenceLeg.hit_rate, bHit = (brainLeg.n >= 10) ? brainLeg.hit_rate : null;
+      const beatsCoin = !!confluenceLeg.beats_coin_flip_95;
+      const beatsBrain = (bHit != null) ? (cHit > bHit) : null;   // confluence stronger than brain-only?
+      const worthIt = beatsCoin && beatsBrain === true;
+      verdict = {
+        ready: true,
+        n: confluenceLeg.n,
+        confluence_hit_rate: cHit,
+        brain_hit_rate: bHit,
+        confluence_beats_coin_flip_95: beatsCoin,
+        confluence_beats_brain_only: beatsBrain,
+        fusing_worth_it: worthIt,
+        headline: worthIt
+          ? 'YES — fusing signals adds edge. Confluence (brain + insiders agree) hits ' + vpct(cHit) + ' over ' + confluenceLeg.n + ' graded calls, beats a coin flip at 95%, AND beats brain-only (' + vpct(bHit) + '). Paying for richer flow data is justified by this evidence.'
+          : (beatsCoin
+            ? 'PARTIAL — confluence beats a coin flip (' + vpct(cHit) + ', n=' + confluenceLeg.n + ') but does NOT clearly beat brain-only (' + vpct(bHit) + '), so fusing adds little on its own. Paying for flow data is not yet justified.'
+            : 'NO — confluence does not beat a coin flip (' + vpct(cHit) + ', n=' + confluenceLeg.n + '). On this evidence, fusing these signals is not worth it and paying for flow data would not be justified.')
+      };
+    }
     return json({
       ok: true,
       total_logged: log.length,
       graded: resolved.length,
       pending: pending.length,
       days_to_first_grade: daysToFirst,
-      potd: score(potdResolved, e => e.brainDir),     // pass 254: Pick-of-the-Day record (broadcast)
-      alpha: score(alphaResolved, e => e.brainDir),   // pass 254: high-conviction record (broadcast)
-      brain: score(resolved, e => e.brainDir),         // full universe (background training)
-      insider: score(resolved, e => e.insDir),
-      confluence: score(resolved, confDir),
+      verdict,                                          // pass 262: the plain-English answer (self-computing)
+      potd: potdLeg,     // pass 254: Pick-of-the-Day record (broadcast)
+      alpha: alphaLeg,   // pass 254: high-conviction record (broadcast)
+      brain: brainLeg,   // full universe (background training)
+      insider: insiderLeg,
+      confluence: confluenceLeg,
       // Pass 253: per-trade resolved calls so the Money Made page can show a REAL
       // dollar track record from the 24/7 worker (not the tab-only browser brain).
       recent_resolved: resolved.slice(-80).reverse().map(e => ({
