@@ -40,6 +40,9 @@
     <button class="action-btn" onclick="loadAll()" style="padding:12px 22px;border-radius:8px;border:1px solid rgba(0,212,255,0.4);background:transparent;color:var(--accent);cursor:pointer;font-family:var(--font-mono);font-weight:700;">↻ Refresh</button>
   </div>
 
+  <!-- Honest edge status — never present the pick as a confident signal when the measured edge is at/below a coin flip -->
+  <div id="edge-status" style="display:none;margin-bottom:16px;padding:11px 16px;border-radius:10px;font-size:13px;font-weight:600;line-height:1.5;"></div>
+
   <div id="regime-note" style="margin-bottom:16px;padding:10px 14px;border-radius:8px;background:var(--bg-elevated);font-size:12.5px;color:var(--text-muted);display:none;"></div>
 
   <div id="potd-hero" class="potd-hero"><div style="color:var(--text-muted);">Loading today's pick…</div></div>
@@ -112,16 +115,29 @@ function recordBlock(leg) {
 }
 
 async function loadAll() {
-  let picks, score;
+  let picks, score, metrics;
   try {
-    [picks, score] = await Promise.all([
+    [picks, score, metrics] = await Promise.all([
       fetch(WORKER + '/brain/picks', { cache: 'no-store' }).then(r => r.json()),
-      fetch(WORKER + '/brain/confluence-score', { cache: 'no-store' }).then(r => r.json())
+      fetch(WORKER + '/brain/confluence-score', { cache: 'no-store' }).then(r => r.json()),
+      fetch(WORKER + '/brain/metrics', { cache: 'no-store' }).then(r => r.json()).catch(() => null)
     ]);
   } catch (e) {
     $('potd-hero').innerHTML = '<div style="color:var(--red);">Could not reach the brain worker. Connect it on <a href="worker-setup.html" style="color:var(--accent);">worker-setup</a>.</div>';
     return;
   }
+  // Honest edge status — read walk-forward accuracy; never present the pick as a
+  // confident signal when the measured out-of-sample edge is at/below a coin flip.
+  const es = $('edge-status'); const wf = metrics && metrics.walk_forward_test;
+  if (es && wf && wf.accuracy != null) {
+    const a = wf.accuracy, sig = !!wf.significant;
+    let bg, bd, col, txt;
+    if (a >= 0.53 && sig) { bg = 'rgba(16,185,129,0.10)'; bd = 'rgba(16,185,129,0.45)'; col = 'var(--green)'; txt = '✓ Edge confirmed — ' + (a * 100).toFixed(1) + '% walk-forward, statistically significant. This pick is a real signal; size to your plan.'; }
+    else if (a >= 0.50) { bg = 'rgba(234,179,8,0.10)'; bd = 'rgba(234,179,8,0.45)'; col = 'var(--yellow)'; txt = '○ Marginal edge — ' + (a * 100).toFixed(1) + '% walk-forward' + (sig ? ', significant' : ', not yet significant') + '. Small edge at best; size modestly.'; }
+    else { bg = 'rgba(220,38,38,0.10)'; bd = 'rgba(220,38,38,0.45)'; col = 'var(--red)'; txt = '⚠ No measured edge right now — ' + (a * 100).toFixed(1) + '% walk-forward (at/below a coin flip). Treat this pick as RESEARCH, not a signal — size down or sit out. <a href="proof.html" style="color:var(--accent);">See the proof →</a>'; }
+    es.style.display = 'block'; es.style.background = bg; es.style.border = '1px solid ' + bd; es.style.color = col;
+    es.innerHTML = '<span style="text-transform:uppercase;font-size:10px;letter-spacing:1px;opacity:0.8;">Edge status</span><br>' + txt;
+  } else if (es) { es.style.display = 'none'; }
   // Hero
   const p = picks && picks.pick_of_day;
   if (!p) {

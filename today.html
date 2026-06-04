@@ -38,6 +38,9 @@
     </div>
   </div>
 
+  <!-- Honest edge status — reads walk-forward accuracy; tells you plainly when the brain has no measured edge -->
+  <div id="edge-status" style="display:none;margin-bottom:14px;padding:11px 16px;border-radius:10px;font-size:13px;font-weight:600;line-height:1.5;"></div>
+
   <div id="regime-note" style="margin-bottom:14px;padding:10px 14px;border-radius:8px;background:var(--bg-elevated);font-size:12.5px;color:var(--text-muted);display:none;"></div>
 
   <!-- TODAY'S PICK -->
@@ -156,6 +159,27 @@ async function load() {
   }
   $('pf-graded').textContent = score ? (score.graded + ' / ' + score.total_logged + ' logged') : '—';
   $('pf-trained').textContent = health && health.model_trained ? health.model_trained.toLocaleString() + ' examples' : '—';
+
+  // Honest edge status — never present the picks as confident signals when the
+  // measured out-of-sample edge is at or below a coin flip. Flips green on its own
+  // if walk-forward accuracy climbs above ~53% with statistical significance.
+  const es = $('edge-status');
+  if (es && wf && wf.accuracy != null) {
+    const a = wf.accuracy, sig = !!wf.significant;
+    let bg, bd, col, txt;
+    if (a >= 0.53 && sig) {
+      bg = 'rgba(16,185,129,0.10)'; bd = 'rgba(16,185,129,0.45)'; col = 'var(--green)';
+      txt = '✓ Edge confirmed — ' + (a * 100).toFixed(1) + '% walk-forward, statistically significant. Today\'s pick is a real signal; size to your plan.';
+    } else if (a >= 0.50) {
+      bg = 'rgba(234,179,8,0.10)'; bd = 'rgba(234,179,8,0.45)'; col = 'var(--yellow)';
+      txt = '○ Marginal edge — ' + (a * 100).toFixed(1) + '% walk-forward' + (sig ? ', significant' : ', not yet significant') + '. Small edge at best; size modestly.';
+    } else {
+      bg = 'rgba(220,38,38,0.10)'; bd = 'rgba(220,38,38,0.45)'; col = 'var(--red)';
+      txt = '⚠ No measured edge right now — ' + (a * 100).toFixed(1) + '% walk-forward (at/below a coin flip). Treat today\'s pick as RESEARCH, not a signal — size down or sit out. <a href="proof.html" style="color:var(--accent);">See the proof →</a>';
+    }
+    es.style.display = 'block'; es.style.background = bg; es.style.border = '1px solid ' + bd; es.style.color = col;
+    es.innerHTML = '<span style="text-transform:uppercase;font-size:10px;letter-spacing:1px;opacity:0.8;">Edge status</span><br>' + txt;
+  } else if (es) { es.style.display = 'none'; }
 
   // Live dot
   const ld = $('live-dot');
