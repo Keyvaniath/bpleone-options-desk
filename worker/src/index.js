@@ -38,7 +38,7 @@
 // Pass 200: version stamp so brain-proof.html + worker-setup.html can detect
 // when the deployed worker is behind the repo source. Bump on every meaningful
 // behavior change. Read via /brain/health → worker_version field.
-const WORKER_VERSION = 'pass-263';
+const WORKER_VERSION = 'pass-264';
 
 const UNIVERSE = [
   'SPY','QQQ','IWM','DIA','AAPL','NVDA','TSLA','MSFT','META','AMZN','GOOGL','AMD',
@@ -64,6 +64,7 @@ const KV_KEYS = {
   AUTO_BOOTSTRAP_TS: 'auto_bootstrap_ts_v1', // pass 228: last autonomous bootstrap time
   SIGNALS: 'signals_v1',           // pass 231: unusual-volume + conviction scanner snapshot
   CONSTRAINTS: 'broadcast_constraints_v1', // pass 258: editable noise-control constraints for broadcasts
+  RESEARCH: 'research_v1',          // pass 264: what the features CAN predict (volatility / dense direction)
 };
 
 // Pass 218: bumped from 12,000 → 35,000. Live training triggers on the
@@ -1720,6 +1721,12 @@ async function handleRequest(request, env, ctx) {
     return json(Object.assign({ ok: true, live: liveSeg, backtest: backtestSegments(heldoutRaw) }, liveSeg));
   }
 
+  if (path === '/brain/research') {
+    // Pass 264: what the features CAN predict — the "hunt for real signal" result.
+    const r = await kvGet(env, KV_KEYS.RESEARCH, null);
+    return json(r ? Object.assign({ ok: true }, r) : { ok: false, note: 'no research yet — computed on the next bootstrap' });
+  }
+
   if (path === '/brain/digest-now' && request.method === 'POST') {
     // Pass 257: force-send today's Pick of the Day to the configured Discord
     // webhook RIGHT NOW (bypasses the morning/once-a-day gates). Lets Brandon
@@ -2060,6 +2067,7 @@ async function runBootstrap(env) {
   // because the model was stuck at the pre-L2 equilibrium.
   const model = newModel();
   const trainingExamples = [];
+  const researchExamples = [];  // pass 264: every bar + its raw 5d return, for the signal-research backtest
   let symbolsFetched = 0;
   const errors = [];
   // Pass 193: seed per-sym bar history so live tick has the same context
@@ -2161,9 +2169,10 @@ async function runBootstrap(env) {
       const today = bars[i];
       const future = bars[i + FWD_DAYS];
       const ret = (future.close - today.close) / today.close;
+      const features = richFeatures(bars, i);
+      researchExamples.push({ features, ret, ts: today.ts });   // pass 264: keep EVERY bar + raw return
       const label = ret > LABEL_THRESHOLD ? 1 : (ret < -LABEL_THRESHOLD ? 0 : null);
       if (label === null) continue;
-      const features = richFeatures(bars, i);
       trainingExamples.push({ features, label, sym, ts: today.ts });
     }
   }
@@ -2475,6 +2484,35 @@ async function runBootstrap(env) {
   // small noise tolerance — a thin edge is noisy, so allow legit regime updates
   // within 1.5pp but reject clear drops). BARS_HISTORY (raw data) + the champion
   // leaderboard always update for observability; MODEL/HELDOUT/PLATT only on promote.
+  // Pass 264: SIGNAL RESEARCH — what CAN these features predict? Direction is
+  // ~random, so test alternative targets on the SAME features with an honest
+  // time-ordered split: (a) VOLATILITY — will |5d move| exceed the median?
+  // (tradeable via straddles); (b) DENSE DIRECTION — up vs down at a 0% threshold
+  // (more samples than the +-1% training label). acc well above 0.50 = a real,
+  // tradeable signal the brain should be pointed at instead of forcing direction.
+  function researchScore(examples, labelFn) {
+    const data = [];
+    for (const e of examples) { const y = labelFn(e); if (y === 0 || y === 1) data.push({ f: e.features, y }); }
+    if (data.length < 100) return { n: data.length, acc: null };
+    const cut = Math.floor(data.length * 0.8);
+    const tr = data.slice(0, cut), te = data.slice(cut);   // time-ordered (examples pre-sorted by ts)
+    const rm = newModel(); rm.l2 = 0.02;
+    for (let ep = 0; ep < 3; ep++) for (const d of tr) trainStep(rm, d.f, d.y);
+    let correct = 0;
+    for (const d of te) if (((predict(rm, d.f) >= 0.5) ? 1 : 0) === d.y) correct++;
+    return { n: data.length, test_n: te.length, acc: te.length ? +(correct / te.length).toFixed(4) : null };
+  }
+  researchExamples.sort((a, b) => (a.ts || 0) - (b.ts || 0));   // honest time order for the split
+  const absR = researchExamples.map(e => Math.abs(e.ret)).sort((a, b) => a - b);
+  const medAbs = absR.length ? absR[Math.floor(absR.length / 2)] : 0;
+  const research = {
+    fittedAt: Date.now(),
+    median_abs_5d_move_pct: +(medAbs * 100).toFixed(2),
+    volatility: researchScore(researchExamples, e => Math.abs(e.ret) > medAbs ? 1 : 0),
+    direction_dense: researchScore(researchExamples, e => e.ret > 0 ? 1 : (e.ret < 0 ? 0 : null)),
+    direction_1pp_walk_forward_acc: (typeof wfAcc === 'number' && isFinite(wfAcc)) ? +wfAcc.toFixed(4) : null,
+    note: 'What the SAME features predict, honest time-ordered split. volatility = will the 5-day move be big (|ret|>median, tradeable via straddles)? direction_dense = up vs down at 0% threshold. acc well above 0.50 means a real, tradeable signal worth pointing the brain at. Backtest evidence, not a live forward test.'
+  };
   const prevChamps = await kvGet(env, KV_KEYS.CHAMPIONS, null);
   const incumbentWf = prevChamps && typeof prevChamps.champion_wf_acc === 'number' ? prevChamps.champion_wf_acc : null;
   const newWf = (typeof wfAcc === 'number' && isFinite(wfAcc)) ? wfAcc : null;
@@ -2503,7 +2541,8 @@ async function runBootstrap(env) {
 
   const writes = [
     kvPut(env, KV_KEYS.BARS_HISTORY, barsHistory),   // pass 193: raw data, model-independent
-    kvPut(env, KV_KEYS.CHAMPIONS, championRecord)     // pass 222/260
+    kvPut(env, KV_KEYS.CHAMPIONS, championRecord),    // pass 222/260
+    kvPut(env, KV_KEYS.RESEARCH, research)            // pass 264: signal-research backtest
   ];
   if (promote) {
     writes.push(kvPut(env, KV_KEYS.MODEL, model));
