@@ -38,7 +38,7 @@
 // Pass 200: version stamp so brain-proof.html + worker-setup.html can detect
 // when the deployed worker is behind the repo source. Bump on every meaningful
 // behavior change. Read via /brain/health → worker_version field.
-const WORKER_VERSION = 'pass-264';
+const WORKER_VERSION = 'pass-265';
 
 const UNIVERSE = [
   'SPY','QQQ','IWM','DIA','AAPL','NVDA','TSLA','MSFT','META','AMZN','GOOGL','AMD',
@@ -1033,7 +1033,7 @@ async function tick(env) {
 
   // Resolve: any entry where (now - ts) >= horizon, and we have current price
   let resolved = 0, trained = 0;
-  const HORIZON_MIN_MOVE = { short: 0.003, mid: 0.01, long: 0.03 };
+  const HORIZON_MIN_MOVE = { short: 0.003, mid: 0, long: 0.03 };  // pass 264: mid (5d) -> DENSE label (every move trains on its real direction). Backtest showed dense direction (52.4%) beats the +-1% threshold (45.5%). Must match the bootstrap LABEL_THRESHOLD below.
   for (const entry of journal) {
     if (!entry.resolved) entry.resolved = { short: false, mid: false, long: false };
     ['short', 'mid', 'long'].forEach(horizon => {
@@ -2159,7 +2159,7 @@ async function runBootstrap(env) {
     //      noise. Labels are sparser (fewer days qualify) but each one
     //      carries real directional information for the brain to learn.
     const FWD_DAYS = 5;
-    const LABEL_THRESHOLD = 0.01;
+    const LABEL_THRESHOLD = 0;  // pass 264: DENSE 5d direction (every day, up vs down). Backtest: dense 52.4% vs +-1% 45.5% on the same features. Matches HORIZON_MIN_MOVE.mid above (live tick) so no train/serve skew.
     // Pass 211: training loop starts at max(20, bars.length - BOOTSTRAP_DAYS)
     // instead of 20. Still need i >= 14 for richFeatures' RSI lookback;
     // 20 is the safe floor. Older bars still feed richFeatures via the
