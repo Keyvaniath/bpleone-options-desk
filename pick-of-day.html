@@ -130,11 +130,12 @@ async function loadAll() {
   // confident signal when the measured out-of-sample edge is at/below a coin flip.
   const es = $('edge-status'); const wf = metrics && metrics.walk_forward_test;
   if (es && wf && wf.accuracy != null) {
-    const a = wf.accuracy, sig = !!wf.significant;
+    const a = wf.accuracy, base = wf.base_rate, skill = wf.skill_above_base, beatsBase = wf.beats_base_rate_95;
+    const pp = x => (x >= 0 ? '+' : '') + (x * 100).toFixed(1) + 'pp';
     let bg, bd, col, txt;
-    if (a >= 0.53 && sig) { bg = 'rgba(16,185,129,0.10)'; bd = 'rgba(16,185,129,0.45)'; col = 'var(--green)'; txt = '✓ Edge confirmed — ' + (a * 100).toFixed(1) + '% walk-forward, statistically significant. This pick is a real signal; size to your plan.'; }
-    else if (a >= 0.50) { bg = 'rgba(234,179,8,0.10)'; bd = 'rgba(234,179,8,0.45)'; col = 'var(--yellow)'; txt = '○ Marginal edge — ' + (a * 100).toFixed(1) + '% walk-forward' + (sig ? ', significant' : ', not yet significant') + '. Small edge at best; size modestly.'; }
-    else { bg = 'rgba(220,38,38,0.10)'; bd = 'rgba(220,38,38,0.45)'; col = 'var(--red)'; txt = '⚠ No measured edge right now — ' + (a * 100).toFixed(1) + '% walk-forward (at/below a coin flip). Treat this pick as RESEARCH, not a signal — size down or sit out. <a href="proof.html" style="color:var(--accent);">See the proof →</a>'; }
+    if (skill != null && beatsBase) { bg = 'rgba(16,185,129,0.10)'; bd = 'rgba(16,185,129,0.45)'; col = 'var(--green)'; txt = '✓ Real timing edge — the brain beats the market\'s drift baseline by ' + pp(skill) + ' (statistically significant). This pick is a genuine signal.'; }
+    else if (skill != null && skill > 0) { bg = 'rgba(234,179,8,0.10)'; bd = 'rgba(234,179,8,0.45)'; col = 'var(--yellow)'; txt = '○ Mostly market drift — the ' + (a * 100).toFixed(1) + '% accuracy is mostly the market\'s ' + ((base != null ? base : 0.5) * 100).toFixed(1) + '% up-bias; only ' + pp(skill) + ' of (unproven) timing skill on top. Treat the pick as long-biased, not a real edge. <a href="proof.html" style="color:var(--accent);">Proof →</a>'; }
+    else { bg = 'rgba(220,38,38,0.10)'; bd = 'rgba(220,38,38,0.45)'; col = 'var(--red)'; txt = '⚠ No edge — at or below the market\'s drift baseline (' + ((base != null ? base : 0.5) * 100).toFixed(1) + '%). Treat this pick as RESEARCH, not a signal. <a href="proof.html" style="color:var(--accent);">See the proof →</a>'; }
     es.style.display = 'block'; es.style.background = bg; es.style.border = '1px solid ' + bd; es.style.color = col;
     es.innerHTML = '<span style="text-transform:uppercase;font-size:10px;letter-spacing:1px;opacity:0.8;">Edge status</span><br>' + txt;
   } else if (es) { es.style.display = 'none'; }

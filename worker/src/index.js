@@ -38,7 +38,7 @@
 // Pass 200: version stamp so brain-proof.html + worker-setup.html can detect
 // when the deployed worker is behind the repo source. Bump on every meaningful
 // behavior change. Read via /brain/health → worker_version field.
-const WORKER_VERSION = 'pass-265';
+const WORKER_VERSION = 'pass-267';
 
 const UNIVERSE = [
   'SPY','QQQ','IWM','DIA','AAPL','NVDA','TSLA','MSFT','META','AMZN','GOOGL','AMD',
@@ -1911,16 +1911,30 @@ async function handleRequest(request, env, ctx) {
       const acc = correct / valid.length;
       const z = (acc - 0.5) / Math.sqrt(0.25 / valid.length);
       const pValue = 2 * (1 - normalCdf(Math.abs(z)));
+      // Pass 266 (honest skill vs drift): the relevant baseline is NOT a coin flip,
+      // it's "always predict the majority direction" (the drift base rate). Dense
+      // direction can score 54% just by riding an up-market. skill_above_base is the
+      // accuracy MINUS that naive baseline — that's the real timing edge. We test
+      // significance against the base rate, not 0.5, so beta is not sold as alpha.
+      const meanY = valid.reduce((s, it) => s + it.y, 0) / valid.length;
+      const baseRate = Math.max(meanY, 1 - meanY);
+      const skill = acc - baseRate;
+      const zBase = Math.sqrt(baseRate * (1 - baseRate) / valid.length) > 0
+        ? skill / Math.sqrt(baseRate * (1 - baseRate) / valid.length) : 0;
+      const pBase = 2 * (1 - normalCdf(Math.abs(zBase)));
       return {
         n: valid.length,
         accuracy: +acc.toFixed(4),
+        base_rate: +baseRate.toFixed(4),               // pass 266: naive "predict the drift" accuracy
+        skill_above_base: +skill.toFixed(4),           // pass 266: real timing edge = accuracy - base_rate
+        beats_base_rate_95: pBase < 0.05 && skill > 0, // pass 266: is the edge above drift, not just above a coin flip?
         brier: +brier.toFixed(4),
         bss: +bss.toFixed(4),
         ece: +ece.toFixed(4),
         z_score: +z.toFixed(3),
         p_value: +pValue.toFixed(4),
         significant: pValue < 0.05,
-        verdict: bss > 0.05 ? 'REAL SIGNAL' : (bss > 0 ? 'WEAK SIGNAL' : 'BELOW BASELINE')
+        verdict: skill > 0.02 && pBase < 0.05 ? 'REAL SIGNAL (beats drift)' : (skill > 0 ? 'MOSTLY DRIFT (little timing edge)' : 'BELOW BASELINE')
       };
     }
 
@@ -2505,13 +2519,25 @@ async function runBootstrap(env) {
   researchExamples.sort((a, b) => (a.ts || 0) - (b.ts || 0));   // honest time order for the split
   const absR = researchExamples.map(e => Math.abs(e.ret)).sort((a, b) => a - b);
   const medAbs = absR.length ? absR[Math.floor(absR.length / 2)] : 0;
+  // Pass 265: base-rate honesty check. Dense direction can be inflated by market
+  // drift — if up-days outnumber down-days, "always predict up" beats 50% with no
+  // skill. So we report the test-window up-rate and the SKILL ABOVE that naive
+  // baseline. Skill > 0 means the model is doing more than riding the drift.
+  const dirCut = Math.floor(researchExamples.length * 0.8);
+  const testEx = researchExamples.slice(dirCut);
+  const upRate = testEx.length ? testEx.filter(e => e.ret > 0).length / testEx.length : null;
+  const naiveBase = upRate != null ? Math.max(upRate, 1 - upRate) : null;
+  const denseRes = researchScore(researchExamples, e => e.ret > 0 ? 1 : (e.ret < 0 ? 0 : null));
   const research = {
     fittedAt: Date.now(),
     median_abs_5d_move_pct: +(medAbs * 100).toFixed(2),
     volatility: researchScore(researchExamples, e => Math.abs(e.ret) > medAbs ? 1 : 0),
-    direction_dense: researchScore(researchExamples, e => e.ret > 0 ? 1 : (e.ret < 0 ? 0 : null)),
+    direction_dense: denseRes,
+    test_up_rate: upRate != null ? +upRate.toFixed(4) : null,
+    naive_base_rate: naiveBase != null ? +naiveBase.toFixed(4) : null,
+    direction_skill_above_base: (naiveBase != null && denseRes.acc != null) ? +(denseRes.acc - naiveBase).toFixed(4) : null,
     direction_1pp_walk_forward_acc: (typeof wfAcc === 'number' && isFinite(wfAcc)) ? +wfAcc.toFixed(4) : null,
-    note: 'What the SAME features predict, honest time-ordered split. volatility = will the 5-day move be big (|ret|>median, tradeable via straddles)? direction_dense = up vs down at 0% threshold. acc well above 0.50 means a real, tradeable signal worth pointing the brain at. Backtest evidence, not a live forward test.'
+    note: 'What the SAME features predict, honest time-ordered split. direction_dense = up vs down at 0% threshold; direction_skill_above_base subtracts the naive "always predict the majority direction" baseline (naive_base_rate) so drift is not mistaken for skill. volatility = will the 5-day move be big? Backtest evidence, not a live forward test.'
   };
   const prevChamps = await kvGet(env, KV_KEYS.CHAMPIONS, null);
   const incumbentWf = prevChamps && typeof prevChamps.champion_wf_acc === 'number' ? prevChamps.champion_wf_acc : null;
