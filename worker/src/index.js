@@ -38,7 +38,7 @@
 // Pass 200: version stamp so brain-proof.html + worker-setup.html can detect
 // when the deployed worker is behind the repo source. Bump on every meaningful
 // behavior change. Read via /brain/health → worker_version field.
-const WORKER_VERSION = 'pass-258';
+const WORKER_VERSION = 'pass-260';
 
 const UNIVERSE = [
   'SPY','QQQ','IWM','DIA','AAPL','NVDA','TSLA','MSFT','META','AMZN','GOOGL','AMD',
@@ -2175,8 +2175,21 @@ async function runBootstrap(env) {
     const val = scoreModel(m, wfVal);
     return { cfg, model: m, val };
   });
-  // Champion = highest validation BSS (most edge on data it never trained on).
-  contenders.sort((a, b) => (b.val.bss == null ? -Infinity : b.val.bss) - (a.val.bss == null ? -Infinity : a.val.bss));
+  // Pass 260 (CRITICAL — the edge-killer): champion = highest validation
+  // DIRECTIONAL ACCURACY, with BSS as the tiebreaker. Selecting on BSS alone once
+  // crowned a model with 47.9% accuracy (well-calibrated but barely a coin flip)
+  // over two 58%-accuracy contenders — tanking the live edge 53% -> 47%. For a
+  // directional UP/DOWN signal whose probabilities are re-calibrated by the Platt
+  // layer AFTER selection, accuracy is the metric that determines whether calls go
+  // the right way (and it is exactly what the proof page reports). BSS breaks near
+  // ties so calibration still matters at the margin.
+  const accOf = c => (c.val.acc == null ? -Infinity : c.val.acc);
+  const bssOf = c => (c.val.bss == null ? -Infinity : c.val.bss);
+  contenders.sort((a, b) => {
+    const da = accOf(b) - accOf(a);
+    if (Math.abs(da) > 1e-9) return da;
+    return bssOf(b) - bssOf(a);
+  });
   const champion = contenders[0];
   const championFinal = scoreModel(champion.model, wfFinalTest);  // honest, selection-free
   const leaderboard = contenders.map(c => ({
@@ -2334,6 +2347,23 @@ async function runBootstrap(env) {
   // Pass 222: persist the champion/challenger leaderboard for /brain/champions
   // and the brain-proof UI. Records which config won, its honest held-back
   // BSS, and the full field so you can see the competition each bootstrap.
+  // Pass 260 (CRITICAL — protect the edge): do NOT let a bad-regime re-bootstrap
+  // overwrite a good live model. The weekly re-competition once tanked the
+  // walk-forward edge 53% -> 47% by deploying "the best of a bad batch" with no
+  // comparison to the deployed model. Compare the new champion's walk-forward
+  // accuracy to the incumbent's; only promote if it is at least as good (within a
+  // small noise tolerance — a thin edge is noisy, so allow legit regime updates
+  // within 1.5pp but reject clear drops). BARS_HISTORY (raw data) + the champion
+  // leaderboard always update for observability; MODEL/HELDOUT/PLATT only on promote.
+  const prevChamps = await kvGet(env, KV_KEYS.CHAMPIONS, null);
+  const incumbentWf = prevChamps && typeof prevChamps.champion_wf_acc === 'number' ? prevChamps.champion_wf_acc : null;
+  const newWf = (typeof wfAcc === 'number' && isFinite(wfAcc)) ? wfAcc : null;
+  const PROMOTE_TOL = 0.015;
+  let promote = true, promoteReason = 'no incumbent baseline — deploying';
+  if (incumbentWf != null && newWf != null) {
+    if (newWf >= incumbentWf - PROMOTE_TOL) { promote = true; promoteReason = 'new wf ' + newWf.toFixed(4) + ' >= incumbent ' + incumbentWf.toFixed(4) + ' - tol'; }
+    else { promote = false; promoteReason = 'KEPT incumbent: new wf ' + newWf.toFixed(4) + ' worse than incumbent ' + incumbentWf.toFixed(4); }
+  }
   const championRecord = {
     fittedAt: Date.now(),
     champion: champion.cfg.name,
@@ -2343,17 +2373,24 @@ async function runBootstrap(env) {
     champion_final_bss: championFinal.bss,       // honest, never used for selection
     champion_final_acc: championFinal.acc,
     champion_final_n: championFinal.n,
+    champion_wf_acc: promote ? newWf : incumbentWf,   // pass 260: the DEPLOYED model's walk-forward acc
+    candidate_wf_acc: newWf,                          // pass 260: what this run produced
+    promoted: promote,                                // pass 260
+    promote_reason: promoteReason,                    // pass 260
     leaderboard,
-    note: 'Champion picked by validation BSS over a strided (regime-spanning) validation slice; champion_final_* is on a disjoint, selection-free held-back slice.'
+    note: 'Champion picked by validation BSS; promotion guarded by walk-forward acc vs the deployed model so a bad-regime re-bootstrap cannot regress the live edge.'
   };
 
-  await Promise.all([
-    kvPut(env, KV_KEYS.MODEL, model),
-    kvPut(env, KV_KEYS.HELDOUT, { random_split: heldout, walk_forward: walkForward }),
-    kvPut(env, KV_KEYS.BARS_HISTORY, barsHistory),  // pass 193
-    kvPut(env, KV_KEYS.PLATT, platt),              // pass 213/220
-    kvPut(env, KV_KEYS.CHAMPIONS, championRecord)  // pass 222
-  ]);
+  const writes = [
+    kvPut(env, KV_KEYS.BARS_HISTORY, barsHistory),   // pass 193: raw data, model-independent
+    kvPut(env, KV_KEYS.CHAMPIONS, championRecord)     // pass 222/260
+  ];
+  if (promote) {
+    writes.push(kvPut(env, KV_KEYS.MODEL, model));
+    writes.push(kvPut(env, KV_KEYS.HELDOUT, { random_split: heldout, walk_forward: walkForward }));
+    writes.push(kvPut(env, KV_KEYS.PLATT, platt));   // pass 213/220
+  }
+  await Promise.all(writes);
 
   return {
     ok: true,
@@ -2427,6 +2464,7 @@ async function runBootstrap(env) {
 // error retries next tick instead of waiting a full week.
 const AUTO_BOOTSTRAP_INTERVAL_MS = 7 * 24 * 3600 * 1000;
 const RECOVERY_COOLDOWN_MS = 3 * 3600 * 1000;  // pass 251: at most one recovery attempt / 3h
+const EDGE_RECOVERY_COOLDOWN_MS = 20 * 3600 * 1000;  // pass 260: ~daily re-bootstrap while the edge is below a coin flip (the 120-day window shifts each day, giving a genuinely fresh shot; re-running within a day would just repeat the same fit)
 async function maybeAutoBootstrap(env) {
   let claimed = false, prev = 0;
   try {
@@ -2441,6 +2479,22 @@ async function maybeAutoBootstrap(env) {
       const recTs = await kvGet(env, 'recovery_ts_v1', 0);
       if (Date.now() - (recTs || 0) < RECOVERY_COOLDOWN_MS) return;
       await kvPut(env, 'recovery_ts_v1', Date.now());  // claim before running
+      await runBootstrap(env);
+      return;
+    }
+    // Pass 260: ACTIVE edge recovery. If the DEPLOYED model is below a coin flip on
+    // walk-forward, actively re-bootstrap (~daily). The promotion guard in
+    // runBootstrap ensures only a BETTER model deploys, so this ratchets the edge
+    // back up as the 120-day window shifts, and stops on its own once we clear 50%.
+    const champs = await kvGet(env, KV_KEYS.CHAMPIONS, null);
+    // Prefer the new champion_wf_acc; fall back to champion_final_acc (the honest
+    // held-back accuracy present on older records) so recovery arms immediately.
+    const deployedWf = champs && typeof champs.champion_wf_acc === 'number' ? champs.champion_wf_acc
+                     : (champs && typeof champs.champion_final_acc === 'number' ? champs.champion_final_acc : null);
+    if (deployedWf != null && deployedWf < 0.50) {
+      const edgeTs = await kvGet(env, 'edge_recovery_ts_v1', 0);
+      if (Date.now() - (edgeTs || 0) < EDGE_RECOVERY_COOLDOWN_MS) return;
+      await kvPut(env, 'edge_recovery_ts_v1', Date.now());  // claim before running
       await runBootstrap(env);
       return;
     }
