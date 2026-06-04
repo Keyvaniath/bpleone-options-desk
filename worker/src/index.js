@@ -38,7 +38,7 @@
 // Pass 200: version stamp so brain-proof.html + worker-setup.html can detect
 // when the deployed worker is behind the repo source. Bump on every meaningful
 // behavior change. Read via /brain/health → worker_version field.
-const WORKER_VERSION = 'pass-262';
+const WORKER_VERSION = 'pass-263';
 
 const UNIVERSE = [
   'SPY','QQQ','IWM','DIA','AAPL','NVDA','TSLA','MSFT','META','AMZN','GOOGL','AMD',
@@ -2646,7 +2646,12 @@ function etDayKeyNow() {
 
 // Net open-market insider direction per symbol across a liquid basket (once/day).
 async function insiderBiasMap(env) {
-  const BASKET = ['NVDA', 'TSLA', 'AAPL', 'MSFT', 'META', 'AMZN', 'GOOGL', 'AMD', 'PLTR', 'COIN', 'AVGO', 'JPM', 'GS', 'DIS', 'NFLX', 'UBER'];
+  // Pass 263: widened 16 -> 25 names (every individual stock in the universe that
+  // actually has SEC insiders; ETFs are funds with none, so they're skipped). More
+  // names => more days the brain and insiders can AGREE => the confluence forward-test
+  // (and its coin-flip verdict) accrues in weeks instead of months. Cost is one extra
+  // Finnhub insider fetch per added name, once per ET weekday.
+  const BASKET = ['NVDA', 'TSLA', 'AAPL', 'MSFT', 'META', 'AMZN', 'GOOGL', 'AMD', 'PLTR', 'COIN', 'AVGO', 'JPM', 'GS', 'DIS', 'NFLX', 'UBER', 'SMCI', 'MARA', 'RIVN', 'BABA', 'SHOP', 'CRM', 'ORCL', 'MU', 'BAC'];
   const map = {};
   const results = await Promise.all(BASKET.map(s =>
     fetchFinnhubInsider(env, s).then(t => ({ s, t })).catch(() => ({ s, t: null }))
