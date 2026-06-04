@@ -42,7 +42,7 @@
     // Pass 179: cache-bust dynamic injections too, matching the static <script>
     // tags that have ?v=v178 baked in. Otherwise Chrome serves stale brain-coach.js
     // / model.js / brain-loop.js etc. from HTTP cache after deploys.
-    const CACHE_BUST = 'v178';
+    const CACHE_BUST = 'v188';
     want.forEach(rel => {
       // Check for both raw rel AND rel-with-any-query (since static tags have ?v=)
       if (have.has(rel) || allScripts.some(s => {

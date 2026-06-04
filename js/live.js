@@ -927,7 +927,7 @@ document.addEventListener('DOMContentLoaded', () => {
       // English headline + diagnosis + advice. Pure computation.
       if (!document.querySelector('script[src*="brain-coach.js"]')) {
         const s = document.createElement('script');
-        s.src = 'js/brain-coach.js';
+        s.src = 'js/brain-coach.js?v=v188';  // versioned so module fixes reach returning users (was un-versioned -> cached forever)
         s.async = false;
         document.head.appendChild(s);
       }

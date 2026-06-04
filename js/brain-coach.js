@@ -197,9 +197,16 @@
         ? 'Brain UNTRAINED — capturing data but not learning yet (' + journalLen + ' captures, ' + untrainedReason + ')'
         : 'Brain UNTRAINED — no model weights, no journal (' + untrainedReason + ')';
       headlineColor = 'var(--red)';
-    } else if (alertCount > 0) {
+    } else if (alertCount > 0 && healthScore < 60) {
+      // Only scream "degraded" when the health score actually agrees. An alert at
+      // 85/100 is a single thing to review, not a five-alarm fire — saying so on
+      // every page was alarmist and contradicted the score (and the worker brain,
+      // which is the authoritative engine, reports healthy separately).
       headline = 'BRAIN IS DEGRADED — be very careful';
       headlineColor = 'var(--red)';
+    } else if (alertCount > 0) {
+      headline = 'Brain is mostly healthy — ' + alertCount + ' alert' + (alertCount > 1 ? 's' : '') + ' to review';
+      headlineColor = 'var(--yellow)';
     } else if (warnCount > 1) {
       headline = 'Brain is OK but multiple warnings — reduce size';
       headlineColor = 'var(--yellow)';
