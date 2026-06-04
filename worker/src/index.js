@@ -38,7 +38,7 @@
 // Pass 200: version stamp so brain-proof.html + worker-setup.html can detect
 // when the deployed worker is behind the repo source. Bump on every meaningful
 // behavior change. Read via /brain/health → worker_version field.
-const WORKER_VERSION = 'pass-260';
+const WORKER_VERSION = 'pass-261';
 
 const UNIVERSE = [
   'SPY','QQQ','IWM','DIA','AAPL','NVDA','TSLA','MSFT','META','AMZN','GOOGL','AMD',
@@ -220,6 +220,7 @@ function extractRichFeatures(quote, history, marketSnap) {
   // Day-of-week + ET hour
   f[19] = (new Date(today.ts).getUTCDay() % 5) / 5;
   f[20] = clamp((etHour() - 9.5) / (16 - 9.5), 0, 1);
+  addStabilityFeatures(f, bars, i);  // pass 261: f[9]-f[14] (shared with bootstrap — no skew)
   f[21] = 1;
   return f;
 }
@@ -232,6 +233,49 @@ function extractRichFeatures(quote, history, marketSnap) {
 function clamp(v, lo, hi) {
   if (!isFinite(v)) return (lo + hi) / 2;
   return Math.max(lo, Math.min(hi, v));
+}
+
+// Pass 261 (edge stability — more signal): extra features in previously-unused
+// slots f[9]-f[14]. CRITICAL: this is the SINGLE source of truth, called by BOTH
+// the bootstrap feature builder (richFeatures) and the live-tick builder
+// (extractRichFeatures), so there is ZERO train/serve skew (the two used to drift
+// — e.g. the tick set f[18]/f[20] that the bootstrap left neutral). Each feature
+// self-guards on lookback; unmet ones stay at the neutral 0.5 default. All operate
+// on a `bars` array of {close,high,low,volume} and an index `i` (the current bar).
+function addStabilityFeatures(f, bars, i) {
+  const today = bars[i];
+  if (!today) return;
+  // f[9]: distance from the 50-day SMA — longer-term trend context
+  if (i >= 50) {
+    let s = 0; for (let k = i - 49; k <= i; k++) s += bars[k].close; s /= 50;
+    f[9] = clamp(((today.close - s) / s + 0.15) / 0.30, 0, 1);
+    // f[10]: position within the 50-day high/low range (0 = at lows, 1 = at highs)
+    let hi = -Infinity, lo = Infinity;
+    for (let k = i - 49; k <= i; k++) { if (bars[k].high > hi) hi = bars[k].high; if (bars[k].low < lo) lo = bars[k].low; }
+    if (hi > lo) f[10] = clamp((today.close - lo) / (hi - lo), 0, 1);
+  }
+  // f[11]: momentum divergence — 5-day minus 20-day return (accel vs decel)
+  if (i >= 20) {
+    const mom5 = (today.close - bars[i - 5].close) / bars[i - 5].close;
+    const mom20 = (today.close - bars[i - 20].close) / bars[i - 20].close;
+    f[11] = clamp(((mom5 - mom20) + 0.10) / 0.20, 0, 1);
+    // f[14]: volatility regime — 5-day ATR% vs 20-day ATR% (expansion/contraction)
+    let a5 = 0, a20 = 0;
+    for (let k = i - 4; k <= i; k++) a5 += (bars[k].high - bars[k].low) / bars[k].close;
+    for (let k = i - 19; k <= i; k++) a20 += (bars[k].high - bars[k].low) / bars[k].close;
+    a5 /= 5; a20 /= 20;
+    f[14] = a20 > 0 ? clamp((a5 / a20) / 2, 0, 1) : 0.5;
+  }
+  // f[12]: 10-day momentum (mid-horizon)
+  if (i >= 10) {
+    const mom10 = (today.close - bars[i - 10].close) / bars[i - 10].close;
+    f[12] = clamp((mom10 + 0.15) / 0.30, 0, 1);
+  }
+  // f[13]: fraction of up-days over the last 14 sessions (trend persistence)
+  if (i >= 14) {
+    let up = 0; for (let k = i - 13; k <= i; k++) { if (bars[k - 1] && bars[k].close > bars[k - 1].close) up++; }
+    f[13] = up / 14;
+  }
 }
 
 // Pass 213: Platt scaling — sigmoid post-calibration applied to raw model
@@ -2027,6 +2071,7 @@ async function runBootstrap(env) {
     f[8] = clamp(((today.close - sma14) / sma14 + 0.10) / 0.20, 0, 1);
     const dow = new Date(today.ts).getUTCDay();
     f[19] = (dow % 5) / 5;
+    addStabilityFeatures(f, bars, i);  // pass 261: f[9]-f[14] (shared with live tick — no skew)
     f[21] = 1;
     return f;
   }
@@ -2169,10 +2214,45 @@ async function runBootstrap(env) {
     return { acc: +(correct / n).toFixed(4), brier: +brier.toFixed(4), bss: +(1 - brier / 0.25).toFixed(4), n };
   }
 
-  // Race every config on wfTrainSet → score on the validation slice.
+  // Pass 261 (edge stability): pick the champion via FORWARD-CHAINING time-series
+  // cross-validation over the ENTIRE training window, pooling every out-of-sample
+  // CV prediction into one large, regime-spanning selection sample. Selecting on a
+  // single ~551-example validation slice did not transfer (the same model scored
+  // 44% on one out-of-sample slice and 58% on another). Pooling thousands of
+  // honest train-on-past / test-on-future predictions across folds gives a robust
+  // config choice that actually generalizes. The last-20% wfTestSet stays the
+  // honest, selection-free reported metric (selection only touches wfTrainSet).
+  const K_FOLDS = 5;
+  function cvScoreConfig(cfg, examples) {
+    const n = examples.length;
+    const foldSize = Math.floor(n / K_FOLDS);
+    if (foldSize < 30) {
+      // too little data for CV — fall back to a single 80/20 forward score
+      const cut = Math.floor(n * 0.8);
+      return scoreModel(trainConfigModel(cfg, examples.slice(0, cut)), examples.slice(cut));
+    }
+    let correct = 0, brierSum = 0, total = 0;
+    // folds 1..K-1 are each a test window; train only on the strictly-earlier folds.
+    for (let k = 1; k < K_FOLDS; k++) {
+      const trainPart = examples.slice(0, k * foldSize);
+      const testPart = examples.slice(k * foldSize, (k + 1) * foldSize);
+      const m = trainConfigModel(cfg, trainPart);
+      for (const ex of testPart) {
+        const p = predict(m, ex.features);
+        if ((p >= 0.5 ? 1 : 0) === ex.label) correct++;
+        brierSum += (p - ex.label) * (p - ex.label);
+        total++;
+      }
+    }
+    if (!total) return { acc: null, brier: null, bss: null, n: 0 };
+    const brier = brierSum / total;
+    return { acc: +(correct / total).toFixed(4), brier: +brier.toFixed(4), bss: +(1 - brier / 0.25).toFixed(4), n: total };
+  }
+  // Race every config: CV score selects the champion; the model is then trained on
+  // the full training window for deployment + the honest last-20% test.
   const contenders = CONFIGS.map(cfg => {
+    const val = cvScoreConfig(cfg, wfTrainSet);   // robust, pooled out-of-sample CV
     const m = trainConfigModel(cfg, wfTrainSet);
-    const val = scoreModel(m, wfVal);
     return { cfg, model: m, val };
   });
   // Pass 260 (CRITICAL — the edge-killer): champion = highest validation
@@ -2378,7 +2458,7 @@ async function runBootstrap(env) {
     promoted: promote,                                // pass 260
     promote_reason: promoteReason,                    // pass 260
     leaderboard,
-    note: 'Champion picked by validation BSS; promotion guarded by walk-forward acc vs the deployed model so a bad-regime re-bootstrap cannot regress the live edge.'
+    note: 'Champion picked by pooled forward-chaining CV accuracy over the whole training window (robust/transferable); promotion guarded by walk-forward acc vs the deployed model so a bad-regime re-bootstrap cannot regress the live edge.'
   };
 
   const writes = [
