@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Signal Constraints — tune the noise control — bpleone / trade</title>
+<meta name="description" content="Decide what becomes a Pick of the Day / Alpha / Best Long: conviction floors, relative-volume and price filters, focus/exclude lists, regime gates. The brain trains on everything; this only governs what gets surfaced.">
+<link rel="stylesheet" href="css/style.css?v=v187">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.fld { margin-bottom:18px; }
+.fld label { display:block;font-size:12px;font-weight:700;margin-bottom:5px; }
+.fld .hint { font-size:11.5px;color:var(--text-muted);margin-bottom:8px;line-height:1.5; }
+.fld input[type=number], .fld input[type=text], .fld input[type=password] { width:100%;padding:10px 12px;background:#0a0a0a;border:1px solid var(--border);border-radius:8px;color:var(--text-primary);font-size:14px;box-sizing:border-box;font-family:var(--font-mono); }
+.fld input:focus { outline:none;border-color:var(--accent); }
+.row2 { display:grid;grid-template-columns:1fr 1fr;gap:14px; }
+@media(max-width:600px){ .row2 { grid-template-columns:1fr; } }
+.toggle { display:flex;align-items:center;gap:10px;font-size:13px;cursor:pointer;padding:8px 0; }
+.toggle input { width:18px;height:18px;accent-color:var(--accent); }
+.rangewrap { display:flex;align-items:center;gap:12px; }
+.rangewrap input[type=range] { flex:1;accent-color:var(--accent); }
+.rangewrap .val { font-family:var(--font-mono);font-weight:800;min-width:46px;text-align:right; }
+.preview-grid { display:grid;grid-template-columns:repeat(3,1fr);gap:0;border:1px solid var(--border);border-radius:10px;overflow:hidden; }
+.preview-grid .p { padding:14px;border-right:1px solid var(--border);background:var(--bg-elevated);text-align:center; }
+.preview-grid .p:last-child { border-right:none; }
+.preview-grid .p .v { font-family:var(--font-mono);font-size:24px;font-weight:800; }
+.preview-grid .p .l { font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;margin-top:3px; }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">🎛 Signal Constraints <span class="feat-badge feat-pro">NOISE CONTROL</span></div>
+      <div class="page-subtitle">Decide what's worth broadcasting. The brain scores &amp; trains on the <strong>whole</strong> universe no matter what — these filters only govern which calls become a Pick of the Day, Best Long, or Alpha. Evidence for good settings is on the <a href="proof.html" style="color:var(--accent);">proof page</a>.</div>
+    </div>
+  </div>
+
+  <!-- live preview -->
+  <div class="card mb-24" style="padding:16px 18px;">
+    <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;font-weight:800;margin-bottom:10px;">What passes right now (live)</div>
+    <div class="preview-grid">
+      <div class="p"><div class="v" id="pv-scored">—</div><div class="l">universe scored</div></div>
+      <div class="p"><div class="v" id="pv-passed" style="color:var(--green);">—</div><div class="l">passed constraints</div></div>
+      <div class="p"><div class="v" id="pv-filtered" style="color:var(--yellow);">—</div><div class="l">filtered as noise</div></div>
+    </div>
+    <div id="pv-hint" style="font-size:11.5px;color:var(--accent);margin-top:10px;"></div>
+  </div>
+
+  <div class="grid grid-2" style="gap:18px;align-items:start;">
+    <!-- conviction + filters -->
+    <div class="card" style="padding:20px;">
+      <div class="card-header"><div class="card-title">Conviction &amp; quality floors</div></div>
+
+      <div class="fld">
+        <label>Alpha min conviction <span id="lab-minconv" style="color:var(--accent);"></span></label>
+        <div class="hint">Conviction = how far the brain's P(up) is from a coin flip (0 = flip, 1 = certain). Only calls at or above this make the Alpha list. The proof page shows the edge concentrates above ~0.20.</div>
+        <div class="rangewrap"><input type="range" id="min_conviction" min="0" max="0.5" step="0.01"><span class="val" id="val-minconv">—</span></div>
+      </div>
+
+      <div class="fld">
+        <label>Pick-of-the-Day min conviction <span id="lab-potd" style="color:var(--accent);"></span></label>
+        <div class="hint">The single headline pick only shows if the top call clears this. Keep at 0 to always show the best available; raise it to stay silent on flat days.</div>
+        <div class="rangewrap"><input type="range" id="potd_min_conviction" min="0" max="0.5" step="0.01"><span class="val" id="val-potd">—</span></div>
+      </div>
+
+      <div class="row2">
+        <div class="fld">
+          <label>Min relative volume (×)</label>
+          <div class="hint">0 = off. 1.5 = only unusually active names.</div>
+          <input type="number" id="min_rvol" min="0" max="20" step="0.1">
+        </div>
+        <div class="fld">
+          <label>Alpha list size</label>
+          <div class="hint">How many leans to surface (1-25).</div>
+          <input type="number" id="alpha_max" min="1" max="25" step="1">
+        </div>
+      </div>
+
+      <div class="row2">
+        <div class="fld">
+          <label>Min price ($)</label>
+          <div class="hint">Skip illiquid sub-$N names.</div>
+          <input type="number" id="min_price" min="0" max="100000" step="1">
+        </div>
+        <div class="fld">
+          <label>Max price ($)</label>
+          <div class="hint">Upper guard (off = very high).</div>
+          <input type="number" id="max_price" min="1" max="1000000" step="1">
+        </div>
+      </div>
+
+      <label class="toggle"><input type="checkbox" id="long_only"> <span><strong>Long only</strong> — suppress short calls, surface bullish names only (an environmental gate for bull regimes).</span></label>
+      <label class="toggle"><input type="checkbox" id="require_changepct_agree"> <span><strong>Require day-move agreement</strong> — only broadcast when today's move already agrees with the call's direction.</span></label>
+    </div>
+
+    <!-- universe + auth -->
+    <div class="card" style="padding:20px;">
+      <div class="card-header"><div class="card-title">Universe &amp; save</div></div>
+
+      <div class="fld">
+        <label>Focus symbols (only these)</label>
+        <div class="hint">Comma-separated. If set, ONLY these names are eligible — a tight focus universe. Leave blank for the full ~72-name universe.</div>
+        <input type="text" id="focus_symbols" placeholder="e.g. NVDA, AAPL, TSLA, SPY">
+      </div>
+
+      <div class="fld">
+        <label>Exclude symbols (never broadcast)</label>
+        <div class="hint">Comma-separated blocklist. Names you never want surfaced (still trained on).</div>
+        <input type="text" id="exclude_symbols" placeholder="e.g. VXX, UVXY">
+      </div>
+
+      <div class="fld">
+        <label>Note (optional)</label>
+        <input type="text" id="note" placeholder="why you set it this way" maxlength="200">
+      </div>
+
+      <hr style="border:none;border-top:1px solid var(--border);margin:18px 0;">
+
+      <div class="fld">
+        <label>Admin token</label>
+        <div class="hint">Your worker's ADMIN_TOKEN — needed to save (read is open to everyone). Stored only in this browser, sent only to your worker. We never see it.</div>
+        <input type="password" id="admin_token" placeholder="paste your ADMIN_TOKEN" autocomplete="off">
+        <label class="toggle"><input type="checkbox" id="remember_token" checked> <span>Remember on this device</span></label>
+      </div>
+
+      <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:6px;">
+        <button id="saveBtn" onclick="save()" style="flex:1;min-width:140px;padding:13px;border-radius:9px;border:none;cursor:pointer;font-weight:800;background:var(--accent);color:#001016;font-family:var(--font-mono);">Save constraints</button>
+        <button onclick="resetDefaults()" style="padding:13px 16px;border-radius:9px;border:1px solid var(--border);background:transparent;color:var(--text-secondary);cursor:pointer;font-weight:700;">Reset to defaults</button>
+      </div>
+      <div id="msg" style="margin-top:12px;font-size:13px;text-align:center;min-height:18px;"></div>
+    </div>
+  </div>
+
+  <div style="margin-top:18px;padding:14px 18px;border-radius:10px;background:rgba(148,163,184,0.06);border-left:3px solid var(--text-muted);font-size:12px;color:var(--text-muted);line-height:1.6;">
+    <strong>How the brain "learns" these.</strong> The brain doesn't blindly obey — the <a href="proof.html" style="color:var(--accent);">proof page</a> grades every confidence band against the real 5-day move, so you can see which constraints actually carry edge and tune from evidence. Constraints govern the <em>broadcast</em>; the model keeps training on the full universe so it never goes blind to a name just because you stopped surfacing it.
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js?v=v187"></script>
+<script src="js/app.js?v=v187"></script>
+<script src="js/worker-bridge.js?v=v187"></script>
+<script>
+buildNav('constraints');
+const WORKER = (window.WorkerBridge && WorkerBridge.getUrl && WorkerBridge.getUrl())
+  || 'https://bpleone-brain-worker.brandonpleone.workers.dev';
+const $ = id => document.getElementById(id);
+const TOKEN_KEY = 'bpleone_admin_token_v1';
+
+function setMsg(t, ok) { const m = $('msg'); m.textContent = t; m.style.color = ok == null ? 'var(--text-muted)' : ok ? 'var(--green)' : 'var(--red)'; }
+
+function fill(c) {
+  $('min_conviction').value = c.min_conviction; $('val-minconv').textContent = (+c.min_conviction).toFixed(2);
+  $('potd_min_conviction').value = c.potd_min_conviction; $('val-potd').textContent = (+c.potd_min_conviction).toFixed(2);
+  $('min_rvol').value = c.min_rvol;
+  $('alpha_max').value = c.alpha_max;
+  $('min_price').value = c.min_price;
+  $('max_price').value = c.max_price;
+  $('long_only').checked = !!c.long_only;
+  $('require_changepct_agree').checked = !!c.require_changepct_agree;
+  $('focus_symbols').value = (c.focus_symbols || []).join(', ');
+  $('exclude_symbols').value = (c.exclude_symbols || []).join(', ');
+  $('note').value = c.note || '';
+}
+
+function readForm() {
+  const syms = s => s.split(',').map(x => x.trim().toUpperCase()).filter(Boolean);
+  return {
+    min_conviction: parseFloat($('min_conviction').value),
+    potd_min_conviction: parseFloat($('potd_min_conviction').value),
+    min_rvol: parseFloat($('min_rvol').value) || 0,
+    alpha_max: parseInt($('alpha_max').value, 10) || 8,
+    min_price: parseFloat($('min_price').value) || 0,
+    max_price: parseFloat($('max_price').value) || 100000,
+    long_only: $('long_only').checked,
+    require_changepct_agree: $('require_changepct_agree').checked,
+    focus_symbols: syms($('focus_symbols').value),
+    exclude_symbols: syms($('exclude_symbols').value),
+    note: $('note').value
+  };
+}
+
+$('min_conviction').addEventListener('input', e => $('val-minconv').textContent = (+e.target.value).toFixed(2));
+$('potd_min_conviction').addEventListener('input', e => $('val-potd').textContent = (+e.target.value).toFixed(2));
+
+async function loadConstraints() {
+  try {
+    const r = await fetch(WORKER + '/brain/constraints', { cache: 'no-store' }).then(x => x.json());
+    if (r && r.constraints) fill(r.constraints);
+  } catch (e) { setMsg('Could not reach the worker.', false); }
+  const tok = localStorage.getItem(TOKEN_KEY);
+  if (tok) $('admin_token').value = tok;
+}
+
+async function loadPreview() {
+  try {
+    const p = await fetch(WORKER + '/brain/picks', { cache: 'no-store' }).then(x => x.json());
+    $('pv-scored').textContent = p.universe_scored != null ? p.universe_scored : '—';
+    $('pv-passed').textContent = p.universe_size != null ? p.universe_size : '—';
+    $('pv-filtered').textContent = p.filtered_out != null ? p.filtered_out : '—';
+  } catch (e) {}
+  try {
+    const s = await fetch(WORKER + '/brain/segments', { cache: 'no-store' }).then(x => x.json());
+    const bt = s && s.backtest && s.backtest.by_conviction || [];
+    const best = bt.filter(b => b.hit_rate != null).sort((a, b) => b.hit_rate - a.hit_rate)[0];
+    if (best) $('pv-hint').textContent = 'Evidence: the ' + best.label + ' conviction band has the highest backtested hit-rate (' + (best.hit_rate * 100).toFixed(1) + '%). Filter toward it.';
+  } catch (e) {}
+}
+
+async function save() {
+  const token = $('admin_token').value.trim();
+  if (!token) { setMsg('Enter your admin token to save.', false); return; }
+  if ($('remember_token').checked) localStorage.setItem(TOKEN_KEY, token); else localStorage.removeItem(TOKEN_KEY);
+  $('saveBtn').disabled = true; setMsg('Saving…', null);
+  try {
+    const r = await fetch(WORKER + '/brain/constraints', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'Authorization': 'Bearer ' + token },
+      body: JSON.stringify(readForm())
+    });
+    const d = await r.json();
+    if (r.ok && d.ok) { fill(d.constraints); setMsg('✓ Saved — live immediately.', true); loadPreview(); }
+    else setMsg((d && d.error) || ('Save failed (' + r.status + ')'), false);
+  } catch (e) { setMsg('Network error: ' + e.message, false); }
+  $('saveBtn').disabled = false;
+}
+
+async function resetDefaults() {
+  const token = $('admin_token').value.trim();
+  if (!token) { setMsg('Enter your admin token to reset.', false); return; }
+  $('saveBtn').disabled = true; setMsg('Resetting…', null);
+  try {
+    const r = await fetch(WORKER + '/brain/constraints?reset=1', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'Authorization': 'Bearer ' + token },
+      body: '{}'
+    });
+    const d = await r.json();
+    if (r.ok && d.ok) { fill(d.constraints); setMsg('✓ Reset to defaults.', true); loadPreview(); }
+    else setMsg((d && d.error) || ('Reset failed (' + r.status + ')'), false);
+  } catch (e) { setMsg('Network error: ' + e.message, false); }
+  $('saveBtn').disabled = false;
+}
+
+loadConstraints();
+loadPreview();
+setInterval(loadPreview, 90000);
+</script>
+</body>
+</html>

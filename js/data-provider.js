@@ -292,9 +292,19 @@ const DataProvider = (function() {
     bootstrapFinnhub({ all: true });
     ws = new WebSocket('wss://ws.finnhub.io?token=' + encodeURIComponent(config.apiKey));
     ws.onopen = () => {
-      symbolsToSubscribe().forEach(sym => {
+      // Finnhub's FREE WS tier rejects subscribing to more than ~50 symbols with
+      // "Subscribing to too many symbols". Cap the WS subscriptions to a safe
+      // count; the symbols we don't subscribe to here still get fresh prices from
+      // the bootstrapFinnhub({all:true}) REST /quote snapshots fired above. This
+      // keeps the socket healthy (no error) while still covering the full universe.
+      const FINNHUB_WS_MAX = 45;
+      const wantSyms = symbolsToSubscribe();
+      wantSyms.slice(0, FINNHUB_WS_MAX).forEach(sym => {
         ws.send(JSON.stringify({ type: 'subscribe', symbol: toFinnhub(sym) }));
       });
+      if (wantSyms.length > FINNHUB_WS_MAX) {
+        console.log('[DataProvider] Finnhub free tier: streaming ' + FINNHUB_WS_MAX + ' symbols via WS; the remaining ' + (wantSyms.length - FINNHUB_WS_MAX) + ' refresh via REST /quote.');
+      }
       setStatus('connected');
       clearReconnect();
       startHeartbeat();
@@ -308,7 +318,18 @@ const DataProvider = (function() {
         } else if (msg.type === 'ping') {
           // ignore
         } else if (msg.type === 'error') {
-          setStatus('error', msg.msg || 'Finnhub error');
+          const em = String(msg.msg || '');
+          // "Subscribing to too many symbols" is a SOFT free-tier cap, not a
+          // connection failure: the socket is open and the symbols that did
+          // subscribe keep streaming (REST covers the rest). Don't latch a red
+          // ERROR over a recoverable cap — stay 'connected' so the status pill
+          // reads healthy. Only genuine errors (bad key, etc.) flip to error.
+          if (/too many symbols/i.test(em)) {
+            lastError = em;  // record for diagnostics without changing status
+            console.log('[DataProvider] Finnhub free-tier symbol cap hit; subscribed symbols keep streaming.');
+          } else {
+            setStatus('error', em || 'Finnhub error');
+          }
         }
       } catch (e) {}
     };

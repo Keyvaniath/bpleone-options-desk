@@ -38,7 +38,7 @@
 // Pass 200: version stamp so brain-proof.html + worker-setup.html can detect
 // when the deployed worker is behind the repo source. Bump on every meaningful
 // behavior change. Read via /brain/health → worker_version field.
-const WORKER_VERSION = 'pass-257';
+const WORKER_VERSION = 'pass-258';
 
 const UNIVERSE = [
   'SPY','QQQ','IWM','DIA','AAPL','NVDA','TSLA','MSFT','META','AMZN','GOOGL','AMD',
@@ -63,6 +63,7 @@ const KV_KEYS = {
   CHAMPIONS: 'champions_v1',       // pass 222: champion/challenger leaderboard
   AUTO_BOOTSTRAP_TS: 'auto_bootstrap_ts_v1', // pass 228: last autonomous bootstrap time
   SIGNALS: 'signals_v1',           // pass 231: unusual-volume + conviction scanner snapshot
+  CONSTRAINTS: 'broadcast_constraints_v1', // pass 258: editable noise-control constraints for broadcasts
 };
 
 // Pass 218: bumped from 12,000 → 35,000. Live training triggers on the
@@ -1158,10 +1159,12 @@ async function handleRequest(request, env, ctx) {
   }
 
   if (path === '/brain/health' || path === '/healthz') {
-    const [lt, autoTs, model] = await Promise.all([
+    const [lt, autoTs, model, platt, sigSnap] = await Promise.all([
       kvGet(env, KV_KEYS.LAST_TICK, { ts: 0 }),
       kvGet(env, KV_KEYS.AUTO_BOOTSTRAP_TS, 0),   // pass 229: autonomous bootstrap observability
-      kvGet(env, KV_KEYS.MODEL, null)             // pass 233: expose trained count for liveness UI
+      kvGet(env, KV_KEYS.MODEL, null),            // pass 233: expose trained count for liveness UI
+      kvGet(env, KV_KEYS.PLATT, null),            // pass 258: calibration self-audit
+      kvGet(env, KV_KEYS.SIGNALS, { updatedAt: 0, signals: {} }) // pass 258: scanner freshness self-audit
     ]);
     const ageS = lt.ts ? Math.floor((Date.now() - lt.ts) / 1000) : null;
     const marketOpen = isMarketLikelyOpen();
@@ -1176,12 +1179,29 @@ async function handleRequest(request, env, ctx) {
     else if (!tickFresh) issues.push('last tick ' + ageS + 's ago — cron may be stalled');
     if (trained <= 0) issues.push('model missing or untrained — watchdog will auto-recover within ~3h');
     const selfSustaining = tickFresh && trained > 0;
+    // Pass 258: structured self-audit — the brain checks its own vitals every time
+    // this is polled (and the GitHub uptime monitor reads it). Each check is a
+    // named pass/fail with a human detail, so a problem is legible, not a mystery.
+    const audit = [];
+    const chk = (check, pass, detail) => audit.push({ check, pass: !!pass, detail: detail || '' });
+    const weightsFinite = !!(model && Array.isArray(model.weights) && model.weights.length > 0 && model.weights.every(w => Number.isFinite(w)));
+    const sigCount = Object.keys((sigSnap && sigSnap.signals) || {}).length;
+    const sigAgeMin = sigSnap && sigSnap.updatedAt ? Math.round((Date.now() - sigSnap.updatedAt) / 60000) : null;
+    const calA = platt && typeof platt.a === 'number' ? platt.a : null;
+    chk('cron_tick_fresh', tickFresh, ageS == null ? 'no tick recorded' : ageS + 's ago (' + (marketOpen ? 'market open' : 'off-hours') + ')');
+    chk('model_trained', trained > 0, trained.toLocaleString() + ' examples');
+    chk('model_weights_finite', weightsFinite, weightsFinite ? (model.weights.length + ' weights, all finite') : 'weights missing or non-finite');
+    chk('calibration_not_inverted', calA == null || calA >= 0.2, calA == null ? 'using raw probabilities (no Platt fit yet — fine)' : 'Platt a=' + calA.toFixed(3) + (calA >= 0.2 ? ' (healthy)' : ' (REJECTED — would invert)'));
+    chk('scanner_signals_present', sigCount >= 8, sigCount + ' symbols scored' + (sigAgeMin != null ? ', ' + sigAgeMin + 'm old' : ''));
+    const auditPass = audit.every(a => a.pass);
     return json({
       ok: true,
       lastTickAgo: ageS,
       lastTick: lt,
       healthy: ageS != null && ageS < 180,           // strict (market-hours) — kept for back-compat
       self_sustaining: selfSustaining,                 // pass 251: market-aware — MONITOR THIS, not `healthy`
+      audit,                                           // pass 258: structured self-audit checks
+      audit_pass: auditPass,                           // pass 258: true only if every check passes
       issues,                                          // pass 251: human-readable problems (empty array = all good)
       worker_version: WORKER_VERSION,  // pass 200
       auto_bootstrap_ts: autoTs || 0,  // pass 229
@@ -1524,10 +1544,17 @@ async function handleRequest(request, env, ctx) {
   // the brain's 5-day P(up) is from a coin flip). This is the public face; the
   // full universe stays in the background. =====
   if (path === '/brain/picks') {
-    const snap = await kvGet(env, KV_KEYS.SIGNALS, { updatedAt: 0, signals: {} });
-    const sigs = Object.values(snap.signals || {})
+    const [snap, constraints] = await Promise.all([
+      kvGet(env, KV_KEYS.SIGNALS, { updatedAt: 0, signals: {} }),
+      loadConstraints(env)
+    ]);
+    const allSigs = Object.values(snap.signals || {})
       .filter(s => s && typeof s.predProb === 'number' && s.last > 0)
       .filter(s => (Date.now() - (s.ts || 0)) < 4 * 24 * 60 * 60 * 1000);
+    // Pass 258: gate broadcasts through the editable constraints (noise control).
+    // The brain still SCORES + TRAINS on the whole universe; constraints only
+    // decide what we surface as a pick.
+    const sigs = applyConstraints(allSigs, constraints);
     sigs.forEach(s => { s._conv = Math.abs(s.predProb - 0.5); });
     sigs.sort((a, b) => b._conv - a._conv);
     const fmt = s => ({
@@ -1542,13 +1569,13 @@ async function handleRequest(request, env, ctx) {
       signal: s.signal || null,
       reason: s.reason || null
     });
-    const ALPHA_MIN_CONV = 0.05;  // |P(up)-0.5| >= 0.05 -> a genuine lean, not noise
-    const alpha = sigs.filter(s => s._conv >= ALPHA_MIN_CONV).slice(0, 8).map(fmt);
-    // Best Long = the single most bullish name right now, so there is ALWAYS an
-    // actionable long idea even when the top-conviction pick is a DOWN call (in a
-    // bearish tape the highest-conviction signal is often a short). We surface the
-    // highest P(up) name; `weak` flags that even the best lean is below the 0.52 UP
-    // threshold (i.e. no real long edge today — size down or sit out).
+    const alpha = sigs.filter(s => (s._conv * 2) >= constraints.min_conviction).slice(0, constraints.alpha_max).map(fmt);
+    // Pick of the Day = highest-conviction constraint-passing call, but only if it
+    // clears potd_min_conviction (so a flat tape doesn't force a junk pick).
+    const potdSig = sigs.length && (sigs[0]._conv * 2) >= constraints.potd_min_conviction ? sigs[0] : null;
+    // Best Long = the single most bullish constraint-passing name, so there is
+    // ALWAYS an actionable long even when the top-conviction pick is a DOWN call.
+    // `weak` flags that even the best lean is below the 0.52 UP threshold.
     const longs = sigs.slice().sort((a, b) => b.predProb - a.predProb);
     const bestLongSig = longs.length ? longs[0] : null;
     const best_long = bestLongSig
@@ -1558,11 +1585,55 @@ async function handleRequest(request, env, ctx) {
       ok: true,
       updatedAt: snap.updatedAt || 0,
       ageSec: snap.updatedAt ? Math.floor((Date.now() - snap.updatedAt) / 1000) : null,
-      universe_size: sigs.length,
-      pick_of_day: sigs.length ? fmt(sigs[0]) : null,
+      universe_scored: allSigs.length,        // how many names the brain scored
+      universe_size: sigs.length,             // how many passed the constraints (broadcastable)
+      filtered_out: allSigs.length - sigs.length, // noise removed by constraints
+      constraints,                            // the constraints in force (transparency)
+      pick_of_day: potdSig ? fmt(potdSig) : null,
       best_long,
-      note: 'Pick of the Day = the brain’s single highest-conviction 5-day call right now (can be UP or DOWN). Best Long = the single most bullish name, so there is always an actionable long even in a bearish tape (weak=true means no real long edge today). Alpha = its top high-conviction leans. Records for these are in /brain/confluence-score (potd + alpha). The full universe is background training, not broadcast.'
+      alpha,
+      note: 'Pick of the Day = the brain’s single highest-conviction 5-day call among names that pass your constraints (can be UP or DOWN). Best Long = the single most bullish passing name (weak=true means no real long edge today). Alpha = top passing leans. Constraints are editable at /brain/constraints; the brain still trains on the FULL universe — constraints only govern what gets broadcast. Records are in /brain/confluence-score; which conditions actually carry edge is in /brain/segments.'
     });
+  }
+
+  if (path === '/brain/constraints') {
+    // Pass 258: read (public) or update (admin) the broadcast noise-control
+    // constraints. GET is open so the website + anyone can see exactly what
+    // filters are in force (transparency). POST requires the admin token.
+    if (request.method === 'POST') {
+      const auth = request.headers.get('Authorization') || '';
+      if (auth !== 'Bearer ' + env.ADMIN_TOKEN) return json({ error: 'unauthorized' }, 401);
+      let patch;
+      try { patch = await request.json(); } catch (e) { return json({ error: 'invalid JSON body' }, 400); }
+      if (url.searchParams.get('reset') === '1') {
+        const fresh = defaultConstraints();
+        fresh.updatedAt = Date.now();
+        fresh.updatedBy = 'reset';
+        await kvPut(env, KV_KEYS.CONSTRAINTS, fresh);
+        return json({ ok: true, reset: true, constraints: fresh });
+      }
+      const current = await loadConstraints(env);
+      const next = sanitizeConstraints(patch || {}, current);
+      next.updatedAt = Date.now();
+      next.updatedBy = 'admin';
+      await kvPut(env, KV_KEYS.CONSTRAINTS, next);
+      return json({ ok: true, constraints: next });
+    }
+    const c = await loadConstraints(env);
+    return json({ ok: true, constraints: c, defaults: defaultConstraints(), universe: UNIVERSE, note: 'Edit these at constraints.html. They govern what becomes a Pick of the Day / Alpha / Best Long. The brain trains on the full universe regardless; this is purely noise control on what gets surfaced.' });
+  }
+
+  if (path === '/brain/segments') {
+    // Pass 258: which conditions actually carry edge — the brain's learned map of
+    // signal vs noise. Two views: (1) live = the graded forward record (accrues
+    // over weeks, same log the Edge Scorecard uses); (2) backtest = the held-out
+    // test pairs (thousands, available now) bucketed by conviction.
+    const [log, heldoutRaw] = await Promise.all([
+      kvGet(env, 'confluence_log_v1', []),
+      kvGet(env, KV_KEYS.HELDOUT, [])
+    ]);
+    const liveSeg = confluenceSegments(log);
+    return json(Object.assign({ ok: true, live: liveSeg, backtest: backtestSegments(heldoutRaw) }, liveSeg));
   }
 
   if (path === '/brain/digest-now' && request.method === 'POST') {
@@ -2504,6 +2575,151 @@ async function maybeDailyDigest(env) {
     const res = await postDiscordDigest(env, picks);
     if (res.ok) await kvPut(env, 'discord_potd_day_v1', dayKey);  // mark sent only on success
   } catch (e) { /* never let delivery break the cron */ }
+}
+
+// ============================================================
+// Pass 258: broadcast constraints (noise control) + segmented learning
+// ============================================================
+// The brain SCORES the whole universe every tick, but most of those calls are
+// low-conviction noise we don't want to broadcast. These constraints gate what
+// becomes a Pick of the Day / Alpha / Best Long. They live in KV so Brandon can
+// edit them from constraints.html without a redeploy. The brain keeps learning
+// on the FULL universe (training is untouched) — constraints only govern what we
+// surface. /brain/segments then measures which conditions actually carry edge so
+// the constraints can be tuned from evidence, not vibes.
+function defaultConstraints() {
+  return {
+    min_conviction: 0.05,        // Alpha floor: conviction = |P(up)-0.5|*2 must be >= this
+    potd_min_conviction: 0.0,    // Pick of the Day floor (0 = always show the single best call)
+    min_rvol: 0,                 // relative-volume floor (0 = off). e.g. 1.5 = only unusually active names
+    min_price: 3,                // skip sub-$3 names (illiquid / not optionable)
+    max_price: 100000,           // upper price guard (off by default)
+    exclude_symbols: [],         // blocklist: never broadcast these
+    focus_symbols: [],           // if non-empty, ONLY these symbols are eligible (a focus universe)
+    alpha_max: 8,                // size of the Alpha shortlist
+    long_only: false,            // environmental gate: suppress SHORT calls, surface longs only
+    require_changepct_agree: false, // only broadcast when today's move agrees with the call direction
+    updatedAt: 0,
+    updatedBy: 'default',
+    note: ''
+  };
+}
+
+async function loadConstraints(env) {
+  const stored = await kvGet(env, KV_KEYS.CONSTRAINTS, null);
+  if (!stored || typeof stored !== 'object') return defaultConstraints();
+  return Object.assign(defaultConstraints(), stored);
+}
+
+// Coerce + clamp an incoming constraints patch so a bad POST can never wedge the
+// scanner (e.g. min_conviction=5 would hide every pick). Returns a clean object.
+function sanitizeConstraints(patch, base) {
+  const c = Object.assign({}, base || defaultConstraints());
+  const num = (v, lo, hi, d) => { const n = Number(v); return Number.isFinite(n) ? Math.min(hi, Math.max(lo, n)) : d; };
+  if ('min_conviction' in patch) c.min_conviction = num(patch.min_conviction, 0, 1, c.min_conviction);
+  if ('potd_min_conviction' in patch) c.potd_min_conviction = num(patch.potd_min_conviction, 0, 1, c.potd_min_conviction);
+  if ('min_rvol' in patch) c.min_rvol = num(patch.min_rvol, 0, 20, c.min_rvol);
+  if ('min_price' in patch) c.min_price = num(patch.min_price, 0, 100000, c.min_price);
+  if ('max_price' in patch) c.max_price = num(patch.max_price, 1, 1000000, c.max_price);
+  if ('alpha_max' in patch) c.alpha_max = Math.round(num(patch.alpha_max, 1, 25, c.alpha_max));
+  if ('long_only' in patch) c.long_only = !!patch.long_only;
+  if ('require_changepct_agree' in patch) c.require_changepct_agree = !!patch.require_changepct_agree;
+  if ('exclude_symbols' in patch && Array.isArray(patch.exclude_symbols)) c.exclude_symbols = patch.exclude_symbols.map(s => String(s || '').toUpperCase().trim()).filter(Boolean).slice(0, 80);
+  if ('focus_symbols' in patch && Array.isArray(patch.focus_symbols)) c.focus_symbols = patch.focus_symbols.map(s => String(s || '').toUpperCase().trim()).filter(Boolean).slice(0, 80);
+  if ('note' in patch) c.note = String(patch.note || '').slice(0, 200);
+  return c;
+}
+
+// Filter raw signals down to the constraint-passing (broadcastable) set.
+function applyConstraints(sigs, c) {
+  const ex = new Set((c.exclude_symbols || []));
+  const focus = (c.focus_symbols || []);
+  const focusSet = focus.length ? new Set(focus) : null;
+  return sigs.filter(s => {
+    if (!s || typeof s.predProb !== 'number' || !(s.last > 0)) return false;
+    const sym = String(s.sym || '').toUpperCase();
+    if (ex.has(sym)) return false;
+    if (focusSet && !focusSet.has(sym)) return false;
+    if (c.min_price && s.last < c.min_price) return false;
+    if (c.max_price && s.last > c.max_price) return false;
+    if (c.min_rvol && (s.rvol == null || s.rvol < c.min_rvol)) return false;
+    if (c.long_only && s.predProb < 0.5) return false;
+    if (c.require_changepct_agree && s.changePct != null) {
+      const dirUp = s.predProb >= 0.5;
+      if (dirUp && s.changePct < 0) return false;
+      if (!dirUp && s.changePct > 0) return false;
+    }
+    return true;
+  });
+}
+
+// Segmented learning: bucket RESOLVED graded calls by conviction + direction and
+// report hit-rate per bucket. This is how the brain "learns" which conditions
+// carry signal vs noise — e.g. if conviction>=0.2 hits 58% but 0-0.1 hits 50%,
+// the evidence says raise min_conviction. Reads the same confluence_log the Edge
+// Scorecard grades, so it's the honest forward record, not a backtest.
+function confluenceSegments(log) {
+  const resolved = (log || []).filter(e => e && e.resolved && typeof e.ret === 'number' && (e.brainDir === 1 || e.brainDir === -1));
+  const mk = (label) => ({ label, n: 0, hits: 0, sumRet: 0 });
+  const add = (b, e) => {
+    b.n++;
+    const correct = (e.brainDir > 0 && e.ret > 0) || (e.brainDir < 0 && e.ret < 0);
+    if (correct) b.hits++;
+    b.sumRet += (e.brainDir > 0 ? e.ret : -e.ret); // directional return
+  };
+  const convBuckets = [mk('0.00-0.10'), mk('0.10-0.20'), mk('0.20-0.30'), mk('0.30+')];
+  const dirBuckets = { long: mk('long (UP calls)'), short: mk('short (DOWN calls)') };
+  for (const e of resolved) {
+    const conv = Math.abs(e.predProb - 0.5) * 2;
+    const bi = conv >= 0.30 ? 3 : conv >= 0.20 ? 2 : conv >= 0.10 ? 1 : 0;
+    add(convBuckets[bi], e);
+    add(e.brainDir > 0 ? dirBuckets.long : dirBuckets.short, e);
+  }
+  const finalize = b => ({
+    label: b.label,
+    n: b.n,
+    hit_rate: b.n ? +(b.hits / b.n).toFixed(3) : null,
+    avg_directional_ret_pct: b.n ? +(b.sumRet / b.n).toFixed(3) : null
+  });
+  // Evidence-based suggestion: the lowest conviction bucket that still clears 52%
+  // with a meaningful sample. That floor is what min_conviction "should" be.
+  let suggestedMinConv = null;
+  const edges = [0, 0.10, 0.20, 0.30];
+  for (let i = 0; i < convBuckets.length; i++) {
+    const b = convBuckets[i];
+    if (b.n >= 10 && (b.hits / b.n) >= 0.52) { suggestedMinConv = edges[i]; break; }
+  }
+  return {
+    total_resolved: resolved.length,
+    by_conviction: convBuckets.map(finalize),
+    by_direction: [finalize(dirBuckets.long), finalize(dirBuckets.short)],
+    suggested_min_conviction: suggestedMinConv,
+    note: 'Hit-rate of graded 5-day calls, split by how confident the brain was and which way it leaned. This is what the brain has LEARNED about where its edge actually is. suggested_min_conviction = the lowest confidence band that still beats 52% with n>=10.'
+  };
+}
+
+// Backtest version of the segment analysis: bucket the held-out test pairs
+// (thousands of out-of-sample examples from the bootstrap) by conviction so the
+// "edge by confidence band" evidence is populated TODAY, before the live forward
+// log matures. Pairs are { p: predProb, y: 0|1 label }.
+function backtestSegments(heldoutRaw) {
+  let pairs = [];
+  if (Array.isArray(heldoutRaw)) pairs = heldoutRaw;
+  else if (heldoutRaw && typeof heldoutRaw === 'object') pairs = (heldoutRaw.random_split || []).concat(heldoutRaw.walk_forward || []);
+  pairs = pairs.filter(e => e && typeof e.p === 'number' && (e.y === 0 || e.y === 1));
+  const mk = label => ({ label, n: 0, hits: 0 });
+  const buckets = [mk('0.00-0.10'), mk('0.10-0.20'), mk('0.20-0.30'), mk('0.30+')];
+  for (const e of pairs) {
+    const conv = Math.abs(e.p - 0.5) * 2;
+    const bi = conv >= 0.30 ? 3 : conv >= 0.20 ? 2 : conv >= 0.10 ? 1 : 0;
+    const b = buckets[bi];
+    b.n++;
+    if ((e.p >= 0.5 && e.y === 1) || (e.p < 0.5 && e.y === 0)) b.hits++;
+  }
+  return {
+    total: pairs.length,
+    by_conviction: buckets.map(b => ({ label: b.label, n: b.n, hit_rate: b.n ? +(b.hits / b.n).toFixed(3) : null }))
+  };
 }
 
 async function maybeConfluenceScorecard(env) {
