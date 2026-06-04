@@ -150,17 +150,31 @@ function buildNav(activePage) {
     +   '<a href="data-truth.html" style="color:#fff;text-decoration:underline;font-weight:800;">Fix this →</a> '
     +   '<span style="opacity:0.75;margin-left:6px;font-weight:400;">(MSCI, NVDA, etc. shown here are random-walk drifts from a stale seed)</span>'
     + '</div>';
-  // Reveal logic — runs after DOMContentLoaded so window.BPLEONE_DATA_MODE is set.
+  // Reveal logic — runs after DOMContentLoaded. The "DEMO DATA — simulated
+  // random-walk, brain not training" warning is only TRUE when the user has
+  // explicitly enabled demo mode AND nothing real is feeding the page. A connected
+  // live provider (Finnhub/Stooq) means prices are real, and a connected 24/7
+  // worker means the brain trains on real data server-side regardless of what the
+  // browser is displaying — so in those cases the warning is false and must stay
+  // hidden. (Previously it fired whenever mode !== 'live', which over-warned on
+  // every page that simply hadn't confirmed a live binding yet.)
   setTimeout(() => {
     try {
       const banner = document.getElementById('bp-demo-banner');
       if (!banner) return;
       const update = () => {
-        const mode = window.BPLEONE_DATA_MODE || 'mock';
-        banner.style.display = mode === 'live' ? 'none' : 'block';
+        let demoOn = false;
+        try { demoOn = localStorage.getItem('bpleone_demo_mode') === '1'; } catch (e) {}
+        let liveProvider = false;
+        try { liveProvider = (typeof DataProvider !== 'undefined' && DataProvider.getStatus && DataProvider.getStatus().status === 'connected'); } catch (e) {}
+        let workerBrain = false;
+        try { workerBrain = (typeof WorkerBridge !== 'undefined' && WorkerBridge.isEnabled && WorkerBridge.isEnabled()); } catch (e) {}
+        const realData = liveProvider || workerBrain || (window.BPLEONE_DATA_MODE === 'live');
+        banner.style.display = (demoOn && !realData) ? 'block' : 'none';
       };
       update();
       window.addEventListener('bpleone:data-mode', update);
+      try { if (typeof DataProvider !== 'undefined' && DataProvider.onStatus) DataProvider.onStatus(update); } catch (e) {}
     } catch (e) {}
   }, 100);
 
