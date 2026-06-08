@@ -188,6 +188,39 @@ After passes 188-205 wired the worker brain end-to-end with proper validation, *
 
 **For trading decisions:** read `predProb` off a journal entry (calibrated when Platt is healthy, raw otherwise). The bottom 50 symbols by stable per-symbol BSS should be **avoided** — they're where the brain has anti-signal. The top 5 stable symbols by BSS are where to **concentrate sizing**.
 
+---
+
+## Architecture as of pass 267 — THE HONEST FINDING: no proven TA timing edge (it's drift, not skill)
+
+> **Read this before you believe any "the brain has edge" claim above.** Passes 217-267 stress-tested the pass-216 "+2.93pp edge" story and it did not survive honest scrutiny. The short version: **at a 5-day horizon, the TA features carry no statistically-significant directional timing edge.** The accuracy that looks like a win is market drift (beta), not skill (alpha). The product is now honest about this end-to-end — do NOT re-introduce a badge or headline that claims predictive edge the data doesn't support.
+
+**What changed 217 → 267 (the arc):**
+
+- **Pass 218 (CRITICAL):** live-training horizon mismatch + journal cap too small — fixed, plus the same 5d/1pp horizon alignment pushed through every browser trainer, auto-trade, trade-plan, money-tracker, sharpe, knn (passes 218b-n).
+- **Passes 219-222:** browser Platt + RegimeCalibrator inversion guards; Platt kept only if it improves held-back Brier; flag-based journal clear (race fix); champion/challenger competition in bootstrap.
+- **Passes 260-267 — edge stability, then the reckoning:**
+  - Fixed a silent edge regression (walk-forward 53% → 44%): champion selection had ranked on Brier skill (BSS) alone, promoting a better-calibrated but directionally-worse model. Now ranks on **validation accuracy** with BSS as tiebreaker, plus a **promotion guard** (`incumbentWf = prevChamps.champion_wf_acc`; a fresh bootstrap only replaces the champion if its walk-forward accuracy is within 0.015 of the incumbent's) and an **edge-recovery auto-bootstrap** (re-bootstraps when `champion_wf_acc` < 0.50, 20h cooldown) so it never silently serves a sub-coin-flip model.
+  - **CV config selection** (`cvScoreConfig`, K=5 forward-chaining folds) so hyperparameters transfer instead of overfitting one split.
+  - **6 stability features** (`addStabilityFeatures`, f[9]-f[14]: 50d SMA distance, 50d range position, mom5-mom20 divergence, mom10, up-day fraction, ATR5/ATR20 vol ratio), wired into BOTH `richFeatures` (bootstrap) and `extractRichFeatures` (live) — keep them in sync or live/train diverge.
+  - **Dense labeling** (`LABEL_THRESHOLD = 0`, mid-horizon `HORIZON_MIN_MOVE = 0`) fed far more examples (17,784 → 26,496).
+  - **The honesty metric.** Dense labeling reported 54.66% accuracy as "significant." The base-rate check exposed it: 54.66% = **52.36% drift** (unconditional 5-day up-rate) **+ 2.3pp skill**, which is NOT significant. `computeMetrics` now returns `base_rate`, `skill_above_base`, `beats_base_rate_95` and a verdict ("MOSTLY DRIFT (little timing edge)"). Edge badges on today.html / pick-of-day.html / proof.html gate GREEN on skill beating its 95% bound, AMBER on positive-but-not-significant skill, RED on negative — **never on raw accuracy.**
+
+**Current honest state of the brain (pass 267, verified live):**
+
+| Metric | Value |
+|---|---|
+| Trained on | 26,496 examples (dense labeling) |
+| Walk-forward accuracy | 54.66% |
+| Of which: market drift (base rate) | 52.36% |
+| Of which: actual timing skill | +2.3pp — **NOT statistically significant** |
+| Honest verdict | MOSTLY DRIFT (little timing edge) |
+| Platt calibration | a=0.914 (healthy, not inverted) |
+| Self-sustaining / audit_pass | true / true (worker checks own vitals every minute) |
+
+**The strategic conclusion (do not re-litigate without new data):** TA features are **tapped out** at this horizon for direction AND volatility. More TA tuning has low ROI. Real edge requires *different data* — smart-money confluence / order flow / insider clustering — not more indicators. The confluence forward-test is the open experiment: `/brain/confluence-score` self-computes a verdict (`ready=false` until ≥20 graded confluence calls; then YES/PARTIAL/NO on whether brain+insider agreement beats a coin flip). It is **calendar-gated** — grades accrue at 5 trading days, ~20 needed = weeks. As of pass 267: 0 graded, first grades ~2 trading days out. The Edge Scorecard surfaces the verdict automatically when ready; **no code is pending — it self-reports.**
+
+**New pages since pass 216:** `constraints.html` (noise-control editor — conviction floors, rvol/price filters, focus/exclude lists, regime gates; the brain trains on everything, this only governs what gets *broadcast*), `proof.html` (deep audit: self-check vitals, beat-a-coin-flip metrics, edge-by-conviction map, live record, methodology, per-trade why), `edge-scorecard.html` (confluence verdict banner).
+
 ### Worker endpoints
 
 - `GET /brain/health` — readyz (lastTickAgo, healthy bool)
@@ -196,6 +229,11 @@ After passes 188-205 wired the worker brain end-to-end with proper validation, *
 - `GET /brain/model` — current model weights
 - `GET /brain/metrics` — held-out + walk-forward BSS, accuracy, p-value (the "real signal vs noise" answer)
 - `GET /brain/symbols` — per-symbol BSS breakdown
+- `GET /brain/picks` — Pick of the Day + Best Long + Alpha list (honors `broadcast_constraints_v1`)
+- `GET /brain/constraints` — current noise-control config (GET open; POST is auth — sets conviction floors, filters, focus/exclude)
+- `GET /brain/confluence-score` — self-computing forward-test verdict (ready=false until ≥20 graded confluence calls)
+- `GET /brain/news` — real headlines (no browser key needed)
+- `GET /brain/insider` — SEC Form-4 insider transactions (16-name basket)
 - `GET /brain/debug/fetch?sym=X` — diagnose data sources (Yahoo/Stooq)
 - `POST /brain/bootstrap` (auth) — 250-day pre-train via Yahoo Finance v8
 - `POST /brain/tick` (auth) — manual cron trigger
@@ -287,4 +325,4 @@ In rough order of probability when Brandon comes back:
 
 Brandon's a fast-mover with strong taste — bias toward shipping over discussion.
 
-— Updated by Claude through audit pass 78.
+— Updated by Claude through audit pass 267. (The brain-architecture sections above are layered: the pass-216 block tells the "we found edge" discovery story; the pass-267 block is the honest correction — no proven TA timing edge, it's drift not skill. Read the pass-267 block as current truth.)
