@@ -421,6 +421,15 @@ document.addEventListener('DOMContentLoaded', () => {
         s.async = true;
         document.head.appendChild(s);
       }
+      // First-visit nudge — points a brand-new visitor to the Start Here
+      // orientation exactly once, then sets a localStorage flag and never shows
+      // again. Non-modal corner pill; self-skips on the Start Here page itself.
+      if (!document.querySelector('script[src*="starthere-nudge.js"]')) {
+        const s = document.createElement('script');
+        s.src = 'js/starthere-nudge.js?v=v189';
+        s.async = true;
+        document.head.appendChild(s);
+      }
       // Pass 242: sample-data honesty banner — stamps an "illustrative, not live"
       // notice on the handful of pages that simulate paid-feed data.
       if (!document.querySelector('script[src*="sample-data-banner.js"]')) {
