@@ -12,14 +12,14 @@
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
 </head>
-<body data-needs="live">
+<body>
 <div id="site-nav"></div>
 
 <div class="container">
   <div class="page-header">
     <div>
       <div class="page-title">📊 Market Breadth PRO</div>
-      <div class="page-subtitle">A/D · McClellan · %&gt;50/200MA · new highs vs lows · <span id="market-clock">--</span></div>
+      <div class="page-subtitle">Real breadth across the names this desk tracks (~15-min delayed) · full-exchange breadth needs a paid feed · <span id="market-clock">--</span></div>
     </div>
     <div class="flex gap-8">
       <button class="btn btn-secondary" id="refreshBtn">🔄</button>
@@ -30,8 +30,8 @@
   <div class="grid grid-5 mb-24">
     <div class="card"><div class="card-header"><div class="card-title">NYSE A/D Line</div></div><div class="mono" style="font-size:24px;font-weight:700;" id="kpiAD">--</div><div class="mono" style="font-size:11px;color:var(--text-muted);" id="kpiADBody">--</div></div>
     <div class="card"><div class="card-header"><div class="card-title">McClellan Oscillator</div></div><div class="mono" style="font-size:24px;font-weight:700;" id="kpiMcc">--</div><div class="mono" style="font-size:11px;color:var(--text-muted);" id="kpiMccBody">--</div></div>
-    <div class="card"><div class="card-header"><div class="card-title">% Above 50MA</div></div><div class="mono" style="font-size:24px;font-weight:700;" id="kpi50">--</div><div class="mono" style="font-size:11px;color:var(--text-muted);">S&amp;P 500 universe</div></div>
-    <div class="card"><div class="card-header"><div class="card-title">% Above 200MA</div></div><div class="mono" style="font-size:24px;font-weight:700;" id="kpi200">--</div><div class="mono" style="font-size:11px;color:var(--text-muted);">Long-term trend</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">% Above 20MA</div></div><div class="mono" style="font-size:24px;font-weight:700;" id="kpi50">--</div><div class="mono" style="font-size:11px;color:var(--text-muted);">Tracked universe</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">Advancers / Decliners</div></div><div class="mono" style="font-size:24px;font-weight:700;" id="kpi200">--</div><div class="mono" style="font-size:11px;color:var(--text-muted);">Today, tracked names</div></div>
     <div class="card"><div class="card-header"><div class="card-title">New Highs − Lows</div></div><div class="mono" style="font-size:24px;font-weight:700;" id="kpiNet">--</div><div class="mono" style="font-size:11px;color:var(--text-muted);" id="kpiNetBody">--</div></div>
   </div>
 
@@ -60,11 +60,11 @@
   </div>
   <div class="grid grid-12 mt-24">
     <div class="card col-6">
-      <div class="card-header"><div class="card-title">% Above 50/200MA — 90 days</div></div>
+      <div class="card-header"><div class="card-title">% Above 20MA — recent history</div></div>
       <canvas id="maChart" height="220"></canvas>
     </div>
     <div class="card col-6">
-      <div class="card-header"><div class="card-title">New Highs vs New Lows — 90 days</div></div>
+      <div class="card-header"><div class="card-title">New 20-day Highs vs Lows</div></div>
       <canvas id="hlChart" height="220"></canvas>
     </div>
   </div>
@@ -100,115 +100,144 @@
 <script>
 buildNav('breadth-pro');
 
-function getQ(s) { return (typeof QUOTES !== 'undefined' && QUOTES[s]) ? QUOTES[s] : { last: 100, changePct: 0 }; }
+const WORKER = (window.WorkerBridge && WorkerBridge.getUrl && WorkerBridge.getUrl()) || 'https://bpleone-brain-worker.brandonpleone.workers.dev';
 
-function generate() {
-  const spy = getQ('SPY').changePct || 0;
-  // A/D synthesized — biased by SPY direction
-  const adRatio = 0.50 + spy * 0.15 + (Math.random() - 0.5) * 0.10;
-  const advancers = Math.round(adRatio * 1800);
-  const decliners = 1800 - advancers;
-  const adLine = 78000 + spy * 1500 + (Math.random() - 0.5) * 800; // cumulative
-  const mcc = +(spy * 25 + (Math.random() - 0.5) * 30).toFixed(0); // McClellan oscillator
-  const above50 = +(45 + spy * 8 + Math.random() * 15).toFixed(0);
-  const above200 = +(55 + spy * 5 + Math.random() * 10).toFixed(0);
-  const newHi = Math.round(20 + Math.max(0, spy) * 20 + Math.random() * 25);
-  const newLo = Math.round(20 - Math.min(0, spy) * 20 + Math.random() * 15);
-  return { advancers, decliners, adLine, mcc, above50, above200, newHi, newLo };
+// Liquid names this desk tracks (NOT the full NYSE/S&P 500). Real breadth across our
+// tracked universe; exchange-wide breadth needs a paid feed.
+const NAMES = ['AAPL','MSFT','NVDA','AMZN','GOOGL','META','TSLA','AMD','AVGO','ORCL','CRM','NFLX','MU','JPM','BAC','GS','UBER','COIN','PLTR','SMCI','MARA','RIVN','BABA','SHOP','XLK','XLF','XLE','XLV','XLY','XLP','XLI','XLB','XLU','XLRE','XLC'];
+
+let QM = {}, BM = {}, D = null;
+async function loadAll() {
+  try {
+    const [qr, br] = await Promise.all([
+      fetch(WORKER + '/brain/quotes?syms=' + NAMES.join(','), { cache: 'no-store' }).then(r => r.ok ? r.json() : null).catch(() => null),
+      fetch(WORKER + '/brain/bars?syms=' + NAMES.join(',') + '&days=40', { cache: 'no-store' }).then(r => r.ok ? r.json() : null).catch(() => null)
+    ]);
+    QM = (qr && qr.quotes) || {};
+    BM = (br && br.bars) || {};
+  } catch (e) {}
+  paint();
 }
-let data = generate();
+function sma(arr, n) { if (arr.length < n) return null; const s = arr.slice(-n); return s.reduce((a, b) => a + b, 0) / n; }
+function ema(arr, n) { if (!arr.length) return []; const k = 2 / (n + 1); const out = [arr[0]]; for (let i = 1; i < arr.length; i++) out.push(arr[i] * k + out[i - 1] * (1 - k)); return out; }
+
+function compute() {
+  const names = NAMES.filter(s => BM[s] && BM[s].length);
+  let adv = 0, dec = 0, above20 = 0, maTot = 0, newHi = 0, newLo = 0;
+  names.forEach(s => {
+    const q = QM[s], b = BM[s];
+    const last = q && q.last ? q.last : b[b.length - 1].c;
+    if (q && typeof q.changePct === 'number') { if (q.changePct > 0) adv++; else if (q.changePct < 0) dec++; }
+    const closes = b.map(x => x.c).filter(c => c > 0);
+    const ma20 = sma(closes, 20);
+    if (ma20 != null && last) { maTot++; if (last > ma20) above20++; }
+    if (last && closes.length >= 10) {
+      const w = closes.slice(-20);
+      if (last >= Math.max.apply(null, w)) newHi++;
+      if (last <= Math.min.apply(null, w)) newLo++;
+    }
+  });
+  const hist = names.length ? Math.min.apply(null, names.map(s => BM[s].length)) : 0;
+  const dailyNet = [], dates = [];
+  for (let d = 1; d < hist; d++) {
+    let a = 0, dn = 0, ts = 0;
+    names.forEach(s => { const b = BM[s]; const idx = b.length - hist + d; const c = b[idx].c, p = b[idx - 1].c; ts = b[idx].ts; if (c > p) a++; else if (c < p) dn++; });
+    dailyNet.push(a - dn); dates.push(ts);
+  }
+  const adLine = []; let cum = 0; dailyNet.forEach(n => { cum += n; adLine.push(cum); });
+  const e19 = ema(dailyNet, 19), e39 = ema(dailyNet, 39);
+  const mccSeries = dailyNet.map((_, i) => +(e19[i] - e39[i]).toFixed(0));
+  return { adv: adv, dec: dec, above20: maTot ? Math.round(above20 / maTot * 100) : null, newHi: newHi, newLo: newLo, adLine: adLine, dates: dates, mcc: mccSeries.length ? mccSeries[mccSeries.length - 1] : null, mccSeries: mccSeries };
+}
 
 function paint() {
-  document.getElementById('kpiAD').textContent = data.adLine.toFixed(0);
-  const ratio = data.advancers / data.decliners;
-  document.getElementById('kpiADBody').textContent = data.advancers + 'A / ' + data.decliners + 'D (' + ratio.toFixed(2) + ':1)';
-  document.getElementById('kpiADBody').style.color = ratio > 1.2 ? 'var(--green)' : ratio < 0.8 ? 'var(--red)' : 'var(--text-muted)';
+  D = compute();
+  const names = NAMES.filter(s => BM[s] && BM[s].length);
+  if (!names.length && !D.adv && !D.dec) {
+    document.getElementById('kpiAD').textContent = '—';
+    document.getElementById('healthBody').textContent = 'Loading real breadth from the worker…';
+    return;
+  }
+  const ratio = D.dec ? D.adv / D.dec : (D.adv ? 99 : 0);
+  document.getElementById('kpiAD').textContent = D.adLine.length ? (D.adLine[D.adLine.length - 1] >= 0 ? '+' : '') + D.adLine[D.adLine.length - 1] : '—';
+  const adBody = document.getElementById('kpiADBody');
+  adBody.textContent = D.adv + 'A / ' + D.dec + 'D (' + ratio.toFixed(2) + ':1)';
+  adBody.style.color = ratio > 1.2 ? 'var(--green)' : ratio < 0.8 ? 'var(--red)' : 'var(--text-muted)';
   const mccEl = document.getElementById('kpiMcc');
-  mccEl.textContent = (data.mcc >= 0 ? '+' : '') + data.mcc;
-  mccEl.style.color = data.mcc > 50 ? 'var(--green)' : data.mcc < -50 ? 'var(--red)' : 'var(--text-primary)';
-  document.getElementById('kpiMccBody').textContent = data.mcc > 50 ? 'Strongly positive' : data.mcc < -50 ? 'Oversold extreme' : 'Neutral';
-  document.getElementById('kpi50').textContent = data.above50 + '%';
-  document.getElementById('kpi50').style.color = data.above50 > 60 ? 'var(--green)' : data.above50 < 35 ? 'var(--red)' : 'var(--text-primary)';
-  document.getElementById('kpi200').textContent = data.above200 + '%';
-  document.getElementById('kpi200').style.color = data.above200 > 60 ? 'var(--green)' : data.above200 < 35 ? 'var(--red)' : 'var(--text-primary)';
-  const net = data.newHi - data.newLo;
+  mccEl.textContent = D.mcc == null ? '—' : (D.mcc >= 0 ? '+' : '') + D.mcc;
+  mccEl.style.color = D.mcc == null ? 'var(--text-muted)' : D.mcc > 0 ? 'var(--green)' : D.mcc < 0 ? 'var(--red)' : 'var(--text-primary)';
+  document.getElementById('kpiMccBody').textContent = D.mcc == null ? 'building…' : D.mcc > 0 ? 'Net advancing' : 'Net declining';
+  const kp50 = document.getElementById('kpi50');
+  kp50.textContent = D.above20 == null ? '—' : D.above20 + '%';
+  kp50.style.color = D.above20 == null ? 'var(--text-muted)' : D.above20 > 60 ? 'var(--green)' : D.above20 < 35 ? 'var(--red)' : 'var(--text-primary)';
+  const kp200 = document.getElementById('kpi200');
+  kp200.textContent = D.adv + ' / ' + D.dec;
+  kp200.style.color = ratio > 1.2 ? 'var(--green)' : ratio < 0.8 ? 'var(--red)' : 'var(--text-primary)';
+  const net = D.newHi - D.newLo;
   document.getElementById('kpiNet').textContent = (net >= 0 ? '+' : '') + net;
-  document.getElementById('kpiNet').style.color = net > 30 ? 'var(--green)' : net < -30 ? 'var(--red)' : 'var(--text-primary)';
-  document.getElementById('kpiNetBody').textContent = data.newHi + ' new H · ' + data.newLo + ' new L';
+  document.getElementById('kpiNet').style.color = net > 5 ? 'var(--green)' : net < -5 ? 'var(--red)' : 'var(--text-primary)';
+  document.getElementById('kpiNetBody').textContent = D.newHi + ' new 20d-H · ' + D.newLo + ' new 20d-L';
 
-  // Health composite
   let score = 0;
-  score += data.advancers > data.decliners ? 20 : 0;
-  score += data.mcc > 0 ? 15 : 0;
-  score += data.above50 > 50 ? 20 : 0;
-  score += data.above200 > 50 ? 20 : 0;
-  score += (data.newHi > data.newLo) ? 25 : 0;
+  score += D.adv > D.dec ? 20 : 0;
+  score += (D.mcc != null && D.mcc > 0) ? 15 : 0;
+  score += (D.above20 != null && D.above20 > 50) ? 40 : (D.above20 != null && D.above20 > 35 ? 20 : 0);
+  score += (D.newHi > D.newLo) ? 25 : 0;
   document.getElementById('healthBar').style.width = score + '%';
-  const hl = document.getElementById('healthLabel');
-  const hb = document.getElementById('healthBody');
-  if (score >= 75) { hl.textContent = 'STRONG · ' + score; hl.style.color = 'var(--green)'; hb.textContent = 'Broad participation. Trend-following supported. Add on dips.'; }
-  else if (score >= 50) { hl.textContent = 'NEUTRAL · ' + score; hl.style.color = 'var(--accent)'; hb.textContent = 'Mixed signals — reduce conviction, watch for resolution either way.'; }
-  else if (score >= 30) { hl.textContent = 'WEAK · ' + score; hl.style.color = 'var(--yellow)'; hb.textContent = 'Narrow leadership or rolling correction. Cut size, favor mean-reversion.'; }
-  else { hl.textContent = 'DETERIORATING · ' + score; hl.style.color = 'var(--red)'; hb.textContent = 'Broad weakness. Defensive bias. Tail-risk hedges working.'; }
+  const hl = document.getElementById('healthLabel'), hb = document.getElementById('healthBody');
+  if (score >= 75) { hl.textContent = 'STRONG · ' + score; hl.style.color = 'var(--green)'; hb.textContent = 'Broad participation across tracked names. Trend-following supported.'; }
+  else if (score >= 50) { hl.textContent = 'NEUTRAL · ' + score; hl.style.color = 'var(--accent)'; hb.textContent = 'Mixed signals — reduce conviction, watch for resolution.'; }
+  else if (score >= 30) { hl.textContent = 'WEAK · ' + score; hl.style.color = 'var(--yellow)'; hb.textContent = 'Narrow leadership. Cut size, favor mean-reversion.'; }
+  else { hl.textContent = 'DETERIORATING · ' + score; hl.style.color = 'var(--red)'; hb.textContent = 'Broad weakness across tracked names. Defensive bias.'; }
 
-  paintCharts();
+  paintCharts(names);
 }
 
-function paintCharts() {
-  // Time series
-  const N = 90;
-  const labels = [], ad = [], mcc = [], a50 = [], a200 = [], hi = [], lo = [];
-  for (let i = N - 1; i >= 0; i--) {
-    const d = new Date(); d.setDate(d.getDate() - i);
-    labels.push(d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }));
-    ad.push(data.adLine - i * 30 + (Math.sin(i / 4) * 200) + (Math.random() - 0.5) * 150);
-    mcc.push(Math.sin(i / 3) * 60 + (Math.random() - 0.5) * 30);
-    a50.push(50 + Math.sin(i / 5) * 20 + (Math.random() - 0.5) * 6);
-    a200.push(55 + Math.cos(i / 6) * 15 + (Math.random() - 0.5) * 4);
-    hi.push(30 + Math.max(0, Math.sin(i / 4) * 30) + Math.random() * 8);
-    lo.push(20 + Math.max(0, -Math.sin(i / 4) * 25) + Math.random() * 8);
-  }
-  ad[ad.length - 1] = data.adLine;
-  mcc[mcc.length - 1] = data.mcc;
-  a50[a50.length - 1] = data.above50;
-  a200[a200.length - 1] = data.above200;
-  hi[hi.length - 1] = data.newHi;
-  lo[lo.length - 1] = data.newLo;
-
-  // A/D
+function paintCharts(names) {
+  const labels = D.dates.map(ts => ts ? new Date(ts).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '');
   if (window._ad) window._ad.destroy();
   window._ad = new Chart(document.getElementById('adChart').getContext('2d'), {
-    type: 'line', data: { labels, datasets: [{ label: 'A/D Cum', data: ad, borderColor: 'rgba(0,212,255,1)', backgroundColor: 'rgba(0,212,255,0.08)', fill: true, tension: 0.3, pointRadius: 0, borderWidth: 2 }] },
+    type: 'line', data: { labels: labels, datasets: [{ label: 'A/D Cum', data: D.adLine, borderColor: 'rgba(0,212,255,1)', backgroundColor: 'rgba(0,212,255,0.08)', fill: true, tension: 0.3, pointRadius: 0, borderWidth: 2 }] },
     options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { grid: { color: 'rgba(255,255,255,0.04)' }, ticks: { color: '#6b7280', font: { size: 9 }, maxTicksLimit: 8 } }, y: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#6b7280' } } } }
   });
-  // McClellan
   if (window._mcc) window._mcc.destroy();
   window._mcc = new Chart(document.getElementById('mccChart').getContext('2d'), {
-    type: 'bar', data: { labels, datasets: [{ label: 'McClellan', data: mcc, backgroundColor: mcc.map(v => v >= 0 ? 'rgba(16,185,129,0.6)' : 'rgba(239,68,68,0.6)') }] },
+    type: 'bar', data: { labels: labels, datasets: [{ label: 'McClellan', data: D.mccSeries, backgroundColor: D.mccSeries.map(v => v >= 0 ? 'rgba(16,185,129,0.6)' : 'rgba(239,68,68,0.6)') }] },
     options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { grid: { display: false }, ticks: { color: '#6b7280', font: { size: 9 }, maxTicksLimit: 8 } }, y: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#6b7280' } } } }
   });
-  // MA
+  const hist = names.length ? Math.min.apply(null, names.map(s => BM[s].length)) : 0;
+  const a20Series = [], hiSeries = [], loSeries = [];
+  for (let d = 20; d < hist; d++) {
+    let above = 0, tot = 0, nh = 0, nl = 0;
+    names.forEach(s => {
+      const b = BM[s], idx = b.length - hist + d;
+      const closes = b.slice(0, idx + 1).map(x => x.c).filter(c => c > 0);
+      const m = sma(closes, 20), last = b[idx].c;
+      if (m != null) { tot++; if (last > m) above++; }
+      const w = closes.slice(-20);
+      if (last >= Math.max.apply(null, w)) nh++;
+      if (last <= Math.min.apply(null, w)) nl++;
+    });
+    a20Series.push(tot ? Math.round(above / tot * 100) : null); hiSeries.push(nh); loSeries.push(nl);
+  }
+  const maLabels = labels.slice(labels.length - a20Series.length);
   if (window._ma) window._ma.destroy();
   window._ma = new Chart(document.getElementById('maChart').getContext('2d'), {
-    type: 'line', data: { labels, datasets: [
-      { label: '%>50MA', data: a50, borderColor: 'rgba(0,212,255,1)', backgroundColor: 'rgba(0,212,255,0.05)', fill: true, tension: 0.3, pointRadius: 0, borderWidth: 2 },
-      { label: '%>200MA', data: a200, borderColor: 'rgba(245,158,11,1)', backgroundColor: 'rgba(245,158,11,0.04)', fill: false, tension: 0.3, pointRadius: 0, borderWidth: 2 }
-    ] },
+    type: 'line', data: { labels: maLabels, datasets: [{ label: '%>20MA', data: a20Series, borderColor: 'rgba(0,212,255,1)', backgroundColor: 'rgba(0,212,255,0.05)', fill: true, tension: 0.3, pointRadius: 0, borderWidth: 2 }] },
     options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: true, position: 'top', labels: { color: '#9ca3af', font: { size: 10 } } } }, scales: { x: { grid: { color: 'rgba(255,255,255,0.04)' }, ticks: { color: '#6b7280', font: { size: 9 }, maxTicksLimit: 8 } }, y: { min: 0, max: 100, grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#6b7280' } } } }
   });
-  // Highs/Lows
   if (window._hl) window._hl.destroy();
   window._hl = new Chart(document.getElementById('hlChart').getContext('2d'), {
-    type: 'bar', data: { labels, datasets: [
-      { label: 'New Highs', data: hi, backgroundColor: 'rgba(16,185,129,0.6)' },
-      { label: 'New Lows', data: lo.map(v => -v), backgroundColor: 'rgba(239,68,68,0.6)' }
+    type: 'bar', data: { labels: maLabels, datasets: [
+      { label: 'New 20d Highs', data: hiSeries, backgroundColor: 'rgba(16,185,129,0.6)' },
+      { label: 'New 20d Lows', data: loSeries.map(v => -v), backgroundColor: 'rgba(239,68,68,0.6)' }
     ] },
     options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: true, position: 'top', labels: { color: '#9ca3af', font: { size: 10 } } } }, scales: { x: { grid: { display: false }, ticks: { color: '#6b7280', font: { size: 9 }, maxTicksLimit: 8 }, stacked: true }, y: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#6b7280' }, stacked: true } } }
   });
 }
-paint();
-document.getElementById('refreshBtn').addEventListener('click', () => { data = generate(); paint(); });
-setInterval(() => { data = generate(); paint(); }, 60000);
+loadAll();
+document.getElementById('refreshBtn').addEventListener('click', loadAll);
+setInterval(loadAll, 60000);
 </script>
 </body>
 </html>
