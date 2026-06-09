@@ -149,68 +149,62 @@
 <script>
 buildNav('correlation');
 
-function seedRand(seed) { let s = seed; return () => { s = (s * 9301 + 49297) % 233280; return s / 233280; }; }
+const WORKER = (window.WorkerBridge && WorkerBridge.getUrl && WorkerBridge.getUrl()) || 'https://bpleone-brain-worker.brandonpleone.workers.dev';
 
 const UNIVERSES = {
   'risk':    ['SPY','QQQ','IWM','NVDA','AAPL','MSFT','META','AMZN','GOOGL','TSLA','VIX','TLT'],
   'mag7':    ['AAPL','MSFT','NVDA','GOOGL','AMZN','META','TSLA'],
   'sectors': ['XLK','XLF','XLE','XLV','XLY','XLP','XLI','XLB','XLU','XLRE','XLC'],
-  'macro':   ['SPY','TLT','GLD','USO','UUP','VIX','BTC','EFA','EEM','IEF','HYG','DBC'],
+  'macro':   ['SPY','TLT','GLD','USO','UUP','VIX','BTC','EFA','EEM','IEF','HYG'],
   'crypto':  ['BTC','ETH','MARA','COIN','NVDA','SMCI','PLTR','RIOT','MSTR','SQ','HOOD','RBLX']
 };
 
-// Synthetic correlation matrix that respects realistic structure (e.g. risk-on assets cluster, VIX inversely correlates with SPY)
-function syntheticCorr(symbols, win) {
-  const N = symbols.length;
-  const M = Array.from({ length: N }, () => Array(N).fill(0));
-  const rng = seedRand(win * 31);
-
-  // Asset category for each symbol (rough)
-  const category = sym => {
-    if (sym === 'VIX') return 'vix';
-    if (['TLT','IEF'].includes(sym)) return 'duration';
-    if (['GLD','UUP','DBC','USO'].includes(sym)) return 'macro';
-    if (['BTC','ETH','MARA','RIOT','MSTR','COIN'].includes(sym)) return 'crypto';
-    if (['XLK','XLY','XLC','XLI','XLF','XLB','XLE','XLU','XLP','XLV','XLRE'].includes(sym)) return 'sector';
-    return 'equity';
-  };
-
-  for (let i = 0; i < N; i++) {
-    for (let j = 0; j < N; j++) {
-      if (i === j) { M[i][j] = 1.0; continue; }
-      const a = category(symbols[i]);
-      const b = category(symbols[j]);
-      let base;
-      if (a === b) base = 0.75 + rng() * 0.20;                                  // same category
-      else if (a === 'vix' || b === 'vix') base = -0.55 - rng() * 0.30;          // VIX inverse
-      else if ((a === 'duration' && b === 'equity') || (b === 'duration' && a === 'equity')) base = -0.25 - rng() * 0.20;
-      else if (a === 'macro' && b === 'macro') base = 0.30 + rng() * 0.30;
-      else if (a === 'crypto' && b === 'equity') base = 0.40 + rng() * 0.30;
-      else base = 0.30 + rng() * 0.30;
-      // window influence — shorter windows are noisier
-      const noise = (rng() - 0.5) * (win < 20 ? 0.4 : win < 60 ? 0.15 : 0.08);
-      M[i][j] = +Math.max(-1, Math.min(1, base + noise)).toFixed(2);
-    }
-  }
-  return M;
+// REAL correlations computed from real daily log-returns (via /brain/bars). Nothing
+// synthesized. Windows are capped by available free-data history (~40 daily bars).
+let BARS = {};
+async function loadBars(symbols) {
+  try {
+    const br = await fetch(WORKER + '/brain/bars?syms=' + encodeURIComponent(symbols.join(',')) + '&days=40', { cache: 'no-store' }).then(r => r.ok ? r.json() : null).catch(() => null);
+    BARS = (br && br.bars) || {};
+  } catch (e) { BARS = {}; }
 }
+function closes(sym) { const b = BARS[sym]; return (b && b.length) ? b.map(x => x.c).filter(c => c > 0) : []; }
+function logReturns(sym) { const c = closes(sym), r = []; for (let i = 1; i < c.length; i++) r.push(Math.log(c[i] / c[i - 1])); return r; }
+function pearson(x, y) {
+  const n = Math.min(x.length, y.length);
+  if (n < 3) return null;
+  const xs = x.slice(-n), ys = y.slice(-n);
+  let mx = 0, my = 0; for (let i = 0; i < n; i++) { mx += xs[i]; my += ys[i]; } mx /= n; my /= n;
+  let sxy = 0, sxx = 0, syy = 0;
+  for (let i = 0; i < n; i++) { const dx = xs[i] - mx, dy = ys[i] - my; sxy += dx * dy; sxx += dx * dx; syy += dy * dy; }
+  if (sxx <= 0 || syy <= 0) return null;
+  return sxy / Math.sqrt(sxx * syy);
+}
+function std(a) { if (a.length < 2) return 0; const m = a.reduce((s, v) => s + v, 0) / a.length; return Math.sqrt(a.reduce((s, v) => s + (v - m) * (v - m), 0) / a.length); }
 
 function corrColor(v) {
-  // Map -1..0..+1 to red..gray..green
-  const t = (v + 1) / 2;
-  const r = v < 0 ? Math.round(239 * (1 - Math.abs(v))) : Math.round(80 + (16 - 80) * v);
-  const g = v >= 0 ? Math.round(80 + (185 - 80) * v) : Math.round(80 - (-v) * 50);
-  const b = v >= 0 ? Math.round(80 + (129 - 80) * v) : Math.round(80 - (-v) * 20);
-  // Use solid colors with alpha based on magnitude
-  if (v >= 0) return `background:rgba(16,185,129,${0.15 + Math.abs(v) * 0.55});color:${v > 0.5 ? '#fff' : 'var(--text-primary)'};`;
-  return `background:rgba(239,68,68,${0.15 + Math.abs(v) * 0.55});color:${Math.abs(v) > 0.5 ? '#fff' : 'var(--text-primary)'};`;
+  if (v == null) return 'background:rgba(100,116,139,0.12);color:var(--text-muted);';
+  if (v >= 0) return 'background:rgba(16,185,129,' + (0.15 + Math.abs(v) * 0.55) + ');color:' + (v > 0.5 ? '#fff' : 'var(--text-primary)') + ';';
+  return 'background:rgba(239,68,68,' + (0.15 + Math.abs(v) * 0.55) + ');color:' + (Math.abs(v) > 0.5 ? '#fff' : 'var(--text-primary)') + ';';
+}
+
+function buildMatrix(symbols, win) {
+  const N = symbols.length;
+  const rets = symbols.map(s => logReturns(s).slice(-win));
+  const M = Array.from({ length: N }, () => Array(N).fill(null));
+  for (let i = 0; i < N; i++) for (let j = 0; j < N; j++) {
+    if (i === j) { M[i][j] = 1; continue; }
+    const c = pearson(rets[i], rets[j]);
+    M[i][j] = c == null ? null : +c.toFixed(2);
+  }
+  return M;
 }
 
 function renderMatrix() {
   const symbols = UNIVERSES[document.getElementById('setSel').value];
   const win = +document.getElementById('winSel').value;
   document.getElementById('winLabel').textContent = win;
-  const M = syntheticCorr(symbols, win);
+  const M = buildMatrix(symbols, win);
   const N = symbols.length;
 
   let html = '<div class="corr-grid" style="grid-template-columns:96px repeat(' + N + ',1fr);">';
@@ -220,29 +214,32 @@ function renderMatrix() {
     html += '<div class="corr-row-label">' + row + '</div>';
     symbols.forEach((col, j) => {
       const v = M[i][j];
-      html += '<div class="corr-cell" style="' + corrColor(v) + '" title="' + row + ' × ' + col + ' = ' + v.toFixed(2) + '">' + v.toFixed(2) + '</div>';
+      html += '<div class="corr-cell" style="' + corrColor(v) + '" title="' + row + ' x ' + col + ' = ' + (v == null ? 'n/a' : v.toFixed(2)) + '">' + (v == null ? '·' : v.toFixed(2)) + '</div>';
     });
   });
   html += '</div>';
   document.getElementById('matrixWrap').innerHTML = html;
 
-  // Stats: avg correlation (excluding diagonal), highest off-diagonal, lowest
+  // Stats — skip null cells (symbols still missing history)
   let count = 0, sum = 0, high = { v: -2, a: '', b: '' }, low = { v: 2, a: '', b: '' };
   for (let i = 0; i < N; i++) for (let j = i + 1; j < N; j++) {
-    sum += M[i][j]; count++;
-    if (M[i][j] > high.v) high = { v: M[i][j], a: symbols[i], b: symbols[j] };
-    if (M[i][j] < low.v) low = { v: M[i][j], a: symbols[i], b: symbols[j] };
+    const v = M[i][j]; if (v == null) continue;
+    sum += v; count++;
+    if (v > high.v) high = { v: v, a: symbols[i], b: symbols[j] };
+    if (v < low.v) low = { v: v, a: symbols[i], b: symbols[j] };
   }
-  const avg = count ? sum / count : 0;
-  document.getElementById('kAvgCorr').textContent = (avg >= 0 ? '+' : '') + avg.toFixed(2);
-  document.getElementById('kAvgCorr').className = 'val mono ' + (avg > 0.55 ? 'red-text' : avg < 0.35 ? 'green-text' : 'yellow-text');
-  document.getElementById('kHigh').textContent = '+' + high.v.toFixed(2);
-  document.getElementById('kHighSub').textContent = high.a + ' × ' + high.b;
-  document.getElementById('kLow').textContent = low.v.toFixed(2);
-  document.getElementById('kLowSub').textContent = low.a + ' × ' + low.b;
+  const avg = count ? sum / count : null;
+  const kAvg = document.getElementById('kAvgCorr');
+  kAvg.textContent = avg == null ? '—' : (avg >= 0 ? '+' : '') + avg.toFixed(2);
+  kAvg.className = 'val mono ' + (avg == null ? '' : avg > 0.55 ? 'red-text' : avg < 0.35 ? 'green-text' : 'yellow-text');
+  document.getElementById('kHigh').textContent = count ? '+' + high.v.toFixed(2) : '—';
+  document.getElementById('kHighSub').textContent = count ? high.a + ' x ' + high.b : '';
+  document.getElementById('kLow').textContent = count ? low.v.toFixed(2) : '—';
+  document.getElementById('kLowSub').textContent = count ? low.a + ' x ' + low.b : '';
 
   let regime, sub, color;
-  if (avg > 0.65) { regime = 'RISK-OFF'; sub = 'Correlations converge — flight to safety'; color = 'var(--red)'; }
+  if (avg == null) { regime = '—'; sub = 'Waiting on price history'; color = 'var(--text-muted)'; }
+  else if (avg > 0.65) { regime = 'RISK-OFF'; sub = 'Correlations converge — flight to safety'; color = 'var(--red)'; }
   else if (avg > 0.5) { regime = 'CAUTIOUS'; sub = 'Elevated correlation, prefer pair trades'; color = 'var(--yellow)'; }
   else if (avg > 0.35) { regime = 'NEUTRAL'; sub = 'Mixed signals, stock-by-stock'; color = 'var(--text-secondary)'; }
   else { regime = 'RISK-ON'; sub = 'Low correlation — stock-pickers market'; color = 'var(--green)'; }
@@ -251,81 +248,97 @@ function renderMatrix() {
   regEl.style.color = color;
   document.getElementById('kRegimeSub').textContent = sub;
 
-  renderPairs(symbols, M);
-  renderRegimeChart();
+  renderPairs(symbols, M, win);
+  renderRegimeChart(symbols, win);
 }
 
-function renderPairs(symbols, M) {
-  // Pair candidates: |corr| > 0.7 (mean-reversion), or near-zero (uncorrelated for hedging)
+function renderPairs(symbols, M, win) {
   const N = symbols.length;
   const cands = [];
   for (let i = 0; i < N; i++) for (let j = i + 1; j < N; j++) {
-    const c = M[i][j];
+    const c = M[i][j]; if (c == null) continue;
     const a = symbols[i], b = symbols[j];
-    let setup, score, z;
-    if (c > 0.85) {
-      z = +(1.8 + Math.random() * 0.8).toFixed(2);
-      setup = 'Mean-reversion pair — long ' + a + ' / short ' + b + ' or vice versa';
-    } else if (c < -0.7) {
-      z = +(2.2 + Math.random() * 0.8).toFixed(2);
-      setup = 'Risk hedge — pair as natural hedge';
-    } else if (Math.abs(c) < 0.1 && Math.abs(c) > 0) {
-      z = +(0.8 + Math.random() * 0.4).toFixed(2);
-      setup = 'Diversification candidate — near-zero corr';
-    } else continue;
-    cands.push({ a, b, c, z, setup });
+    let setup;
+    if (c > 0.85) setup = 'Mean-reversion pair — long ' + a + ' / short ' + b + ' when the spread stretches';
+    else if (c < -0.6) setup = 'Natural hedge — moves inversely';
+    else if (Math.abs(c) < 0.12) setup = 'Diversifier — near-zero correlation';
+    else continue;
+    // REAL spread Z-score over the window: z of log(A) - log(B)
+    const ca = closes(a).slice(-(win + 1)), cb = closes(b).slice(-(win + 1));
+    const n = Math.min(ca.length, cb.length);
+    let z = null;
+    if (n >= 5) {
+      const sp = [];
+      for (let k = 0; k < n; k++) sp.push(Math.log(ca[ca.length - n + k]) - Math.log(cb[cb.length - n + k]));
+      const sm = sp.reduce((s, v) => s + v, 0) / sp.length, ss = std(sp);
+      if (ss > 0) z = (sp[sp.length - 1] - sm) / ss;
+    }
+    // REAL annualized vol of each leg, averaged
+    const va = std(logReturns(a).slice(-win)) * Math.sqrt(252) * 100;
+    const vb = std(logReturns(b).slice(-win)) * Math.sqrt(252) * 100;
+    cands.push({ a: a, b: b, c: c, z: z, hv: (va + vb) / 2, setup: setup });
   }
   cands.sort((x, y) => Math.abs(y.c) - Math.abs(x.c));
   const body = document.getElementById('pairBody');
-  if (!cands.length) { body.innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--text-muted);padding:30px;">No notable pairs at current parameters.</td></tr>'; return; }
+  if (!cands.length) { body.innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--text-muted);padding:30px;">No notable pairs at current parameters (or price history still loading).</td></tr>'; return; }
   body.innerHTML = cands.slice(0, 12).map(p => {
     const cls = p.c >= 0 ? (p.c > 0.7 ? 'green-text' : '') : 'red-text';
-    const zCls = p.z > 2 ? 'red-text' : p.z > 1.5 ? 'yellow-text' : '';
-    const hv = (Math.abs(p.c) > 0.5 ? 18 + Math.random() * 12 : 28 + Math.random() * 22).toFixed(1);
+    const zAbs = p.z == null ? null : Math.abs(p.z);
+    const zCls = zAbs == null ? '' : zAbs > 2 ? 'red-text' : zAbs > 1.5 ? 'yellow-text' : '';
     const dir = p.c > 0.7 ? '🔄 Mean-revert' : p.c < -0.5 ? '⚡ Hedge' : '🛡 Diversify';
-    return `<tr class="pair-row" onclick="location.href='pairs.html'">
-      <td><strong class="mono">${p.a} / ${p.b}</strong></td>
-      <td class="mono ${cls}">${p.c >= 0 ? '+' : ''}${p.c.toFixed(2)}</td>
-      <td class="mono ${zCls}">${p.z.toFixed(2)}σ</td>
-      <td class="mono">${hv}%</td>
-      <td>${dir}</td>
-      <td style="font-size:12px;color:var(--text-muted);">${p.setup}</td>
-    </tr>`;
+    return '<tr class="pair-row" onclick="location.href=\'ticker.html?sym=' + p.a + '\'">'
+      + '<td><strong class="mono">' + p.a + ' / ' + p.b + '</strong></td>'
+      + '<td class="mono ' + cls + '">' + (p.c >= 0 ? '+' : '') + p.c.toFixed(2) + '</td>'
+      + '<td class="mono ' + zCls + '">' + (p.z == null ? '—' : (p.z >= 0 ? '+' : '') + p.z.toFixed(2) + 'σ') + '</td>'
+      + '<td class="mono">' + (isFinite(p.hv) ? p.hv.toFixed(1) + '%' : '—') + '</td>'
+      + '<td>' + dir + '</td>'
+      + '<td style="font-size:12px;color:var(--text-muted);">' + p.setup + '</td></tr>';
   }).join('');
 }
 
 let regChart;
-function renderRegimeChart() {
-  const labels = [], data = [];
-  const rng = seedRand(123);
-  let val = 0.4 + rng() * 0.2;
-  for (let i = 89; i >= 0; i--) {
-    const d = new Date(); d.setDate(d.getDate() - i);
+function renderRegimeChart(symbols, win) {
+  // REAL rolling average pairwise correlation over the available daily history.
+  const rets = symbols.map(s => logReturns(s));
+  const maxLen = Math.max(0, ...rets.map(r => r.length));
+  const labels = [], series = [];
+  const today = new Date();
+  for (let end = win; end <= maxLen; end++) {
+    const wins = rets.map(r => r.slice(end - win, end));
+    let sum = 0, cnt = 0;
+    for (let i = 0; i < symbols.length; i++) for (let j = i + 1; j < symbols.length; j++) {
+      const c = pearson(wins[i], wins[j]); if (c != null) { sum += c; cnt++; }
+    }
+    if (!cnt) continue;
+    series.push(+(sum / cnt).toFixed(3));
+    const d = new Date(today); d.setDate(d.getDate() - (maxLen - end));
     labels.push(d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }));
-    val += (rng() - 0.5) * 0.03;
-    val = Math.max(0.15, Math.min(0.85, val));
-    data.push(+val.toFixed(3));
   }
   if (regChart) regChart.destroy();
   regChart = new Chart(document.getElementById('regimeChart').getContext('2d'), {
     type: 'line',
-    data: { labels, datasets: [
-      { label: 'Avg pair correlation', data, borderColor: 'rgba(0,212,255,1)', backgroundColor: 'rgba(0,212,255,0.10)', tension: 0.3, pointRadius: 0, fill: true },
-      { label: 'Risk-off threshold (0.65)', data: labels.map(() => 0.65), borderColor: 'rgba(239,68,68,0.5)', borderDash: [4,4], pointRadius: 0, fill: false }
+    data: { labels: labels, datasets: [
+      { label: 'Avg pair correlation (real)', data: series, borderColor: 'rgba(0,212,255,1)', backgroundColor: 'rgba(0,212,255,0.10)', tension: 0.3, pointRadius: 0, fill: true },
+      { label: 'Risk-off threshold (0.65)', data: labels.map(() => 0.65), borderColor: 'rgba(239,68,68,0.5)', borderDash: [4, 4], pointRadius: 0, fill: false }
     ] },
     options: { responsive: true, maintainAspectRatio: false,
       plugins: { legend: { labels: { color: '#9ca3af', font: { size: 11 } } } },
       scales: {
         x: { grid: { color: 'rgba(255,255,255,0.04)' }, ticks: { color: '#6b7280', font: { size: 9 }, autoSkip: true, maxTicksLimit: 10, maxRotation: 0 } },
-        y: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#6b7280', font: { size: 10 } }, min: 0, max: 1 }
+        y: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#6b7280', font: { size: 10 } }, min: -0.2, max: 1 }
       }
     }
   });
 }
 
-document.getElementById('setSel').addEventListener('change', renderMatrix);
+async function reload() {
+  await loadBars(UNIVERSES[document.getElementById('setSel').value]);
+  renderMatrix();
+}
+document.getElementById('setSel').addEventListener('change', reload);
 document.getElementById('winSel').addEventListener('change', renderMatrix);
-renderMatrix();
+reload();
+setInterval(reload, 120000);
 </script>
 </body>
 </html>
