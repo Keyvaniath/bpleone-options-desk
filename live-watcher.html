@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Live Watcher — bpleone / trade</title>
-<meta name="description" content="Single-ticker live focus page — giant price, tape, P&L tracking, brain signals.">
+<meta name="description" content="Single-ticker focus page — giant delayed price, recent daily bars, real brain read.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="css/style.css?v=v197">
@@ -23,14 +23,14 @@
 .flash-dn { color:var(--red); animation:pulse 0.3s; }
 </style>
 </head>
-<body data-needs="live">
+<body>
 <div id="site-nav"></div>
 
 <div class="container">
   <div class="page-header">
     <div>
       <div class="page-title">👁 Live Watcher</div>
-      <div class="page-subtitle">Single-ticker focus · giant price · live tape · brain alerts · <span id="market-clock">--</span></div>
+      <div class="page-subtitle">Single-ticker focus · giant price · daily bars · brain read · delayed ~15 min · <span id="market-clock">--</span></div>
     </div>
     <div class="flex gap-8">
       <input type="text" id="symInput" value="SPY" style="background:var(--bg-elevated);border:1px solid var(--border);border-radius:8px;padding:8px 14px;color:var(--text-primary);font-family:var(--font-mono);font-size:16px;text-transform:uppercase;width:140px;">
@@ -47,9 +47,9 @@
 
   <!-- STATS GRID -->
   <div class="grid grid-5 mb-24">
-    <div class="card"><div class="card-header"><div class="card-title">BID</div></div><div class="mono" style="font-size:22px;font-weight:700;color:var(--green);" id="kBid">--</div></div>
-    <div class="card"><div class="card-header"><div class="card-title">ASK</div></div><div class="mono" style="font-size:22px;font-weight:700;color:var(--red);" id="kAsk">--</div></div>
-    <div class="card"><div class="card-header"><div class="card-title">SPREAD</div></div><div class="mono" style="font-size:22px;font-weight:700;" id="kSpread">--</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">DAY HIGH</div></div><div class="mono" style="font-size:22px;font-weight:700;color:var(--green);" id="kBid">--</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">DAY LOW</div></div><div class="mono" style="font-size:22px;font-weight:700;color:var(--red);" id="kAsk">--</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">PREV CLOSE</div></div><div class="mono" style="font-size:22px;font-weight:700;" id="kSpread">--</div></div>
     <div class="card"><div class="card-header"><div class="card-title">VOLUME</div></div><div class="mono" style="font-size:22px;font-weight:700;" id="kVol">--</div></div>
     <div class="card"><div class="card-header"><div class="card-title">BRAIN SCORE</div></div><div class="mono" style="font-size:22px;font-weight:700;color:var(--accent);" id="kBrain">--</div></div>
   </div>
@@ -57,9 +57,9 @@
   <!-- TAPE + BRAIN SIGNALS -->
   <div class="grid grid-12">
     <div class="card col-7" style="padding:0;">
-      <div class="card-header" style="padding:14px 16px;"><div class="card-title">⚡ Live Tape</div></div>
+      <div class="card-header" style="padding:14px 16px;"><div class="card-title">📊 Recent Daily Bars</div><div class="badge" style="background:rgba(245,158,11,0.12);color:var(--yellow);">DELAYED ~15 MIN</div></div>
       <div class="tape-row" style="background:var(--bg-elevated);color:var(--text-muted);font-weight:800;font-size:9px;letter-spacing:0.5px;">
-        <div>TIME</div><div>SIDE</div><div>PX</div><div>SIZE</div>
+        <div>DATE</div><div>CLOSE</div><div>CHG</div><div>VOL</div>
       </div>
       <div id="tapeBody" style="max-height:520px;overflow-y:auto;"></div>
     </div>
@@ -85,77 +85,113 @@
 <script>
 buildNav('live-watcher');
 
-let currentSym = 'SPY';
-let lastPx = null;
+const WORKER = (window.WorkerBridge && WorkerBridge.getUrl && WorkerBridge.getUrl()) || 'https://bpleone-brain-worker.brandonpleone.workers.dev';
+let currentSym = 'SPY', lastPx = null;
+let DATA = { q: null, bars: [], predict: null, signal: null };
 
-function getQ(s) { return (typeof QUOTES !== 'undefined' && QUOTES[s]) ? QUOTES[s] : { last: 100, changePct: 0, volume: 1e6 }; }
-function loadFindings() { try { return JSON.parse(localStorage.getItem('bpleone_brain_findings_v1') || '{"items":[]}').items; } catch (e) { return []; } }
+// Single-ticker focus fed entirely by the 24/7 worker: real quote, real daily
+// bars, real model prediction, real scanner signal. No synthesized tape/bid/ask.
+async function fetchSym(sym) {
+  const [qr, br, pr, sr] = await Promise.all([
+    fetch(WORKER + '/brain/quotes?syms=' + encodeURIComponent(sym), { cache: 'no-store' }).then(r => r.ok ? r.json() : null).catch(() => null),
+    fetch(WORKER + '/brain/bars?syms=' + encodeURIComponent(sym) + '&days=30', { cache: 'no-store' }).then(r => r.ok ? r.json() : null).catch(() => null),
+    fetch(WORKER + '/brain/predict?sym=' + encodeURIComponent(sym), { cache: 'no-store' }).then(r => r.ok ? r.json() : null).catch(() => null),
+    fetch(WORKER + '/brain/signals', { cache: 'no-store' }).then(r => r.ok ? r.json() : null).catch(() => null)
+  ]);
+  DATA.q = (qr && qr.quotes && qr.quotes[sym]) || null;
+  DATA.bars = (br && br.bars && br.bars[sym]) || [];
+  DATA.predict = (pr && !pr.error) ? pr : null;
+  let sig = null;
+  if (sr && Array.isArray(sr.signals)) sig = sr.signals.find(s => s && s.sym === sym) || null;
+  else if (sr && sr.signals && typeof sr.signals === 'object') sig = sr.signals[sym] || null;
+  DATA.signal = sig;
+}
 
-function paintMega() {
-  const q = getQ(currentSym);
-  const px = q.last || 100;
-  const chg = q.changePct || 0;
+function paint() {
+  const q = DATA.q;
   const meg = document.getElementById('megaPx');
+  const mc = document.getElementById('megaChg');
+  if (!q || !(q.last > 0)) {
+    meg.textContent = '—'; meg.style.color = 'var(--text-primary)';
+    mc.textContent = 'No live quote for ' + currentSym; mc.style.color = 'var(--text-muted)';
+    ['kBid', 'kAsk', 'kSpread', 'kVol', 'kBrain'].forEach(id => { document.getElementById(id).textContent = '—'; });
+    renderBars(); renderSignals();
+    return;
+  }
+  const px = q.last, chg = q.changePct || 0;
   meg.textContent = px.toFixed(2);
   const col = chg > 0 ? 'var(--green)' : chg < 0 ? 'var(--red)' : 'var(--text-primary)';
   meg.style.color = col;
   if (lastPx != null && px !== lastPx) {
-    meg.classList.remove('flash-up','flash-dn');
-    void meg.offsetWidth;
+    meg.classList.remove('flash-up', 'flash-dn'); void meg.offsetWidth;
     meg.classList.add(px > lastPx ? 'flash-up' : 'flash-dn');
   }
   lastPx = px;
-  const mc = document.getElementById('megaChg');
-  mc.textContent = (chg >= 0 ? '+' : '') + chg.toFixed(2) + '%' + ' · $' + (q.last - q.last/(1+chg/100)).toFixed(2);
+  const dollarChg = (q.prevClose > 0) ? (px - q.prevClose) : px * (chg / 100);
+  mc.textContent = (chg >= 0 ? '+' : '') + chg.toFixed(2) + '% · ' + (dollarChg >= 0 ? '+' : '-') + '$' + Math.abs(dollarChg).toFixed(2);
   mc.style.color = col;
 
-  // KPIs
-  const spread = px * 0.0005;
-  document.getElementById('kBid').textContent = (px - spread/2).toFixed(2);
-  document.getElementById('kAsk').textContent = (px + spread/2).toFixed(2);
-  document.getElementById('kSpread').textContent = spread.toFixed(2);
+  // KPIs — REAL (day high/low, prev close, volume); bid/ask need an L1 feed we don't have
+  document.getElementById('kBid').textContent = q.dayHigh > 0 ? q.dayHigh.toFixed(2) : '—';
+  document.getElementById('kAsk').textContent = q.dayLow > 0 ? q.dayLow.toFixed(2) : '—';
+  document.getElementById('kSpread').textContent = q.prevClose > 0 ? q.prevClose.toFixed(2) : '—';
   document.getElementById('kVol').textContent = q.volume ? (q.volume / 1e6).toFixed(2) + 'M' : '—';
 
-  // Brain score
-  const symFindings = loadFindings().filter(f => f.meta && f.meta.sym === currentSym && (Date.now() - f.ts) < 8 * 3600 * 1000);
-  const score = Math.min(100, symFindings.reduce((s, f) => s + (f.severity || 1) * 12, 0));
-  document.getElementById('kBrain').textContent = score;
-  document.getElementById('kBrain').style.color = score >= 70 ? 'var(--green)' : score >= 40 ? 'var(--accent)' : 'var(--text-muted)';
+  // Brain score — REAL from /brain/predict
+  const p = DATA.predict, kb = document.getElementById('kBrain');
+  if (p && typeof p.conviction === 'number') {
+    kb.textContent = Math.round(p.conviction * 100) + '% ' + (p.direction === 'LONG' ? 'L' : 'S');
+    kb.style.color = p.direction === 'LONG' ? 'var(--green)' : 'var(--red)';
+  } else { kb.textContent = '—'; kb.style.color = 'var(--text-muted)'; }
 
-  // Signals
-  const sb = document.getElementById('signalsBody');
-  if (symFindings.length === 0) {
-    sb.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-muted);font-size:12px;">No brain signals for ' + currentSym + ' in the last 8h.</div>';
-  } else {
-    sb.innerHTML = symFindings.slice(0, 8).map(f => {
-      const time = new Date(f.ts).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
-      return '<div style="padding:10px 12px;border-bottom:1px solid var(--border);">'
-        + '<div style="display:flex;justify-content:space-between;align-items:center;"><strong style="font-size:12px;">' + (f.title || f.type) + '</strong><span style="font-size:11px;">' + '⭐'.repeat(f.severity || 1) + '</span></div>'
-        + '<div style="font-size:11px;color:var(--text-muted);margin-top:4px;">' + time + ' · ' + (f.body || '').slice(0, 90) + '</div></div>';
-    }).join('');
-  }
+  renderBars(); renderSignals();
 }
 
-function appendTape() {
-  const q = getQ(currentSym);
-  const isBuy = Math.random() > 0.5;
-  const px = (q.last || 100) * (1 + (Math.random() - 0.5) * 0.0008);
-  const size = Math.floor(50 + Math.random() * 3500);
+function renderBars() {
   const body = document.getElementById('tapeBody');
-  const row = document.createElement('div');
-  row.className = 'tape-row ' + (isBuy ? 'buy' : 'sell');
-  const time = new Date().toLocaleTimeString('en-US', { hour12: false }).slice(0, 8);
-  row.innerHTML = '<div>' + time + '</div><div>' + (isBuy ? 'BUY' : 'SEL') + '</div><div>' + px.toFixed(2) + '</div><div>' + size.toLocaleString() + '</div>';
-  body.insertBefore(row, body.firstChild);
-  while (body.children.length > 100) body.removeChild(body.lastChild);
+  const bars = DATA.bars;
+  if (!bars || !bars.length) { body.innerHTML = '<div style="padding:16px;color:var(--text-muted);font-size:12px;">No daily bars for ' + currentSym + '.</div>'; return; }
+  const rows = bars.slice(-30).reverse();
+  body.innerHTML = rows.map((b, i) => {
+    const prev = rows[i + 1];
+    const chg = (prev && prev.c > 0) ? ((b.c - prev.c) / prev.c * 100) : 0;
+    const up = chg >= 0;
+    const date = b.ts ? new Date(b.ts).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '';
+    const vol = b.v ? (b.v / 1e6).toFixed(1) + 'M' : '—';
+    return '<div class="tape-row ' + (up ? 'buy' : 'sell') + '"><div>' + date + '</div><div>' + (b.c != null ? b.c.toFixed(2) : '—') + '</div><div>' + (up ? '+' : '') + chg.toFixed(2) + '%</div><div>' + vol + '</div></div>';
+  }).join('');
 }
 
-function loadSym() {
-  currentSym = document.getElementById('symInput').value.toUpperCase().trim() || 'SPY';
+function renderSignals() {
+  const sb = document.getElementById('signalsBody');
+  const p = DATA.predict, sig = DATA.signal;
+  let html = '';
+  if (p && typeof p.predProb === 'number') {
+    const pct = Math.round(p.predProb * 100);
+    const dirCol = p.direction === 'LONG' ? 'var(--green)' : 'var(--red)';
+    html += '<div style="padding:12px;border-bottom:1px solid var(--border);">'
+      + '<div style="display:flex;justify-content:space-between;align-items:center;"><strong style="font-size:12px;">Brain read</strong><span style="color:' + dirCol + ';font-weight:700;font-family:var(--font-mono);">' + p.direction + ' ' + pct + '%</span></div>'
+      + '<div style="font-size:11px;color:var(--text-muted);margin-top:4px;">5-day directional probability (calibrated). ' + (p.plattApplied ? 'Platt-calibrated.' : 'Raw model output.') + ' ' + (p.bars_in_history || 0) + ' bars of history.</div></div>';
+  }
+  if (sig && sig.signal) {
+    const sc = sig.signal.indexOf('BUY') >= 0 ? 'var(--green)' : sig.signal.indexOf('SELL') >= 0 ? 'var(--red)' : 'var(--accent)';
+    html += '<div style="padding:12px;border-bottom:1px solid var(--border);">'
+      + '<div style="display:flex;justify-content:space-between;align-items:center;"><strong style="font-size:12px;">Scanner signal</strong><span style="color:' + sc + ';font-weight:700;">' + sig.signal + '</span></div>'
+      + '<div style="font-size:11px;color:var(--text-muted);margin-top:4px;">' + (sig.reason || '') + '</div></div>';
+  }
+  if (!html) {
+    html = '<div style="padding:20px;text-align:center;color:var(--text-muted);font-size:12px;">No brain signal for ' + currentSym + (DATA.q && !DATA.predict ? ' — not in the brain universe.' : ' yet.') + '</div>';
+  }
+  sb.innerHTML = html;
+}
+
+async function loadSym() {
+  currentSym = (document.getElementById('symInput').value || 'SPY').toUpperCase().trim() || 'SPY';
   document.getElementById('symDisplay').textContent = currentSym;
-  document.getElementById('tapeBody').innerHTML = '';
+  document.getElementById('tapeBody').innerHTML = '<div style="padding:16px;color:var(--text-muted);font-size:12px;">Loading ' + currentSym + '...</div>';
   lastPx = null;
-  paintMega();
+  await fetchSym(currentSym);
+  paint();
 }
 loadSym();
 
@@ -167,8 +203,8 @@ const params = new URLSearchParams(location.search);
 const presym = params.get('sym');
 if (presym) { document.getElementById('symInput').value = presym; loadSym(); }
 
-setInterval(paintMega, 2000);
-setInterval(appendTape, 250);
+// Worker quotes are ~15 min delayed; refresh once a minute (no fake per-tick tape).
+setInterval(loadSym, 60000);
 
 // Brain alerts popup
 window.addEventListener('bpleone:brain-finding', e => {

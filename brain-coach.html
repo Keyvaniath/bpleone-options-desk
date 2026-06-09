@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Brain Coach — bpleone / trade</title>
-<meta name="description" content="Live narrative coach — brain narrates what's happening + what to do, updates every minute.">
+<meta name="description" content="Live narrative coach — narrates the tape from real worker data, honest about the brain's lack of proven timing edge.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="css/style.css?v=v197">
@@ -22,7 +22,7 @@
 @keyframes bpulse { 0%,100% { opacity:1; } 50% { opacity:0.3; } }
 </style>
 </head>
-<body data-needs="live">
+<body>
 <div id="site-nav"></div>
 
 <div class="container">
@@ -61,8 +61,8 @@ buildNav('brain-coach');
 
 let messages = [];
 let muted = false;
-
-function getQ(s) { return (typeof QUOTES !== 'undefined' && QUOTES[s]) ? QUOTES[s] : { last: 0, changePct: 0 }; }
+const WORKER = (window.WorkerBridge && WorkerBridge.getUrl && WorkerBridge.getUrl()) || 'https://bpleone-brain-worker.brandonpleone.workers.dev';
+let SNAP = { spy: null, qqq: null, vix: null, regime: 'unknown', meanProb: null, signals: [], metrics: null };
 
 function addMsg(body, cls) {
   cls = cls || '';
@@ -87,86 +87,92 @@ function paintLog() {
   });
 }
 
-function generateNarrative() {
-  const findings = (function () { try { return JSON.parse(localStorage.getItem('bpleone_brain_findings_v1') || '{"items":[]}').items; } catch (e) { return []; } })();
-  const recent = findings.filter(f => (Date.now() - f.ts) < 30 * 60 * 1000);
-  const state = (function () { try { return JSON.parse(localStorage.getItem('bpleone_brain_loop_state_v1') || '{}'); } catch (e) { return {}; } })();
-  const model = window.ModelStore ? window.ModelStore.load() : null;
+async function loadSnap() {
+  const [qr, sr, mr] = await Promise.all([
+    fetch(WORKER + '/brain/quotes?syms=SPY,QQQ,VIX', { cache: 'no-store' }).then(r => r.ok ? r.json() : null).catch(() => null),
+    fetch(WORKER + '/brain/signals', { cache: 'no-store' }).then(r => r.ok ? r.json() : null).catch(() => null),
+    fetch(WORKER + '/brain/metrics', { cache: 'no-store' }).then(r => r.ok ? r.json() : null).catch(() => null)
+  ]);
+  const q = (qr && qr.quotes) || {};
+  SNAP.spy = q.SPY || null; SNAP.qqq = q.QQQ || null; SNAP.vix = q.VIX || null;
+  SNAP.regime = (sr && sr.regime) || 'unknown';
+  SNAP.meanProb = (sr && typeof sr.universe_mean_prob === 'number') ? sr.universe_mean_prob : null;
+  SNAP.signals = (sr && Array.isArray(sr.signals)) ? sr.signals : [];
+  SNAP.metrics = mr || null;
+}
 
-  const spy = getQ('SPY');
-  const vxx = getQ('VXX');
-  const regime = state.regimeScore || 50;
-  const regimeLabel = regime >= 65 ? 'RISK-ON' : regime >= 45 ? 'NEUTRAL' : regime >= 30 ? 'CAUTION' : 'RISK-OFF';
+function vixRead(v) {
+  if (!(v > 0)) return null;
+  if (v < 16) return 'calm';
+  if (v < 22) return 'normal';
+  if (v < 28) return 'elevated';
+  return 'stress';
+}
 
-  // What's happening now
-  const highConf = recent.filter(f => typeof f.modelProb === 'number' && f.modelProb >= 0.70 && (f.severity === 'high' || f.severity === 3));
+// "Right now" — real SPY/VIX + real cross-sectional relative-strength leader.
+function paintNow() {
+  const spy = SNAP.spy, vix = SNAP.vix;
   let nowText, nowAdvice;
-  if (highConf.length > 0) {
-    const top = highConf[0];
-    const sym = top.meta && top.meta.sym;
-    nowText = '🎯 ' + sym + ' is a HIGH-CONFIDENCE setup right now (' + (top.modelProb * 100).toFixed(0) + '%). Setup: ' + ((top.meta && top.meta.setup) || top.type);
-    nowAdvice = 'Open Trade Coach for ' + sym + ' → review the plan → consider taking it.';
-  } else if (recent.length > 0) {
-    nowText = 'Brain is scanning · ' + recent.length + ' findings in last 30min · no high-confidence ML pick yet';
-    nowAdvice = 'Patient discipline beats forced entries. Check back in 10-15 min.';
+  if (!spy || !(spy.last > 0)) {
+    nowText = 'Waiting for live market data from the brain worker...';
+    nowAdvice = 'If this persists, the worker may be warming up - refresh in a moment.';
   } else {
-    nowText = 'Quiet tape · brain idle';
-    nowAdvice = 'Possibly a good moment to review Daily Report or work on the Journal.';
+    const spyChg = spy.changePct || 0;
+    const vr = vix && vix.last > 0 ? vixRead(vix.last) : null;
+    const vixTxt = vr ? ', VIX ' + vix.last.toFixed(1) + ' (' + vr + ')' : '';
+    const regimeTxt = SNAP.regime !== 'unknown' ? SNAP.regime : 'forming';
+    const buys = SNAP.signals.filter(s => s && (s.signal === 'BUY' || s.signal === 'LEAN BUY'));
+    if (buys.length) {
+      const top = buys[0];
+      const p = typeof top.predProb === 'number' ? Math.round(top.predProb * 100) : null;
+      nowText = 'Strongest name in the tracked universe: ' + top.sym + (top.reason ? ' - ' + top.reason : '') + (p != null ? '. Brain P(up, 5d) ' + p + '%.' : '.');
+      nowAdvice = 'Cross-sectional relative strength, not a promise it rises. Tape: SPY ' + (spyChg >= 0 ? '+' : '') + spyChg.toFixed(2) + '%' + vixTxt + ', brain regime ' + regimeTxt + '. The desk has no proven timing edge - size small.';
+    } else {
+      nowText = 'No standout long flagged right now. SPY ' + (spyChg >= 0 ? '+' : '') + spyChg.toFixed(2) + '%' + vixTxt + ', brain regime ' + regimeTxt + '.';
+      nowAdvice = 'Patience beats forced entries - no high-relative-strength setup is on the board.';
+    }
   }
   document.getElementById('nowText').textContent = nowText;
   document.getElementById('nowAdvice').textContent = nowAdvice;
-
-  // Auto-generate periodic insights
-  return { spy, vxx, regime, regimeLabel, recent, highConf, model };
 }
 
-// Periodic check — generate new insight every minute
-let lastTick = 0;
-function tick() {
-  const data = generateNarrative();
-  // Only post new messages if conditions changed
-  const last = messages[0];
-  const lastBody = last ? last.body : '';
+let lastTick = 0, lastModelMsg = 0;
+async function tick() {
+  await loadSnap();
+  paintNow();
 
-  // Market state insight (once per 5 min)
-  if (Date.now() - (lastTick || 0) > 5 * 60 * 1000) {
+  // Market-state insight, at most once per 5 min, only on a real move.
+  if (SNAP.spy && SNAP.spy.last > 0 && Date.now() - (lastTick || 0) > 5 * 60 * 1000) {
     lastTick = Date.now();
-    const dayChg = data.spy.changePct || 0;
+    const dayChg = SNAP.spy.changePct || 0;
     if (Math.abs(dayChg) > 0.5) {
-      const verb = dayChg > 0 ? 'green' : 'red';
-      addMsg('Market is ' + verb + '. SPY ' + (dayChg >= 0 ? '+' : '') + dayChg.toFixed(2) + '%. Regime: ' + data.regimeLabel + '. ' + (data.regimeLabel === 'RISK-ON' ? 'Lean long.' : data.regimeLabel === 'RISK-OFF' ? 'Reduce risk · hedges work.' : 'Mixed signals · trade smaller.'), dayChg > 0 ? 'green' : 'red');
+      const reg = SNAP.regime;
+      const lean = reg === 'bullish' ? 'Breadth leans long.' : reg === 'bearish' ? 'Breadth leans defensive.' : 'Mixed breadth - trade smaller.';
+      addMsg('SPY ' + (dayChg >= 0 ? '+' : '') + dayChg.toFixed(2) + '%' + (SNAP.vix && SNAP.vix.last > 0 ? ', VIX ' + SNAP.vix.last.toFixed(1) : '') + '. Brain regime: ' + reg + '. ' + lean, dayChg > 0 ? 'green' : 'red');
     }
   }
 
-  // Model performance check
-  if (data.model && data.model.n_trained > 0 && Math.random() < 0.1) {
-    const acc = data.model.rollingAccuracy();
-    if (acc > 0.6) addMsg('Model is hot — rolling accuracy ' + (acc * 100).toFixed(0) + '% on last 100 predictions. Trust the high-conviction calls more.', 'green');
-    else if (acc < 0.45) addMsg('Model is cold — rolling accuracy only ' + (acc * 100).toFixed(0) + '%. Reduce size on its picks until accuracy recovers.', 'yellow');
+  // Honest model-quality note, at most once per 15 min, from REAL backtest metrics.
+  const wf = SNAP.metrics && SNAP.metrics.walk_forward_test;
+  if (wf && typeof wf.accuracy === 'number' && typeof wf.base_rate === 'number' && Date.now() - (lastModelMsg || 0) > 15 * 60 * 1000) {
+    lastModelMsg = Date.now();
+    const acc = (wf.accuracy * 100).toFixed(1), base = (wf.base_rate * 100).toFixed(1);
+    const skillNum = (wf.accuracy - wf.base_rate) * 100;
+    const skill = (skillNum >= 0 ? '+' : '') + skillNum.toFixed(1);
+    if (wf.beats_base_rate_95) {
+      addMsg('Reality check: 5-day directional accuracy ' + acc + '% vs market drift ' + base + '% - skill ' + skill + 'pp, statistically significant (n=' + (wf.n || '?') + '). Rare; still size with discipline.', 'green');
+    } else {
+      addMsg('Reality check: 5-day accuracy ' + acc + '% but market drift alone is ' + base + '% - real timing skill is only ' + skill + 'pp and NOT statistically significant. Treat picks as ideas, not edge.', 'yellow');
+    }
   }
 }
 
-// React to brain findings
+// React to LOCAL browser-brain regime/drift events if that brain is also running.
 window.addEventListener('bpleone:brain-finding', e => {
   const f = e.detail;
   if (!f) return;
-  const sym = (f.meta && f.meta.sym) || 'MKT';
-  if (typeof f.modelProb === 'number' && f.modelProb >= 0.80 && (f.severity === 'high' || f.severity === 3)) {
-    addMsg('🚨 HIGH-CONFIDENCE FIRE: ' + sym + ' · model ' + (f.modelProb * 100).toFixed(0) + '%. Setup: ' + ((f.meta && f.meta.setup) || f.type) + '. Consider taking the trade.', 'alert');
-  } else if ((f.severity === 'high' || f.severity === 3) && f.type !== 'ml-feedback' && f.type !== 'hourly-digest') {
-    addMsg('⭐ Major signal: ' + sym + ' · ' + ((f.meta && f.meta.setup) || f.type) + '. ' + (f.title || ''), 'alert');
-  } else if (f.type === 'regime-shift') {
-    addMsg('🌐 REGIME SHIFT: ' + f.body, 'alert');
-  } else if (f.type === 'drift-alert') {
-    addMsg('⚠ Model drift detected. ' + f.body, 'yellow');
-  }
-});
-
-window.addEventListener('bpleone:model-trained', e => {
-  const d = e.detail;
-  if (d && d.batchSize > 5 && Math.random() < 0.3) {
-    addMsg('🧬 Model trained on ' + d.batchSize + ' new outcomes. Avg loss ' + (d.avgLoss || 0).toFixed(3) + '. Getting smarter.', '');
-  }
+  if (f.type === 'regime-shift') addMsg('Regime shift: ' + (f.body || ''), 'alert');
+  else if (f.type === 'drift-alert') addMsg('Model drift detected. ' + (f.body || ''), 'yellow');
 });
 
 document.getElementById('clearBtn').addEventListener('click', () => { messages = []; paintLog(); });
@@ -176,7 +182,7 @@ document.getElementById('muteBtn').addEventListener('click', () => {
 });
 
 // Seed welcome message
-addMsg('🎙 Brain Coach is listening. I will narrate market events, alert you to high-conviction setups, and report when the model trains. Keep this tab open during the trading day.', 'alert');
+addMsg('Brain Coach is live. I narrate the tape from real worker data - SPY/VIX, the relative-strength scanner, and honest backtest metrics. I will not pretend the desk has timing edge it has not proven.', 'alert');
 tick();
 setInterval(tick, 60 * 1000);
 </script>
