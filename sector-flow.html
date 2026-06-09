@@ -21,7 +21,7 @@
 .rs-arrow { font-size:14px; }
 </style>
 </head>
-<body data-needs="live">
+<body>
 <div id="site-nav"></div>
 
 <div class="container">
@@ -129,10 +129,9 @@ const SECTORS = [
   { etf: 'XLRE', name: 'Real Estate' }
 ];
 
-function getQ(sym) {
-  if (typeof QUOTES !== 'undefined' && QUOTES[sym]) return QUOTES[sym];
-  return { last: 80 + Math.random() * 40, changePct: 0 };
-}
+const WORKER = (window.WorkerBridge && WorkerBridge.getUrl && WorkerBridge.getUrl()) || 'https://bpleone-brain-worker.brandonpleone.workers.dev';
+function pct(v) { return v == null ? '—' : (v >= 0 ? '+' : '') + v.toFixed(2) + '%'; }
+function pctCol(v) { return v == null ? 'var(--text-muted)' : (v > 0 ? 'var(--green)' : 'var(--red)'); }
 
 function quadrant(rs, mom) {
   if (rs >= 100 && mom >= 100) return 'Leading';
@@ -141,35 +140,53 @@ function quadrant(rs, mom) {
   return 'Improving';
 }
 
-function generate() {
-  // Use SPY's change as benchmark
-  const spyChg = getQ('SPY').changePct || 0;
-  return SECTORS.map(s => {
-    const q = getQ(s.etf);
+let data = [];
+
+// Real data: /brain/quotes (live day% + last) + /brain/bars (real OHLC history) for
+// genuine week/month performance and relative strength vs SPY. Nothing synthesized.
+async function loadData() {
+  const syms = SECTORS.map(s => s.etf).concat(['SPY']);
+  let qr = null, br = null;
+  try {
+    [qr, br] = await Promise.all([
+      fetch(WORKER + '/brain/quotes?syms=' + syms.join(','), { cache: 'no-store' }).then(r => r.ok ? r.json() : null).catch(() => null),
+      fetch(WORKER + '/brain/bars?syms=' + syms.join(',') + '&days=30', { cache: 'no-store' }).then(r => r.ok ? r.json() : null).catch(() => null)
+    ]);
+  } catch (e) { return; }
+  const quotes = (qr && qr.quotes) || {};
+  const bars = (br && br.bars) || {};
+  function perf(sym, back) {
+    const b = bars[sym], q = quotes[sym];
+    if (!b || !q || b.length < back + 1) return null;
+    const past = b[b.length - 1 - back];
+    if (!past || !(past.c > 0)) return null;
+    return (q.last - past.c) / past.c * 100;
+  }
+  const spyDay = (quotes.SPY && quotes.SPY.changePct) || 0;
+  const spyWeek = perf('SPY', 5);
+  data = SECTORS.map(s => {
+    const q = quotes[s.etf];
+    if (!q || !(q.last > 0)) return null;
     const dayPct = q.changePct || 0;
-    const seed = s.etf.charCodeAt(0) * 17 + s.etf.charCodeAt(1);
-    const rand = (k) => { const x = Math.sin(seed + k) * 10000; return x - Math.floor(x); };
-    const weekPct = +((dayPct * 2.5) + (rand(1) - 0.5) * 4).toFixed(2);
-    const moPct = +((dayPct * 4) + (rand(2) - 0.5) * 12).toFixed(2);
-    const rs = +(100 + (weekPct - spyChg * 2.5) * 2).toFixed(2); // 100 = parity with SPY
-    const mom = +(100 + (dayPct - spyChg) * 5).toFixed(2);
-    const quad = quadrant(rs, mom);
-    return { ...s, dayPct, weekPct, moPct, rs, mom, quad };
-  });
+    const weekPct = perf(s.etf, 5);
+    const moPct = perf(s.etf, 21);
+    const rs = (weekPct != null && spyWeek != null) ? +(100 + (weekPct - spyWeek)).toFixed(2) : 100;
+    const mom = +(100 + (dayPct - spyDay)).toFixed(2);
+    return { etf: s.etf, name: s.name, last: q.last, dayPct: dayPct, weekPct: weekPct, moPct: moPct, rs: rs, mom: mom, quad: quadrant(rs, mom) };
+  }).filter(Boolean);
+  paint();
 }
 
-let data = generate();
-
 function paint() {
+  if (!data.length) return;
   // KPIs
   const sortedDay = data.slice().sort((a, b) => b.dayPct - a.dayPct);
   document.getElementById('kpiLeader').textContent = sortedDay[0].etf;
-  document.getElementById('kpiLeaderPct').textContent = sortedDay[0].name + ' · +' + sortedDay[0].dayPct.toFixed(2) + '%';
+  document.getElementById('kpiLeaderPct').textContent = sortedDay[0].name + ' · ' + pct(sortedDay[0].dayPct);
   document.getElementById('kpiLagg').textContent = sortedDay[sortedDay.length - 1].etf;
-  document.getElementById('kpiLaggPct').textContent = sortedDay[sortedDay.length - 1].name + ' · ' + sortedDay[sortedDay.length - 1].dayPct.toFixed(2) + '%';
-  document.getElementById('kpiBreadth').textContent = data.filter(d => d.dayPct > 0).length + ' / 11';
-  // Simulated pivot count
-  const pivotCount = data.filter(d => Math.abs(d.mom - 100) > 8).length;
+  document.getElementById('kpiLaggPct').textContent = sortedDay[sortedDay.length - 1].name + ' · ' + pct(sortedDay[sortedDay.length - 1].dayPct);
+  document.getElementById('kpiBreadth').textContent = data.filter(d => d.dayPct > 0).length + ' / ' + data.length;
+  const pivotCount = data.filter(d => Math.abs(d.mom - 100) > 1.5).length;
   document.getElementById('kpiPivots').textContent = pivotCount;
 
   // Scorecard
@@ -180,18 +197,15 @@ function paint() {
                 d.quad === 'Lagging' ? 'lagging' : 'improving';
     const quadCol = d.quad === 'Leading' ? 'var(--green)' : d.quad === 'Weakening' ? 'var(--yellow)' :
                     d.quad === 'Lagging' ? 'var(--red)' : 'var(--accent)';
-    const dayCol = d.dayPct > 0 ? 'var(--green)' : 'var(--red)';
-    const weekCol = d.weekPct > 0 ? 'var(--green)' : 'var(--red)';
-    const moCol = d.moPct > 0 ? 'var(--green)' : 'var(--red)';
     const rsArrow = d.mom > 100 ? '↗' : '↘';
     const row = document.createElement('div');
     row.className = 'sec-flow-row ' + cls;
     row.innerHTML = '<div>' + (i + 1) + '</div>'
       + '<div><strong>' + d.etf + '</strong></div>'
       + '<div style="color:var(--text-secondary);font-family:Inter;font-size:11px;">' + d.name + '</div>'
-      + '<div style="color:' + dayCol + ';">' + (d.dayPct >= 0 ? '+' : '') + d.dayPct.toFixed(2) + '%</div>'
-      + '<div style="color:' + weekCol + ';">' + (d.weekPct >= 0 ? '+' : '') + d.weekPct.toFixed(2) + '%</div>'
-      + '<div style="color:' + moCol + ';">' + (d.moPct >= 0 ? '+' : '') + d.moPct.toFixed(2) + '%</div>'
+      + '<div style="color:' + pctCol(d.dayPct) + ';">' + pct(d.dayPct) + '</div>'
+      + '<div style="color:' + pctCol(d.weekPct) + ';">' + pct(d.weekPct) + '</div>'
+      + '<div style="color:' + pctCol(d.moPct) + ';">' + pct(d.moPct) + '</div>'
       + '<div style="color:' + quadCol + ';font-weight:700;">' + d.quad + '</div>'
       + '<div><span class="rs-arrow" style="color:' + quadCol + ';">' + rsArrow + '</span> ' + d.rs.toFixed(1) + '</div>';
     row.onclick = () => { window.location.href = 'ticker.html?sym=' + d.etf; };
@@ -235,7 +249,7 @@ function paint() {
   });
 
   // Pivots
-  const piv = data.filter(d => Math.abs(d.mom - 100) > 8 || Math.abs(d.rs - 100) > 5);
+  const piv = data.filter(d => Math.abs(d.mom - 100) > 1.5 || Math.abs(d.rs - 100) > 1.5);
   const pe = document.getElementById('pivots');
   pe.innerHTML = '';
   if (piv.length === 0) {
@@ -248,16 +262,15 @@ function paint() {
                   p.quad === 'Weakening' ? 'var(--yellow)' : 'var(--red)';
       const action = p.quad === 'Leading' || p.quad === 'Improving' ? 'BUY watch' : p.quad === 'Weakening' ? 'TRIM' : 'AVOID';
       card.innerHTML = '<div><strong>' + p.etf + '</strong> · ' + p.name + ' <span style="color:' + col + ';font-weight:700;margin-left:8px;">' + p.quad + '</span>'
-        + '<div style="font-size:11px;color:var(--text-muted);margin-top:2px;">RS ' + p.rs.toFixed(1) + ' · Mom ' + p.mom.toFixed(1) + ' · Week ' + (p.weekPct >= 0 ? '+' : '') + p.weekPct.toFixed(2) + '%</div></div>'
+        + '<div style="font-size:11px;color:var(--text-muted);margin-top:2px;">RS ' + p.rs.toFixed(1) + ' · Mom ' + p.mom.toFixed(1) + ' · Week ' + pct(p.weekPct) + '</div></div>'
         + '<div class="mono" style="color:' + col + ';font-weight:700;">' + action + '</div>';
       pe.appendChild(card);
     });
   }
 }
-paint();
-
-document.getElementById('refreshBtn').addEventListener('click', () => { data = generate(); paint(); });
-setInterval(() => { data = generate(); paint(); }, 30000);
+loadData();
+document.getElementById('refreshBtn').addEventListener('click', loadData);
+setInterval(loadData, 60000);
 </script>
 </body>
 </html>

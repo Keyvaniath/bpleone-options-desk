@@ -38,7 +38,7 @@
 // Pass 200: version stamp so brain-proof.html + worker-setup.html can detect
 // when the deployed worker is behind the repo source. Bump on every meaningful
 // behavior change. Read via /brain/health → worker_version field.
-const WORKER_VERSION = 'pass-281';
+const WORKER_VERSION = 'pass-282';
 
 const UNIVERSE = [
   'SPY','QQQ','IWM','DIA','AAPL','NVDA','TSLA','MSFT','META','AMZN','GOOGL','AMD',
@@ -46,7 +46,7 @@ const UNIVERSE = [
   'CRM','UBER','SLV','UNG','DBA','FXI','MCHI','EWJ','EWG','EWU','INDA','EWZ','EWY',
   'EWT','EEM','EFA','VEA','VWO','UUP','FXE','FXY','FXB','FXC','FXA','FXF','SHY',
   'IEF','TBT','HYG','LQD','TIP','VXX','UVXY','VNQ','NFLX','ORCL','AVGO','MU',
-  'JPM','BAC','GS','XLF','XLK','XLV','XLY','XLP','XLI','XLU'
+  'JPM','BAC','GS','XLF','XLK','XLV','XLY','XLP','XLI','XLU','XLC','XLB','XLRE'
 ];
 
 const KV_KEYS = {
@@ -713,7 +713,8 @@ const STOOQ_MAP = {
   HYG:'hyg.us', LQD:'lqd.us', TIP:'tip.us', VXX:'vxx.us', UVXY:'uvxy.us',
   VNQ:'vnq.us', NFLX:'nflx.us', ORCL:'orcl.us', AVGO:'avgo.us', MU:'mu.us',
   JPM:'jpm.us', BAC:'bac.us', GS:'gs.us', XLF:'xlf.us', XLK:'xlk.us',
-  XLV:'xlv.us', XLY:'xly.us', XLP:'xlp.us', XLI:'xli.us', XLU:'xlu.us'
+  XLV:'xlv.us', XLY:'xly.us', XLP:'xlp.us', XLI:'xli.us', XLU:'xlu.us',
+  XLC:'xlc.us', XLB:'xlb.us', XLRE:'xlre.us'
 };
 
 async function fetchStooqHistorical(sym, days) {
@@ -1511,6 +1512,26 @@ async function handleRequest(request, env, ctx) {
     const out = {};
     req.forEach(s => { if (q[s]) out[s] = q[s]; });
     return json({ updatedAt: (cache.updatedAt || now), count: Object.keys(out).length, quotes: out });
+  }
+
+  // ===== Pass 282: REAL daily OHLC bars (for sector RS, breadth, TA, pivots) =====
+  // Serves the per-symbol bar history the cron already maintains in KV - no new
+  // fetches, no added cost. Lets pages compute REAL week/month performance, moving
+  // averages, RSI / pivots / candle patterns instead of synthesizing them.
+  if (path === '/brain/bars') {
+    const reqRaw = (url.searchParams.get('syms') || url.searchParams.get('sym') || '').toUpperCase();
+    let reqB = reqRaw ? reqRaw.split(',').map(s => s.trim()).filter(Boolean) : UNIVERSE.slice();
+    reqB = [...new Set(reqB)];
+    const daysB = Math.min(40, Math.max(2, parseInt(url.searchParams.get('days') || '40', 10) || 40));
+    const barsHistory = await kvGet(env, KV_KEYS.BARS_HISTORY, {});
+    const outB = {};
+    for (const sym of reqB) {
+      const h = barsHistory[sym];
+      if (Array.isArray(h) && h.length) {
+        outB[sym] = h.slice(-daysB).map(b => ({ ts: b.ts, o: b.open, h: b.high, l: b.low, c: b.close, v: b.volume }));
+      }
+    }
+    return json({ count: Object.keys(outB).length, days: daysB, bars: outB });
   }
 
   // ===== Pass 248: REAL news feed (Finnhub via worker key — free for all) =====
