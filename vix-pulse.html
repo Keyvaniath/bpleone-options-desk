@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>VIX Pulse — bpleone / trade</title>
-<meta name="description" content="Real-time VIX action: intraday tape, spikes, regime classification, historical analogs.">
+<meta name="description" content="VIX fear gauge: delayed quote, daily trend, regime classification, historical analogs.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="css/style.css?v=v197">
@@ -20,7 +20,7 @@
 .analog-card { padding:12px 14px;background:var(--bg-elevated);border-radius:8px;border:1px solid var(--border); }
 </style>
 </head>
-<body data-needs="live">
+<body>
 <div id="site-nav"></div>
 
 <div class="container">
@@ -48,9 +48,9 @@
     <div class="vix-stat"><div class="l">52W PERCENTILE</div><div class="v" id="pctile">--</div></div>
   </div>
 
-  <!-- INTRADAY CHART -->
+  <!-- DAILY TREND -->
   <div class="card">
-    <div class="card-header"><div class="card-title">📈 Intraday tape — last 6h</div></div>
+    <div class="card-header"><div class="card-title">📈 VIX trend — last ~40 sessions (daily close)</div><div class="badge" style="background:rgba(245,158,11,0.12);color:var(--yellow);">DELAYED ~15 MIN</div></div>
     <canvas id="intradayChart" height="200"></canvas>
   </div>
 
@@ -95,7 +95,21 @@
 <script>
 buildNav('vix-pulse');
 
-function getQ(s) { return (typeof QUOTES !== 'undefined' && QUOTES[s]) ? QUOTES[s] : { last: 0, changePct: 0 }; }
+const WORKER = (window.WorkerBridge && WorkerBridge.getUrl && WorkerBridge.getUrl()) || 'https://bpleone-brain-worker.brandonpleone.workers.dev';
+let VIXQ = null, VIXB = [];
+function sma(arr, n) { if (arr.length < n) return null; return arr.slice(-n).reduce((a, b) => a + b, 0) / n; }
+// Real VIX from /brain/quotes (Yahoo ^VIX) + real daily history from /brain/bars.
+async function loadVix() {
+  try {
+    const [qr, br] = await Promise.all([
+      fetch(WORKER + '/brain/quotes?syms=VIX', { cache: 'no-store' }).then(r => r.ok ? r.json() : null).catch(() => null),
+      fetch(WORKER + '/brain/bars?syms=VIX&days=40', { cache: 'no-store' }).then(r => r.ok ? r.json() : null).catch(() => null)
+    ]);
+    VIXQ = (qr && qr.quotes && qr.quotes.VIX) || null;
+    VIXB = (br && br.bars && br.bars.VIX) || [];
+  } catch (e) {}
+  paint();
+}
 
 const ANALOGS = [
   { vix: 14, when: 'Q2 2024', context: 'Late-cycle goldilocks. SPY +8% over next 90d. Complacency rewarded.' },
@@ -108,9 +122,12 @@ const ANALOGS = [
 
 let intradayChart;
 function paint() {
-  const vxx = getQ('VXX');
-  const vix = +Math.max(10, Math.min(60, (vxx.last || 18) * 1.1 + 4)).toFixed(2);
-  const vixChg = (vxx.changePct || 0) * 1.1;
+  if (!VIXQ || !(VIXQ.last > 0)) {
+    document.getElementById('vixMega').textContent = '—';
+    return;
+  }
+  const vix = +VIXQ.last.toFixed(2);
+  const vixChg = VIXQ.changePct || 0;
   document.getElementById('vixMega').textContent = vix.toFixed(2);
   const col = vix > 30 ? 'var(--red)' : vix > 22 ? 'var(--yellow)' : vix > 18 ? 'var(--accent)' : 'var(--green)';
   document.getElementById('vixMega').style.color = col;
@@ -130,29 +147,26 @@ function paint() {
   rb.style.color = txt;
   rb.style.border = '1px solid ' + txt;
 
-  // KPIs
-  document.getElementById('dayHi').textContent = (vix * 1.02).toFixed(2);
-  document.getElementById('dayLo').textContent = (vix * 0.98).toFixed(2);
-  document.getElementById('avg5').textContent = (vix * 0.96).toFixed(2);
-  document.getElementById('avg20').textContent = (vix * 0.92).toFixed(2);
-  document.getElementById('pctile').textContent = Math.min(99, Math.max(1, Math.round((vix - 10) / 50 * 100))) + '%';
+  // KPIs — REAL from the quote + bar history
+  const closes = VIXB.map(b => b.c).filter(c => c > 0);
+  document.getElementById('dayHi').textContent = VIXQ.dayHigh ? (+VIXQ.dayHigh).toFixed(2) : '—';
+  document.getElementById('dayLo').textContent = VIXQ.dayLow ? (+VIXQ.dayLow).toFixed(2) : '—';
+  const a5 = sma(closes, 5), a20 = sma(closes, 20);
+  document.getElementById('avg5').textContent = a5 != null ? a5.toFixed(2) : '—';
+  document.getElementById('avg20').textContent = a20 != null ? a20.toFixed(2) : '—';
+  document.getElementById('pctile').textContent = closes.length >= 5 ? Math.round(closes.filter(c => c < vix).length / closes.length * 100) + '%' : '—';
 
-  // Intraday chart
-  const labels = [], data = [];
-  for (let i = 71; i >= 0; i--) {
-    const t = new Date(Date.now() - i * 5 * 60000);
-    labels.push(t.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false }));
-    data.push(+(vix + Math.sin(i / 8) * 0.5 + (Math.random() - 0.5) * 0.4).toFixed(2));
-  }
-  data[data.length - 1] = vix;
+  // Chart — REAL daily VIX closes (no free intraday feed)
+  const labels = VIXB.map(b => b.ts ? new Date(b.ts).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '');
+  const data = VIXB.map(b => b.c);
   if (intradayChart) intradayChart.destroy();
   intradayChart = new Chart(document.getElementById('intradayChart').getContext('2d'), {
     type: 'line',
-    data: { labels, datasets: [{ label: 'VIX', data, borderColor: col, backgroundColor: 'rgba(0,212,255,0.06)', fill: true, tension: 0.3, pointRadius: 0, borderWidth: 2 }] },
+    data: { labels: labels, datasets: [{ label: 'VIX (daily close)', data: data, borderColor: col, backgroundColor: 'rgba(0,212,255,0.06)', fill: true, tension: 0.3, pointRadius: 0, borderWidth: 2 }] },
     options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { grid: { color: 'rgba(255,255,255,0.04)' }, ticks: { color: '#6b7280', font: { size: 9 }, maxTicksLimit: 8 } }, y: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#6b7280' } } } }
   });
 
-  // Analogs
+  // Analogs (real historical reference)
   const closest = ANALOGS.slice().sort((a, b) => Math.abs(a.vix - vix) - Math.abs(b.vix - vix)).slice(0, 3);
   const an = document.getElementById('analogs');
   an.innerHTML = '';
@@ -164,9 +178,9 @@ function paint() {
     an.appendChild(card);
   });
 }
-paint();
-document.getElementById('refreshBtn').addEventListener('click', paint);
-setInterval(paint, 30000);
+loadVix();
+document.getElementById('refreshBtn').addEventListener('click', loadVix);
+setInterval(loadVix, 60000);
 </script>
 </body>
 </html>
