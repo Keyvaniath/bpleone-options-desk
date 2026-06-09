@@ -80,19 +80,21 @@ const TICKER_SYMBOLS = ['SPY','QQQ','IWM','DIA','AAPL','NVDA','TSLA','MSFT','MET
 // LIVE/DELAYED banner so we label by actual data AGE, never by provider name.
 function equityDataAgeMin() {
   try {
-    // Use the broad-market index ETFs as the "is the equity market live" signal.
-    // They always flow from the same (worker/Yahoo) source and carry the market
-    // data timestamp, so a single real-time-streaming single-name (e.g. a Finnhub
-    // WS tick on one stock) cannot mask that the broad market is closed/stale. The
-    // earlier min-across-ALL-equities version got skewed to ~0/1 by whichever name
-    // ticked last, which would have let the pill claim LIVE while SPY was 9h stale.
+    // Age of the freshest broad-market index from the MARKET-TIMESTAMP source
+    // (worker/Yahoo/Stooq), which carries the real last-trade time. Finnhub WS is
+    // deliberately EXCLUDED: off-hours its heartbeat resets liveAt to ~now and would
+    // hide that the printed price is a stale last-close (this exact race made the
+    // pill flash LIVE on today.html while SPY was 9.7h stale). Used only for the
+    // "N ago" detail - the live-vs-stale decision is made by detectSession() (clock).
     const CORE = ['SPY', 'QQQ', 'DIA', 'IWM'];
     const Q = (typeof QUOTES !== 'undefined') ? QUOTES : {};
     const now = Date.now();
     let minAge = null;
     for (let i = 0; i < CORE.length; i++) {
       const q = Q[CORE[i]];
-      if (q && q.priceSource && q.priceSource !== 'stale-seed' && q.priceSource !== 'mock' && q.liveAt) {
+      if (!q || !q.liveAt) continue;
+      const ps = q.priceSource || '';
+      if (/worker|yahoo|stooq/i.test(ps)) {
         const age = (now - q.liveAt) / 60000;
         if (minAge === null || age < minAge) minAge = age;
       }
@@ -422,11 +424,12 @@ function wireDataPill() {
   const render = (s) => {
     let cls = 'mock', label = 'MOCK';
     if (s.status === 'connected') {
-      // Honest pill (audit pass 270): a connected WS streams crypto in real time,
-      // but equities are delayed/last-close. If the freshest real equity quote is
-      // stale (market shut), say DELAYED rather than implying every symbol is live.
-      const eqAge = (typeof equityDataAgeMin === 'function') ? equityDataAgeMin() : null;
-      if (eqAge !== null && eqAge > 45) { cls = 'connecting'; label = 'DELAYED · LAST CLOSE'; }
+      // Honest pill (audit pass 277): a connected WS streams crypto in real time,
+      // but equities are only live during regular US hours; outside them the printed
+      // equity price is last-close. Gate on the ET clock (detectSession), NOT on a
+      // liveAt age that a racing off-hours WS heartbeat can reset to ~now.
+      const sess = (typeof detectSession === 'function') ? detectSession() : 'open';
+      if (sess !== 'open') { cls = 'connecting'; label = 'DELAYED · LAST CLOSE'; }
       else { cls = 'live'; label = 'LIVE · ' + (s.provider || '').toUpperCase(); }
     }
     else if (s.status === 'connecting') { cls = 'connecting'; label = 'CONNECTING'; }
