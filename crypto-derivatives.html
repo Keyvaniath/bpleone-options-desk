@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Crypto Derivatives — bpleone / trade</title>
-<meta name="description" content="BTC/ETH funding rates, perp basis, open interest, liquidations, term-structure — institutional crypto derivatives desk.">
+<meta name="description" content="Live Binance perp funding rates, perp basis, open interest, 24h volume and funding history for BTC/ETH and majors.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="css/style.css?v=v197">
@@ -19,14 +19,14 @@
 .func-row { display:grid; grid-template-columns: 70px 70px 80px 90px 80px 80px 1fr; gap:8px; padding:9px 12px; border-bottom:1px solid var(--border); font-family:var(--font-mono); font-size:11px; align-items:center; }
 </style>
 </head>
-<body data-needs="live">
+<body>
 <div id="site-nav"></div>
 
 <div class="container">
   <div class="page-header">
     <div>
       <div class="page-title">⚡ Crypto Derivatives</div>
-      <div class="page-subtitle">Funding · perp basis · OI · liquidations · term · <span id="market-clock">--</span></div>
+      <div class="page-subtitle">Binance perps · live funding · basis · OI · 24h vol · <span id="market-clock">--</span></div>
     </div>
     <div class="flex gap-8">
       <button class="btn btn-secondary" id="refreshBtn">🔄</button>
@@ -47,7 +47,7 @@
 
   <!-- FUNDING RATES TABLE -->
   <div class="card mb-24" style="padding:0;">
-    <div class="card-header" style="padding:14px 16px;"><div class="card-title">💸 Funding Rates by Exchange (8h annualized)</div></div>
+    <div class="card-header" style="padding:14px 16px;"><div class="card-title">💸 Binance Perp Funding by Asset (8h · annualized)</div><div class="badge" style="background:rgba(16,185,129,0.12);color:var(--green);">LIVE · BINANCE</div></div>
     <div class="func-row" style="background:var(--bg-elevated);font-size:9px;color:var(--text-muted);font-weight:800;letter-spacing:0.5px;">
       <div>EXCH</div><div>ASSET</div><div>FUNDING</div><div>ANNUALIZED</div><div>OI ($M)</div><div>VOL (24h)</div><div>REGIME</div>
     </div>
@@ -57,14 +57,14 @@
   <!-- 24h LIQUIDATIONS + TERM STRUCTURE -->
   <div class="grid grid-12">
     <div class="card col-6">
-      <div class="card-header"><div class="card-title">💀 24h Liquidations</div></div>
+      <div class="card-header"><div class="card-title">💸 BTC Funding Rate — last 30 periods (real)</div></div>
       <canvas id="liqChart" height="220"></canvas>
       <div class="mono mt-12" style="font-size:11px;color:var(--text-muted);">
-        Longs <span class="red-text mono" id="longsLiq">--</span> · Shorts <span class="green-text mono" id="shortsLiq">--</span>
+        Positive = longs pay shorts (crowded long); negative = shorts pay longs. Live Binance 8h funding. (Liquidation feeds need a paid aggregator.)
       </div>
     </div>
     <div class="card col-6">
-      <div class="card-header"><div class="card-title">📈 BTC Futures Term Structure</div></div>
+      <div class="card-header"><div class="card-title">📈 ETH Funding Rate — last 30 periods (real)</div></div>
       <canvas id="termChart" height="220"></canvas>
       <div class="mono mt-12" style="font-size:11px;color:var(--text-muted);" id="termBody">--</div>
     </div>
@@ -101,127 +101,114 @@
 <script>
 buildNav('crypto-derivatives');
 
-function getQ(s) { return (typeof QUOTES !== 'undefined' && QUOTES[s]) ? QUOTES[s] : { last: 0, changePct: 0 }; }
+// All data from Binance USDS-M Futures public API (no key, CORS-enabled).
+// Funding, mark/index, OI, 24h volume, long/short ratio, funding history - real.
+const FAPI = 'https://fapi.binance.com';
+async function bj(path) {
+  try { const r = await fetch(FAPI + path, { cache: 'no-store' }); if (!r.ok) return null; return await r.json(); } catch (e) { return null; }
+}
+function fmtUsd(v) {
+  if (v == null || !isFinite(v)) return '—';
+  if (v >= 1e9) return '$' + (v / 1e9).toFixed(1) + 'B';
+  if (v >= 1e6) return '$' + (v / 1e6).toFixed(1) + 'M';
+  if (v >= 1e3) return '$' + (v / 1e3).toFixed(1) + 'K';
+  return '$' + Math.round(v);
+}
+function annualizePct(rate8h) { return rate8h == null ? null : rate8h * 3 * 365 * 100; } // 3 fundings/day
 
-const btc = getQ('BTC');
-const eth = getQ('ETH');
-const btcPx = btc.last || 95000;
-const ethPx = eth.last || 4200;
+async function loadAsset(sym) {
+  const s = sym + 'USDT';
+  const [pi, oi, tk, ls] = await Promise.all([
+    bj('/fapi/v1/premiumIndex?symbol=' + s),
+    bj('/fapi/v1/openInterest?symbol=' + s),
+    bj('/fapi/v1/ticker/24hr?symbol=' + s),
+    bj('/futures/data/globalLongShortAccountRatio?symbol=' + s + '&period=1h&limit=1')
+  ]);
+  const mark = pi && +pi.markPrice > 0 ? +pi.markPrice : null;
+  const index = pi && +pi.indexPrice > 0 ? +pi.indexPrice : null;
+  const funding = pi && pi.lastFundingRate != null && pi.lastFundingRate !== '' ? +pi.lastFundingRate : null;
+  const chgPct = tk && tk.priceChangePercent != null ? +tk.priceChangePercent : null;
+  const oiCoins = oi && oi.openInterest != null ? +oi.openInterest : null;
+  const oiUsd = (oiCoins != null && mark != null) ? oiCoins * mark : null;
+  const vol24 = tk && tk.quoteVolume != null ? +tk.quoteVolume : null;
+  const lsr = (Array.isArray(ls) && ls[0] && ls[0].longShortRatio != null) ? +ls[0].longShortRatio : null;
+  const basis = (mark != null && index != null && index > 0) ? (mark - index) / index * 100 : null;
+  return { sym, mark, index, funding, chgPct, oiUsd, vol24, lsr, basis };
+}
 
-function paintMain() {
-  // BTC
-  const btcFunding = +(0.01 + (btc.changePct || 0) * 0.005 + (Math.random() - 0.5) * 0.02).toFixed(4);
-  const btcBasis = +(2 + (btc.changePct || 0) * 0.4 + Math.random() * 4).toFixed(2);
-  const btcOI = (28 + Math.random() * 10).toFixed(1);
-  const btcCards = [
-    { l: 'PERP PX', v: '$' + btcPx.toLocaleString(undefined, { maximumFractionDigits: 0 }), s: (btc.changePct >= 0 ? '+' : '') + (btc.changePct || 0).toFixed(2) + '%', col: btc.changePct >= 0 ? 'var(--green)' : 'var(--red)' },
-    { l: 'FUNDING (8h)', v: (btcFunding * 100).toFixed(3) + '%', s: 'Annual ' + ((btcFunding * 100 * 365 / 0.333)).toFixed(1) + '%', col: btcFunding > 0.025 ? 'var(--red)' : btcFunding < -0.005 ? 'var(--green)' : 'var(--text-primary)' },
-    { l: 'BASIS', v: '+' + btcBasis + '%', s: '3M premium', col: btcBasis > 8 ? 'var(--yellow)' : 'var(--accent)' },
-    { l: 'OPEN INTEREST', v: '$' + btcOI + 'B', s: 'Across all derivs', col: 'var(--text-primary)' },
-    { l: '24h VOL', v: '$' + (45 + Math.random() * 25).toFixed(1) + 'B', s: 'Combined perps', col: 'var(--text-primary)' },
-    { l: 'L/S RATIO', v: (1.0 + (Math.random() - 0.5) * 0.4).toFixed(2), s: 'Long/short retail', col: 'var(--text-primary)' }
+function renderGrid(id, d) {
+  const fundCol = d.funding == null ? 'var(--text-primary)' : d.funding > 0.0003 ? 'var(--red)' : d.funding < -0.0001 ? 'var(--green)' : 'var(--text-primary)';
+  const ann = annualizePct(d.funding);
+  const cards = [
+    { l: 'PERP MARK', v: d.mark != null ? '$' + d.mark.toLocaleString(undefined, { maximumFractionDigits: 0 }) : '—', s: d.chgPct != null ? (d.chgPct >= 0 ? '+' : '') + d.chgPct.toFixed(2) + '% 24h' : '', col: d.chgPct == null ? 'var(--text-primary)' : d.chgPct >= 0 ? 'var(--green)' : 'var(--red)' },
+    { l: 'FUNDING (8h)', v: d.funding != null ? (d.funding * 100).toFixed(4) + '%' : '—', s: ann != null ? 'Annual ' + ann.toFixed(1) + '%' : '', col: fundCol },
+    { l: 'PERP BASIS', v: d.basis != null ? (d.basis >= 0 ? '+' : '') + d.basis.toFixed(3) + '%' : '—', s: 'mark vs index', col: 'var(--accent)' },
+    { l: 'OPEN INTEREST', v: fmtUsd(d.oiUsd), s: 'Binance perp', col: 'var(--text-primary)' },
+    { l: '24h VOL', v: fmtUsd(d.vol24), s: 'Binance perp', col: 'var(--text-primary)' },
+    { l: 'L/S RATIO', v: d.lsr != null ? d.lsr.toFixed(2) : '—', s: 'Top accounts', col: d.lsr == null ? 'var(--text-primary)' : d.lsr > 1.2 ? 'var(--red)' : d.lsr < 0.85 ? 'var(--green)' : 'var(--text-primary)' }
   ];
-  document.getElementById('btcGrid').innerHTML = btcCards.map(c =>
+  document.getElementById(id).innerHTML = cards.map(c =>
     '<div class="cr-card"><div class="l">' + c.l + '</div><div class="v" style="color:' + (c.col || 'var(--text-primary)') + ';">' + c.v + '</div><div class="s" style="color:var(--text-muted);">' + c.s + '</div></div>'
   ).join('');
+}
 
-  // ETH
-  const ethFunding = +(0.008 + (eth.changePct || 0) * 0.005 + (Math.random() - 0.5) * 0.02).toFixed(4);
-  const ethBasis = +(1.5 + (eth.changePct || 0) * 0.4 + Math.random() * 3.5).toFixed(2);
-  const ethOI = (12 + Math.random() * 5).toFixed(1);
-  const ethCards = [
-    { l: 'PERP PX', v: '$' + ethPx.toLocaleString(undefined, { maximumFractionDigits: 0 }), s: (eth.changePct >= 0 ? '+' : '') + (eth.changePct || 0).toFixed(2) + '%', col: eth.changePct >= 0 ? 'var(--green)' : 'var(--red)' },
-    { l: 'FUNDING (8h)', v: (ethFunding * 100).toFixed(3) + '%', s: 'Annual ' + ((ethFunding * 100 * 365 / 0.333)).toFixed(1) + '%', col: ethFunding > 0.025 ? 'var(--red)' : ethFunding < -0.005 ? 'var(--green)' : 'var(--text-primary)' },
-    { l: 'BASIS', v: '+' + ethBasis + '%', s: '3M premium', col: ethBasis > 7 ? 'var(--yellow)' : 'var(--accent)' },
-    { l: 'OPEN INTEREST', v: '$' + ethOI + 'B', s: 'Across all derivs', col: 'var(--text-primary)' },
-    { l: '24h VOL', v: '$' + (22 + Math.random() * 14).toFixed(1) + 'B', s: 'Combined perps', col: 'var(--text-primary)' },
-    { l: 'L/S RATIO', v: (1.0 + (Math.random() - 0.5) * 0.4).toFixed(2), s: 'Long/short retail', col: 'var(--text-primary)' }
-  ];
-  document.getElementById('ethGrid').innerHTML = ethCards.map(c =>
-    '<div class="cr-card"><div class="l">' + c.l + '</div><div class="v" style="color:' + (c.col || 'var(--text-primary)') + ';">' + c.v + '</div><div class="s" style="color:var(--text-muted);">' + c.s + '</div></div>'
-  ).join('');
-
-  // Funding table
-  const EXCHANGES = ['Binance', 'OKX', 'Bybit', 'Bitget', 'dYdX', 'GMX', 'Hyperliquid'];
-  const ASSETS = [['BTC', btcPx], ['ETH', ethPx], ['SOL', 215], ['DOGE', 0.42], ['XRP', 2.8]];
+async function loadFundingTable() {
+  const ASSETS = ['BTC', 'ETH', 'SOL', 'DOGE', 'XRP'];
+  const rows = await Promise.all(ASSETS.map(a => loadAsset(a)));
   const fb = document.getElementById('fundBody');
   fb.innerHTML = '';
-  EXCHANGES.forEach(exch => {
-    ASSETS.forEach(([a, px]) => {
-      const f = +(0.005 + (Math.random() - 0.5) * 0.035).toFixed(4);
-      const annual = +(f * 100 * 365 / 0.333).toFixed(1);
-      const oi = +(50 + Math.random() * 4000).toFixed(0);
-      const vol = +(100 + Math.random() * 8000).toFixed(0);
-      const regime = annual > 30 ? 'OVERHEATED' : annual < -5 ? 'CAPITULATION' : 'NEUTRAL';
-      const col = annual > 30 ? 'var(--red)' : annual < -5 ? 'var(--green)' : 'var(--accent)';
-      const row = document.createElement('div');
-      row.className = 'func-row';
-      row.innerHTML = '<div>' + exch + '</div>'
-        + '<div><strong>' + a + '</strong></div>'
-        + '<div style="color:' + col + ';">' + (f * 100).toFixed(3) + '%</div>'
-        + '<div style="color:' + col + ';">' + (annual >= 0 ? '+' : '') + annual + '%</div>'
-        + '<div>$' + oi + 'M</div>'
-        + '<div>$' + vol + 'M</div>'
-        + '<div style="color:' + col + ';font-weight:700;font-size:9px;">' + regime + '</div>';
-      fb.appendChild(row);
-    });
+  rows.forEach(d => {
+    const ann = annualizePct(d.funding);
+    const regime = ann == null ? '—' : ann > 30 ? 'OVERHEATED' : ann < -5 ? 'CAPITULATION' : 'NEUTRAL';
+    const col = ann == null ? 'var(--text-muted)' : ann > 30 ? 'var(--red)' : ann < -5 ? 'var(--green)' : 'var(--accent)';
+    const row = document.createElement('div');
+    row.className = 'func-row';
+    row.innerHTML = '<div>Binance</div>'
+      + '<div><strong>' + d.sym + '</strong></div>'
+      + '<div style="color:' + col + ';">' + (d.funding != null ? (d.funding * 100).toFixed(4) + '%' : '—') + '</div>'
+      + '<div style="color:' + col + ';">' + (ann != null ? (ann >= 0 ? '+' : '') + ann.toFixed(1) + '%' : '—') + '</div>'
+      + '<div>' + fmtUsd(d.oiUsd) + '</div>'
+      + '<div>' + fmtUsd(d.vol24) + '</div>'
+      + '<div style="color:' + col + ';font-weight:700;font-size:9px;">' + regime + '</div>';
+    fb.appendChild(row);
   });
 }
-paintMain();
 
-// Liquidations chart
-function paintLiq() {
-  const longs = Math.floor(80 + Math.random() * 280);
-  const shorts = Math.floor(40 + Math.random() * 200);
-  document.getElementById('longsLiq').textContent = '$' + longs + 'M';
-  document.getElementById('shortsLiq').textContent = '$' + shorts + 'M';
-  const ctx = document.getElementById('liqChart').getContext('2d');
-  if (window._liq) window._liq.destroy();
-  const labels = []; const lD = []; const sD = [];
-  for (let i = 23; i >= 0; i--) {
-    labels.push(i + 'h');
-    lD.push(Math.random() * 30 + 2);
-    sD.push(Math.random() * 22 + 2);
+async function paintFundingChart(sym, canvasId, store, color) {
+  const hist = await bj('/fapi/v1/fundingRate?symbol=' + sym + 'USDT&limit=30');
+  const ctx = document.getElementById(canvasId).getContext('2d');
+  if (window[store]) window[store].destroy();
+  if (!Array.isArray(hist) || !hist.length) return;
+  const labels = hist.map(h => { const d = new Date(h.fundingTime); return (d.getMonth() + 1) + '/' + d.getDate(); });
+  const data = hist.map(h => +(+h.fundingRate * 100).toFixed(4));
+  window[store] = new Chart(ctx, {
+    type: 'line',
+    data: { labels, datasets: [{ label: sym + ' funding %', data, borderColor: color, backgroundColor: 'rgba(0,212,255,0.08)', fill: true, tension: 0.25, pointRadius: 0, borderWidth: 2 }] },
+    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { grid: { color: 'rgba(255,255,255,0.04)' }, ticks: { color: '#6b7280', font: { size: 9 }, maxTicksLimit: 8 } }, y: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#6b7280' } } } }
+  });
+}
+
+async function loadAll() {
+  const [btc, eth] = await Promise.all([loadAsset('BTC'), loadAsset('ETH')]);
+  if (btc.mark == null && eth.mark == null) {
+    document.getElementById('btcGrid').innerHTML = '<div style="color:var(--text-muted);font-size:12px;padding:10px;">Binance API unreachable from this network. Funding / OI / basis are live when reachable.</div>';
+    document.getElementById('ethGrid').innerHTML = '';
+  } else {
+    renderGrid('btcGrid', btc);
+    renderGrid('ethGrid', eth);
   }
-  window._liq = new Chart(ctx, {
-    type: 'bar',
-    data: { labels, datasets: [
-      { label: 'Long liq ($M)', data: lD, backgroundColor: 'rgba(239,68,68,0.7)' },
-      { label: 'Short liq ($M)', data: sD.map(v => -v), backgroundColor: 'rgba(16,185,129,0.7)' }
-    ] },
-    options: { responsive: true, maintainAspectRatio: false,
-      plugins: { legend: { display: true, position: 'top', labels: { color: '#9ca3af', font: { size: 10 } } } },
-      scales: {
-        x: { grid: { display: false }, ticks: { color: '#6b7280', font: { size: 9 } }, stacked: true },
-        y: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#6b7280' }, stacked: true }
-      } }
-  });
+  await loadFundingTable();
+  await paintFundingChart('BTC', 'liqChart', '_liq', 'rgba(247,147,26,1)');
+  await paintFundingChart('ETH', 'termChart', '_term', 'rgba(0,212,255,1)');
+  const ethAnn = annualizePct(eth.funding);
+  document.getElementById('termBody').textContent = ethAnn != null
+    ? 'ETH 8h funding annualizes to ' + (ethAnn >= 0 ? '+' : '') + ethAnn.toFixed(1) + '% - ' + (ethAnn > 30 ? 'crowded longs' : ethAnn < -5 ? 'crowded shorts' : 'balanced positioning')
+    : 'Waiting for Binance funding...';
 }
-paintLiq();
 
-// Term structure
-function paintTerm() {
-  const labels = ['Spot', '1W', '2W', '1M', '3M', '6M', '1Y'];
-  const base = btcPx;
-  const slope = 0.012;
-  const data = labels.map((_, i) => +(base * (1 + slope * i / 6 + (Math.random() - 0.5) * 0.002)).toFixed(0));
-  const ctx = document.getElementById('termChart').getContext('2d');
-  if (window._term) window._term.destroy();
-  window._term = new Chart(ctx, {
-    type: 'line', data: { labels, datasets: [
-      { label: 'BTC Futures', data, borderColor: 'rgba(0,212,255,1)', backgroundColor: 'rgba(0,212,255,0.08)', fill: true, tension: 0.3, borderWidth: 2, pointRadius: 4 }
-    ] },
-    options: { responsive: true, maintainAspectRatio: false,
-      plugins: { legend: { display: false } },
-      scales: { x: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#9ca3af' } }, y: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#9ca3af' } } } }
-  });
-  const annualBasis = ((data[6] / data[0]) - 1) * 100;
-  document.getElementById('termBody').textContent = '1Y futures pricing ' + annualBasis.toFixed(1) + '% above spot — ' + (annualBasis > 7 ? 'strong contango / institutional bid' : 'neutral / soft positioning');
-}
-paintTerm();
-
-document.getElementById('refreshBtn').addEventListener('click', () => { paintMain(); paintLiq(); paintTerm(); });
-setInterval(() => { paintMain(); paintLiq(); }, 30000);
+loadAll();
+document.getElementById('refreshBtn').addEventListener('click', loadAll);
+setInterval(loadAll, 60000);
 </script>
 </body>
 </html>

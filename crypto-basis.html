@@ -28,7 +28,7 @@
 .tag.extreme { background: rgba(239,68,68,0.20); color: var(--red); border-color: rgba(239,68,68,0.5); }
 </style>
 </head>
-<body data-needs="crypto-funding">
+<body>
 <div id="site-nav"></div>
 
 <div class="container">
@@ -55,9 +55,9 @@
 
   <div class="kpi-strip">
     <div class="tile"><div class="lab">BTC funding (8h)</div><div class="val mono" id="kBtcFunding">—</div></div>
-    <div class="tile"><div class="lab">BTC basis (annualized)</div><div class="val mono" id="kBtcBasis">—</div></div>
+    <div class="tile"><div class="lab">BTC funding APY (ann.)</div><div class="val mono" id="kBtcBasis">—</div></div>
     <div class="tile"><div class="lab">ETH funding (8h)</div><div class="val mono" id="kEthFunding">—</div></div>
-    <div class="tile"><div class="lab">ETH basis (annualized)</div><div class="val mono" id="kEthBasis">—</div></div>
+    <div class="tile"><div class="lab">ETH funding APY (ann.)</div><div class="val mono" id="kEthBasis">—</div></div>
     <div class="tile"><div class="lab">Market positioning</div><div class="val mono" id="kRead" style="font-size:13px;">—</div></div>
   </div>
 
@@ -72,7 +72,7 @@
 
   <!-- Basis term structure -->
   <div class="chart-card">
-    <div style="font-weight:700;font-size:14px;margin-bottom:8px;">📈 Basis term structure (BTC quarterly futures)</div>
+    <div style="font-weight:700;font-size:14px;margin-bottom:8px;">📈 Annualized funding APY by asset (Binance perps · real)</div>
     <div style="height:240px;"><canvas id="basisChart"></canvas></div>
   </div>
 
@@ -102,85 +102,57 @@
 
 <script>
 (function () {
-  const CACHE_KEY = 'bpleone_basis_cache_v1';
-  const TTL = 5 * 60 * 1000;
+  // 100% real Binance USDS-M futures public API (no key, CORS-enabled). No
+  // synthetic fallback - if Binance is unreachable the page shows '-' honestly.
+  const FAPI = 'https://fapi.binance.com';
+  const BASKET = ['BTC', 'ETH', 'SOL', 'DOGE', 'XRP'];
   let fundingChart = null, basisChart = null;
 
-  function loadCache() { try { return JSON.parse(localStorage.getItem(CACHE_KEY) || '{}'); } catch (e) { return {}; } }
-  function saveCache(c) { try { localStorage.setItem(CACHE_KEY, JSON.stringify(c)); } catch (e) {} }
-
-  // Binance public REST (no auth needed, generous free tier)
-  async function fetchBinanceFunding(symbol) {
-    try {
-      // Last 90 periods × 8h ≈ 30 days
-      const url = `https://fapi.binance.com/fapi/v1/fundingRate?symbol=${symbol}&limit=90`;
-      const res = await fetch(url);
-      if (!res.ok) return null;
-      const data = await res.json();
-      return data.map(d => ({ ts: +d.fundingTime, rate: parseFloat(d.fundingRate) * 100 }));
-    } catch (e) { return null; }
+  async function bj(path) {
+    try { const r = await fetch(FAPI + path, { cache: 'no-store' }); if (!r.ok) return null; return await r.json(); } catch (e) { return null; }
   }
-
-  async function fetchBinancePremium(symbol) {
-    try {
-      const url = `https://fapi.binance.com/fapi/v1/premiumIndex?symbol=${symbol}`;
-      const res = await fetch(url);
-      if (!res.ok) return null;
-      return await res.json();
-    } catch (e) { return null; }
+  async function fetchFundingHistory(symbol) {
+    const data = await bj('/fapi/v1/fundingRate?symbol=' + symbol + '&limit=90');
+    if (!Array.isArray(data)) return null;
+    return data.map(d => ({ ts: +d.fundingTime, rate: parseFloat(d.fundingRate) * 100 }));
   }
-
-  function syntheticFunding() {
-    const out = [];
-    const now = Date.now();
-    for (let i = 89; i >= 0; i--) {
-      const ts = now - i * 8 * 60 * 60 * 1000;
-      const rate = (Math.sin(i / 6) * 0.015) + (Math.random() - 0.5) * 0.01;
-      out.push({ ts, rate });
-    }
-    return out;
+  async function fetchBasketAPY() {
+    return Promise.all(BASKET.map(async a => {
+      const pi = await bj('/fapi/v1/premiumIndex?symbol=' + a + 'USDT');
+      const f = (pi && pi.lastFundingRate != null && pi.lastFundingRate !== '') ? parseFloat(pi.lastFundingRate) : null;
+      return { asset: a, apy: f == null ? null : f * 3 * 365 * 100 };
+    }));
   }
-
-  function annualizedFromFunding(rate8h) {
-    // 8h funding rate × 3 × 365 = annualized
-    return rate8h * 3 * 365;
-  }
+  function annualizedFromFunding(rate8h) { return rate8h * 3 * 365; } // rate8h already in %
 
   function readout(btcFundLast, ethFundLast, btcBasisAnnualized) {
     if (btcFundLast < -0.05) return '🎯 Capitulation · contrarian long';
     if (btcFundLast > 0.05) return '⚠ Crowded long · fade risk';
-    if (btcBasisAnnualized > 15) return '✓ Strong contango · bullish positioning';
-    if (btcBasisAnnualized < 0) return '⚠ Backwardation · bearish';
+    if (btcBasisAnnualized > 15) return '✓ Strong positive carry · bullish positioning';
+    if (btcBasisAnnualized < 0) return '⚠ Negative carry · bearish';
     return 'Neutral positioning';
   }
 
   async function refresh() {
-    document.getElementById('btnRefresh').disabled = true;
-    document.getElementById('btnRefresh').textContent = 'Fetching…';
+    const btn = document.getElementById('btnRefresh');
+    btn.disabled = true; btn.textContent = 'Fetching…';
     document.getElementById('status').textContent = 'pulling Binance funding rates…';
-    const cache = loadCache();
-    const fresh = !cache.ts || Date.now() - cache.ts > TTL;
-    let btcFund, ethFund, btcPremium, ethPremium;
-    if (fresh) {
-      [btcFund, ethFund, btcPremium, ethPremium] = await Promise.all([
-        fetchBinanceFunding('BTCUSDT'),
-        fetchBinanceFunding('ETHUSDT'),
-        fetchBinancePremium('BTCUSDT'),
-        fetchBinancePremium('ETHUSDT')
-      ]);
-      if (!btcFund) { btcFund = syntheticFunding(); document.getElementById('status').textContent = 'Binance API blocked — using synthetic'; }
-      if (!ethFund) ethFund = syntheticFunding();
-      saveCache({ ts: Date.now(), btcFund, ethFund, btcPremium, ethPremium });
-    } else {
-      btcFund = cache.btcFund; ethFund = cache.ethFund; btcPremium = cache.btcPremium; ethPremium = cache.ethPremium;
+    const [btcFund, ethFund, basket] = await Promise.all([
+      fetchFundingHistory('BTCUSDT'),
+      fetchFundingHistory('ETHUSDT'),
+      fetchBasketAPY()
+    ]);
+    btn.disabled = false; btn.textContent = '🔄 Refresh data';
+    if (!btcFund || !btcFund.length) {
+      document.getElementById('status').textContent = 'Binance API unreachable from this network — no synthetic data shown.';
+      ['kBtcFunding', 'kBtcBasis', 'kEthFunding', 'kEthBasis', 'kRead'].forEach(id => { document.getElementById(id).textContent = '—'; });
+      return;
     }
-    document.getElementById('btnRefresh').disabled = false;
-    document.getElementById('btnRefresh').textContent = '🔄 Refresh data';
-    document.getElementById('status').textContent = '';
-    render(btcFund, ethFund, btcPremium, ethPremium);
+    document.getElementById('status').textContent = 'live · Binance';
+    render(btcFund, ethFund, basket);
   }
 
-  function render(btcFund, ethFund, btcPremium, ethPremium) {
+  function render(btcFund, ethFund, basket) {
     if (!btcFund || !btcFund.length) return;
     const btcLast = btcFund[btcFund.length - 1].rate;
     const ethLast = ethFund && ethFund.length ? ethFund[ethFund.length - 1].rate : null;
@@ -214,23 +186,18 @@
       options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { labels: { color: '#999', font: { size: 10 } } } }, scales: { x: { ticks: { color: '#666', font: { size: 9 }, maxTicksLimit: 10 }, grid: { display: false } }, y: { ticks: { color: '#999', font: { family: 'JetBrains Mono', size: 10 }, callback: v => v.toFixed(3) + '%' }, grid: { color: 'rgba(255,255,255,0.05)' } } } }
     });
 
-    // Basis term structure (synthetic: 1m / 3m / 6m using current 8h funding scaled)
-    const terms = ['Perp', '1m', '3m', '6m'];
-    const btcTerm = [btcAnnualized, btcAnnualized * 1.05, btcAnnualized * 1.15, btcAnnualized * 1.30];
-    const ethTerm = ethAnnualized != null ? [ethAnnualized, ethAnnualized * 1.05, ethAnnualized * 1.15, ethAnnualized * 1.30] : null;
+    // Annualized funding APY by asset (REAL, Binance perps) - replaces the old
+    // synthetic "quarterly futures" curve which just scaled funding by 1.05/1.15/1.30.
+    const valid = (basket || []).filter(b => b.apy != null);
     const ctx2 = document.getElementById('basisChart').getContext('2d');
     if (basisChart) basisChart.destroy();
-    basisChart = new Chart(ctx2, {
-      type: 'line',
-      data: {
-        labels: terms,
-        datasets: [
-          { label: 'BTC basis APY', data: btcTerm, borderColor: '#f59e0b', backgroundColor: 'rgba(245,158,11,0.10)', fill: true, tension: 0.3, pointRadius: 5 },
-          ethTerm ? { label: 'ETH basis APY', data: ethTerm, borderColor: '#8b5cf6', backgroundColor: 'transparent', fill: false, tension: 0.3, pointRadius: 5 } : null
-        ].filter(Boolean)
-      },
-      options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { labels: { color: '#999', font: { size: 10 } } } }, scales: { x: { ticks: { color: '#999', font: { family: 'JetBrains Mono', size: 11 } }, grid: { display: false } }, y: { ticks: { color: '#999', font: { family: 'JetBrains Mono', size: 10 }, callback: v => v.toFixed(0) + '%' }, grid: { color: 'rgba(255,255,255,0.05)' } } } }
-    });
+    if (valid.length) {
+      basisChart = new Chart(ctx2, {
+        type: 'bar',
+        data: { labels: valid.map(b => b.asset), datasets: [{ label: 'Funding APY', data: valid.map(b => +b.apy.toFixed(1)), backgroundColor: valid.map(b => b.apy > 30 ? 'rgba(239,68,68,0.7)' : b.apy < 0 ? 'rgba(16,185,129,0.7)' : 'rgba(245,158,11,0.7)') }] },
+        options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { ticks: { color: '#999', font: { family: 'JetBrains Mono', size: 11 } }, grid: { display: false } }, y: { ticks: { color: '#999', font: { family: 'JetBrains Mono', size: 10 }, callback: v => v.toFixed(0) + '%' }, grid: { color: 'rgba(255,255,255,0.05)' } } } }
+      });
+    }
 
     // Signals
     const signals = [];
@@ -256,11 +223,8 @@
   }
 
   document.getElementById('btnRefresh').addEventListener('click', refresh);
-  setTimeout(() => {
-    const cache = loadCache();
-    if (cache.btcFund && Date.now() - cache.ts < TTL) render(cache.btcFund, cache.ethFund, cache.btcPremium, cache.ethPremium);
-    else refresh();
-  }, 500);
+  refresh();
+  setInterval(refresh, 120000);
 })();
 </script>
 </body>
