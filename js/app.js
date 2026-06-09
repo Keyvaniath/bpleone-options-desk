@@ -421,27 +421,51 @@ function buildMobileTabs(activePage) {
 function wireDataPill() {
   const pill = document.getElementById('dataStatusPill');
   if (!pill) return;
+  // Real (delayed) prices flow from the worker feed even when no live WS is
+  // connected, so the pill must NOT cry "MOCK" in that case — that mislabels real
+  // data (seen on pick-of-day before an MD demo). Check for any real (non-seed) source.
+  const hasRealPrices = () => {
+    try {
+      const Q = (typeof QUOTES !== 'undefined') ? QUOTES : {};
+      return ['SPY', 'QQQ', 'DIA', 'IWM', 'BTC', 'ETH'].some(k => {
+        const q = Q[k];
+        return q && q.priceSource && q.priceSource !== 'stale-seed' && q.priceSource !== 'mock';
+      });
+    } catch (e) { return false; }
+  };
   const render = (s) => {
+    s = s || {};
     let cls = 'mock', label = 'MOCK';
+    const sess = (typeof detectSession === 'function') ? detectSession() : 'open';
     if (s.status === 'connected') {
-      // Honest pill (audit pass 277): a connected WS streams crypto in real time,
-      // but equities are only live during regular US hours; outside them the printed
-      // equity price is last-close. Gate on the ET clock (detectSession), NOT on a
-      // liveAt age that a racing off-hours WS heartbeat can reset to ~now.
-      const sess = (typeof detectSession === 'function') ? detectSession() : 'open';
+      // A connected WS streams crypto in real time, but equities are only live in
+      // regular US hours; outside them the printed equity price is last-close. Gate
+      // on the ET clock (detectSession), not a racy liveAt age.
       if (sess !== 'open') { cls = 'connecting'; label = 'DELAYED · LAST CLOSE'; }
       else { cls = 'live'; label = 'LIVE · ' + (s.provider || '').toUpperCase(); }
     }
     else if (s.status === 'connecting') { cls = 'connecting'; label = 'CONNECTING'; }
     else if (s.status === 'reconnecting') { cls = 'connecting'; label = 'RECONNECTING'; }
     else if (s.status === 'error') { cls = 'error'; label = 'ERROR'; }
+    else if (hasRealPrices()) {
+      // No live WS, but real (delayed) prices ARE flowing from the worker feed —
+      // honest label by the market clock, never "MOCK".
+      if (sess !== 'open') { cls = 'connecting'; label = 'DELAYED · LAST CLOSE'; }
+      else { cls = 'connecting'; label = 'DELAYED ~15 MIN'; }
+    }
     else if (s.status === 'disconnected' && s.enabled) { cls = 'mock'; label = 'OFFLINE'; }
     pill.className = 'data-pill data-pill-' + cls;
     const lab = pill.querySelector('.data-pill-label');
     if (lab) lab.textContent = label;
   };
   if (typeof DataProvider !== 'undefined') {
-    try { DataProvider.onStatus(render); return; } catch (e) {}
+    try {
+      DataProvider.onStatus(render);
+      // Re-evaluate periodically: worker-quotes can land real prices without the WS
+      // firing another status event, and the market session changes over time.
+      setInterval(() => { try { render(DataProvider.getStatus()); } catch (e) {} }, 8000);
+      return;
+    } catch (e) {}
   }
   // Fallback: page didn't import data-provider.js — read localStorage so we still
   // reflect user's configured state even without the module on this page.
@@ -727,14 +751,20 @@ function initLivePulseTicker() {
     }
   });
 
-  // Watchdog: if no cycle for 90s, show STALE
+  // Watchdog: if no cycle for 90s, show STALE — BUT only when the browser is the
+  // brain. When the 24/7 Cloudflare worker is authoritative (WorkerBridge), the
+  // browser tick intentionally defers, so a stalled local cycle does NOT mean the
+  // brain is dead. A red "STALE" there is misleading and even contradicts the
+  // footer's "Brain is HEALTHY"; the worker's true health is reported separately.
   setInterval(() => {
     const ageMs = Date.now() - lastCycle;
     const text = document.getElementById('nav-pulse-text');
     const dot = document.getElementById('nav-pulse-dot');
     const pill = document.getElementById('nav-live-pulse');
     if (!text || !dot || !pill) return;
-    if (ageMs > 90 * 1000) {
+    let workerBrain = false;
+    try { workerBrain = (typeof WorkerBridge !== 'undefined') && WorkerBridge.isEnabled && WorkerBridge.isEnabled(); } catch (e) {}
+    if (ageMs > 90 * 1000 && !workerBrain) {
       text.textContent = 'STALE';
       dot.style.background = 'var(--red)';
       dot.style.boxShadow = '0 0 8px var(--red)';
