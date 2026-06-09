@@ -418,7 +418,7 @@ document.addEventListener('DOMContentLoaded', () => {
       // bug: a hardcoded 'v188' froze data-mode-banner.js at an old cached copy,
       // keeping the dishonest "every tick is current" banner live long after the
       // fix deployed. Found via live browser verify.)
-      let LV = 'v192';
+      let LV = 'v198';
       try {
         const _me = [...document.querySelectorAll('script[src]')].map(s => s.src).find(u => /\/live\.js(\?|$)/.test(u)) || '';
         const _m = _me.match(/[?&]v=([^&]+)/);
