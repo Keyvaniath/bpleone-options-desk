@@ -20,7 +20,6 @@
 </head>
 <body data-needs="live">
 <div id="site-nav"></div>
-<div data-synthetic-banner style="background:linear-gradient(90deg,rgba(245,158,11,0.18),rgba(245,158,11,0.06));border-bottom:1px solid rgba(245,158,11,0.45);color:var(--yellow);font-size:12.5px;font-weight:600;padding:8px 16px;text-align:center;">SAMPLE / ILLUSTRATIVE DATA - the ADX, +/-DI and MA-stack values shown are placeholders, not computed from live bars. Real values are free-derivable from daily OHLC (worker /brain/bars) - wiring pending.</div>
 
 <div class="container">
   <div class="page-header">
@@ -85,39 +84,90 @@ buildNav('trend-strength');
 
 const UNIVERSE = ['NVDA','TSLA','SPY','QQQ','AAPL','MSFT','META','AMZN','GOOGL','AMD','PLTR','COIN','SMCI','NFLX','MSTR','SHOP','UBER','HOOD','SOFI','PANW','SNOW','AVGO','MU','MRVL','LCID','GME','AMC','BA','DIS','JPM','XLE','XLF','XLK','TLT','GLD','BTC','ETH'];
 
-function getQ(s) { return (typeof QUOTES !== 'undefined' && QUOTES[s]) ? QUOTES[s] : { last: 100, changePct: 0 }; }
+const WORKER = (window.WorkerBridge && WorkerBridge.getUrl && WorkerBridge.getUrl()) || 'https://bpleone-brain-worker.brandonpleone.workers.dev';
 
-function generate() {
-  return UNIVERSE.map(sym => {
-    const seed = sym.charCodeAt(0) * 17 + (sym.charCodeAt(1) || 0);
-    const rand = (k) => { const x = Math.sin(seed + k) * 10000; return x - Math.floor(x); };
-    const q = getQ(sym);
-    const adx = +(15 + rand(1) * 40).toFixed(0);
-    const dirBias = (q.changePct || 0) + (rand(2) - 0.5) * 1.5;
-    const plusDI = +(20 + (dirBias > 0 ? 15 : 0) + rand(3) * 10).toFixed(0);
-    const minusDI = +(20 + (dirBias < 0 ? 15 : 0) + rand(3) * 10).toFixed(0);
-    const dir = plusDI > minusDI ? 'UP' : 'DOWN';
-    const above8ema = dir === 'UP' ? rand(4) > 0.2 : rand(4) > 0.7;
-    const above20ma = dir === 'UP' ? rand(5) > 0.3 : rand(5) > 0.7;
-    const above50ma = dir === 'UP' ? rand(6) > 0.4 : rand(6) > 0.6;
-    const stackCount = (above8ema ? 1 : 0) + (above20ma ? 1 : 0) + (above50ma ? 1 : 0);
-    const stack = dir === 'UP' ? stackCount + '/3 above' : (3 - stackCount) + '/3 below';
-    const score = Math.min(100, Math.round(adx * 0.7 + stackCount * 10));
-    return { sym, last: q.last, adx, plusDI, minusDI, dir, stack, stackCount, score };
-  });
+// Wilder's ADX / +DI / -DI from daily OHLC bars - real TA, no fabrication.
+function computeADX(bars, n) {
+  if (!Array.isArray(bars) || bars.length < n + 2) return null;
+  let trN = 0, plusN = 0, minusN = 0;
+  const dx = [];
+  for (let i = 1; i < bars.length; i++) {
+    const h = bars[i].h, l = bars[i].l, pc = bars[i - 1].c, ph = bars[i - 1].h, pl = bars[i - 1].l;
+    if (!(h > 0 && l > 0 && pc > 0 && ph > 0 && pl > 0)) continue;
+    const tr = Math.max(h - l, Math.abs(h - pc), Math.abs(l - pc));
+    const up = h - ph, dn = pl - l;
+    const plusDM = (up > dn && up > 0) ? up : 0;
+    const minusDM = (dn > up && dn > 0) ? dn : 0;
+    if (i <= n) { trN += tr; plusN += plusDM; minusN += minusDM; }
+    else {
+      trN = trN - trN / n + tr;
+      plusN = plusN - plusN / n + plusDM;
+      minusN = minusN - minusN / n + minusDM;
+    }
+    if (i >= n && trN > 0) {
+      const pDI = 100 * plusN / trN, mDI = 100 * minusN / trN, sum = pDI + mDI;
+      dx.push(sum > 0 ? 100 * Math.abs(pDI - mDI) / sum : 0);
+    }
+  }
+  if (dx.length < n) return null;
+  let adx = dx.slice(0, n).reduce((a, b) => a + b, 0) / n;
+  for (let i = n; i < dx.length; i++) adx = (adx * (n - 1) + dx[i]) / n;
+  const pDI = trN > 0 ? 100 * plusN / trN : 0, mDI = trN > 0 ? 100 * minusN / trN : 0;
+  return { adx: Math.round(adx), plusDI: Math.round(pDI), minusDI: Math.round(mDI) };
 }
 
-let data = generate();
+function emaLast(closes, n) {
+  if (closes.length < n) return null;
+  const k = 2 / (n + 1);
+  let e = closes.slice(0, n).reduce((a, b) => a + b, 0) / n;
+  for (let i = n; i < closes.length; i++) e = closes[i] * k + e * (1 - k);
+  return e;
+}
+
+let data = [];
 let flt = 'all';
+let loading = true;
+
+// Real daily OHLC from the worker bars feed -> Wilder ADX/DI + EMA stack. No
+// fabrication: shows an honest empty state until /brain/bars is deployed.
+async function loadData() {
+  const res = await fetch(WORKER + '/brain/bars?syms=' + encodeURIComponent(UNIVERSE.join(',')) + '&days=40', { cache: 'no-store' }).then(r => r.ok ? r.json() : null).catch(() => null);
+  const allBars = (res && res.bars) || {};
+  data = UNIVERSE.map(sym => {
+    const bars = (allBars[sym] || []).filter(b => b && b.c > 0 && b.ts).sort((a, b) => a.ts - b.ts);
+    if (bars.length < 16) return null;
+    const dmi = computeADX(bars, 14);
+    if (!dmi) return null;
+    const closes = bars.map(b => b.c);
+    const last = closes[closes.length - 1];
+    const dir = dmi.plusDI >= dmi.minusDI ? 'UP' : 'DOWN';
+    // MA stack across whatever periods the available history supports (8/20/50).
+    const checks = [8, 20, 50].map(p => { const e = emaLast(closes, p); return e == null ? null : last > e; }).filter(v => v != null);
+    const upCount = checks.filter(Boolean).length;
+    const stackCount = dir === 'UP' ? upCount : checks.length - upCount;
+    const stack = checks.length ? (dir === 'UP' ? upCount + '/' + checks.length + ' above' : (checks.length - upCount) + '/' + checks.length + ' below') : '—';
+    const score = Math.min(100, Math.round(dmi.adx * 0.7 + (checks.length ? stackCount * (30 / checks.length) : 0)));
+    return { sym, last, adx: dmi.adx, plusDI: dmi.plusDI, minusDI: dmi.minusDI, dir, stack, stackCount, score };
+  }).filter(Boolean);
+  loading = false;
+  paint();
+}
 
 function paint() {
+  const body = document.getElementById('tsBody');
+  if (loading) { body.innerHTML = '<div style="padding:24px;text-align:center;color:var(--text-muted);font-size:12px;">Loading daily bars…</div>'; return; }
+  if (!data.length) {
+    body.innerHTML = '<div style="padding:24px;text-align:center;color:var(--text-muted);font-size:12px;">Daily OHLC bars not available yet - the worker <a href="worker-setup.html" style="color:var(--accent);">/brain/bars</a> feed is not deployed. ADX, DI and the MA-stack compute from real bars once it is live.</div>';
+    ['kpiUp', 'kpiDn', 'kpiAvgAdx', 'kpiTop'].forEach(id => { const e = document.getElementById(id); if (e) e.textContent = '—'; });
+    const tb = document.getElementById('kpiTopBody'); if (tb) tb.textContent = '';
+    return;
+  }
   let rows = data.slice();
   if (flt === 'up') rows = rows.filter(d => d.dir === 'UP');
   else if (flt === 'dn') rows = rows.filter(d => d.dir === 'DOWN');
   else if (flt === 'strong') rows = rows.filter(d => d.adx >= 35);
   rows.sort((a, b) => b.score - a.score);
 
-  const body = document.getElementById('tsBody');
   body.innerHTML = '';
   rows.slice(0, 24).forEach((r, i) => {
     const strong = r.adx >= 30;
@@ -142,18 +192,20 @@ function paint() {
 
   document.getElementById('kpiUp').textContent = data.filter(d => d.adx >= 30 && d.dir === 'UP').length;
   document.getElementById('kpiDn').textContent = data.filter(d => d.adx >= 30 && d.dir === 'DOWN').length;
-  document.getElementById('kpiAvgAdx').textContent = (data.reduce((s, d) => s + d.adx, 0) / data.length).toFixed(0);
+  document.getElementById('kpiAvgAdx').textContent = data.length ? (data.reduce((s, d) => s + d.adx, 0) / data.length).toFixed(0) : '—';
   const top = data.slice().sort((a, b) => b.score - a.score)[0];
   if (top) { document.getElementById('kpiTop').textContent = top.sym; document.getElementById('kpiTopBody').textContent = top.dir + ' · score ' + top.score; }
 }
 paint();
+loadData();
 document.querySelectorAll('[data-flt]').forEach(b => b.addEventListener('click', () => {
   document.querySelectorAll('[data-flt]').forEach(x => x.classList.remove('btn-active'));
   b.classList.add('btn-active');
   flt = b.dataset.flt;
   paint();
 }));
-document.getElementById('refreshBtn').addEventListener('click', () => { data = generate(); paint(); });
+document.getElementById('refreshBtn').addEventListener('click', () => { loading = true; paint(); loadData(); });
+setInterval(loadData, 60000);
 </script>
 </body>
 </html>
