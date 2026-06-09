@@ -14,7 +14,24 @@ const Feed = (() => {
     subs.get(symbol).add(cb);
     return () => subs.get(symbol)?.delete(cb);
   }
+  function _healQuote(q) {
+    // Self-heal a STALE prevClose baseline before any subscriber renders it. A
+    // >25% single-session move on a tracked name is almost always a stale baseline
+    // (e.g. a months-old crypto seed prevClose against a live Coinbase price) rather
+    // than a real move — and it makes the whole tape look broken ("BTC -33%",
+    // "ETH -60%"). Reset the baseline to the live price so change reads flat until a
+    // true session rollover supplies a real prevClose. Real intraday moves (<25%)
+    // pass through untouched.
+    if (!q || typeof q !== 'object') return;
+    if (typeof q.last === 'number' && typeof q.prevClose === 'number' && q.prevClose > 0) {
+      var pct = (q.last - q.prevClose) / q.prevClose * 100;
+      if (Math.abs(pct) > 25) { q.prevClose = q.last; q.change = 0; q.changePct = 0; }
+    }
+  }
   function publish(symbol, quote) {
+    if (symbol === '*' && quote && typeof quote === 'object') {
+      for (var k in quote) _healQuote(quote[k]);
+    } else { _healQuote(quote); }
     if (subs.has(symbol)) subs.get(symbol).forEach(cb => { try { cb(quote); } catch (e) {} });
   }
   function symbols() { return [...subs.keys()]; }
