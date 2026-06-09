@@ -1,13 +1,15 @@
 /* ===========================================
    BPLEONE — Demo Data Floating Action Button
    ---
-   Auto-mounts a small "Generate demo data" FAB in the bottom-right
-   corner of every page when the journal is empty. One click fills 50
-   synthetic resolved trades + 30 alerts + 12 closed auto-trades so
-   the user can see what the brain UI looks like populated.
+   A "Generate demo data" FAB for previewing populated UI on a fresh
+   browser. Pass 239 (NO FAKE NUMBERS): OFF BY DEFAULT - it mounts ONLY
+   when demo mode is explicitly enabled (localStorage bpleone_demo_mode=
+   '1'); real customer-facing pages never show it. One click then fills
+   50 synthetic resolved trades + 30 alerts + 12 closed auto-trades so
+   the user can preview what the brain UI looks like populated.
 
-   Hides if real journal data exists OR demo data already generated.
-   "Clear demo" button appears once demo data exists.
+   When mounted: hides if real journal data exists OR demo already
+   generated. "Clear demo" button appears once demo data exists.
 
    Lazy-loaded by live.js. Idempotent (won't double-mount).
    =========================================== */
