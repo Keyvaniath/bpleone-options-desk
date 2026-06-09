@@ -254,7 +254,7 @@ Outcome of the sweep: the seeded-sin / LCG pages were each wired real where free
 - `GET /brain/news` — real headlines (no browser key needed)
 - `GET /brain/insider` — SEC Form-4 insider transactions (16-name basket)
 - `GET /brain/quotes?syms=` — real Yahoo quotes (last/prevClose/changePct/volume/dayHigh/dayLow), 60s KV cache; accepts ANY ticker incl. on-demand caret indices (pass 280/283)
-- `GET /brain/bars?syms=&days=` — per-symbol daily OHLC `{o,h,l,c,v,ts}` from KV BARS_HISTORY, no new fetches (pass 282)
+- `GET /brain/bars?syms=&days=` — per-symbol daily OHLC `{o,h,l,c,v,ts}` from KV BARS_HISTORY, no new fetches (pass 282). **ts is in ms; days caps at 40 (= stored depth).** A page that consumes this MUST list only symbols in the worker `UNIVERSE` (75 names, `worker/src/index.js:43`) — a symbol outside it has NO bar history and renders as a silently-missing row, so a scanner with off-universe tickers (BTC/ETH, small-caps like BBAI/SOUN/MULN) looks sparse/broken after deploy. The 7 bars scanners (trend-strength, mean-reversion-scanner, retracement-finder, dollar-leaders, algo-signals, pivot-finder, candlestick-scanner) are aligned to a curated 36-symbol tracked subset for this reason.
 - `GET /brain/debug/fetch?sym=X` — diagnose data sources (Yahoo/Stooq)
 - `POST /brain/bootstrap` (auth) — 250-day pre-train via Yahoo Finance v8
 - `POST /brain/tick` (auth) — manual cron trigger
