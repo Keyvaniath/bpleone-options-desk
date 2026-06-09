@@ -438,6 +438,14 @@ document.addEventListener('DOMContentLoaded', () => {
         s.async = true;
         document.head.appendChild(s);
       }
+      // Floating feedback widget — lets early users tell us, in their words, what's
+      // missing or would make them pay. The richest signal there is.
+      if (!document.querySelector('script[src*="feedback.js"]')) {
+        const s = document.createElement('script');
+        s.src = 'js/feedback.js?v=v189';
+        s.async = true;
+        document.head.appendChild(s);
+      }
       // Pass 242: sample-data honesty banner — stamps an "illustrative, not live"
       // notice on the handful of pages that simulate paid-feed data.
       if (!document.querySelector('script[src*="sample-data-banner.js"]')) {

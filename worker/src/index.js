@@ -38,7 +38,7 @@
 // Pass 200: version stamp so brain-proof.html + worker-setup.html can detect
 // when the deployed worker is behind the repo source. Bump on every meaningful
 // behavior change. Read via /brain/health → worker_version field.
-const WORKER_VERSION = 'pass-268';
+const WORKER_VERSION = 'pass-269';
 
 const UNIVERSE = [
   'SPY','QQQ','IWM','DIA','AAPL','NVDA','TSLA','MSFT','META','AMZN','GOOGL','AMD',
@@ -448,6 +448,11 @@ async function recordTrack(env, b) {
     a.days[day] = (a.days[day] || 0) + 1;
     if (b.anon) { if (!a.uniq) a.uniq = {}; a.uniq[String(b.anon).slice(0, 40)] = b.ts || Date.now(); }
     if (b.nu) a.new_users = (a.new_users || 0) + 1;
+    if (ev === 'feedback' && b.props) {
+      a.feedback = a.feedback || [];
+      a.feedback.push({ r: String(b.props.rating || '').slice(0, 8), t: String(b.props.text || '').slice(0, 500), em: String(b.props.email || '').slice(0, 120), p: page, ts: b.ts || Date.now() });
+      if (a.feedback.length > 100) a.feedback = a.feedback.slice(-100);
+    }
     a.recent = a.recent || [];
     a.recent.push({ e: ev, p: page, r: b.ref || '', t: b.ts || Date.now() });
     if (a.recent.length > 60) a.recent = a.recent.slice(-60);
@@ -1260,6 +1265,7 @@ async function handleRequest(request, env, ctx) {
       ok: true, total: a.total || 0, pageviews: a.pageviews || 0,
       unique: a.uniq ? Object.keys(a.uniq).length : 0, new_users: a.new_users || 0,
       pages: a.pages || {}, events: a.events || {}, days: a.days || {}, refs: a.refs || {},
+      feedback: (a.feedback || []).slice(-50),
       recent: (a.recent || []).slice(-50), since: a.since || null, updatedAt: a.updatedAt || null
     });
   }
