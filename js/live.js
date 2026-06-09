@@ -418,7 +418,7 @@ document.addEventListener('DOMContentLoaded', () => {
       // bug: a hardcoded 'v188' froze data-mode-banner.js at an old cached copy,
       // keeping the dishonest "every tick is current" banner live long after the
       // fix deployed. Found via live browser verify.)
-      let LV = 'v199';
+      let LV = 'v200';
       try {
         const _me = [...document.querySelectorAll('script[src]')].map(s => s.src).find(u => /\/live\.js(\?|$)/.test(u)) || '';
         const _m = _me.match(/[?&]v=([^&]+)/);
@@ -428,7 +428,7 @@ document.addEventListener('DOMContentLoaded', () => {
       // it reaches QUOTES. Without it, applyTrade silently allows garbage data.
       if (!document.querySelector('script[src*="data-reliability.js"]')) {
         const s = document.createElement('script');
-        s.src = 'js/data-reliability.js';
+        s.src = 'js/data-reliability.js?v=' + LV;
         s.async = false;
         document.head.appendChild(s);
       }
@@ -437,7 +437,7 @@ document.addEventListener('DOMContentLoaded', () => {
       // replace the stale seeds fast and the OU walk never has to run.
       if (!document.querySelector('script[src*="worker-quotes.js"]')) {
         const s = document.createElement('script');
-        s.src = 'js/worker-quotes.js';
+        s.src = 'js/worker-quotes.js?v=' + LV;
         s.async = true;
         document.head.appendChild(s);
       }
@@ -445,7 +445,7 @@ document.addEventListener('DOMContentLoaded', () => {
       // every page and validates the session against the worker.
       if (!document.querySelector('script[src*="js/auth.js"]')) {
         const s = document.createElement('script');
-        s.src = 'js/auth.js';
+        s.src = 'js/auth.js?v=' + LV;
         s.async = true;
         document.head.appendChild(s);
       }
@@ -487,7 +487,7 @@ document.addEventListener('DOMContentLoaded', () => {
       // pass validation but ONE source is silently wrong.
       if (!document.querySelector('script[src*="cross-source-check.js"]')) {
         const s = document.createElement('script');
-        s.src = 'js/cross-source-check.js';
+        s.src = 'js/cross-source-check.js?v=' + LV;
         s.async = false;
         document.head.appendChild(s);
       }
@@ -496,7 +496,7 @@ document.addEventListener('DOMContentLoaded', () => {
       // before stale-refresh so that module's writes also consult it.
       if (!document.querySelector('script[src*="source-preference.js"]')) {
         const s = document.createElement('script');
-        s.src = 'js/source-preference.js';
+        s.src = 'js/source-preference.js?v=' + LV;
         s.async = false;
         document.head.appendChild(s);
       }
@@ -504,28 +504,28 @@ document.addEventListener('DOMContentLoaded', () => {
       // flags a symbol as stale. Closes the gap between 12s poll cycles.
       if (!document.querySelector('script[src*="stale-refresh.js"]')) {
         const s = document.createElement('script');
-        s.src = 'js/stale-refresh.js';
+        s.src = 'js/stale-refresh.js?v=' + LV;
         s.async = false;
         document.head.appendChild(s);
       }
       // Confidence-Scaled Kelly — sizing math for actual money-making.
       if (!document.querySelector('script[src*="confidence-kelly.js"]')) {
         const s = document.createElement('script');
-        s.src = 'js/confidence-kelly.js';
+        s.src = 'js/confidence-kelly.js?v=' + LV;
         s.async = false;
         document.head.appendChild(s);
       }
       // Multi-position Portfolio Allocator — diversification + correlation budget.
       if (!document.querySelector('script[src*="portfolio-allocator.js"]')) {
         const s = document.createElement('script');
-        s.src = 'js/portfolio-allocator.js';
+        s.src = 'js/portfolio-allocator.js?v=' + LV;
         s.async = false;
         document.head.appendChild(s);
       }
       // Money Tracker — simulated cumulative P&L from brain signals (7/30/90/lifetime).
       if (!document.querySelector('script[src*="money-tracker.js"]')) {
         const s = document.createElement('script');
-        s.src = 'js/money-tracker.js';
+        s.src = 'js/money-tracker.js?v=' + LV;
         s.async = false;
         document.head.appendChild(s);
       }
@@ -534,7 +534,7 @@ document.addEventListener('DOMContentLoaded', () => {
       // timezone fix). Runs at most once per migration-version per browser.
       if (!document.querySelector('script[src*="journal-repair.js"]')) {
         const s = document.createElement('script');
-        s.src = 'js/journal-repair.js';
+        s.src = 'js/journal-repair.js?v=' + LV;
         s.async = false;
         document.head.appendChild(s);
       }
@@ -542,7 +542,7 @@ document.addEventListener('DOMContentLoaded', () => {
       // resolved trades so the brain UI doesn't read empty for 24+ hours.
       if (!document.querySelector('script[src*="demo-data.js"]')) {
         const s = document.createElement('script');
-        s.src = 'js/demo-data.js';
+        s.src = 'js/demo-data.js?v=' + LV;
         s.async = false;
         document.head.appendChild(s);
       }
@@ -558,7 +558,7 @@ document.addEventListener('DOMContentLoaded', () => {
       // hasn't been touched by a live source (seed-only). Tooltip shows source.
       if (!document.querySelector('script[src*="seed-detector.js"]')) {
         const s = document.createElement('script');
-        s.src = 'js/seed-detector.js';
+        s.src = 'js/seed-detector.js?v=' + LV;
         s.async = true;
         document.head.appendChild(s);
       }
@@ -567,7 +567,7 @@ document.addEventListener('DOMContentLoaded', () => {
       // the 15s polling can run from any page once the user has flipped the toggle.
       if (!document.querySelector('script[src*="auto-trade.js"]')) {
         const s = document.createElement('script');
-        s.src = 'js/auto-trade.js';
+        s.src = 'js/auto-trade.js?v=' + LV;
         s.async = false;
         document.head.appendChild(s);
       }
@@ -575,7 +575,7 @@ document.addEventListener('DOMContentLoaded', () => {
       // when brain crosses ≥75% conviction. Default ON. User mutes via the page.
       if (!document.querySelector('script[src*="high-conviction-alerts.js"]')) {
         const s = document.createElement('script');
-        s.src = 'js/high-conviction-alerts.js';
+        s.src = 'js/high-conviction-alerts.js?v=' + LV;
         s.async = false;
         document.head.appendChild(s);
       }
@@ -583,7 +583,7 @@ document.addEventListener('DOMContentLoaded', () => {
       // Off by default (autoplay rules); user opts in on voice-coach.html.
       if (!document.querySelector('script[src*="voice-coach.js"]')) {
         const s = document.createElement('script');
-        s.src = 'js/voice-coach.js';
+        s.src = 'js/voice-coach.js?v=' + LV;
         s.async = false;
         document.head.appendChild(s);
       }
@@ -604,35 +604,35 @@ document.addEventListener('DOMContentLoaded', () => {
       // Money Hotkeys — vim-style g+letter shortcuts. Available site-wide.
       if (!document.querySelector('script[src*="money-hotkeys.js"]')) {
         const s = document.createElement('script');
-        s.src = 'js/money-hotkeys.js';
+        s.src = 'js/money-hotkeys.js?v=' + LV;
         s.async = true;
         document.head.appendChild(s);
       }
       // Auto-Watchlist — auto-promotes alerted symbols to a curated list.
       if (!document.querySelector('script[src*="auto-watchlist.js"]')) {
         const s = document.createElement('script');
-        s.src = 'js/auto-watchlist.js';
+        s.src = 'js/auto-watchlist.js?v=' + LV;
         s.async = false;
         document.head.appendChild(s);
       }
       // Loss Cool-Off — auto-disables AutoTrade after N consec losses.
       if (!document.querySelector('script[src*="loss-cooloff.js"]')) {
         const s = document.createElement('script');
-        s.src = 'js/loss-cooloff.js';
+        s.src = 'js/loss-cooloff.js?v=' + LV;
         s.async = false;
         document.head.appendChild(s);
       }
       // Sound Synth — Web Audio beeps for alerts. Off by default.
       if (!document.querySelector('script[src*="sound-synth.js"]')) {
         const s = document.createElement('script');
-        s.src = 'js/sound-synth.js';
+        s.src = 'js/sound-synth.js?v=' + LV;
         s.async = true;
         document.head.appendChild(s);
       }
       // Equity Drawdown Protector — master kill-switch on portfolio DD.
       if (!document.querySelector('script[src*="equity-protector.js"]')) {
         const s = document.createElement('script');
-        s.src = 'js/equity-protector.js';
+        s.src = 'js/equity-protector.js?v=' + LV;
         s.async = false;
         document.head.appendChild(s);
       }
@@ -640,7 +640,7 @@ document.addEventListener('DOMContentLoaded', () => {
       // learner can call MultiHorizon.* immediately on first capture.
       if (!document.querySelector('script[src*="multi-horizon.js"]')) {
         const s = document.createElement('script');
-        s.src = 'js/multi-horizon.js';
+        s.src = 'js/multi-horizon.js?v=' + LV;
         s.async = false;  // synchronous so it loads before continuous-learner
         document.head.appendChild(s);
       }
@@ -648,21 +648,21 @@ document.addEventListener('DOMContentLoaded', () => {
       // continuous-learner so it can record every resolved pair.
       if (!document.querySelector('script[src*="calibrator.js"]')) {
         const s = document.createElement('script');
-        s.src = 'js/calibrator.js';
+        s.src = 'js/calibrator.js?v=' + LV;
         s.async = false;
         document.head.appendChild(s);
       }
       // Outlier detector: maintains running feature stats, flags OOD inputs.
       if (!document.querySelector('script[src*="outlier-detector.js"]')) {
         const s = document.createElement('script');
-        s.src = 'js/outlier-detector.js';
+        s.src = 'js/outlier-detector.js?v=' + LV;
         s.async = false;
         document.head.appendChild(s);
       }
       // Trade selectivity: meta-classifier ('should I trade today?').
       if (!document.querySelector('script[src*="trade-selectivity.js"]')) {
         const s = document.createElement('script');
-        s.src = 'js/trade-selectivity.js';
+        s.src = 'js/trade-selectivity.js?v=' + LV;
         s.async = false;
         document.head.appendChild(s);
       }
@@ -670,7 +670,7 @@ document.addEventListener('DOMContentLoaded', () => {
       // Population Stability Index. Auto-fires concept-drift event.
       if (!document.querySelector('script[src*="drift-psi.js"]')) {
         const s = document.createElement('script');
-        s.src = 'js/drift-psi.js';
+        s.src = 'js/drift-psi.js?v=' + LV;
         s.async = false;
         document.head.appendChild(s);
       }
@@ -679,7 +679,7 @@ document.addEventListener('DOMContentLoaded', () => {
       // window.FeatureImportance.lrMultiplier(i) for Model.train.
       if (!document.querySelector('script[src*="feature-importance.js"]')) {
         const s = document.createElement('script');
-        s.src = 'js/feature-importance.js';
+        s.src = 'js/feature-importance.js?v=' + LV;
         s.async = false;
         document.head.appendChild(s);
       }
@@ -687,7 +687,7 @@ document.addEventListener('DOMContentLoaded', () => {
       // every prediction. Used by brain-bet for size adjustment.
       if (!document.querySelector('script[src*="bayesian-dropout.js"]')) {
         const s = document.createElement('script');
-        s.src = 'js/bayesian-dropout.js';
+        s.src = 'js/bayesian-dropout.js?v=' + LV;
         s.async = false;
         document.head.appendChild(s);
       }
@@ -695,7 +695,7 @@ document.addEventListener('DOMContentLoaded', () => {
       // Fed by continuous-learner on every resolution.
       if (!document.querySelector('script[src*="symbol-bias.js"]')) {
         const s = document.createElement('script');
-        s.src = 'js/symbol-bias.js';
+        s.src = 'js/symbol-bias.js?v=' + LV;
         s.async = false;
         document.head.appendChild(s);
       }
@@ -703,7 +703,7 @@ document.addEventListener('DOMContentLoaded', () => {
       // bagging for rigorous uncertainty estimates.
       if (!document.querySelector('script[src*="bootstrap-ensemble.js"]')) {
         const s = document.createElement('script');
-        s.src = 'js/bootstrap-ensemble.js';
+        s.src = 'js/bootstrap-ensemble.js?v=' + LV;
         s.async = false;
         document.head.appendChild(s);
       }
@@ -711,7 +711,7 @@ document.addEventListener('DOMContentLoaded', () => {
       // into a single composite agreement score for confidence sizing.
       if (!document.querySelector('script[src*="ensemble-agreement.js"]')) {
         const s = document.createElement('script');
-        s.src = 'js/ensemble-agreement.js';
+        s.src = 'js/ensemble-agreement.js?v=' + LV;
         s.async = false;
         document.head.appendChild(s);
       }
@@ -719,7 +719,7 @@ document.addEventListener('DOMContentLoaded', () => {
       // resolutions and blends their outcomes into predictions.
       if (!document.querySelector('script[src*="knn-recall.js"]')) {
         const s = document.createElement('script');
-        s.src = 'js/knn-recall.js';
+        s.src = 'js/knn-recall.js?v=' + LV;
         s.async = false;
         document.head.appendChild(s);
       }
@@ -728,7 +728,7 @@ document.addEventListener('DOMContentLoaded', () => {
       // continuous-learner and produces guaranteed-coverage intervals.
       if (!document.querySelector('script[src*="conformal.js"]')) {
         const s = document.createElement('script');
-        s.src = 'js/conformal.js';
+        s.src = 'js/conformal.js?v=' + LV;
         s.async = false;
         document.head.appendChild(s);
       }
@@ -737,7 +737,7 @@ document.addEventListener('DOMContentLoaded', () => {
       // and generalizes better than the latest weights.
       if (!document.querySelector('script[src*="swa.js"]')) {
         const s = document.createElement('script');
-        s.src = 'js/swa.js';
+        s.src = 'js/swa.js?v=' + LV;
         s.async = false;
         document.head.appendChild(s);
       }
@@ -745,7 +745,7 @@ document.addEventListener('DOMContentLoaded', () => {
       // from resolved (basePreds, win/loss) pairs. Replaces hard-coded blend.
       if (!document.querySelector('script[src*="meta-stacker.js"]')) {
         const s = document.createElement('script');
-        s.src = 'js/meta-stacker.js';
+        s.src = 'js/meta-stacker.js?v=' + LV;
         s.async = false;
         document.head.appendChild(s);
       }
@@ -753,7 +753,7 @@ document.addEventListener('DOMContentLoaded', () => {
       // Falls back to global MetaStacker when a symbol hasn't trained yet.
       if (!document.querySelector('script[src*="per-symbol-meta-stacker.js"]')) {
         const s = document.createElement('script');
-        s.src = 'js/per-symbol-meta-stacker.js';
+        s.src = 'js/per-symbol-meta-stacker.js?v=' + LV;
         s.async = false;
         document.head.appendChild(s);
       }
@@ -762,7 +762,7 @@ document.addEventListener('DOMContentLoaded', () => {
       // (α × teacher_prediction + (1-α) × hard_label). Regularizer.
       if (!document.querySelector('script[src*="self-distillation.js"]')) {
         const s = document.createElement('script');
-        s.src = 'js/self-distillation.js';
+        s.src = 'js/self-distillation.js?v=' + LV;
         s.async = false;
         document.head.appendChild(s);
       }
@@ -770,28 +770,28 @@ document.addEventListener('DOMContentLoaded', () => {
       // robustness. Brittle predictions are flagged for review.
       if (!document.querySelector('script[src*="counterfactual-replay.js"]')) {
         const s = document.createElement('script');
-        s.src = 'js/counterfactual-replay.js';
+        s.src = 'js/counterfactual-replay.js?v=' + LV;
         s.async = false;
         document.head.appendChild(s);
       }
       // Daily auto-summary card: snapshots brain state at market close.
       if (!document.querySelector('script[src*="daily-card.js"]')) {
         const s = document.createElement('script');
-        s.src = 'js/daily-card.js';
+        s.src = 'js/daily-card.js?v=' + LV;
         s.async = false;
         document.head.appendChild(s);
       }
       // Brain snapshot export/import for backup + migration.
       if (!document.querySelector('script[src*="brain-snapshot.js"]')) {
         const s = document.createElement('script');
-        s.src = 'js/brain-snapshot.js';
+        s.src = 'js/brain-snapshot.js?v=' + LV;
         s.async = false;
         document.head.appendChild(s);
       }
       // Mixup augmentation: synthetic training examples by interpolating pairs.
       if (!document.querySelector('script[src*="mixup.js"]')) {
         const s = document.createElement('script');
-        s.src = 'js/mixup.js';
+        s.src = 'js/mixup.js?v=' + LV;
         s.async = false;
         document.head.appendChild(s);
       }
@@ -800,7 +800,7 @@ document.addEventListener('DOMContentLoaded', () => {
       // current conditions instead of averaging across regimes.
       if (!document.querySelector('script[src*="regime-calibrator.js"]')) {
         const s = document.createElement('script');
-        s.src = 'js/regime-calibrator.js';
+        s.src = 'js/regime-calibrator.js?v=' + LV;
         s.async = false;
         document.head.appendChild(s);
       }
@@ -808,7 +808,7 @@ document.addEventListener('DOMContentLoaded', () => {
       // was uncertain about get larger sample weights when they resolve.
       if (!document.querySelector('script[src*="active-learning.js"]')) {
         const s = document.createElement('script');
-        s.src = 'js/active-learning.js';
+        s.src = 'js/active-learning.js?v=' + LV;
         s.async = false;
         document.head.appendChild(s);
       }
@@ -816,7 +816,7 @@ document.addEventListener('DOMContentLoaded', () => {
       // for the 5 base learners on every resolution.
       if (!document.querySelector('script[src*="module-attribution.js"]')) {
         const s = document.createElement('script');
-        s.src = 'js/module-attribution.js';
+        s.src = 'js/module-attribution.js?v=' + LV;
         s.async = false;
         document.head.appendChild(s);
       }
@@ -825,7 +825,7 @@ document.addEventListener('DOMContentLoaded', () => {
       // size multiplier consults this to grow/shrink positions by hour.
       if (!document.querySelector('script[src*="hourly-perf.js"]')) {
         const s = document.createElement('script');
-        s.src = 'js/hourly-perf.js';
+        s.src = 'js/hourly-perf.js?v=' + LV;
         s.async = false;
         document.head.appendChild(s);
       }
@@ -834,7 +834,7 @@ document.addEventListener('DOMContentLoaded', () => {
       // (anti-overconfidence).
       if (!document.querySelector('script[src*="drawdown-protector.js"]')) {
         const s = document.createElement('script');
-        s.src = 'js/drawdown-protector.js';
+        s.src = 'js/drawdown-protector.js?v=' + LV;
         s.async = false;
         document.head.appendChild(s);
       }
@@ -843,7 +843,7 @@ document.addEventListener('DOMContentLoaded', () => {
       // feature vectors. When shifted, predictions are scaled toward 0.5.
       if (!document.querySelector('script[src*="adversarial-validator.js"]')) {
         const s = document.createElement('script');
-        s.src = 'js/adversarial-validator.js';
+        s.src = 'js/adversarial-validator.js?v=' + LV;
         s.async = false;
         document.head.appendChild(s);
       }
@@ -851,7 +851,7 @@ document.addEventListener('DOMContentLoaded', () => {
       // Rising loss → LR up (adapt faster), falling loss → LR down (fine-tune).
       if (!document.querySelector('script[src*="adaptive-lr.js"]')) {
         const s = document.createElement('script');
-        s.src = 'js/adaptive-lr.js';
+        s.src = 'js/adaptive-lr.js?v=' + LV;
         s.async = false;
         document.head.appendChild(s);
       }
@@ -859,7 +859,7 @@ document.addEventListener('DOMContentLoaded', () => {
       // brain actually learning?" — 1 - BS_model / BS_baseline.
       if (!document.querySelector('script[src*="brier-skill.js"]')) {
         const s = document.createElement('script');
-        s.src = 'js/brier-skill.js';
+        s.src = 'js/brier-skill.js?v=' + LV;
         s.async = false;
         document.head.appendChild(s);
       }
@@ -867,7 +867,7 @@ document.addEventListener('DOMContentLoaded', () => {
       // Annualized Sharpe is the bottom-line "is this making money?" metric.
       if (!document.querySelector('script[src*="sharpe-tracker.js"]')) {
         const s = document.createElement('script');
-        s.src = 'js/sharpe-tracker.js';
+        s.src = 'js/sharpe-tracker.js?v=' + LV;
         s.async = false;
         document.head.appendChild(s);
       }
@@ -875,7 +875,7 @@ document.addEventListener('DOMContentLoaded', () => {
       // reversion/breakout) extracted from the feature vector's one-hot flags.
       if (!document.querySelector('script[src*="setup-tracker.js"]')) {
         const s = document.createElement('script');
-        s.src = 'js/setup-tracker.js';
+        s.src = 'js/setup-tracker.js?v=' + LV;
         s.async = false;
         document.head.appendChild(s);
       }
@@ -883,14 +883,14 @@ document.addEventListener('DOMContentLoaded', () => {
       // overconfidence. Load early so model.js training calls pick it up.
       if (!document.querySelector('script[src*="label-smoothing.js"]')) {
         const s = document.createElement('script');
-        s.src = 'js/label-smoothing.js';
+        s.src = 'js/label-smoothing.js?v=' + LV;
         s.async = false;
         document.head.appendChild(s);
       }
       // Day-of-week performance: stratifies accuracy by weekday (ET).
       if (!document.querySelector('script[src*="dow-perf.js"]')) {
         const s = document.createElement('script');
-        s.src = 'js/dow-perf.js';
+        s.src = 'js/dow-perf.js?v=' + LV;
         s.async = false;
         document.head.appendChild(s);
       }
@@ -898,7 +898,7 @@ document.addEventListener('DOMContentLoaded', () => {
       // age. Half-life 7 days by default — recent examples dominate training.
       if (!document.querySelector('script[src*="sample-decay.js"]')) {
         const s = document.createElement('script');
-        s.src = 'js/sample-decay.js';
+        s.src = 'js/sample-decay.js?v=' + LV;
         s.async = false;
         document.head.appendChild(s);
       }
@@ -906,7 +906,7 @@ document.addEventListener('DOMContentLoaded', () => {
       // are saved + replayed with 3x weight to amplify the correction.
       if (!document.querySelector('script[src*="hindsight-replay.js"]')) {
         const s = document.createElement('script');
-        s.src = 'js/hindsight-replay.js';
+        s.src = 'js/hindsight-replay.js?v=' + LV;
         s.async = false;
         document.head.appendChild(s);
       }
@@ -914,7 +914,7 @@ document.addEventListener('DOMContentLoaded', () => {
       // but available as a knob to push model away from peaked outputs.
       if (!document.querySelector('script[src*="confidence-penalty.js"]')) {
         const s = document.createElement('script');
-        s.src = 'js/confidence-penalty.js';
+        s.src = 'js/confidence-penalty.js?v=' + LV;
         s.async = false;
         document.head.appendChild(s);
       }
@@ -922,7 +922,7 @@ document.addEventListener('DOMContentLoaded', () => {
       // 0-100 trust rating for any current prediction. Pure computation.
       if (!document.querySelector('script[src*="trade-trust-score.js"]')) {
         const s = document.createElement('script');
-        s.src = 'js/trade-trust-score.js';
+        s.src = 'js/trade-trust-score.js?v=' + LV;
         s.async = false;
         document.head.appendChild(s);
       }
@@ -930,7 +930,7 @@ document.addEventListener('DOMContentLoaded', () => {
       // pause new trade ideas. Hysteresis: requires 60+ to fully resume.
       if (!document.querySelector('script[src*="auto-pause.js"]')) {
         const s = document.createElement('script');
-        s.src = 'js/auto-pause.js';
+        s.src = 'js/auto-pause.js?v=' + LV;
         s.async = false;
         document.head.appendChild(s);
       }
@@ -939,7 +939,7 @@ document.addEventListener('DOMContentLoaded', () => {
       // monotonic mapping.
       if (!document.querySelector('script[src*="isotonic-calibrator.js"]')) {
         const s = document.createElement('script');
-        s.src = 'js/isotonic-calibrator.js';
+        s.src = 'js/isotonic-calibrator.js?v=' + LV;
         s.async = false;
         document.head.appendChild(s);
       }
@@ -947,7 +947,7 @@ document.addEventListener('DOMContentLoaded', () => {
       // which symbols it has real edge on.
       if (!document.querySelector('script[src*="symbol-skill.js"]')) {
         const s = document.createElement('script');
-        s.src = 'js/symbol-skill.js';
+        s.src = 'js/symbol-skill.js?v=' + LV;
         s.async = false;
         document.head.appendChild(s);
       }
@@ -956,7 +956,7 @@ document.addEventListener('DOMContentLoaded', () => {
       // beat the baseline).
       if (!document.querySelector('script[src*="symbol-sharpe.js"]')) {
         const s = document.createElement('script');
-        s.src = 'js/symbol-sharpe.js';
+        s.src = 'js/symbol-sharpe.js?v=' + LV;
         s.async = false;
         document.head.appendChild(s);
       }
@@ -964,7 +964,7 @@ document.addEventListener('DOMContentLoaded', () => {
       // mega-tech / index / energy / etc) for a higher-level edge view.
       if (!document.querySelector('script[src*="sector-perf.js"]')) {
         const s = document.createElement('script');
-        s.src = 'js/sector-perf.js';
+        s.src = 'js/sector-perf.js?v=' + LV;
         s.async = false;
         document.head.appendChild(s);
       }
@@ -972,7 +972,7 @@ document.addEventListener('DOMContentLoaded', () => {
       // gold-standard calibration curve + Expected Calibration Error.
       if (!document.querySelector('script[src*="reliability-diagram.js"]')) {
         const s = document.createElement('script');
-        s.src = 'js/reliability-diagram.js';
+        s.src = 'js/reliability-diagram.js?v=' + LV;
         s.async = false;
         document.head.appendChild(s);
       }
@@ -988,7 +988,7 @@ document.addEventListener('DOMContentLoaded', () => {
       // Counts predictions/hour and tracks resolution latency distribution.
       if (!document.querySelector('script[src*="volume-tracker.js"]')) {
         const s = document.createElement('script');
-        s.src = 'js/volume-tracker.js';
+        s.src = 'js/volume-tracker.js?v=' + LV;
         s.async = false;
         document.head.appendChild(s);
       }
@@ -996,7 +996,7 @@ document.addEventListener('DOMContentLoaded', () => {
       // Diagnostic for 'is the brain differentiating between trades?'
       if (!document.querySelector('script[src*="prediction-histogram.js"]')) {
         const s = document.createElement('script');
-        s.src = 'js/prediction-histogram.js';
+        s.src = 'js/prediction-histogram.js?v=' + LV;
         s.async = false;
         document.head.appendChild(s);
       }
@@ -1004,26 +1004,26 @@ document.addEventListener('DOMContentLoaded', () => {
       // Loads last so all dependencies are present.
       if (!document.querySelector('script[src*="unified-predictor.js"]')) {
         const s = document.createElement('script');
-        s.src = 'js/unified-predictor.js';
+        s.src = 'js/unified-predictor.js?v=' + LV;
         s.async = false;
         document.head.appendChild(s);
       }
       // Conviction alerter: background notification when A-tier picks fire.
       if (!document.querySelector('script[src*="conviction-alerter.js"]')) {
         const s = document.createElement('script');
-        s.src = 'js/conviction-alerter.js';
+        s.src = 'js/conviction-alerter.js?v=' + LV;
         s.async = false;
         document.head.appendChild(s);
       }
       if (!document.querySelector('script[src*="auto-trainer.js"]')) {
         const s = document.createElement('script');
-        s.src = 'js/auto-trainer.js';
+        s.src = 'js/auto-trainer.js?v=' + LV;
         s.async = true;
         document.head.appendChild(s);
       }
       if (!document.querySelector('script[src*="continuous-learner.js"]')) {
         const s = document.createElement('script');
-        s.src = 'js/continuous-learner.js';
+        s.src = 'js/continuous-learner.js?v=' + LV;
         s.async = true;
         document.head.appendChild(s);
       }
@@ -1033,7 +1033,7 @@ document.addEventListener('DOMContentLoaded', () => {
       // Loaded LAST so all brain modules are present when it runs.
       if (!document.querySelector('script[src*="historical-bootstrap.js"]')) {
         const s = document.createElement('script');
-        s.src = 'js/historical-bootstrap.js';
+        s.src = 'js/historical-bootstrap.js?v=' + LV;
         s.async = true;
         document.head.appendChild(s);
       }
@@ -1042,7 +1042,7 @@ document.addEventListener('DOMContentLoaded', () => {
       // Loaded after historical-bootstrap so the dependency exists.
       if (!document.querySelector('script[src*="weekly-refresh.js"]')) {
         const s = document.createElement('script');
-        s.src = 'js/weekly-refresh.js';
+        s.src = 'js/weekly-refresh.js?v=' + LV;
         s.async = true;
         document.head.appendChild(s);
       }
