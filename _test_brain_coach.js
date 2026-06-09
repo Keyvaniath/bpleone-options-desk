@@ -88,6 +88,10 @@ delete global.window.TradeTrust;
 global.window.BrierSkill = { score: () => ({ skill: 0.20, ready: true }) };
 global.window.SharpeTracker = { score: () => ({ annSharpe: 1.5, ready: true }) };
 global.window.TradeTrust = { score: () => ({ score: 95 }) };
+// The coach now honest-gates on a trained model (reads bpleone_model_v1 and
+// reports "Brain UNTRAINED" when n_trained is 0/absent) - seed a trained one
+// so the all-healthy path is reachable in this mock environment.
+localStorage.setItem('bpleone_model_v1', JSON.stringify({ n_trained: 500, version: 3, weights: [0.1, -0.2, 0.05] }));
 const s11 = BC.summary();
 t('T11 healthy state has positive headline', s11.headline.toLowerCase().includes('healthy'));
 

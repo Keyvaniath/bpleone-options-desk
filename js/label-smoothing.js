@@ -145,8 +145,11 @@
     return {
       eps: state.eps,
       enabled: state.enabled,
-      smoothedCount: state.smoothedCount,
-      lastTs: state.lastTs,
+      // Include the not-yet-flushed in-memory count (pass 87 added this to
+      // SampleDecay but missed this module) — otherwise stats() under-reports
+      // by up to FLUSH_INTERVAL_MS worth of smooths.
+      smoothedCount: (state.smoothedCount || 0) + _pendingCount,
+      lastTs: _pendingLastTs || state.lastTs,
       minEps: MIN_EPSILON,
       maxEps: MAX_EPSILON,
       defaultEps: DEFAULT_EPSILON
@@ -156,6 +159,14 @@
   function reset() {
     if (typeof localStorage === 'undefined') return;
     localStorage.removeItem(KEY);
+    // Also clear the in-memory batch state, mirroring SampleDecay.reset():
+    // otherwise pre-reset pending counts flush into the fresh state and the
+    // cached pre-reset state keeps serving reads for up to CACHE_TTL_MS.
+    _cachedState = null;
+    _cachedAt = 0;
+    _pendingCount = 0;
+    _pendingLastTs = 0;
+    _lastFlushAt = 0;
   }
 
   window.LabelSmoothing = {

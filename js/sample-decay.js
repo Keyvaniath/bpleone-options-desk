@@ -163,6 +163,14 @@
   function reset() {
     if (typeof localStorage === 'undefined') return;
     localStorage.removeItem(KEY);
+    // Also clear the in-memory batch state. Without this, a pending count
+    // accumulated BEFORE the reset survives it and later flushes into the
+    // fresh state, and the cached pre-reset state keeps serving reads for
+    // up to CACHE_TTL_MS — so reset() didn't fully reset.
+    _cachedState = null;
+    _cachedAt = 0;
+    _pendingCount = 0;
+    _lastFlushAt = 0;
   }
 
   window.SampleDecay = {

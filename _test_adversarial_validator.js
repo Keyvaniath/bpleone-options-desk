@@ -41,9 +41,11 @@ AV.captureFeature([]);
 t('T4 invalid rejected', AV.score().poolSize === 0);
 
 // T5: FIFO cap
+// Audit pass 79 bumped MAX_POOL 500 -> 5000 (at 500, 24h-old entries were
+// trimmed before they could age in, so fit() never fired). Test the current cap.
 AV.reset();
-for (let i = 0; i < 600; i++) AV.captureFeature([i, i*2]);
-t('T5 FIFO cap', AV.score().poolSize === 500);
+for (let i = 0; i < 5100; i++) AV.captureFeature([i, i*2]);
+t('T5 FIFO cap', AV.score().poolSize === 5000, 'got ' + AV.score().poolSize);
 
 // T6: Fit requires old + recent
 AV.reset();

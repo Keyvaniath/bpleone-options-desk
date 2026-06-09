@@ -35,13 +35,28 @@ AP.reset();
 const s3 = AP.check();
 t('T3 no TradeTrust → stays current', s3 === 'ACTIVE');
 
-// T4: Trust < 40 → transitions to PAUSED
+// Pass-98 safety guards: pausing requires (a) BrierSkill resolutions n >= 20
+// (never pause on cold start) and (b) 3 consecutive below-threshold checks.
+// Mock enough resolutions so the data gate opens, and assert the guards too.
+global.window.BrierSkill = { score: () => ({ n: 100 }) };
+
+// T4a: data gate — with too few resolutions, low trust must NOT pause
 AP.reset();
-global.window.TradeTrust = {
-  score: () => ({ score: 25 })
-};
+global.window.BrierSkill = { score: () => ({ n: 5 }) };
+global.window.TradeTrust = { score: () => ({ score: 25 }) };
+AP.check(); AP.check(); AP.check();
+t('T4a no pause without enough resolutions', AP.state() === 'ACTIVE');
+
+// T4b: consecutive gate — ONE low check must NOT pause
+AP.reset();
+global.window.BrierSkill = { score: () => ({ n: 100 }) };
+const s4single = AP.check();
+t('T4b single low check stays active', s4single === 'ACTIVE');
+
+// T4: Trust < 40 for 3 consecutive checks → PAUSED
+AP.check();
 const s4 = AP.check();
-t('T4 low trust → paused', s4 === 'PAUSED' && AP.isPaused() === true);
+t('T4 low trust x3 → paused', s4 === 'PAUSED' && AP.isPaused() === true, 'got ' + s4);
 
 // T5: From paused, trust 40-60 → COOLDOWN
 global.window.TradeTrust = {
@@ -61,21 +76,22 @@ t('T6 cooldown → active at >=60', s6 === 'ACTIVE');
 const s7 = AP.check();
 t('T7 stays active', s7 === 'ACTIVE');
 
-// T8: From cooldown back to PAUSED if drops again
+// T8: From cooldown back to PAUSED if drops again (3 consecutive low checks)
 AP.reset();
 global.window.TradeTrust = { score: () => ({ score: 25 }) };
-AP.check();
+AP.check(); AP.check(); AP.check(); // ACTIVE -> PAUSED after 3 low
 global.window.TradeTrust = { score: () => ({ score: 50 }) };
-AP.check();
-// now in cooldown
+AP.check(); // PAUSED -> COOLDOWN
+// now in cooldown; dropping again needs 3 consecutive below-threshold checks
 global.window.TradeTrust = { score: () => ({ score: 30 }) };
+AP.check(); AP.check();
 const s8 = AP.check();
-t('T8 cooldown → paused on drop', s8 === 'PAUSED');
+t('T8 cooldown → paused on drop x3', s8 === 'PAUSED', 'got ' + s8);
 
 // T9: History tracks transitions
 const hist = AP.history();
 t('T9 history non-empty', hist.length > 0);
-t('T9b history has from/to', hist[0].from && hist[0].to);
+t('T9b history has from/to', hist.length > 0 && hist[0].from && hist[0].to);
 
 // T10: Hysteresis — at 45 in active state, stays active (above pause threshold)
 AP.reset();
