@@ -550,7 +550,7 @@ document.addEventListener('DOMContentLoaded', () => {
       // users get the GATED build instead of a stale-cached ungated copy.
       if (!document.querySelector('script[src*="demo-fab.js"]')) {
         const s = document.createElement('script');
-        s.src = 'js/demo-fab.js?v=v180';
+        s.src = 'js/demo-fab.js?v=' + LV;
         s.async = true;
         document.head.appendChild(s);
       }
@@ -590,14 +590,14 @@ document.addEventListener('DOMContentLoaded', () => {
       // Webhook Bridge — POSTs alerts to Discord/Slack/generic endpoint.
       if (!document.querySelector('script[src*="webhook-bridge.js"]')) {
         const s = document.createElement('script');
-        s.src = 'js/webhook-bridge.js?v=v178';
+        s.src = 'js/webhook-bridge.js?v=' + LV;
         s.async = false;
         document.head.appendChild(s);
       }
       // Worker Bridge (pass 180) — talks to Cloudflare Worker for 24/7 brain state.
       if (!document.querySelector('script[src*="worker-bridge.js"]')) {
         const s = document.createElement('script');
-        s.src = 'js/worker-bridge.js?v=v178';
+        s.src = 'js/worker-bridge.js?v=' + LV;
         s.async = false;
         document.head.appendChild(s);
       }
@@ -980,7 +980,7 @@ document.addEventListener('DOMContentLoaded', () => {
       // English headline + diagnosis + advice. Pure computation.
       if (!document.querySelector('script[src*="brain-coach.js"]')) {
         const s = document.createElement('script');
-        s.src = 'js/brain-coach.js?v=v188';  // versioned so module fixes reach returning users (was un-versioned -> cached forever)
+        s.src = 'js/brain-coach.js?v=' + LV;  // derive from live.js's own ?v= so fixes always reach returning users (was hardcoded v188 -> stale once brain-coach.js changed)
         s.async = false;
         document.head.appendChild(s);
       }
