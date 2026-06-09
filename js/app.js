@@ -80,14 +80,19 @@ const TICKER_SYMBOLS = ['SPY','QQQ','IWM','DIA','AAPL','NVDA','TSLA','MSFT','MET
 // LIVE/DELAYED banner so we label by actual data AGE, never by provider name.
 function equityDataAgeMin() {
   try {
-    const CRYPTO = { BTC:1, ETH:1, SOL:1, DOGE:1, XRP:1, LTC:1, BCH:1, COIN:1, MARA:1, RIOT:1, AVAX:1, LINK:1 };
+    // Use the broad-market index ETFs as the "is the equity market live" signal.
+    // They always flow from the same (worker/Yahoo) source and carry the market
+    // data timestamp, so a single real-time-streaming single-name (e.g. a Finnhub
+    // WS tick on one stock) cannot mask that the broad market is closed/stale. The
+    // earlier min-across-ALL-equities version got skewed to ~0/1 by whichever name
+    // ticked last, which would have let the pill claim LIVE while SPY was 9h stale.
+    const CORE = ['SPY', 'QQQ', 'DIA', 'IWM'];
     const Q = (typeof QUOTES !== 'undefined') ? QUOTES : {};
     const now = Date.now();
     let minAge = null;
-    for (const sym in Q) {
-      const q = Q[sym]; if (!q || CRYPTO[sym]) continue;
-      const ps = q.priceSource;
-      if (ps && ps !== 'stale-seed' && ps !== 'mock' && q.liveAt) {
+    for (let i = 0; i < CORE.length; i++) {
+      const q = Q[CORE[i]];
+      if (q && q.priceSource && q.priceSource !== 'stale-seed' && q.priceSource !== 'mock' && q.liveAt) {
         const age = (now - q.liveAt) / 60000;
         if (minAge === null || age < minAge) minAge = age;
       }
@@ -421,7 +426,7 @@ function wireDataPill() {
       // but equities are delayed/last-close. If the freshest real equity quote is
       // stale (market shut), say DELAYED rather than implying every symbol is live.
       const eqAge = (typeof equityDataAgeMin === 'function') ? equityDataAgeMin() : null;
-      if (eqAge !== null && eqAge > 20) { cls = 'connecting'; label = 'DELAYED · LAST CLOSE'; }
+      if (eqAge !== null && eqAge > 45) { cls = 'connecting'; label = 'DELAYED · LAST CLOSE'; }
       else { cls = 'live'; label = 'LIVE · ' + (s.provider || '').toUpperCase(); }
     }
     else if (s.status === 'connecting') { cls = 'connecting'; label = 'CONNECTING'; }

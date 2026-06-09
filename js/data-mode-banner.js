@@ -47,13 +47,12 @@ const DataModeBanner = (function () {
           ? window.equityDataAgeMin() : null;
         if (eqAge === null) {
           try {
-            const CRYPTO = { BTC:1, ETH:1, SOL:1, DOGE:1, XRP:1, LTC:1, BCH:1, COIN:1, MARA:1, RIOT:1, AVAX:1, LINK:1 };
+            const CORE = ['SPY', 'QQQ', 'DIA', 'IWM'];
             const Q = (typeof window !== 'undefined' && window.QUOTES) || {};
             const now = Date.now();
-            for (const sym in Q) {
-              const q = Q[sym]; if (!q || CRYPTO[sym]) continue;
-              const ps = q.priceSource;
-              if (ps && ps !== 'stale-seed' && ps !== 'mock' && q.liveAt) {
+            for (let i = 0; i < CORE.length; i++) {
+              const q = Q[CORE[i]];
+              if (q && q.priceSource && q.priceSource !== 'stale-seed' && q.priceSource !== 'mock' && q.liveAt) {
                 const age = (now - q.liveAt) / 60000;
                 if (eqAge === null || age < eqAge) eqAge = age;
               }
@@ -64,7 +63,7 @@ const DataModeBanner = (function () {
         if (eqAge === null) {
           return { mode: 'live', color: 'var(--green)', bg: 'rgba(16,185,129,0.08)', border: 'rgba(16,185,129,0.3)', icon: '✓', text: 'Crypto LIVE (real-time WS). Equities: waiting on the first live quote — values shown are last-known seeds until a feed lands.' };
         }
-        if (eqAge <= 20) {
+        if (eqAge <= 45) {
           return { mode: 'live', color: 'var(--green)', bg: 'rgba(16,185,129,0.08)', border: 'rgba(16,185,129,0.3)', icon: '✓', text: 'Crypto LIVE (real-time WS) · equities DELAYED ~15 min (free Yahoo/Stooq data — real prices, not real-time ticks).' };
         }
         const _h = Math.floor(eqAge / 60), _m = Math.round(eqAge % 60);
