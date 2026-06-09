@@ -413,6 +413,17 @@ function setDataMode(mode) {
 document.addEventListener('DOMContentLoaded', () => {
   setTimeout(() => {
     try {
+      // Pass 270: derive the cache-bust from live.js's OWN ?v= so these lazy
+      // modules never drift stale. (The app.js companion-loader had exactly this
+      // bug: a hardcoded 'v188' froze data-mode-banner.js at an old cached copy,
+      // keeping the dishonest "every tick is current" banner live long after the
+      // fix deployed. Found via live browser verify.)
+      let LV = 'v192';
+      try {
+        const _me = [...document.querySelectorAll('script[src]')].map(s => s.src).find(u => /\/live\.js(\?|$)/.test(u)) || '';
+        const _m = _me.match(/[?&]v=([^&]+)/);
+        if (_m && _m[1]) LV = _m[1];
+      } catch (e) {}
       // Data Reliability MUST load FIRST — it validates every price tick before
       // it reaches QUOTES. Without it, applyTrade silently allows garbage data.
       if (!document.querySelector('script[src*="data-reliability.js"]')) {
@@ -443,7 +454,7 @@ document.addEventListener('DOMContentLoaded', () => {
       // again. Non-modal corner pill; self-skips on the Start Here page itself.
       if (!document.querySelector('script[src*="starthere-nudge.js"]')) {
         const s = document.createElement('script');
-        s.src = 'js/starthere-nudge.js?v=v189';
+        s.src = 'js/starthere-nudge.js?v=' + LV;
         s.async = true;
         document.head.appendChild(s);
       }
@@ -451,7 +462,7 @@ document.addEventListener('DOMContentLoaded', () => {
       // can learn what early users actually do. No cookies, no PII. Site-wide.
       if (!document.querySelector('script[src*="analytics.js"]')) {
         const s = document.createElement('script');
-        s.src = 'js/analytics.js?v=v189';
+        s.src = 'js/analytics.js?v=' + LV;
         s.async = true;
         document.head.appendChild(s);
       }
@@ -459,7 +470,7 @@ document.addEventListener('DOMContentLoaded', () => {
       // missing or would make them pay. The richest signal there is.
       if (!document.querySelector('script[src*="feedback.js"]')) {
         const s = document.createElement('script');
-        s.src = 'js/feedback.js?v=v189';
+        s.src = 'js/feedback.js?v=' + LV;
         s.async = true;
         document.head.appendChild(s);
       }
@@ -467,7 +478,7 @@ document.addEventListener('DOMContentLoaded', () => {
       // notice on the handful of pages that simulate paid-feed data.
       if (!document.querySelector('script[src*="sample-data-banner.js"]')) {
         const s = document.createElement('script');
-        s.src = 'js/sample-data-banner.js?v=v184';
+        s.src = 'js/sample-data-banner.js?v=' + LV;
         s.async = true;
         document.head.appendChild(s);
       }

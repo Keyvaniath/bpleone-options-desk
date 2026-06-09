@@ -33,16 +33,26 @@
 // Fix: defer companion loading until DOMContentLoaded so the entire HTML
 // has been parsed and all explicit <script> tags are visible to the check.
 (function loadCompanions() {
+  // Pass 270 (DEPLOY-INTEGRITY FIX): derive the cache-bust from app.js's OWN ?v=
+  // query so lazily-loaded companions always match the version the HTML bumped to.
+  // This used to be a hardcoded constant ('v188') that drifted stale while the HTML
+  // reached v191 - so the browser kept serving the FIRST-cached copy of every lazy
+  // module (e.g. data-mode-banner.js still rendered the old "every tick is current"
+  // banner long after the fix deployed). Found via LIVE browser verify, not static
+  // review. Deriving from self means it can never drift again.
+  let CACHE_BUST = 'v191';
+  try {
+    const me = document.currentScript;
+    const src = me ? me.src : ([...document.querySelectorAll('script[src]')].map(s => s.src).find(u => /\/app\.js(\?|$)/.test(u)) || '');
+    const m = src.match(/[?&]v=([^&]+)/);
+    if (m && m[1]) CACHE_BUST = m[1];
+  } catch (e) {}
   function inject() {
     const want = ['js/toast.js', 'js/command-palette.js', 'js/hotkeys.js', 'js/onboarding.js', 'js/recent-tickers.js', 'js/symbol-linker.js', 'js/model.js', 'js/brain-loop.js', 'js/data-mode-banner.js'];
     const allScripts = [...document.querySelectorAll('script[src]')];
     const have = new Set(allScripts.map(s => {
       try { return new URL(s.src, location.href).pathname.split('/').slice(-2).join('/'); } catch (e) { return s.src; }
     }));
-    // Pass 179: cache-bust dynamic injections too, matching the static <script>
-    // tags that have ?v=v178 baked in. Otherwise Chrome serves stale brain-coach.js
-    // / model.js / brain-loop.js etc. from HTTP cache after deploys.
-    const CACHE_BUST = 'v188';
     want.forEach(rel => {
       // Check for both raw rel AND rel-with-any-query (since static tags have ?v=)
       if (have.has(rel) || allScripts.some(s => {
