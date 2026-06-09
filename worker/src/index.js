@@ -38,7 +38,7 @@
 // Pass 200: version stamp so brain-proof.html + worker-setup.html can detect
 // when the deployed worker is behind the repo source. Bump on every meaningful
 // behavior change. Read via /brain/health → worker_version field.
-const WORKER_VERSION = 'pass-282';
+const WORKER_VERSION = 'pass-283';
 
 const UNIVERSE = [
   'SPY','QQQ','IWM','DIA','AAPL','NVDA','TSLA','MSFT','META','AMZN','GOOGL','AMD',
@@ -632,6 +632,14 @@ async function fetchYahooQuote(sym) {
   if (sym === 'BTC') yhSym = 'BTC-USD';
   else if (sym === 'ETH') yhSym = 'ETH-USD';
   else if (sym === 'VIX') yhSym = '^VIX';
+  // Pass 283: VIX complex as on-demand caret indices (NOT in UNIVERSE - these are
+  // non-tradeable vol indices; keeping them out of the brain universe avoids
+  // polluting /brain/signals + training. They are fetchable via /brain/quotes only.
+  else if (sym === 'VIX9D') yhSym = '^VIX9D';
+  else if (sym === 'VIX3M') yhSym = '^VIX3M';
+  else if (sym === 'VIX6M') yhSym = '^VIX6M';
+  else if (sym === 'VXN') yhSym = '^VXN';
+  else if (sym === 'VVIX') yhSym = '^VVIX';
   const url = 'https://query1.finance.yahoo.com/v8/finance/chart/' + encodeURIComponent(yhSym) + '?range=5d&interval=1d';
   try {
     const r = await fetch(url, {

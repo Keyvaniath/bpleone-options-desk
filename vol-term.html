@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Vol Term Structure — bpleone / trade</title>
-<meta name="description" content="VIX term structure: VIX9D, VIX, VIX3M, VIX6M, VXN, VVIX with contango/backwardation auto-detection and setup alerts.">
+<meta name="description" content="VIX term structure from real Yahoo index quotes: VIX9D, VIX, VIX3M, VIX6M, VXN, VVIX with contango/backwardation auto-detection.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="css/style.css?v=v197">
@@ -20,14 +20,14 @@
 .regime-tag { display:inline-flex; align-items:center; gap:8px; padding:6px 12px; border-radius:999px; font-size:11px; font-weight:700; }
 </style>
 </head>
-<body data-needs="live">
+<body>
 <div id="site-nav"></div>
 
 <div class="container">
   <div class="page-header">
     <div>
       <div class="page-title">📉 Vol Term Structure</div>
-      <div class="page-subtitle">VIX complex · contango/backwardation regime · vol-of-vol · <span id="market-clock">--</span></div>
+      <div class="page-subtitle">VIX complex (real index quotes) · contango/backwardation regime · delayed ~15 min · <span id="market-clock">--</span></div>
     </div>
     <div class="flex gap-8">
       <span class="regime-tag" id="curveTag">CURVE: —</span>
@@ -72,7 +72,7 @@
   <!-- TERM STRUCTURE CHART -->
   <div class="grid grid-12">
     <div class="card col-8">
-      <div class="card-header"><div class="card-title">Term Structure — today vs 30 days ago</div></div>
+      <div class="card-header"><div class="card-title">Term Structure — today (real)</div></div>
       <canvas id="termChart" height="260"></canvas>
     </div>
     <div class="card col-4">
@@ -84,14 +84,14 @@
   <!-- HISTORY CHARTS -->
   <div class="grid grid-12 mt-24">
     <div class="card col-6">
-      <div class="card-header"><div class="card-title">VIX9D / VIX Ratio — 30 days (front-end stress)</div></div>
+      <div class="card-header"><div class="card-title">VIX — last ~40 sessions (30d implied)</div></div>
       <canvas id="ratioChart" height="200"></canvas>
-      <div class="mono mt-12" style="font-size:11px;color:var(--text-muted);">Ratio &gt; 1.0 = inverted (front-end stress). &lt; 0.9 = healthy contango.</div>
+      <div class="mono mt-12" style="font-size:11px;color:var(--text-muted);">The 30-day implied-vol gauge, real daily closes. Rising = fear bid; falling = calm.</div>
     </div>
     <div class="card col-6">
-      <div class="card-header"><div class="card-title">VVIX — vol of vol</div></div>
+      <div class="card-header"><div class="card-title">SPY 20-day realized vol</div></div>
       <canvas id="vvixChart" height="200"></canvas>
-      <div class="mono mt-12" style="font-size:11px;color:var(--text-muted);">VVIX &gt; 110 = vol market is itself volatile — sharp moves likely.</div>
+      <div class="mono mt-12" style="font-size:11px;color:var(--text-muted);">Annualized stdev of SPY daily returns. Realized below implied (VIX) = vol risk premium (normal).</div>
     </div>
   </div>
 
@@ -126,142 +126,137 @@
 <script>
 buildNav('vol-term');
 
-function getQ(sym) {
-  if (typeof QUOTES !== 'undefined' && QUOTES[sym]) return QUOTES[sym];
-  return { last: null, changePct: 0 };
+const WORKER = (window.WorkerBridge && WorkerBridge.getUrl && WorkerBridge.getUrl()) || 'https://bpleone-brain-worker.brandonpleone.workers.dev';
+const COMPLEX = ['VIX9D', 'VIX', 'VIX3M', 'VIX6M', 'VXN', 'VVIX'];
+let QMAP = {}, VIXB = [], SPYB = [];
+let termChart = null, leftChart = null, rightChart = null;
+
+function num(sym) { const q = QMAP[sym]; return (q && q.last > 0) ? q.last : null; }
+function chgOf(sym) { const q = QMAP[sym]; return (q && typeof q.changePct === 'number') ? q.changePct : null; }
+
+// Real VIX-complex quotes (Yahoo caret indices, on-demand via /brain/quotes) +
+// real VIX & SPY daily bars for the history charts. Nothing inferred from VXX.
+async function loadData() {
+  const [qr, vb, sb] = await Promise.all([
+    fetch(WORKER + '/brain/quotes?syms=' + COMPLEX.join(','), { cache: 'no-store' }).then(r => r.ok ? r.json() : null).catch(() => null),
+    fetch(WORKER + '/brain/bars?syms=VIX&days=40', { cache: 'no-store' }).then(r => r.ok ? r.json() : null).catch(() => null),
+    fetch(WORKER + '/brain/bars?syms=SPY&days=40', { cache: 'no-store' }).then(r => r.ok ? r.json() : null).catch(() => null)
+  ]);
+  QMAP = (qr && qr.quotes) || {};
+  VIXB = (vb && vb.bars && vb.bars.VIX) || [];
+  SPYB = (sb && sb.bars && sb.bars.SPY) || [];
+  paint();
 }
 
-// Infer VIX complex from VXX (ETF on VIX futures) + synthetic spread.
-// VXX trades like a duration-weighted average of front-month + 2nd month VIX futures.
-function inferTermStructure() {
-  const vxx = getQ('VXX');
-  // Estimate VIX = VXX * scaling, with seasonal noise
-  // VXX hovers $15-30 normal; VIX 15-25 normal. Build approximate map.
-  const vxxLast = vxx.last || 18;
-  // Approximate scaling: VIX ~ vxxLast * 1.2 (very rough)
-  const vix = Math.max(10, Math.min(60, vxxLast * 1.1 + 4));
-  const stress = vxx.changePct > 2 ? 1 : vxx.changePct < -2 ? -1 : 0;
-  // Build curve with realistic contango/backwardation based on stress
-  const slope = stress >= 0 ? 1.5 : -2; // points per tenor in normal vs stress
-  const vix9d = +(vix - slope * 0.4).toFixed(2);
-  const vix30 = +vix.toFixed(2);
-  const vix3m = +(vix + slope * 0.8).toFixed(2);
-  const vix6m = +(vix + slope * 1.2).toFixed(2);
-  const vxn = +(vix * 1.1).toFixed(2);
-  // VVIX = vol of vol, typically 80-120
-  const vvix = +(85 + Math.abs(vxx.changePct || 0) * 4 + Math.random() * 4).toFixed(2);
-  return { vix9d, vix30, vix3m, vix6m, vxn, vvix, vxxChg: vxx.changePct || 0 };
+function setCard(id, sym) {
+  const c = document.getElementById('card-' + id);
+  if (!c) return;
+  const valEl = c.querySelector('.value'), chgEl = c.querySelector('.chg');
+  const v = num(sym), ch = chgOf(sym);
+  if (v == null) { valEl.textContent = '—'; chgEl.textContent = ''; return; }
+  valEl.textContent = v.toFixed(2);
+  if (ch == null) { chgEl.textContent = ''; return; }
+  const col = ch > 0 ? 'var(--red)' : ch < 0 ? 'var(--green)' : 'var(--text-muted)';
+  const arrow = ch > 0 ? '▲' : ch < 0 ? '▼' : '—';
+  chgEl.style.color = col;
+  chgEl.textContent = arrow + ' ' + Math.abs(ch).toFixed(2) + '%';
 }
 
-let ts = inferTermStructure();
-function paintCards() {
-  const set = (id, val, chgPct) => {
-    const c = document.getElementById('card-' + id);
-    const valEl = c.querySelector('.value');
-    const chgEl = c.querySelector('.chg');
-    valEl.textContent = val.toFixed(2);
-    const col = chgPct > 0 ? 'var(--red)' : chgPct < 0 ? 'var(--green)' : 'var(--text-muted)';
-    const arrow = chgPct > 0 ? '▲' : chgPct < 0 ? '▼' : '—';
-    chgEl.style.color = col;
-    chgEl.textContent = arrow + ' ' + Math.abs(chgPct).toFixed(2) + '%';
-  };
-  set('vix9d', ts.vix9d, ts.vxxChg * 1.2);
-  set('vix', ts.vix30, ts.vxxChg);
-  set('vix3m', ts.vix3m, ts.vxxChg * 0.7);
-  set('vix6m', ts.vix6m, ts.vxxChg * 0.5);
-  set('vxn', ts.vxn, ts.vxxChg * 1.1);
-  set('vvix', ts.vvix, ts.vxxChg * 1.5);
-}
-paintCards();
-
-// Regime detection
 function detectRegime() {
-  const front = ts.vix30;
-  const back = ts.vix3m;
+  const front = num('VIX'), back = num('VIX3M');
+  if (front == null || back == null) return { label: '—', col: 'var(--text-muted)', bg: 'transparent', body: 'Waiting for real VIX / VIX3M quotes (worker deploy adds the VIX complex).' };
   const diff = back - front;
-  if (diff > 1.5) return { label: 'CONTANGO', col: 'var(--green)', bg: 'rgba(16,185,129,0.12)', body: 'Front-month VIX ' + diff.toFixed(2) + ' below 3M. Healthy regime — vol-sellers profit from roll-down. Lean long beta.' };
-  if (diff < -0.5) return { label: 'BACKWARDATION', col: 'var(--red)', bg: 'rgba(239,68,68,0.12)', body: 'Front ' + Math.abs(diff).toFixed(2) + ' above 3M — stress regime. Mean-reversion in SPY works. Vol-sellers blowing up.' };
-  return { label: 'FLAT', col: 'var(--yellow)', bg: 'rgba(245,158,11,0.12)', body: 'Curve within ±1 vol pt — transitional. Reduce conviction. Watch for next reshape.' };
+  if (diff > 1.5) return { label: 'CONTANGO', col: 'var(--green)', bg: 'rgba(16,185,129,0.12)', body: '3M VIX ' + diff.toFixed(2) + ' above front month. Healthy regime - vol-sellers profit from roll-down. Lean long beta.' };
+  if (diff < -0.5) return { label: 'BACKWARDATION', col: 'var(--red)', bg: 'rgba(239,68,68,0.12)', body: 'Front ' + Math.abs(diff).toFixed(2) + ' above 3M - stress regime. Mean-reversion in SPY works. Vol-sellers under pressure.' };
+  return { label: 'FLAT', col: 'var(--yellow)', bg: 'rgba(245,158,11,0.12)', body: 'Curve within ~1 vol pt - transitional. Reduce conviction. Watch for the next reshape.' };
 }
-const regime = detectRegime();
-const tag = document.getElementById('curveTag');
-tag.textContent = 'CURVE: ' + regime.label;
-tag.style.color = regime.col;
-tag.style.background = regime.bg;
-tag.style.border = '1px solid ' + regime.col;
 
-// Term-structure chart
-const labels = ['VIX9D','VIX','VIX3M','VIX6M'];
-const today = [ts.vix9d, ts.vix30, ts.vix3m, ts.vix6m];
-const month_ago = today.map(v => v - 0.5 - Math.random() * 2);
-const ctx = document.getElementById('termChart').getContext('2d');
-new Chart(ctx, {
-  type: 'line',
-  data: { labels, datasets: [
-    { label: 'Today', data: today, borderColor: 'rgba(0,212,255,1)', backgroundColor: 'rgba(0,212,255,0.1)', borderWidth: 3, tension: 0.3, fill: false, pointRadius: 5, pointBackgroundColor: 'rgba(0,212,255,1)' },
-    { label: '30 days ago', data: month_ago, borderColor: 'rgba(150,150,150,0.6)', borderWidth: 2, borderDash: [4,4], tension: 0.3, pointRadius: 4 }
-  ] },
-  options: { responsive: true, maintainAspectRatio: false,
-    plugins: { legend: { position: 'top', labels: { color: '#9ca3af' } } },
-    scales: { x: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#9ca3af' } },
-      y: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#9ca3af' } } } }
-});
-
-// Ratio chart
-const ratioLabels = [], ratioData = [];
-for (let i = 29; i >= 0; i--) {
-  const d = new Date(); d.setDate(d.getDate() - i);
-  ratioLabels.push(d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }));
-  ratioData.push(0.85 + (Math.sin(i / 4) * 0.08) + (Math.random() - 0.5) * 0.04);
+// Annualized rolling stdev of daily log returns (vol points), from real bars.
+function realizedVolSeries(bars, win) {
+  const c = bars.map(b => b.c).filter(x => x > 0);
+  const rets = [];
+  for (let i = 1; i < c.length; i++) rets.push(Math.log(c[i] / c[i - 1]));
+  const out = [], labels = [];
+  for (let i = win; i <= rets.length; i++) {
+    const slice = rets.slice(i - win, i);
+    const m = slice.reduce((s, x) => s + x, 0) / win;
+    let v = 0; slice.forEach(x => { const d = x - m; v += d * d; });
+    out.push(+(Math.sqrt(v / win) * Math.sqrt(252) * 100).toFixed(2));
+    const b = bars[i];
+    labels.push(b && b.ts ? new Date(b.ts).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '');
+  }
+  return { out, labels };
 }
-ratioData[ratioData.length - 1] = ts.vix9d / ts.vix30;
-new Chart(document.getElementById('ratioChart').getContext('2d'), {
-  type: 'line',
-  data: { labels: ratioLabels, datasets: [
-    { label: 'VIX9D / VIX', data: ratioData, borderColor: 'rgba(0,212,255,1)', backgroundColor: 'rgba(0,212,255,0.1)', fill: true, tension: 0.25, pointRadius: 0, borderWidth: 2 },
-    { label: 'Inversion line', data: ratioLabels.map(() => 1.0), borderColor: 'rgba(239,68,68,0.7)', borderDash: [4,4], pointRadius: 0, borderWidth: 1 }
-  ] },
-  options: { responsive: true, maintainAspectRatio: false,
-    plugins: { legend: { display: true, position: 'bottom', labels: { color: '#9ca3af', font: { size: 10 } } } },
-    scales: { x: { grid: { color: 'rgba(255,255,255,0.04)' }, ticks: { color: '#6b7280', font: { size: 9 }, maxTicksLimit: 8 } }, y: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#6b7280' } } } }
-});
 
-// VVIX chart
-const vvLabels = ratioLabels.slice();
-const vvData = vvLabels.map((_, i) => 88 + Math.sin(i / 3) * 7 + Math.random() * 4);
-vvData[vvData.length - 1] = ts.vvix;
-new Chart(document.getElementById('vvixChart').getContext('2d'), {
-  type: 'line',
-  data: { labels: vvLabels, datasets: [
-    { label: 'VVIX', data: vvData, borderColor: 'rgba(245,158,11,1)', backgroundColor: 'rgba(245,158,11,0.1)', fill: true, tension: 0.25, pointRadius: 0, borderWidth: 2 },
-    { label: 'Stress threshold', data: vvLabels.map(() => 110), borderColor: 'rgba(239,68,68,0.6)', borderDash: [4,4], pointRadius: 0, borderWidth: 1 }
-  ] },
-  options: { responsive: true, maintainAspectRatio: false,
-    plugins: { legend: { display: true, position: 'bottom', labels: { color: '#9ca3af', font: { size: 10 } } } },
-    scales: { x: { grid: { color: 'rgba(255,255,255,0.04)' }, ticks: { color: '#6b7280', font: { size: 9 }, maxTicksLimit: 8 } }, y: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#6b7280' } } } }
-});
+function paint() {
+  setCard('vix9d', 'VIX9D'); setCard('vix', 'VIX'); setCard('vix3m', 'VIX3M');
+  setCard('vix6m', 'VIX6M'); setCard('vxn', 'VXN'); setCard('vvix', 'VVIX');
 
-// Signals
-const signals = [];
-if (regime.label === 'BACKWARDATION') signals.push({ icon: '🚨', t: 'Backwardation alert', body: 'Stress regime — mean-reversion in equities historically works here.', sev: 3 });
-else if (regime.label === 'CONTANGO') signals.push({ icon: '✅', t: 'Healthy contango', body: 'Roll-down profits available to vol-sellers. Trend-following supported.', sev: 1 });
-if (ts.vix9d / ts.vix30 > 1.0) signals.push({ icon: '⚠️', t: 'Front-end inversion', body: 'VIX9D > VIX. Near-term hedging demand spiking.', sev: 3 });
-if (ts.vvix > 110) signals.push({ icon: '⚡', t: 'VVIX elevated', body: 'Vol of vol > 110 — sharp moves likely. Reduce option-selling exposure.', sev: 2 });
-if (ts.vix30 < 13) signals.push({ icon: '🪂', t: 'Complacency zone', body: 'VIX < 13 — buyers of cheap puts often rewarded. Vol-selling tail-risk elevated.', sev: 2 });
-if (ts.vix30 > 25) signals.push({ icon: '🩹', t: 'Vol elevated', body: 'VIX > 25 — premium-selling regime if you can stomach the gamma.', sev: 2 });
+  const regime = detectRegime();
+  const tag = document.getElementById('curveTag');
+  tag.textContent = 'CURVE: ' + regime.label;
+  tag.style.color = regime.col; tag.style.background = regime.bg; tag.style.border = '1px solid ' + regime.col;
 
-const sl = document.getElementById('signalsList');
-if (signals.length === 0) sl.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-muted);font-size:12px;">No active vol signals — calm regime.</div>';
-else signals.forEach(s => {
-  const row = document.createElement('div');
-  row.className = 'signal-row';
-  const stars = '⭐'.repeat(s.sev);
-  row.innerHTML = '<div style="flex:1;"><div style="font-weight:700;font-size:12px;">' + s.icon + ' ' + s.t + '</div><div style="font-size:11px;color:var(--text-muted);margin-top:2px;">' + s.body + '</div></div><div style="font-size:11px;">' + stars + '</div>';
-  sl.appendChild(row);
-});
+  // Term structure - real "today" curve (only the tenors we actually have)
+  const pts = [['VIX9D', num('VIX9D')], ['VIX', num('VIX')], ['VIX3M', num('VIX3M')], ['VIX6M', num('VIX6M')]].filter(p => p[1] != null);
+  if (termChart) termChart.destroy();
+  if (pts.length >= 2) {
+    termChart = new Chart(document.getElementById('termChart').getContext('2d'), {
+      type: 'line',
+      data: { labels: pts.map(p => p[0]), datasets: [{ label: 'Today (real)', data: pts.map(p => p[1]), borderColor: 'rgba(0,212,255,1)', backgroundColor: 'rgba(0,212,255,0.1)', borderWidth: 3, tension: 0.3, fill: false, pointRadius: 5, pointBackgroundColor: 'rgba(0,212,255,1)' }] },
+      options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'top', labels: { color: '#9ca3af' } } }, scales: { x: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#9ca3af' } }, y: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#9ca3af' } } } }
+    });
+  }
 
-document.getElementById('refreshBtn').addEventListener('click', () => { ts = inferTermStructure(); paintCards(); });
-setInterval(() => { ts = inferTermStructure(); paintCards(); }, 30000);
+  // Left chart - real VIX daily history (30-day implied)
+  if (leftChart) leftChart.destroy();
+  if (VIXB.length) {
+    const labels = VIXB.map(b => b.ts ? new Date(b.ts).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '');
+    leftChart = new Chart(document.getElementById('ratioChart').getContext('2d'), {
+      type: 'line',
+      data: { labels, datasets: [{ label: 'VIX (30d implied)', data: VIXB.map(b => b.c), borderColor: 'rgba(0,212,255,1)', backgroundColor: 'rgba(0,212,255,0.1)', fill: true, tension: 0.25, pointRadius: 0, borderWidth: 2 }] },
+      options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { grid: { color: 'rgba(255,255,255,0.04)' }, ticks: { color: '#6b7280', font: { size: 9 }, maxTicksLimit: 8 } }, y: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#6b7280' } } } }
+    });
+  }
+
+  // Right chart - real SPY 20-day realized vol
+  if (rightChart) rightChart.destroy();
+  if (SPYB.length > 22) {
+    const rv = realizedVolSeries(SPYB, 20);
+    rightChart = new Chart(document.getElementById('vvixChart').getContext('2d'), {
+      type: 'line',
+      data: { labels: rv.labels, datasets: [{ label: 'SPY 20d realized vol', data: rv.out, borderColor: 'rgba(245,158,11,1)', backgroundColor: 'rgba(245,158,11,0.1)', fill: true, tension: 0.25, pointRadius: 0, borderWidth: 2 }] },
+      options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { grid: { color: 'rgba(255,255,255,0.04)' }, ticks: { color: '#6b7280', font: { size: 9 }, maxTicksLimit: 8 } }, y: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#6b7280' } } } }
+    });
+  }
+
+  // Signals - real
+  const vix = num('VIX'), vix9d = num('VIX9D'), vvix = num('VVIX');
+  const signals = [];
+  if (regime.label === 'BACKWARDATION') signals.push({ icon: '🚨', t: 'Backwardation alert', body: 'Stress regime - mean-reversion in equities historically works here.', sev: 3 });
+  else if (regime.label === 'CONTANGO') signals.push({ icon: '✅', t: 'Healthy contango', body: 'Roll-down profits available to vol-sellers. Trend-following supported.', sev: 1 });
+  if (vix9d != null && vix != null && vix9d / vix > 1.0) signals.push({ icon: '⚠️', t: 'Front-end inversion', body: 'VIX9D > VIX. Near-term hedging demand spiking.', sev: 3 });
+  if (vvix != null && vvix > 110) signals.push({ icon: '⚡', t: 'VVIX elevated', body: 'Vol of vol > 110 - sharp moves likely. Reduce option-selling exposure.', sev: 2 });
+  if (vix != null && vix < 13) signals.push({ icon: '🪂', t: 'Complacency zone', body: 'VIX < 13 - cheap puts often rewarded. Vol-selling tail-risk elevated.', sev: 2 });
+  if (vix != null && vix > 25) signals.push({ icon: '🩹', t: 'Vol elevated', body: 'VIX > 25 - premium-selling regime if you can stomach the gamma.', sev: 2 });
+
+  const sl = document.getElementById('signalsList');
+  if (!signals.length) {
+    sl.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-muted);font-size:12px;">' + (vix != null ? 'No active vol signals - calm regime.' : 'Waiting for real VIX-complex quotes (worker deploy needed for VIX9D / VIX3M / VVIX).') + '</div>';
+  } else {
+    sl.innerHTML = '';
+    signals.forEach(s => {
+      const row = document.createElement('div');
+      row.className = 'signal-row';
+      row.innerHTML = '<div style="flex:1;"><div style="font-weight:700;font-size:12px;">' + s.icon + ' ' + s.t + '</div><div style="font-size:11px;color:var(--text-muted);margin-top:2px;">' + s.body + '</div></div><div style="font-size:11px;">' + '⭐'.repeat(s.sev) + '</div>';
+      sl.appendChild(row);
+    });
+  }
+}
+
+loadData();
+document.getElementById('refreshBtn').addEventListener('click', loadData);
+setInterval(loadData, 60000);
 </script>
 </body>
 </html>

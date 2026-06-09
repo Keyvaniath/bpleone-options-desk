@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Candlestick Scanner — bpleone / trade</title>
-<meta name="description" content="Scan for specific candlestick patterns: hammer, doji, engulfing, morning/evening star.">
+<meta name="description" content="Detect candlestick patterns on the latest daily candle from real OHLC: hammer, doji, engulfing, stars.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="css/style.css?v=v197">
@@ -17,14 +17,14 @@
 .candle-row.bear { border-left:3px solid var(--red); }
 </style>
 </head>
-<body data-needs="live">
+<body>
 <div id="site-nav"></div>
 
 <div class="container">
   <div class="page-header">
     <div>
       <div class="page-title">🕯 Candlestick Scanner</div>
-      <div class="page-subtitle">Specific candle patterns detected today · w/ context + bias · <span id="market-clock">--</span></div>
+      <div class="page-subtitle">Candle patterns on the latest daily bar (real OHLC) · delayed ~15 min · <span id="market-clock">--</span></div>
     </div>
     <div class="flex gap-8"><button class="btn btn-secondary" id="refreshBtn">🔄</button></div>
   </div>
@@ -111,25 +111,77 @@ const PATTERNS = [
   { name: 'Inverted Hammer', bias: 'bull', conf: 2, reversal: true }
 ];
 const UNIVERSE = ['NVDA','TSLA','AAPL','MSFT','META','AMZN','GOOGL','AMD','PLTR','COIN','SMCI','NFLX','MSTR','SHOP','UBER','HOOD','SOFI','PANW','SNOW','AVGO','MU','MRVL','LCID','GME','AMC','SPY','QQQ','IWM','XLE','XLK'];
+const WORKER = (window.WorkerBridge && WorkerBridge.getUrl && WorkerBridge.getUrl()) || 'https://bpleone-brain-worker.brandonpleone.workers.dev';
+let QMAP = {}, BMAP = {}, data = [], flt = 'all';
 
-function getQ(s) { return (typeof QUOTES !== 'undefined' && QUOTES[s]) ? QUOTES[s] : { last: 100, volume: 1e6 }; }
-
-function generate() {
-  const detected = [];
-  UNIVERSE.forEach(sym => {
-    // 35% chance of finding a pattern
-    if (Math.random() > 0.35) return;
-    const pat = PATTERNS[Math.floor(Math.random() * PATTERNS.length)];
-    const q = getQ(sym);
-    const volRatio = +(0.7 + Math.random() * 2.5).toFixed(2);
-    const location = Math.random() > 0.5 ? 'support' : Math.random() > 0.5 ? 'resistance' : 'midrange';
-    detected.push({ sym, pat, q, volRatio, location });
-  });
-  return detected.sort((a, b) => b.pat.conf - a.pat.conf);
+function P(name) { return PATTERNS.find(p => p.name === name) || null; }
+function anat(b) {
+  const body = Math.abs(b.c - b.o), range = Math.max(b.h - b.l, 1e-9);
+  const upper = b.h - Math.max(b.o, b.c), lower = Math.min(b.o, b.c) - b.l;
+  return { body, range, upper, lower, bull: b.c >= b.o };
 }
 
-let data = generate();
-let flt = 'all';
+// REAL candlestick detection on the latest daily candle(s) from /brain/bars OHLC.
+function detect(bars) {
+  if (!bars || bars.length < 6) return null;
+  const n = bars.length;
+  const b2 = bars[n - 1], b1 = bars[n - 2], b0 = bars[n - 3];
+  if (!b2 || !b1 || !b0 || !(b2.h > 0) || !(b1.h > 0) || !(b0.h > 0)) return null;
+  const a2 = anat(b2), a1 = anat(b1), a0 = anat(b0);
+  const priorClose = bars[n - 4].c;
+  const up = b2.c > priorClose, down = b2.c < priorClose;
+  let pat = null;
+  if (!a0.bull && a0.body > 0.5 * a0.range && a1.body < 0.4 * a1.range && a2.bull && b2.c > (b0.o + b0.c) / 2) pat = P('Morning Star');
+  else if (a0.bull && a0.body > 0.5 * a0.range && a1.body < 0.4 * a1.range && !a2.bull && b2.c < (b0.o + b0.c) / 2) pat = P('Evening Star');
+  else if (a0.bull && a1.bull && a2.bull && b1.c > b0.c && b2.c > b1.c && a0.body > 0.4 * a0.range && a1.body > 0.4 * a1.range && a2.body > 0.4 * a2.range) pat = P('Three White Soldiers');
+  else if (!a0.bull && !a1.bull && !a2.bull && b1.c < b0.c && b2.c < b1.c && a0.body > 0.4 * a0.range && a1.body > 0.4 * a1.range && a2.body > 0.4 * a2.range) pat = P('Three Black Crows');
+  else if (!a1.bull && a2.bull && b2.o <= b1.c && b2.c >= b1.o && a2.body > a1.body) pat = P('Bullish Engulfing');
+  else if (a1.bull && !a2.bull && b2.o >= b1.c && b2.c <= b1.o && a2.body > a1.body) pat = P('Bearish Engulfing');
+  else if (!a1.bull && a2.bull && Math.abs(b1.l - b2.l) / b2.l < 0.003 && down) pat = P('Tweezer Bottom');
+  else if (a1.bull && !a2.bull && Math.abs(b1.h - b2.h) / b2.h < 0.003 && up) pat = P('Tweezer Top');
+  else if (!a1.bull && a1.body > 0.5 * a1.range && a2.body < 0.5 * a1.body && a2.bull && Math.max(b2.o, b2.c) <= Math.max(b1.o, b1.c) && Math.min(b2.o, b2.c) >= Math.min(b1.o, b1.c)) pat = P('Harami (bull)');
+  else if (a2.lower >= 2 * a2.body && a2.upper <= a2.body && a2.body > 0 && down) pat = P('Hammer');
+  else if (a2.upper >= 2 * a2.body && a2.lower <= a2.body && a2.body > 0 && up) pat = P('Shooting Star');
+  else if (a2.upper >= 2 * a2.body && a2.lower <= a2.body && a2.body > 0 && down) pat = P('Inverted Hammer');
+  else if (a2.body >= 0.9 * a2.range && a2.bull) pat = P('Marubozu (bull)');
+  else if (a2.body >= 0.9 * a2.range && !a2.bull) pat = P('Marubozu (bear)');
+  else if (a2.body <= 0.1 * a2.range) pat = P('Doji');
+  if (!pat) return null;
+  const win = bars.slice(-20);
+  const hi = Math.max.apply(null, win.map(b => b.h)), lo = Math.min.apply(null, win.map(b => b.l));
+  const px = b2.c;
+  let location = 'midrange';
+  if (px > 0 && (px - lo) / px < 0.02) location = 'support';
+  else if (px > 0 && (hi - px) / px < 0.02) location = 'resistance';
+  const prior = bars.slice(-21, -1).map(b => b.v || 0).filter(v => v > 0);
+  const avgVol = prior.length ? prior.reduce((s, v) => s + v, 0) / prior.length : 0;
+  const volRatio = avgVol > 0 ? +((b2.v || 0) / avgVol).toFixed(2) : 0;
+  return { pat, location, volRatio, px };
+}
+
+function buildDetected() {
+  const out = [];
+  UNIVERSE.forEach(sym => {
+    const d = detect(BMAP[sym]);
+    if (!d || !d.pat) return;
+    const q = QMAP[sym];
+    const px = (q && q.last > 0) ? q.last : d.px;
+    out.push({ sym, pat: d.pat, q: { last: px }, volRatio: d.volRatio, location: d.location });
+  });
+  return out.sort((a, b) => b.pat.conf - a.pat.conf);
+}
+
+async function loadData() {
+  const syms = UNIVERSE.join(',');
+  const [br, qr] = await Promise.all([
+    fetch(WORKER + '/brain/bars?syms=' + syms + '&days=40', { cache: 'no-store' }).then(r => r.ok ? r.json() : null).catch(() => null),
+    fetch(WORKER + '/brain/quotes?syms=' + syms, { cache: 'no-store' }).then(r => r.ok ? r.json() : null).catch(() => null)
+  ]);
+  BMAP = (br && br.bars) || {};
+  QMAP = (qr && qr.quotes) || {};
+  data = buildDetected();
+  paint();
+}
 
 function paint() {
   let rows = data;
@@ -139,39 +191,44 @@ function paint() {
 
   const body = document.getElementById('candleBody');
   body.innerHTML = '';
-  rows.forEach((d, i) => {
-    const cls = 'candle-row ' + (d.pat.bias === 'bull' ? 'bull' : d.pat.bias === 'bear' ? 'bear' : '');
-    const col = d.pat.bias === 'bull' ? 'var(--green)' : d.pat.bias === 'bear' ? 'var(--red)' : 'var(--accent)';
-    const conf = '⭐'.repeat(d.pat.conf);
-    const volCol = d.volRatio > 2 ? 'var(--yellow)' : d.volRatio > 1 ? 'var(--accent)' : 'var(--text-muted)';
-    const locCol = d.location === 'support' ? 'var(--green)' : d.location === 'resistance' ? 'var(--red)' : 'var(--text-muted)';
-    const isStrong = (d.location === 'support' && d.pat.bias === 'bull') || (d.location === 'resistance' && d.pat.bias === 'bear');
-    const signal = isStrong ? 'STRONG' : d.pat.reversal ? 'Reversal' : 'Continuation';
-    const row = document.createElement('div');
-    row.className = cls;
-    row.innerHTML = '<div>' + (i + 1) + '</div>'
-      + '<div><strong>' + d.sym + '</strong></div>'
-      + '<div style="font-family:Inter;color:var(--text-secondary);font-size:11px;">' + d.pat.name + '</div>'
-      + '<div style="color:' + col + ';font-weight:700;">' + d.pat.bias.toUpperCase() + '</div>'
-      + '<div style="font-size:10px;">' + conf + '</div>'
-      + '<div>$' + d.q.last.toFixed(2) + '</div>'
-      + '<div style="color:' + volCol + ';">' + d.volRatio + '×</div>'
-      + '<div style="color:' + locCol + ';">' + d.location + '</div>'
-      + '<div style="color:' + (isStrong ? 'var(--green)' : 'var(--text-muted)') + ';font-weight:' + (isStrong ? '700' : '500') + ';font-family:Inter;font-size:11px;">' + signal + '</div>';
-    row.onclick = () => { window.location.href = 'trade-coach.html?sym=' + d.sym; };
-    body.appendChild(row);
-  });
+  if (!rows.length) {
+    body.innerHTML = '<div style="padding:18px;color:var(--text-muted);font-size:12px;">' + (data.length ? 'No patterns match this filter.' : 'No candlestick patterns on the latest daily bar across the tracked list.') + '</div>';
+  } else {
+    rows.forEach((d, i) => {
+      const cls = 'candle-row ' + (d.pat.bias === 'bull' ? 'bull' : d.pat.bias === 'bear' ? 'bear' : '');
+      const col = d.pat.bias === 'bull' ? 'var(--green)' : d.pat.bias === 'bear' ? 'var(--red)' : 'var(--accent)';
+      const conf = '⭐'.repeat(d.pat.conf);
+      const volTxt = d.volRatio > 0 ? d.volRatio.toFixed(2) + '×' : '—';
+      const volCol = d.volRatio > 2 ? 'var(--yellow)' : d.volRatio > 1 ? 'var(--accent)' : 'var(--text-muted)';
+      const locCol = d.location === 'support' ? 'var(--green)' : d.location === 'resistance' ? 'var(--red)' : 'var(--text-muted)';
+      const isStrong = (d.location === 'support' && d.pat.bias === 'bull') || (d.location === 'resistance' && d.pat.bias === 'bear');
+      const signal = isStrong ? 'STRONG' : d.pat.reversal ? 'Reversal' : 'Continuation';
+      const row = document.createElement('div');
+      row.className = cls;
+      row.innerHTML = '<div>' + (i + 1) + '</div>'
+        + '<div><strong>' + d.sym + '</strong></div>'
+        + '<div style="font-family:Inter;color:var(--text-secondary);font-size:11px;">' + d.pat.name + '</div>'
+        + '<div style="color:' + col + ';font-weight:700;">' + d.pat.bias.toUpperCase() + '</div>'
+        + '<div style="font-size:10px;">' + conf + '</div>'
+        + '<div>$' + d.q.last.toFixed(2) + '</div>'
+        + '<div style="color:' + volCol + ';">' + volTxt + '</div>'
+        + '<div style="color:' + locCol + ';">' + d.location + '</div>'
+        + '<div style="color:' + (isStrong ? 'var(--green)' : 'var(--text-muted)') + ';font-weight:' + (isStrong ? '700' : '500') + ';font-family:Inter;font-size:11px;">' + signal + '</div>';
+      row.onclick = () => { window.location.href = 'trade-coach.html?sym=' + d.sym; };
+      body.appendChild(row);
+    });
+  }
 
   document.getElementById('kpiBull').textContent = data.filter(d => d.pat.bias === 'bull').length;
   document.getElementById('kpiBear').textContent = data.filter(d => d.pat.bias === 'bear').length;
   const counts = {};
   data.forEach(d => counts[d.pat.name] = (counts[d.pat.name] || 0) + 1);
   const top = Object.entries(counts).sort((a, b) => b[1] - a[1])[0];
-  if (top) document.getElementById('kpiCommon').textContent = top[0];
+  document.getElementById('kpiCommon').textContent = top ? top[0] : '—';
   const strong = data.filter(d => (d.location === 'support' && d.pat.bias === 'bull') || (d.location === 'resistance' && d.pat.bias === 'bear')).length;
   document.getElementById('kpiHigh').textContent = strong;
 }
-paint();
+loadData();
 
 document.querySelectorAll('[data-flt]').forEach(b => b.addEventListener('click', () => {
   document.querySelectorAll('[data-flt]').forEach(x => x.classList.remove('btn-active'));
@@ -179,7 +236,8 @@ document.querySelectorAll('[data-flt]').forEach(b => b.addEventListener('click',
   flt = b.dataset.flt;
   paint();
 }));
-document.getElementById('refreshBtn').addEventListener('click', () => { data = generate(); paint(); });
+document.getElementById('refreshBtn').addEventListener('click', loadData);
+setInterval(loadData, 60000);
 </script>
 </body>
 </html>
