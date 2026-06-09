@@ -154,7 +154,7 @@ The browser pages can **mirror state from the worker** via `js/worker-bridge.js`
 
 **Pass 199 ownership rule:** when `WorkerBridge.isEnabled()` is true, the worker is the authoritative brain. The three browser-side trainers (`continuous-learner`, `auto-trainer`, `historical-bootstrap`) all defer their train+save blocks — capture and resolve still run for diagnostic display on `brain-proof.html`, but the browser doesn't train on local data the worker has already processed. This prevents silent gradient loss (next worker sync overwrote local updates) AND double-counting (browser trained on outcomes the worker had already incorporated). Pass 205 added the same gate to `ModelTrainer.trainBatch` (4th browser trainer that was missed).
 
-**Pass 200 version drift detection:** `worker/src/index.js` exports `WORKER_VERSION` (currently `'pass-215'`) and exposes it via `/brain/health → worker_version`. `worker-setup.html` compares to a hardcoded `EXPECTED_WORKER_VERSION`. When you ship a worker behavior change, bump both — the UI will then show a yellow "redeploy" banner until Brandon runs `git pull && cd worker && wrangler deploy`.
+**Pass 200 version drift detection:** `worker/src/index.js` exports `WORKER_VERSION` (currently `'pass-283'`) and exposes it via `/brain/health → worker_version`. `worker-setup.html` compares to a hardcoded `EXPECTED_WORKER_VERSION`. When you ship a worker behavior change, bump both — the UI will then show a yellow "redeploy" banner until Brandon runs `git pull && cd worker && wrangler deploy`.
 
 ### Pass 206-216 — the edge discovery story
 
@@ -221,6 +221,18 @@ After passes 188-205 wired the worker brain end-to-end with proper validation, *
 
 **New pages since pass 216:** `constraints.html` (noise-control editor — conviction floors, rvol/price filters, focus/exclude lists, regime gates; the brain trains on everything, this only governs what gets *broadcast*), `proof.html` (deep audit: self-check vitals, beat-a-coin-flip metrics, edge-by-conviction map, live record, methodology, per-trade why), `edge-scorecard.html` (confluence verdict banner).
 
+## Pass 280-283 — All-Live data conversion + honesty labeling (current)
+
+The whole site was swept so nothing fabricated reads as live. Three moves:
+
+1. **Real-data plumbing (worker pass-283, NOT yet deployed by Brandon).** New endpoints `GET /brain/quotes?syms=` (real Yahoo quotes incl. volume, 60s KV cache) and `GET /brain/bars?syms=&days=` (per-symbol daily OHLC from KV). Plus on-demand Yahoo caret indices in `fetchYahooQuote` — VIX9D/VIX3M/VIX6M/VXN/VVIX (vol complex) and SKEW/TNX/IRX/FVX/TYX (tail-risk + treasury yields). These are **deliberately NOT in UNIVERSE** (non-tradeable indices — adding them would pollute the brain's training set and /brain/signals); fetchable via /brain/quotes only. `fetchYahooQuote` prevClose fixed to the prior daily bar (was `chartPreviousClose`, ~6 trading days stale → inflated change%). **ACTION: Brandon must `cd worker && npx wrangler deploy`** — converted pages degrade to '—' until then.
+
+2. **~14 pages converted to REAL data** off /brain/quotes + /brain/bars (+ Binance fapi for crypto): hot-movers, sector-flow, sector-snapshot, breadth-pro, correlation, cross-asset-pulse, vix-pulse, daily-stats, live-watcher, brain-coach, pivot-finder (floor-trader pivots), candlestick-scanner (real OHLC patterns), algo-signals (real RSI/MACD/BB/breakouts), vol-term (real VIX complex), crypto-derivatives + crypto-basis (live Binance funding/OI), risk-radar, risk-parity.
+
+3. **~26 paid-feed pages honestly labeled** with a yellow SAMPLE/ILLUSTRATIVE banner under the nav (options flow/chain/GEX, dark-pool, L2 order-book/tape, short-interest/squeeze, MOC imbalance, ETF flows, halts, sentiment, congress, perf-attribution). They genuinely need paid feeds; the banner says so + "do not trade on these figures." Calculator pages with legitimate Monte-Carlo (risk-of-ruin, risk-simulator, position-sizing) were left as-is.
+
+**Honesty rule going forward:** never show a fabricated number as live. If a feed is free-derivable (Yahoo/Stooq/Binance) wire it real; if it needs a paid feed, show '—' or the SAMPLE banner. Do not re-introduce `Math.random` into a data path.
+
 ### Worker endpoints
 
 - `GET /brain/health` — readyz (lastTickAgo, healthy bool)
@@ -234,6 +246,8 @@ After passes 188-205 wired the worker brain end-to-end with proper validation, *
 - `GET /brain/confluence-score` — self-computing forward-test verdict (ready=false until ≥20 graded confluence calls)
 - `GET /brain/news` — real headlines (no browser key needed)
 - `GET /brain/insider` — SEC Form-4 insider transactions (16-name basket)
+- `GET /brain/quotes?syms=` — real Yahoo quotes (last/prevClose/changePct/volume/dayHigh/dayLow), 60s KV cache; accepts ANY ticker incl. on-demand caret indices (pass 280/283)
+- `GET /brain/bars?syms=&days=` — per-symbol daily OHLC `{o,h,l,c,v,ts}` from KV BARS_HISTORY, no new fetches (pass 282)
 - `GET /brain/debug/fetch?sym=X` — diagnose data sources (Yahoo/Stooq)
 - `POST /brain/bootstrap` (auth) — 250-day pre-train via Yahoo Finance v8
 - `POST /brain/tick` (auth) — manual cron trigger
