@@ -236,18 +236,22 @@ function render() {
   });
 
   // Commentary
+  // Honest: this is a single window over a live sample, not a proven edge. Describe
+  // the outcome, hedge hard on small samples, and never assert "adds value."
   const lines = [];
-  if (s.n < 10) lines.push('<p style="color:var(--yellow);">⚠ Only ' + s.n + ' trades — small sample size. Take this with a grain of salt.</p>');
+  const thin = s.n < 30;
+  if (thin) lines.push('<p style="color:var(--yellow);">⚠ Only ' + s.n + ' trades — far too small to conclude anything. Over a window this short, out- or under-performance is mostly luck. Read the rest as descriptive, not a verdict.</p>');
   if (brainWins) {
-    lines.push('<p><strong style="color:var(--green);">The brain beat SPY</strong> by <strong>' + ((s.bRet - s.sRet) * 100).toFixed(2) + '%</strong> over this window.</p>');
-    if (s.bSharpe > s.sSharpe) lines.push('<p>And it did so with a <strong>better Sharpe ratio</strong> (' + s.bSharpe.toFixed(2) + ' vs ' + s.sSharpe.toFixed(2) + ') — meaning the outperformance came with better risk-adjusted returns.</p>');
-    else lines.push('<p style="color:var(--yellow);">But Sharpe is worse (' + s.bSharpe.toFixed(2) + ' vs ' + s.sSharpe.toFixed(2) + '). The brain took more risk for that excess return.</p>');
+    lines.push('<p><strong style="color:var(--green);">The brain outperformed SPY</strong> by <strong>' + ((s.bRet - s.sRet) * 100).toFixed(2) + '%</strong> over this window' + (thin ? ' (small sample — not a proven edge)' : '') + '.</p>');
+    if (s.bSharpe > s.sSharpe) lines.push('<p>It did so with a better Sharpe (' + s.bSharpe.toFixed(2) + ' vs ' + s.sSharpe.toFixed(2) + ') over this window.</p>');
+    else lines.push('<p style="color:var(--yellow);">But Sharpe was worse (' + s.bSharpe.toFixed(2) + ' vs ' + s.sSharpe.toFixed(2) + ') — more risk taken for that excess return.</p>');
   } else {
-    lines.push('<p><strong style="color:var(--red);">SPY beat the brain</strong> by <strong>' + ((s.sRet - s.bRet) * 100).toFixed(2) + '%</strong> over this window.</p>');
-    lines.push('<p>Could be: (1) market is in a strong trending regime that favors buy-and-hold, (2) brain is overtrading, (3) model needs more training data. Check the postmortem.</p>');
+    lines.push('<p><strong style="color:var(--red);">SPY outperformed the brain</strong> by <strong>' + ((s.sRet - s.bRet) * 100).toFixed(2) + '%</strong> over this window.</p>');
+    lines.push('<p>Could be: (1) a strong trending regime that favors buy-and-hold, (2) overtrading, (3) the model needs more data. Check the postmortem.</p>');
   }
-  if (s.alpha > 0.1) lines.push('<p style="color:var(--green);">✓ <strong>Alpha is +' + (s.alpha*100).toFixed(1) + '%</strong> annualized — even after controlling for market exposure, the brain adds value.</p>');
-  if (Math.abs(s.beta) < 0.3) lines.push('<p>Beta is low (' + s.beta.toFixed(2) + ') — the brain is mostly market-neutral. Good for diversification.</p>');
+  if (s.alpha > 0.1 && !thin) lines.push('<p>Over this window, alpha was +' + (s.alpha*100).toFixed(1) + '% annualized. One window is not a proven edge — see the significance math on <a href="proof.html" style="color:var(--accent);">proof.html</a>.</p>');
+  else if (s.alpha > 0.1 && thin) lines.push('<p style="color:var(--text-muted);">Windowed alpha looks positive, but the sample is too small to annualize meaningfully.</p>');
+  if (Math.abs(s.beta) < 0.3) lines.push('<p>Beta is low (' + s.beta.toFixed(2) + ') over this window — mostly market-neutral.</p>');
   document.getElementById('commentary').innerHTML = lines.join('');
 }
 

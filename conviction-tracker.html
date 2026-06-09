@@ -189,17 +189,23 @@ function render() {
   document.getElementById('kR').textContent = (totalR >= 0 ? '+' : '') + totalR.toFixed(1) + 'R';
   document.getElementById('kR').style.color = totalR > 0 ? 'var(--green)' : 'var(--red)';
 
-  // Verdict
+  // Verdict — honest gating: never assert "alpha" on a small or insignificant
+  // sample. The site's whole premise is that we don't claim edge we can't prove,
+  // so the best a live sample earns is "positive so far / provisional."
   let vCls, vMsg, vDetail;
-  if (avgR > 0.05 && winRate >= 0.50 && sharpe > 0.5) {
-    vCls = 'alpha'; vMsg = '✓ REAL ALPHA';
-    vDetail = trades.length + ' resolved conviction picks · ' + (totalR >= 0 ? '+' : '') + totalR.toFixed(1) + 'R · ' + (winRate*100).toFixed(0) + '% win rate · Sharpe ' + sharpe.toFixed(2) + ' · PF ' + (pf === Infinity ? '∞' : pf.toFixed(2)) + '. The brain is generating real edge on live data.';
-  } else if (avgR > 0 || (winRate >= 0.50 && trades.length < 30)) {
+  const enough = trades.length >= 30;
+  if (!enough) {
+    vCls = 'neutral'; vMsg = '~ BUILDING SAMPLE';
+    vDetail = trades.length + ' resolved conviction picks · ' + (totalR >= 0 ? '+' : '') + totalR.toFixed(1) + 'R · ' + (winRate*100).toFixed(0) + '% win rate · Sharpe ' + sharpe.toFixed(2) + '. Too few to mean anything yet — a handful of trades can look great on luck alone. Need 30+ resolved before any verdict.';
+  } else if (avgR > 0.05 && winRate >= 0.50 && sharpe > 0.5) {
+    vCls = 'alpha'; vMsg = '↑ POSITIVE SO FAR';
+    vDetail = trades.length + ' resolved conviction picks · ' + (totalR >= 0 ? '+' : '') + totalR.toFixed(1) + 'R · ' + (winRate*100).toFixed(0) + '% win rate · Sharpe ' + sharpe.toFixed(2) + ' · PF ' + (pf === Infinity ? '∞' : pf.toFixed(2)) + '. Encouraging — but this is a live sample, not a proven, statistically-significant edge. Treat it as provisional until it clears the drift baseline over a much larger sample (see proof.html).';
+  } else if (avgR > 0) {
     vCls = 'neutral'; vMsg = '~ INCONCLUSIVE';
-    vDetail = trades.length + ' resolved picks · ' + (totalR >= 0 ? '+' : '') + totalR.toFixed(1) + 'R · ' + (winRate*100).toFixed(0) + '% win rate · Sharpe ' + sharpe.toFixed(2) + '. ' + (trades.length < 30 ? 'Sample too small. Wait for 30+ to make a call.' : 'Edge is marginal — could be luck.');
+    vDetail = trades.length + ' resolved picks · ' + (totalR >= 0 ? '+' : '') + totalR.toFixed(1) + 'R · ' + (winRate*100).toFixed(0) + '% win rate · Sharpe ' + sharpe.toFixed(2) + '. Edge is marginal — could easily be luck.';
   } else {
     vCls = 'bad'; vMsg = '✗ NO EDGE';
-    vDetail = trades.length + ' resolved picks · ' + totalR.toFixed(1) + 'R · ' + (winRate*100).toFixed(0) + '% win rate. Brain is losing money on live predictions. Don\'t trade off this until it improves.';
+    vDetail = trades.length + ' resolved picks · ' + totalR.toFixed(1) + 'R · ' + (winRate*100).toFixed(0) + '% win rate. Brain is losing on live predictions — don\'t trade off this until it improves.';
   }
   document.getElementById('verdict').innerHTML = '<div class="verdict-card ' + vCls + '">'
     + '<div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:1px;">Live-forward verdict</div>'
