@@ -39,10 +39,15 @@
   </div>
 
   <div class="grid grid-4 mb-24">
-    <div class="tile" style="background:rgba(16,185,129,0.06);"><div class="lbl">Audit passes</div><div class="val" style="color:var(--green);">273</div></div>
+    <div class="tile" style="background:rgba(16,185,129,0.06);"><div class="lbl">Audit passes</div><div class="val" style="color:var(--green);">274</div></div>
     <div class="tile" style="background:rgba(16,185,129,0.06);"><div class="lbl">Bugs fixed</div><div class="val" style="color:var(--green);">205+</div></div>
     <div class="tile" style="background:rgba(220,38,38,0.06);"><div class="lbl">CRITICAL bugs</div><div class="val" style="color:var(--red);">38</div></div>
     <div class="tile"><div class="lbl">Total commits</div><div class="val">199+</div></div>
+  </div>
+
+  <div style="padding:14px 18px;border-radius:10px;background:rgba(234,179,8,0.10);border-left:4px solid var(--yellow);margin-bottom:14px;font-size:13px;color:var(--text-secondary);line-height:1.6;">
+    <strong>Batch AS (pass 274) — kill a nightly false "unhealthy" signal (caught while verifying the pass-269 deploy).</strong>
+    Right after deploying, <code>/brain/health</code> showed <code>healthy:false</code> &mdash; but every audit check passed, <code>audit_pass:true</code>, <code>issues:[]</code>, <code>self_sustaining:true</code>. The worker's <code>healthy</code> flag is <em>intentionally</em> strict (<code>lastTickAgo &lt; 180s</code>, "back-compat"); off-hours the cron tick is throttled to ~30 min, so it naturally goes false at night. The market-aware signal is <code>self_sustaining</code> / <code>audit_pass</code> (the worker even comments "MONITOR THIS, not healthy"). Two <em>user-facing</em> pages still read the strict flag: <b>alpha-scanner</b> rendered a 🔴 red dot every evening (now 🟡 via <code>self_sustaining || audit_pass</code>), and <b>start-here</b> read <code>healthy || ok</code> &mdash; which is <em>always</em> true since <code>ok</code> is always true, so it would have shown "Brain is alive" even if the brain were genuinely down (now gates on <code>self_sustaining || audit_pass || healthy</code> &mdash; honest in both directions). No worker change needed. Exactly the kind of "looks broken" first-impression to kill before putting it in front of traders. Also confirmed end-to-end: analytics pageview <em>and</em> feedback-text both persist through the new <code>/track</code> path (KV ~20s propagation).
   </div>
 
   <div style="padding:14px 18px;border-radius:10px;background:rgba(0,212,255,0.10);border-left:4px solid var(--accent);margin-bottom:14px;font-size:13px;color:var(--text-secondary);line-height:1.6;">
