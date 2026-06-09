@@ -1051,8 +1051,10 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 // ----- Auto-start when ready -----
-// If DataProvider is configured with a real provider, it will pause the mock
-// engine and stream real quotes. Otherwise the OU random walk drives the site.
+// DataProvider starts the real feeds (Stooq + Coinbase + worker-quotes). The OU
+// random walk does NOT run by default - it is demo-mode only (pass 239), is
+// gated by isDemoMode(), labels itself priceSource='demo-sim', and never
+// overwrites a symbol that already has a real price (q.liveAt > 0).
 document.addEventListener('DOMContentLoaded', () => {
   bindLive();
   // Pass 239 (NO FAKE NUMBERS): always boot the real data layer (DataProvider
