@@ -19,7 +19,6 @@
 </head>
 <body data-needs="live">
 <div id="site-nav"></div>
-<div data-synthetic-banner style="background:linear-gradient(90deg,rgba(245,158,11,0.18),rgba(245,158,11,0.06));border-bottom:1px solid rgba(245,158,11,0.45);color:var(--yellow);font-size:12.5px;font-weight:600;padding:8px 16px;text-align:center;">SAMPLE / ILLUSTRATIVE DATA - the z-score / oversold figures shown are placeholders, not computed from live bars. Real values are free-derivable from daily OHLC (worker /brain/bars) - wiring pending.</div>
 
 <div class="container">
   <div class="page-header">
@@ -65,32 +64,64 @@ buildNav('mean-reversion-scanner');
 
 const UNIVERSE = ['NVDA','TSLA','AAPL','MSFT','META','AMZN','GOOGL','AMD','PLTR','COIN','SMCI','NFLX','MSTR','SHOP','UBER','HOOD','SOFI','PANW','SNOW','AVGO','MU','MRVL','LCID','RIVN','GME','AMC','CVNA','MARA','RIOT','OPRA','BBAI','SOUN','PATH','BIRD','WISH','MULN','ATER','BLNK'];
 
-function getQ(s) { return (typeof QUOTES !== 'undefined' && QUOTES[s]) ? QUOTES[s] : { last: 100 }; }
+const WORKER = (window.WorkerBridge && WorkerBridge.getUrl && WorkerBridge.getUrl()) || 'https://bpleone-brain-worker.brandonpleone.workers.dev';
 
-function generate() {
-  return UNIVERSE.map(sym => {
-    const seed = sym.charCodeAt(0) * 13 + (sym.charCodeAt(1) || 0);
-    const rand = (k) => { const x = Math.sin(seed + k) * 10000; return x - Math.floor(x); };
-    const q = getQ(sym);
-    const px = q.last;
-    const ma20 = +(px * (1 + (rand(1) - 0.5) * 0.08)).toFixed(2);
-    const atr = px * 0.025;
-    const distance = +((px - ma20) / atr).toFixed(2);
-    const z = +((px - ma20) / (atr * 1.2)).toFixed(2);
-    const rsi = +(50 + z * 12 + (rand(2) - 0.5) * 4).toFixed(0);
-    return { sym, px, ma20, atr, distance, z, rsi };
-  });
+// Real indicators from daily OHLC - no fabrication.
+function smaLast(a, n) { if (a.length < n) return null; const s = a.slice(-n); return s.reduce((x, y) => x + y, 0) / n; }
+function stdevLast(a, n) { if (a.length < n) return null; const s = a.slice(-n); const m = s.reduce((x, y) => x + y, 0) / n; return Math.sqrt(s.reduce((x, y) => x + (y - m) ** 2, 0) / n); }
+function atrWilder(bars, n) {
+  if (bars.length < n + 1) return null;
+  let atr = 0;
+  for (let i = 1; i <= n; i++) { const h = bars[i].h, l = bars[i].l, pc = bars[i - 1].c; atr += Math.max(h - l, Math.abs(h - pc), Math.abs(l - pc)); }
+  atr /= n;
+  for (let i = n + 1; i < bars.length; i++) { const h = bars[i].h, l = bars[i].l, pc = bars[i - 1].c; const t = Math.max(h - l, Math.abs(h - pc), Math.abs(l - pc)); atr = (atr * (n - 1) + t) / n; }
+  return atr;
+}
+function rsiWilder(closes, n) {
+  if (closes.length < n + 1) return null;
+  let ag = 0, al = 0;
+  for (let i = 1; i <= n; i++) { const d = closes[i] - closes[i - 1]; if (d > 0) ag += d; else al -= d; }
+  ag /= n; al /= n;
+  for (let i = n + 1; i < closes.length; i++) { const d = closes[i] - closes[i - 1]; ag = (ag * (n - 1) + (d > 0 ? d : 0)) / n; al = (al * (n - 1) + (d < 0 ? -d : 0)) / n; }
+  if (al === 0) return 100;
+  return 100 - 100 / (1 + ag / al);
 }
 
-let data = generate();
+let data = [];
 let flt = 'all';
+let loading = true;
+
+async function loadData() {
+  const res = await fetch(WORKER + '/brain/bars?syms=' + encodeURIComponent(UNIVERSE.join(',')) + '&days=40', { cache: 'no-store' }).then(r => r.ok ? r.json() : null).catch(() => null);
+  const allBars = (res && res.bars) || {};
+  data = UNIVERSE.map(sym => {
+    const bars = (allBars[sym] || []).filter(b => b && b.c > 0 && b.ts).sort((a, b) => a.ts - b.ts);
+    if (bars.length < 21) return null;
+    const closes = bars.map(b => b.c);
+    const px = closes[closes.length - 1];
+    const ma20 = smaLast(closes, 20), sd20 = stdevLast(closes, 20), atr = atrWilder(bars, 14), rsiV = rsiWilder(closes, 14);
+    if (ma20 == null || !(sd20 > 0) || !(atr > 0)) return null;
+    const z = +((px - ma20) / sd20).toFixed(2);
+    const distance = +((px - ma20) / atr).toFixed(2);
+    return { sym, px, ma20: +ma20.toFixed(2), atr, distance, z, rsi: rsiV != null ? Math.round(rsiV) : null };
+  }).filter(Boolean);
+  loading = false;
+  paint();
+}
 
 function paint() {
+  const body = document.getElementById('mrBody');
+  if (loading) { body.innerHTML = '<div style="padding:24px;text-align:center;color:var(--text-muted);font-size:12px;">Loading daily bars…</div>'; return; }
+  if (!data.length) {
+    body.innerHTML = '<div style="padding:24px;text-align:center;color:var(--text-muted);font-size:12px;">Daily OHLC bars not available yet - the worker <a href="worker-setup.html" style="color:var(--accent);">/brain/bars</a> feed is not deployed. Z-score, RSI and the 20-day mean compute from real bars once it is live.</div>';
+    ['kpiBounce', 'kpiFade', 'kpiTop', 'kpiAvg'].forEach(id => { const e = document.getElementById(id); if (e) e.textContent = '—'; });
+    const tb = document.getElementById('kpiTopBody'); if (tb) tb.textContent = '';
+    return;
+  }
   let rows = data.slice().filter(d => Math.abs(d.z) >= 1.5).sort((a, b) => Math.abs(b.z) - Math.abs(a.z));
   if (flt === 'long') rows = rows.filter(d => d.z < 0);
   else if (flt === 'short') rows = rows.filter(d => d.z > 0);
 
-  const body = document.getElementById('mrBody');
   body.innerHTML = '';
   rows.slice(0, 24).forEach((r, i) => {
     const long = r.z < 0;
@@ -107,7 +138,7 @@ function paint() {
       + '<div>$' + r.ma20.toFixed(2) + '</div>'
       + '<div style="color:' + (Math.abs(r.z) > 2.5 ? 'var(--yellow)' : 'var(--accent)') + ';font-weight:700;">' + (r.z >= 0 ? '+' : '') + r.z + 'σ</div>'
       + '<div>' + (r.distance >= 0 ? '+' : '') + r.distance + ' ATR</div>'
-      + '<div style="color:' + (r.rsi < 30 ? 'var(--green)' : r.rsi > 70 ? 'var(--red)' : 'var(--text-muted)') + ';">' + r.rsi + '</div>'
+      + '<div style="color:' + (r.rsi == null ? 'var(--text-muted)' : r.rsi < 30 ? 'var(--green)' : r.rsi > 70 ? 'var(--red)' : 'var(--text-muted)') + ';">' + (r.rsi != null ? r.rsi : '—') + '</div>'
       + '<div style="color:' + biasCol + ';font-weight:700;">' + bias + '</div>'
       + '<div style="color:var(--text-muted);font-family:Inter;font-size:11px;">Stop $' + stop + ' → T $' + target + '</div>';
     row.onclick = () => { window.location.href = 'trade-coach.html?sym=' + r.sym; };
@@ -118,16 +149,18 @@ function paint() {
   document.getElementById('kpiFade').textContent = data.filter(d => d.z > 1.5).length;
   const top = data.slice().sort((a, b) => Math.abs(b.z) - Math.abs(a.z))[0];
   if (top) { document.getElementById('kpiTop').textContent = top.sym; document.getElementById('kpiTopBody').textContent = (top.z >= 0 ? '+' : '') + top.z + 'σ'; }
-  document.getElementById('kpiAvg').textContent = (data.reduce((s, d) => s + Math.abs(d.z), 0) / data.length).toFixed(2);
+  document.getElementById('kpiAvg').textContent = data.length ? (data.reduce((s, d) => s + Math.abs(d.z), 0) / data.length).toFixed(2) : '—';
 }
 paint();
+loadData();
 document.querySelectorAll('[data-flt]').forEach(b => b.addEventListener('click', () => {
   document.querySelectorAll('[data-flt]').forEach(x => x.classList.remove('btn-active'));
   b.classList.add('btn-active');
   flt = b.dataset.flt;
   paint();
 }));
-document.getElementById('refreshBtn').addEventListener('click', () => { data = generate(); paint(); });
+document.getElementById('refreshBtn').addEventListener('click', () => { loading = true; paint(); loadData(); });
+setInterval(loadData, 60000);
 </script>
 </body>
 </html>
