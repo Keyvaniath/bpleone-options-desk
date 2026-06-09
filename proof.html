@@ -176,13 +176,14 @@ async function loadAll() {
   if (wf) {
     $('m-acc').textContent = (wf.accuracy * 100).toFixed(1) + '%';
     $('m-acc').style.color = wf.accuracy > 0.5 ? 'var(--green)' : 'var(--red)';
-    $('m-sig').textContent = wf.significant ? 'Yes' : 'Not yet';
-    $('m-sig').style.color = wf.significant ? 'var(--green)' : 'var(--yellow)';
+    $('m-sig').textContent = wf.beats_base_rate_95 ? 'Yes' : 'Not yet';
+    $('m-sig').style.color = wf.beats_base_rate_95 ? 'var(--green)' : 'var(--yellow)';
     $('m-n').textContent = (wf.n || 0).toLocaleString();
     $('m-bss').textContent = wf.bss != null ? wf.bss.toFixed(3) : '—';
-    $('metric-note').innerHTML = wf.significant
-      ? 'Verified edge: <b>' + (wf.accuracy * 100).toFixed(1) + '%</b> directional accuracy over <b>' + (wf.n || 0).toLocaleString() + '</b> out-of-sample 5-day calls, p=' + (wf.p_value != null ? wf.p_value.toFixed(3) : '?') + '. A negative Brier skill with positive directional accuracy means the <em>direction</em> is reliable but the <em>probabilities</em> are slightly over-confident — which is exactly what the calibration layer is for.'
-      : 'Edge present but not yet at the 95% significance bar — treat as provisional.';
+    const _base = wf.base_rate != null ? wf.base_rate : 0, _skill = wf.skill_above_base != null ? wf.skill_above_base : (wf.accuracy - _base);
+    $('metric-note').innerHTML = wf.beats_base_rate_95
+      ? 'Verified skill: the <b>' + (wf.accuracy * 100).toFixed(1) + '%</b> accuracy clears the 95% bar <em>above the market\'s ' + (_base * 100).toFixed(1) + '% drift baseline</em> over <b>' + (wf.n || 0).toLocaleString() + '</b> out-of-sample 5-day calls — real timing edge, not just beta.'
+      : 'Honest read: the <b>' + (wf.accuracy * 100).toFixed(1) + '%</b> accuracy is mostly the market\'s upward drift (base rate <b>' + (_base * 100).toFixed(1) + '%</b>). The timing skill on top — <b>' + (_skill >= 0 ? '+' : '') + (_skill * 100).toFixed(1) + 'pp</b> — is not yet statistically significant. Treat as provisional: mostly drift, little proven timing edge.';
   }
   if (health) $('m-trained').textContent = health.model_trained ? (health.model_trained / 1000).toFixed(1) + 'k' : '—';
 

@@ -334,20 +334,22 @@ function renderMetricsTile(m, prefix, verdictId) {
   document.getElementById(prefix + '-bss').textContent = (m.bss >= 0 ? '+' : '') + m.bss.toFixed(4);
   document.getElementById(prefix + '-bss').style.color = m.bss > 0.05 ? 'var(--green)' : (m.bss > 0 ? 'var(--yellow)' : 'var(--red)');
   document.getElementById(prefix + '-p').textContent = m.p_value < 0.0001 ? '<0.0001' : m.p_value.toFixed(4);
-  document.getElementById(prefix + '-p').style.color = m.significant ? 'var(--green)' : 'var(--text-muted)';
+  document.getElementById(prefix + '-p').style.color = m.beats_base_rate_95 ? 'var(--green)' : 'var(--text-muted)';
   const v = document.getElementById(verdictId);
-  if (m.verdict === 'REAL SIGNAL') {
-    v.textContent = '✓ REAL SIGNAL — BSS ' + m.bss.toFixed(3) + ', p=' + m.p_value.toFixed(3);
+  const _beatsBase = m.beats_base_rate_95 === true;
+  const _skill = m.skill_above_base != null ? m.skill_above_base : (m.base_rate != null ? m.accuracy - m.base_rate : null);
+  if (_beatsBase) {
+    v.textContent = '✓ REAL SKILL — beats the drift baseline (BSS ' + m.bss.toFixed(3) + ', p=' + m.p_value.toFixed(3) + ')';
     v.style.background = 'rgba(16,185,129,0.15)';
     v.style.color = 'var(--green)';
     v.style.border = '1px solid var(--green)';
-  } else if (m.verdict === 'WEAK SIGNAL') {
-    v.textContent = '⚠ WEAK SIGNAL — BSS ' + m.bss.toFixed(3) + ' (close to random)';
+  } else if (_skill != null && _skill > 0) {
+    v.textContent = '○ MOSTLY DRIFT — only ' + (_skill >= 0 ? '+' : '') + (_skill * 100).toFixed(1) + 'pp timing skill above the base rate, not yet significant';
     v.style.background = 'rgba(245,158,11,0.15)';
     v.style.color = 'var(--yellow)';
     v.style.border = '1px solid var(--yellow)';
   } else {
-    v.textContent = '✗ BELOW BASELINE — BSS ' + m.bss.toFixed(3) + ' (no better than guessing)';
+    v.textContent = '✗ BELOW BASELINE — no timing skill above the market\'s drift (BSS ' + m.bss.toFixed(3) + ')';
     v.style.background = 'rgba(220,38,38,0.15)';
     v.style.color = 'var(--red)';
     v.style.border = '1px solid var(--red)';
