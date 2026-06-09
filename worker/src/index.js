@@ -38,7 +38,7 @@
 // Pass 200: version stamp so brain-proof.html + worker-setup.html can detect
 // when the deployed worker is behind the repo source. Bump on every meaningful
 // behavior change. Read via /brain/health → worker_version field.
-const WORKER_VERSION = 'pass-280';
+const WORKER_VERSION = 'pass-281';
 
 const UNIVERSE = [
   'SPY','QQQ','IWM','DIA','AAPL','NVDA','TSLA','MSFT','META','AMZN','GOOGL','AMD',
@@ -654,8 +654,14 @@ async function fetchYahooQuote(sym) {
     const last = (typeof meta.regularMarketPrice === 'number' && meta.regularMarketPrice > 0)
       ? meta.regularMarketPrice : q.close[i];
     if (typeof last !== 'number' || last <= 0) return null;
-    const prevClose = (typeof meta.chartPreviousClose === 'number' && meta.chartPreviousClose > 0)
-      ? meta.chartPreviousClose : (i > 0 && q.close[i - 1] ? q.close[i - 1] : last);
+    // prevClose must be YESTERDAY's close (the prior daily bar) for a true DAILY
+    // change%. meta.chartPreviousClose is the close BEFORE the whole 5-day window
+    // (~6 trading days stale), which was inflating change into a multi-day move —
+    // SMCI showed -20.8% and NVDA -8.9% when the real daily moves were ~-11% / -2.4%.
+    // Prefer the prior daily bar; fall back to chartPreviousClose only if it's absent.
+    const prevClose = (i > 0 && typeof q.close[i - 1] === 'number' && q.close[i - 1] > 0)
+      ? q.close[i - 1]
+      : ((typeof meta.chartPreviousClose === 'number' && meta.chartPreviousClose > 0) ? meta.chartPreviousClose : last);
     const volume = (typeof meta.regularMarketVolume === 'number' && meta.regularMarketVolume > 0)
       ? meta.regularMarketVolume : (q.volume[i] || 0);
     return {
