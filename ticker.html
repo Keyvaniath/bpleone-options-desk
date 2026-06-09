@@ -370,23 +370,19 @@ async function loadChart() {
   const to = Date.now();
   const from = to - days * 86400000;
   let bars = [];
-  if (typeof DataProvider !== 'undefined' && DataProvider.getConfig().provider === 'finnhub' && DataProvider.getConfig().apiKey) {
-    try {
-      bars = await DataProvider.getHistorical(sym, '1d', from, to);
-    } catch (e) { bars = []; }
+  // Pass 284: REAL bars via DataProvider.getHistorical — worker /brain/bars (free
+  // daily history) or a configured paid provider. NEVER synthesize a fake price
+  // chart: if there's no real history, show an honest empty state instead.
+  if (typeof DataProvider !== 'undefined' && DataProvider.getHistorical) {
+    try { bars = await DataProvider.getHistorical(sym, '1d', from, to); } catch (e) { bars = []; }
   }
-  if (!bars || !bars.length) {
-    // Fallback: synthesize from current spot
-    const spot = (QUOTES[sym] && QUOTES[sym].last) || 100;
-    let px = spot * 0.95;
-    const N = days;
-    bars = [];
-    for (let i = 0; i < N; i++) {
-      const drift = (spot - px) / spot * 0.04;
-      px = px * (1 + drift + (Math.random() - 0.5) * 0.012);
-      bars.push({ t: from + i * 86400000, c: +px.toFixed(2) });
-    }
-    if (bars.length) bars[bars.length - 1].c = spot;
+  bars = (bars || []).filter(b => b && b.c > 0);
+  if (!bars.length) {
+    if (priceChart) { priceChart.destroy(); priceChart = null; }
+    const cv = $('priceChart');
+    if (cv) { const cx = cv.getContext('2d'); cx.clearRect(0, 0, cv.width, cv.height); }
+    $('chartTitle').textContent = sym + ' · daily history unavailable (no live feed yet)';
+    return;
   }
   if (priceChart) priceChart.destroy();
   priceChart = new Chart($('priceChart').getContext('2d'), {
