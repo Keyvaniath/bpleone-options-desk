@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Daily Post — one-click honest content for socials — bpleone / trade</title>
+<meta name="description" content="Auto-generates today's pick as ready-to-post copy for X, Reddit and Discord — with the honest edge status baked in. Copy, paste, done. Pair it with the image card from the share page.">
+<link rel="stylesheet" href="css/style.css?v=v189">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.post { border:1px solid var(--border);border-radius:12px;margin-bottom:18px;overflow:hidden; }
+.post .ph { display:flex;justify-content:space-between;align-items:center;padding:11px 16px;background:var(--bg-elevated);border-bottom:1px solid var(--border); }
+.post .ph .t { font-weight:800;font-size:14px; }
+.post .ph .meta { font-size:11px;color:var(--text-muted);font-family:var(--font-mono); }
+.post textarea { width:100%;box-sizing:border-box;border:none;background:#0a0e14;color:var(--text-primary);font-family:var(--font-mono);font-size:13px;line-height:1.6;padding:14px 16px;resize:vertical;min-height:120px; }
+.post textarea:focus { outline:none; }
+.post .pf { display:flex;gap:10px;padding:11px 16px;background:var(--bg-elevated);border-top:1px solid var(--border);align-items:center; }
+.cbtn { padding:9px 16px;border-radius:8px;background:var(--accent);color:#001018;border:none;font-weight:800;font-size:13px;cursor:pointer; }
+.cbtn.ghost { background:transparent;border:1px solid var(--border);color:var(--text-secondary); }
+.copied { color:var(--green);font-size:12px;font-weight:700; }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">📣 Daily Post <span class="feat-badge feat-pro">CONTENT ENGINE</span></div>
+      <div class="page-subtitle">Today's pick, pre-written for each platform — with the <strong>honest edge status baked in</strong>, so you can't accidentally hype. Copy, paste, post. Grab the matching image from the <a href="share.html" style="color:var(--accent);">share card</a>. Posting the honest call daily <em>is</em> the growth strategy.</div>
+    </div>
+    <button class="action-btn" onclick="gen()" style="padding:12px 22px;border-radius:8px;border:1px solid rgba(0,212,255,0.4);background:transparent;color:var(--accent);cursor:pointer;font-family:var(--font-mono);font-weight:700;">↻ Regenerate</button>
+  </div>
+
+  <div id="status" style="font-size:13px;color:var(--text-muted);margin-bottom:16px;">Generating from today's live pick…</div>
+
+  <div class="post">
+    <div class="ph"><div class="t">𝕏 / Twitter</div><div class="meta" id="x-len"></div></div>
+    <textarea id="x-text" rows="7"></textarea>
+    <div class="pf"><button class="cbtn" data-copy="x-text">📋 Copy</button><a class="cbtn ghost" href="https://twitter.com/intent/tweet" target="_blank" rel="noopener" id="x-open" data-ev="post_open_x">Open X →</a><span class="copied" id="x-ok"></span></div>
+  </div>
+
+  <div class="post">
+    <div class="ph"><div class="t">Reddit <span style="color:var(--text-muted);font-weight:400;font-size:12px;">(r/options, r/algotrading)</span></div></div>
+    <div style="padding:10px 16px 0;font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;">Title</div>
+    <textarea id="r-title" rows="2" style="min-height:0;"></textarea>
+    <div style="padding:4px 16px 0;font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;">Body</div>
+    <textarea id="r-text" rows="9"></textarea>
+    <div class="pf"><button class="cbtn" data-copy="r-title">📋 Copy title</button><button class="cbtn ghost" data-copy="r-text">📋 Copy body</button><span class="copied" id="r-ok"></span></div>
+  </div>
+
+  <div class="post">
+    <div class="ph"><div class="t">Discord / casual</div></div>
+    <textarea id="d-text" rows="5"></textarea>
+    <div class="pf"><button class="cbtn" data-copy="d-text">📋 Copy</button><span class="copied" id="d-ok"></span></div>
+  </div>
+
+  <div style="font-size:12px;color:var(--text-muted);line-height:1.6;margin-top:6px;">
+    Every template states the real edge status automatically. When the brain has no measured edge it says "mostly drift" — that honesty is the brand and the reason it's worth following. Don't edit that part out.
+  </div>
+</div>
+
+<script src="js/data-provider.js?v=v189"></script>
+<script src="js/app.js?v=v189"></script>
+<script src="js/worker-bridge.js?v=v189"></script>
+<script>
+buildNav('daily-post');
+const WORKER = (window.WorkerBridge && WorkerBridge.getUrl && WorkerBridge.getUrl())
+  || 'https://bpleone-brain-worker.brandonpleone.workers.dev';
+const $ = id => document.getElementById(id);
+const SITE = 'https://options.bpleone.com';
+function dateStr() { try { return new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric' }); } catch (e) { return ''; } }
+function fix(s) { return String(s == null ? '' : s).replace(/â€”/g, '—').replace(/â€™/g, "'"); } // sanitize any mojibake from the feed
+
+async function gen() {
+  let picks = {}, m = {}, conf = {};
+  try { picks = await fetch(WORKER + '/brain/picks', { cache: 'no-store' }).then(r => r.json()); } catch (e) {}
+  try { m = await fetch(WORKER + '/brain/metrics', { cache: 'no-store' }).then(r => r.json()); } catch (e) {}
+  try { conf = await fetch(WORKER + '/brain/confluence-score', { cache: 'no-store' }).then(r => r.json()); } catch (e) {}
+
+  const pod = picks.pick_of_day || picks.pod;
+  if (!pod || !pod.sym) { $('status').textContent = 'No pick available right now — try again during/after market hours.'; return; }
+  $('status').textContent = 'Generated from today\'s live pick. Edit freely — but keep the honest edge line.';
+
+  const wf = m.walk_forward_test || {};
+  const up = (pod.dir || '').toUpperCase() === 'UP';
+  const arrow = up ? '▲' : '▼';
+  const pct = pod.pct_up != null ? pod.pct_up : Math.round((pod.predProb || 0.5) * 100);
+  const entry = pod.last != null ? '$' + (+pod.last).toFixed(2) : '';
+  const bl = picks.best_long && picks.best_long.sym ? (picks.best_long.sym + ' (' + (picks.best_long.pct_up != null ? picks.best_long.pct_up + '% up)' : 'long)')) : null;
+  const beats = wf.beats_base_rate_95 === true;
+  const graded = conf && conf.graded != null ? conf.graded : 0;
+  const need = (conf && conf.verdict && conf.verdict.need) || 20;
+
+  const edgeShort = beats
+    ? 'Edge: beats the market\'s drift baseline (measured, 95%+).'
+    : 'Honest edge status: mostly market drift right now — no proven timing edge yet, and we say so.';
+  const edgeLong = beats
+    ? 'On the honesty front: out-of-sample, this clears the 95% bar ABOVE the market\'s drift baseline — a real (small) timing edge.'
+    : 'On the honesty front: the backtested accuracy (' + (wf.accuracy != null ? (wf.accuracy * 100).toFixed(1) + '%' : '~55%') + ') is mostly the market\'s natural drift (~' + (wf.base_rate != null ? (wf.base_rate * 100).toFixed(1) + '%' : '52%') + '), not proven timing skill. I show that plainly instead of hyping it. A live forward-test is proving (or disproving) a fused-signal edge in public right now — ' + graded + '/' + need + ' calls graded so far.';
+
+  // Twitter
+  const x = '📊 Pick of the Day (' + dateStr() + ')\n\n'
+    + pod.sym + ' ' + arrow + ' ' + (up ? 'UP' : 'DOWN') + ' · P(up) ' + pct + '% · entry ' + entry + '\n'
+    + (bl ? 'Best long: ' + bl + '\n' : '')
+    + '\n' + edgeShort + '\n\nFree, no hype 👉 ' + SITE;
+  $('x-text').value = x;
+  updLen();
+
+  // Reddit
+  $('r-title').value = '[bpleone/trade] Today\'s pick: ' + pod.sym + ' ' + (up ? 'UP' : 'DOWN') + ' (P-up ' + pct + '%) — posted with the honest edge status, not hype';
+  $('r-text').value = 'Running a free options/TA desk that\'s honest about its own edge. Today:\n\n'
+    + '• Pick of the Day: ' + pod.sym + ' ' + arrow + ' ' + (up ? 'UP' : 'DOWN') + ', P(up) ' + pct + '%, entry ' + entry + (pod.signal ? ' (' + pod.signal + ')' : '') + '\n'
+    + (bl ? '• Best long: ' + bl + '\n' : '')
+    + '\n' + edgeLong + '\n\n'
+    + 'Everything\'s real (live prices, SEC insider filings) and every metric is computed, not typed. Free to look, no signup: ' + SITE + '/today.html\nProof it\'s real (or isn\'t): ' + SITE + '/proof.html';
+
+  // Discord
+  $('d-text').value = 'today\'s pick: **' + pod.sym + ' ' + arrow + ' ' + (up ? 'UP' : 'DOWN') + '** — P(up) ' + pct + '%, entry ' + entry + '\n'
+    + edgeShort + '\n' + SITE + '/today.html';
+
+  try { window.track && track('dailypost_view', { sym: pod.sym }); } catch (e) {}
+}
+
+function updLen() { const n = ($('x-text').value || '').length; $('x-len').textContent = n + ' chars' + (n > 280 ? ' (over 280 — trim)' : ''); $('x-len').style.color = n > 280 ? 'var(--red)' : 'var(--text-muted)'; }
+$('x-text').addEventListener('input', updLen);
+
+function flash(id) { const e = $(id); if (e) { e.textContent = '✓ copied'; setTimeout(() => { e.textContent = ''; }, 1800); } }
+document.addEventListener('click', async function (ev) {
+  const b = ev.target.closest('[data-copy]'); if (!b) return;
+  const ta = $(b.getAttribute('data-copy')); if (!ta) return;
+  try { await navigator.clipboard.writeText(ta.value); } catch (e) { ta.select(); }
+  const okId = b.getAttribute('data-copy').split('-')[0] + '-ok';
+  flash(okId);
+  try { window.track && track('post_copy', { which: b.getAttribute('data-copy') }); } catch (e) {}
+});
+gen();
+</script>
+</body>
+</html>

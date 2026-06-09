@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Insider Buying — who's putting their own money in — bpleone / trade</title>
+<meta name="description" content="Real SEC Form-4 insider transactions across a liquid basket: net open-market buy/sell flow, buy clusters (2+ insiders buying the same name — the classic bullish tell), and the biggest recent insider buys. Real filings, not predictions.">
+<meta property="og:title" content="Insider Buying — bpleone / trade">
+<meta property="og:description" content="Where company insiders are putting their own cash. Real SEC Form-4 data, buy clusters, honest framing.">
+<meta property="og:type" content="website">
+<link rel="stylesheet" href="css/style.css?v=v189">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.flowbar { display:flex;height:42px;border-radius:10px;overflow:hidden;border:1px solid var(--border);margin:14px 0 6px; }
+.flowbar .buy { background:rgba(16,185,129,0.35);display:flex;align-items:center;justify-content:flex-start;padding-left:12px;font-weight:800;font-size:13px;color:#d1fae5; }
+.flowbar .sell { background:rgba(220,38,38,0.32);display:flex;align-items:center;justify-content:flex-end;padding-right:12px;font-weight:800;font-size:13px;color:#fee2e2; }
+.cluster { border:1px solid var(--border);border-left:4px solid var(--green);border-radius:12px;padding:16px 18px;margin-bottom:12px;background:var(--bg-elevated); }
+.cluster .sym { font-family:var(--font-mono);font-weight:900;font-size:20px;color:var(--green); }
+.tbl { width:100%;border-collapse:collapse;font-size:13px; }
+.tbl th { text-align:left;font-size:10px;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);padding:8px 10px;border-bottom:1px solid var(--border); }
+.tbl td { padding:9px 10px;border-bottom:1px solid rgba(255,255,255,0.05);font-family:var(--font-mono);font-size:12.5px; }
+.tbl td.buy { color:var(--green);font-weight:700; }
+.pill { display:inline-block;padding:2px 9px;border-radius:6px;font-size:11px;font-weight:800; }
+.pill-buy { background:rgba(16,185,129,0.18);color:var(--green); }
+.pill-sell { background:rgba(220,38,38,0.18);color:var(--red); }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">🏛 Insider Buying <span class="feat-badge feat-live">REAL SEC DATA</span></div>
+      <div class="page-subtitle">Where company insiders put their <strong>own</strong> money — real SEC Form-4 filings, not predictions. The signal is in <strong>open-market buys</strong> (code P): when several insiders buy the same name at once, that's the classic bullish "cluster." When they're all selling, that's worth knowing too.</div>
+    </div>
+    <button class="action-btn" onclick="load()" style="padding:12px 22px;border-radius:8px;border:1px solid rgba(0,212,255,0.4);background:transparent;color:var(--accent);cursor:pointer;font-family:var(--font-mono);font-weight:700;">↻ Refresh</button>
+  </div>
+
+  <!-- net flow -->
+  <div class="card mb-24" style="padding:18px 20px;">
+    <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;font-weight:800;">Net open-market insider flow <span style="color:var(--text-secondary);" id="flow-syms"></span></div>
+    <div class="flowbar" id="flowbar"><div class="buy" style="width:50%;">—</div><div class="sell" style="width:50%;">—</div></div>
+    <div id="flow-verdict" style="font-size:13.5px;font-weight:700;margin-top:8px;">Loading real filings…</div>
+  </div>
+
+  <!-- clusters -->
+  <div class="card mb-24" style="padding:18px 20px;">
+    <div class="card-header"><div class="card-title">🟢 Active buy clusters <span class="gloss-q" data-term="confluence" style="vertical-align:middle;"></span></div></div>
+    <div style="font-size:12px;color:var(--text-muted);margin-bottom:12px;line-height:1.6;">A symbol where <strong>2+ different insiders</strong> made open-market buys recently. Multiple insiders putting cash in at the same time is a documented (if modest) bullish tell — and it's clean and explainable, no black box.</div>
+    <div id="clusters"><div style="color:var(--text-muted);font-size:13px;">Loading…</div></div>
+  </div>
+
+  <!-- biggest recent buys -->
+  <div class="card mb-24" style="padding:18px 20px;">
+    <div class="card-header"><div class="card-title">Biggest recent open-market buys</div></div>
+    <div style="font-size:12px;color:var(--text-muted);margin-bottom:10px;">Individual insider buys (code P), largest first. These are the names where someone with non-public knowledge chose to add — with their own money.</div>
+    <div style="overflow-x:auto;"><table class="tbl" id="buys-tbl"><thead><tr><th>Symbol</th><th>Insider</th><th>Value</th><th>Price</th><th>Filed</th></tr></thead><tbody id="buys-body"><tr><td colspan="5" style="color:var(--text-muted);">Loading…</td></tr></tbody></table></div>
+  </div>
+
+  <div style="padding:14px 18px;border-radius:10px;background:rgba(148,163,184,0.06);border-left:3px solid var(--text-muted);font-size:12px;color:var(--text-muted);line-height:1.6;">
+    <strong>How to read this — honestly.</strong> Open-market buys (<code>P</code>) and sells (<code>S</code>) carry the signal; grants, option exercises, gifts and tax withholding (<code>A/M/G/F</code>) are noise and are filtered out. Insider <em>buying</em> is a weak-but-real bullish signal in the academic literature; insider <em>selling</em> is noisier (people sell for many reasons). This is one input to your own judgment, not advice. Real filings across a liquid basket, refreshed through the worker — <a href="https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany" target="_blank" rel="noopener" style="color:var(--accent);">verify any of it on SEC EDGAR</a>.
+  </div>
+</div>
+
+<script src="js/data-provider.js?v=v189"></script>
+<script src="js/app.js?v=v189"></script>
+<script src="js/worker-bridge.js?v=v189"></script>
+<script src="js/glossary.js?v=v189"></script>
+<script>
+buildNav('insider-clusters');
+const WORKER = (window.WorkerBridge && WorkerBridge.getUrl && WorkerBridge.getUrl())
+  || 'https://bpleone-brain-worker.brandonpleone.workers.dev';
+const $ = id => document.getElementById(id);
+function money(v) {
+  v = +v || 0; const a = Math.abs(v);
+  if (a >= 1e9) return '$' + (v / 1e9).toFixed(2) + 'B';
+  if (a >= 1e6) return '$' + (v / 1e6).toFixed(1) + 'M';
+  if (a >= 1e3) return '$' + (v / 1e3).toFixed(0) + 'K';
+  return '$' + v.toFixed(0);
+}
+function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
+
+async function load() {
+  let d;
+  try { d = await fetch(WORKER + '/brain/insider-feed', { cache: 'no-store' }).then(r => r.json()); }
+  catch (e) { $('flow-verdict').textContent = 'Could not reach the data worker.'; return; }
+  const bv = +d.buy_value || 0, sv = +d.sell_value || 0, tot = bv + sv || 1;
+  const buyPct = Math.round(bv / tot * 100);
+  $('flow-syms').textContent = '· ' + (d.symbols_with_data || 0) + ' names, ' + (d.count || 0) + ' filings';
+  $('flowbar').innerHTML = '<div class="buy" style="width:' + Math.max(8, buyPct) + '%;">BUY ' + money(bv) + '</div>'
+    + '<div class="sell" style="width:' + Math.max(8, 100 - buyPct) + '%;">SELL ' + money(sv) + '</div>';
+  $('flow-verdict').innerHTML = bv > sv
+    ? '🟢 Insiders are <strong style="color:var(--green);">net buyers</strong> across the basket — they\'re adding with their own cash.'
+    : '🔴 Insiders are <strong style="color:var(--red);">net sellers</strong> right now (' + money(sv) + ' sold vs ' + money(bv) + ' bought). Smart money is taking chips off the table, not adding — useful to know before chasing.';
+
+  // Clusters
+  const clusters = Array.isArray(d.clusters) ? d.clusters : [];
+  if (clusters.length) {
+    $('clusters').innerHTML = clusters.map(c =>
+      '<div class="cluster"><span class="sym">' + esc(c.sym || c.symbol || '?') + '</span> '
+      + '<span class="pill pill-buy">' + (c.buyers || c.insiders || c.n || '?') + ' insiders buying</span> '
+      + '<span style="color:var(--text-secondary);font-family:var(--font-mono);margin-left:8px;">' + money(c.value || c.total_value || 0) + ' total</span>'
+      + (c.names ? '<div style="font-size:12px;color:var(--text-muted);margin-top:6px;">' + esc((Array.isArray(c.names) ? c.names.join(', ') : c.names)) + '</div>' : '')
+      + '</div>'
+    ).join('');
+  } else {
+    $('clusters').innerHTML = '<div style="padding:14px 16px;border-radius:10px;background:rgba(234,179,8,0.08);border:1px solid rgba(234,179,8,0.25);font-size:13px;color:var(--text-secondary);line-height:1.6;">'
+      + '<strong>No active buy clusters right now.</strong> No name in the basket currently has 2+ insiders buying on the open market — consistent with the net-selling tape above. That\'s the honest read: no insider conviction-buy signal at these levels. It\'ll light up here the moment a cluster forms.</div>';
+  }
+
+  // Biggest recent open-market buys
+  const buys = (Array.isArray(d.transactions) ? d.transactions : [])
+    .filter(t => t.side === 'BUY' && t.openMarket && (+t.value > 0))
+    .sort((a, b) => (+b.value) - (+a.value)).slice(0, 15);
+  $('buys-body').innerHTML = buys.length ? buys.map(t =>
+    '<tr><td><strong>' + esc(t.sym || '') + '</strong></td><td>' + esc(t.name || '') + '</td>'
+    + '<td class="buy">' + money(t.value) + '</td>'
+    + '<td>' + (t.transactionPrice != null ? '$' + (+t.transactionPrice).toFixed(2) : '—') + '</td>'
+    + '<td style="color:var(--text-muted);">' + esc(t.filingDate || '') + '</td></tr>'
+  ).join('') : '<tr><td colspan="5" style="color:var(--text-muted);">No open-market insider buys in the current window — insiders are selling, not buying.</td></tr>';
+
+  try { window.track && track('insider_view', { clusters: clusters.length, netbuy: bv > sv ? 1 : 0 }); } catch (e) {}
+}
+load();
+setInterval(load, 120000);
+</script>
+</body>
+</html>
