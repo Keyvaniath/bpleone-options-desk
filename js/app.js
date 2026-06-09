@@ -64,13 +64,40 @@
 
 const TICKER_SYMBOLS = ['SPY','QQQ','IWM','DIA','AAPL','NVDA','TSLA','MSFT','META','AMZN','GOOGL','AMD','BTC','ETH','VIX','GLD','TLT','USO','SMCI','PLTR','COIN'];
 
+// Honest freshness helper (audit pass 270): minutes since the freshest REAL
+// (non-crypto) equity quote. null = no real equity quote has landed yet. Crypto
+// is excluded because it streams 24/7 in real time. Used by the data pill and the
+// LIVE/DELAYED banner so we label by actual data AGE, never by provider name.
+function equityDataAgeMin() {
+  try {
+    const CRYPTO = { BTC:1, ETH:1, SOL:1, DOGE:1, XRP:1, LTC:1, BCH:1, COIN:1, MARA:1, RIOT:1, AVAX:1, LINK:1 };
+    const Q = (typeof QUOTES !== 'undefined') ? QUOTES : {};
+    const now = Date.now();
+    let minAge = null;
+    for (const sym in Q) {
+      const q = Q[sym]; if (!q || CRYPTO[sym]) continue;
+      const ps = q.priceSource;
+      if (ps && ps !== 'stale-seed' && ps !== 'mock' && q.liveAt) {
+        const age = (now - q.liveAt) / 60000;
+        if (minAge === null || age < minAge) minAge = age;
+      }
+    }
+    return minAge === null ? null : Math.round(minAge);
+  } catch (e) { return null; }
+}
+if (typeof window !== 'undefined') window.equityDataAgeMin = equityDataAgeMin;
+
 let _tickerSubscribed = false;
 function buildTicker() {
   const tape = document.getElementById('ticker-content');
   if (!tape) return;
   const src = (typeof QUOTES !== 'undefined') ? QUOTES : null;
   const list = TICKER_SYMBOLS.map(s => {
-    if (src && src[s] && src[s].last != null) return { sym: s, px: src[s].last, chg: src[s].changePct || 0, fresh: !!src[s].fresh };
+    if (src && src[s] && src[s].last != null) {
+      const ps = src[s].priceSource;
+      const seed = !ps || ps === 'stale-seed' || ps === 'mock';
+      return { sym: s, px: src[s].last, chg: src[s].changePct || 0, fresh: !!src[s].fresh, seed: seed };
+    }
     return null;
   }).filter(Boolean);
   // If QUOTES not ready yet, retry shortly. Don't use stale hardcoded fallback.
@@ -80,6 +107,16 @@ function buildTicker() {
     return;
   }
   const html = [...list, ...list].map(t => {
+    // Seed = a symbol no live feed has touched. Rendering a confident change% for
+    // it fabricates a market move that never happened (e.g. the VIX seed showing
+    // "-2.88%"). Show the symbol but suppress the fake % until a real tick lands.
+    if (t.seed) {
+      return '<span class="ticker-item" data-ticker-sym="' + t.sym + '" style="opacity:0.4;" title="No live feed yet - last-known value, not a current quote">'
+        + '<span class="ticker-symbol">' + t.sym + '</span>'
+        + '<span class="ticker-price">$' + t.px.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2}) + '</span>'
+        + '<span class="ticker-change" style="color:var(--text-muted);">&middot;</span>'
+        + '</span>';
+    }
     const dir = t.chg >= 0 ? 'up' : 'down';
     const arrow = t.chg >= 0 ? '▲' : '▼';
     const staleMarker = t.fresh === false ? ' style="opacity:0.6;"' : '';
@@ -107,17 +144,29 @@ function buildTicker() {
 
 function updateTickerItem(sym, q) {
   if (!q || q.last == null) return;
+  const ps = q.priceSource;
+  const seed = !ps || ps === 'stale-seed' || ps === 'mock';
   document.querySelectorAll('[data-ticker-sym="' + sym + '"]').forEach(el => {
     const priceEl = el.querySelector('.ticker-price');
     const chgEl = el.querySelector('.ticker-change');
     if (priceEl) priceEl.textContent = '$' + q.last.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
     if (chgEl) {
-      const arrow = (q.changePct || 0) >= 0 ? '▲' : '▼';
-      chgEl.textContent = arrow + ' ' + Math.abs(q.changePct || 0).toFixed(2) + '%';
-      chgEl.classList.toggle('up', (q.changePct || 0) >= 0);
-      chgEl.classList.toggle('down', (q.changePct || 0) < 0);
+      if (seed) {
+        // still no real feed for this symbol - keep the honest muted marker, never
+        // a fabricated change%.
+        chgEl.textContent = '·';
+        chgEl.style.color = 'var(--text-muted)';
+        chgEl.classList.remove('up', 'down');
+        el.style.opacity = '0.4';
+      } else {
+        const arrow = (q.changePct || 0) >= 0 ? '▲' : '▼';
+        chgEl.textContent = arrow + ' ' + Math.abs(q.changePct || 0).toFixed(2) + '%';
+        chgEl.style.color = '';
+        chgEl.classList.toggle('up', (q.changePct || 0) >= 0);
+        chgEl.classList.toggle('down', (q.changePct || 0) < 0);
+        el.style.opacity = '1';
+      }
     }
-    if (q.fresh) el.style.opacity = '1';
   });
 }
 
@@ -357,7 +406,14 @@ function wireDataPill() {
   if (!pill) return;
   const render = (s) => {
     let cls = 'mock', label = 'MOCK';
-    if (s.status === 'connected') { cls = 'live'; label = 'LIVE · ' + (s.provider || '').toUpperCase(); }
+    if (s.status === 'connected') {
+      // Honest pill (audit pass 270): a connected WS streams crypto in real time,
+      // but equities are delayed/last-close. If the freshest real equity quote is
+      // stale (market shut), say DELAYED rather than implying every symbol is live.
+      const eqAge = (typeof equityDataAgeMin === 'function') ? equityDataAgeMin() : null;
+      if (eqAge !== null && eqAge > 20) { cls = 'connecting'; label = 'DELAYED · LAST CLOSE'; }
+      else { cls = 'live'; label = 'LIVE · ' + (s.provider || '').toUpperCase(); }
+    }
     else if (s.status === 'connecting') { cls = 'connecting'; label = 'CONNECTING'; }
     else if (s.status === 'reconnecting') { cls = 'connecting'; label = 'RECONNECTING'; }
     else if (s.status === 'error') { cls = 'error'; label = 'ERROR'; }
