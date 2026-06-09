@@ -62,8 +62,7 @@
       q.prevClose = +(+prevClose).toFixed(4);
       q.change = +(q.last - q.prevClose).toFixed(4);
       q.changePct = +chgPct.toFixed(4);
-      q.bid = +(q.last - 0.01).toFixed(2);
-      q.ask = +(q.last + 0.01).toFixed(2);
+      // No real L1 quote feed - do not synthesize a fake bid/ask spread.
       if (typeof s.rvol === 'number') q.rvol = s.rvol;
       q.priceSource = 'worker-yahoo';
       q.liveAt = s.ts || Date.now();
@@ -125,8 +124,7 @@
       cur.prevClose = +(+prevClose).toFixed(4);
       cur.change = +(cur.last - cur.prevClose).toFixed(4);
       cur.changePct = +chgPct.toFixed(4);
-      cur.bid = +(cur.last - 0.01).toFixed(2);
-      cur.ask = +(cur.last + 0.01).toFixed(2);
+      // No real L1 quote feed - do not synthesize a fake bid/ask spread.
       if (typeof v.volume === 'number') cur.volume = v.volume;
       if (typeof v.rvol === 'number') cur.rvol = v.rvol;
       cur.priceSource = 'worker-yahoo';
