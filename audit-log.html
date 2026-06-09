@@ -39,10 +39,21 @@
   </div>
 
   <div class="grid grid-4 mb-24">
-    <div class="tile" style="background:rgba(16,185,129,0.06);"><div class="lbl">Audit passes</div><div class="val" style="color:var(--green);">276</div></div>
-    <div class="tile" style="background:rgba(16,185,129,0.06);"><div class="lbl">Bugs fixed</div><div class="val" style="color:var(--green);">205+</div></div>
-    <div class="tile" style="background:rgba(220,38,38,0.06);"><div class="lbl">CRITICAL bugs</div><div class="val" style="color:var(--red);">38</div></div>
-    <div class="tile"><div class="lbl">Total commits</div><div class="val">199+</div></div>
+    <div class="tile" style="background:rgba(16,185,129,0.06);"><div class="lbl">Audit passes</div><div class="val" style="color:var(--green);">277</div></div>
+    <div class="tile" style="background:rgba(16,185,129,0.06);"><div class="lbl">Bugs fixed</div><div class="val" style="color:var(--green);">210+</div></div>
+    <div class="tile" style="background:rgba(220,38,38,0.06);"><div class="lbl">CRITICAL bugs</div><div class="val" style="color:var(--red);">39</div></div>
+    <div class="tile"><div class="lbl">Total commits</div><div class="val">203+</div></div>
+  </div>
+
+  <div style="padding:14px 18px;border-radius:10px;background:rgba(16,185,129,0.12);border-left:4px solid var(--green);margin-bottom:14px;font-size:13px;color:var(--text-secondary);line-height:1.6;">
+    <strong>Batch AV (pass 277) — LIVE in-browser honesty audit (what the static pass-276 audit structurally could NOT catch).</strong>
+    Pass 276 concluded "the code holds up" &mdash; true of the code, useless to the user: the real errors were in <em>rendered content and data labeling</em>, which only appear when you actually open the pages in a browser. So I opened the live site in Chrome and read what a visitor sees. <b>Found and fixed five real issues, each re-verified in the rendered DOM:</b>
+    <b>(1) The banner lied.</b> It claimed <code>"finnhub real-time &mdash; every tick is current market data"</code> off the provider <em>name</em>, while the equities were verified <code>worker-yahoo</code> and <b>9 hours stale</b> (last close). Now labels by the actual age of the index bellwethers: "delayed ~15 min" intraday, "last close (Nh ago) &mdash; change % is from the prior session" when the market's shut.
+    <b>(2) Fabricated ticker change%.</b> The scrolling tape rendered never-updated <em>seed</em> symbols (e.g. VIX) with a confident change% &mdash; a market move that never happened. Seeds now show muted with no fabricated %, and flip to a real arrow the instant a live tick lands.
+    <b>(3) Overclaiming pill.</b> The site-wide data pill said "LIVE &middot; FINNHUB" regardless of staleness; now "DELAYED &middot; LAST CLOSE" when the bellwethers are &gt;45 min old.
+    <b>(4) CRITICAL &mdash; frozen lazy-loader.</b> After the banner fix deployed, the browser <em>still</em> rendered the old lie. Root cause: <code>app.js</code>'s companion-loader hard-coded <code>CACHE_BUST='v188'</code> while the HTML had advanced to v191, so every lazily-loaded module (data-mode-banner, model, brain-loop, &hellip;) was requested at a cache key the browser had frozen long ago and never re-fetched. <b>An unknown number of past fixes to lazy modules never reached returning users.</b> Fixed by deriving the cache-bust from the loader's own <code>?v=</code> (app.js + live.js) so it can never drift again; also un-pinned 4 live.js modules stuck at <code>?v=v189</code>/<code>v184</code>.
+    <b>(5) Unstable freshness signal.</b> The first freshness helper took min-age across ALL equities, which a single real-time-streaming single-name skewed to ~0 &mdash; would have let the pill claim LIVE while SPY was 9h stale. Re-based on the SPY/QQQ/DIA/IWM bellwethers (one uniform source, can't be masked).
+    Plus the dashboard's static "LIVE" title badge + "Live &middot; &lt;time&gt;" stamp now read DELAYED / "Last close" off-hours. Cache v190&rarr;v193. <b>Every fix was re-loaded in the live browser and confirmed: banner, pill, badge, ticker and the SPY card now tell one consistent, honest story.</b> The lesson, logged: <em>"the code is correct" is not "the page is honest" &mdash; verify in the rendered browser, not just the source.</em> (Known follow-up: the same static <code>feat-live</code> "LIVE" title badge sits on ~42 other pages; the authoritative banner+pill on them is now honest, so it's cosmetic &mdash; a batch sweep can de-static them later.)
   </div>
 
   <div style="padding:14px 18px;border-radius:10px;background:rgba(234,179,8,0.10);border-left:4px solid var(--yellow);margin-bottom:14px;font-size:13px;color:var(--text-secondary);line-height:1.6;">
