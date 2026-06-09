@@ -1490,7 +1490,9 @@ async function handleRequest(request, env, ctx) {
   if (path === '/brain/quotes') {
     const reqRaw = (url.searchParams.get('syms') || '').toUpperCase();
     let req = reqRaw ? reqRaw.split(',').map(s => s.trim()).filter(Boolean) : UNIVERSE.slice();
-    req = [...new Set(req)].filter(s => UNIVERSE.includes(s) || STOOQ_MAP[s]);
+    // Allow ANY plausible ticker (sanity-checked + capped), so pages can request
+    // real quotes for symbols outside the brain universe (e.g. sector ETF holdings).
+    req = [...new Set(req)].filter(s => /^[A-Z][A-Z0-9.\-]{0,6}$/.test(s)).slice(0, 60);
     const CACHE_KEY = 'live_quotes_cache_v1';
     let cache = {};
     try { const raw = await env.BRAIN_KV.get(CACHE_KEY); if (raw) cache = JSON.parse(raw) || {}; } catch (e) {}

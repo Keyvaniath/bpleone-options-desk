@@ -19,7 +19,7 @@
 .holding-row.dn { border-left:3px solid var(--red); }
 </style>
 </head>
-<body data-needs="live">
+<body>
 <div id="site-nav"></div>
 
 <div class="container">
@@ -112,8 +112,29 @@ const SECTORS = {
   ]}
 };
 
-function getQ(s) { return (typeof QUOTES !== 'undefined' && QUOTES[s]) ? QUOTES[s] : { last: 100, changePct: 0 }; }
+const WORKER = (window.WorkerBridge && WorkerBridge.getUrl && WorkerBridge.getUrl()) || 'https://bpleone-brain-worker.brandonpleone.workers.dev';
+let QMAP = {}, BMAP = {};
+function getQ(s) { return QMAP[s] || null; }
 function loadFindings() { try { return JSON.parse(localStorage.getItem('bpleone_brain_findings_v1') || '{"items":[]}').items; } catch (e) { return []; } }
+
+// Real data: /brain/quotes for the ETF + its holdings (live day%), /brain/bars for
+// the ETF's real week/month performance. No synthesized numbers; uncovered holdings
+// show '-' rather than a made-up price.
+async function loadSector() {
+  paintTabs();
+  const def = SECTORS[currentSec];
+  if (!def) return;
+  const syms = [currentSec].concat(def.holdings.map(h => h[0]));
+  try {
+    const [qr, br] = await Promise.all([
+      fetch(WORKER + '/brain/quotes?syms=' + encodeURIComponent(syms.join(',')), { cache: 'no-store' }).then(r => r.ok ? r.json() : null).catch(() => null),
+      fetch(WORKER + '/brain/bars?syms=' + currentSec + '&days=30', { cache: 'no-store' }).then(r => r.ok ? r.json() : null).catch(() => null)
+    ]);
+    QMAP = (qr && qr.quotes) || {};
+    BMAP = (br && br.bars) || {};
+  } catch (e) {}
+  paint();
+}
 
 let currentSec = 'XLK';
 const params = new URLSearchParams(location.search);
@@ -126,9 +147,15 @@ function paintTabs() {
     const tab = document.createElement('div');
     tab.className = 'sec-tab' + (etf === currentSec ? ' active' : '');
     tab.textContent = etf + ' · ' + def.name;
-    tab.onclick = () => { currentSec = etf; paint(); };
+    tab.onclick = () => { currentSec = etf; loadSector(); };
     wrap.appendChild(tab);
   });
+}
+
+function setPerf(id, v) {
+  const el = document.getElementById(id);
+  el.textContent = v == null ? '—' : (v >= 0 ? '+' : '') + v.toFixed(2) + '%';
+  el.style.color = v == null ? 'var(--text-muted)' : v > 0 ? 'var(--green)' : v < 0 ? 'var(--red)' : 'var(--text-primary)';
 }
 
 function paint() {
@@ -136,23 +163,29 @@ function paint() {
   const def = SECTORS[currentSec];
   const etfQ = getQ(currentSec);
   document.getElementById('kETF').textContent = currentSec;
-  const dayChg = etfQ.changePct || 0;
-  document.getElementById('kDay').textContent = (dayChg >= 0 ? '+' : '') + dayChg.toFixed(2) + '%';
-  document.getElementById('kDay').style.color = dayChg > 0 ? 'var(--green)' : dayChg < 0 ? 'var(--red)' : 'var(--text-primary)';
-  document.getElementById('kWeek').textContent = (dayChg * 3 + (Math.random() - 0.5) * 2).toFixed(2) + '%';
-  document.getElementById('kMonth').textContent = (dayChg * 7 + (Math.random() - 0.5) * 6).toFixed(2) + '%';
+  setPerf('kDay', etfQ ? (etfQ.changePct || 0) : null);
+  // Real week/month from the ETF's daily bars (no synthesis)
+  function etfPerf(back) {
+    const b = BMAP[currentSec];
+    if (!b || !etfQ || b.length < back + 1) return null;
+    const past = b[b.length - 1 - back];
+    if (!past || !(past.c > 0)) return null;
+    return (etfQ.last - past.c) / past.c * 100;
+  }
+  setPerf('kWeek', etfPerf(5));
+  setPerf('kMonth', etfPerf(21));
 
   // Holdings table
   const body = document.getElementById('holdingsBody');
   body.innerHTML = '';
-  let greens = 0;
+  let greens = 0, withData = 0;
   def.holdings.forEach((h, i) => {
     const [sym, name, weight] = h;
     const q = getQ(sym);
-    const chg = q.changePct || 0;
-    if (chg > 0) greens++;
-    const cls = chg > 0 ? 'up' : chg < 0 ? 'dn' : '';
-    const col = chg > 0 ? 'var(--green)' : 'var(--red)';
+    const chg = q ? (q.changePct || 0) : null;
+    if (chg != null) { withData++; if (chg > 0) greens++; }
+    const cls = chg == null ? '' : chg > 0 ? 'up' : chg < 0 ? 'dn' : '';
+    const col = chg == null ? 'var(--text-muted)' : chg > 0 ? 'var(--green)' : 'var(--red)';
     const findings = loadFindings().filter(f => f.meta && f.meta.sym === sym && (Date.now() - f.ts) < 8 * 3600 * 1000);
     const brainScore = Math.min(100, findings.reduce((s, f) => s + (f.severity || 1) * 12, 0));
     const brainCol = brainScore >= 70 ? 'var(--green)' : brainScore >= 40 ? 'var(--accent)' : 'var(--text-muted)';
@@ -162,15 +195,15 @@ function paint() {
       + '<div><strong>' + sym + '</strong></div>'
       + '<div style="font-family:Inter;color:var(--text-secondary);font-size:11px;">' + name + '</div>'
       + '<div>' + weight.toFixed(1) + '%</div>'
-      + '<div>$' + q.last.toFixed(2) + '</div>'
-      + '<div style="color:' + col + ';">' + (chg >= 0 ? '+' : '') + chg.toFixed(2) + '%</div>'
+      + '<div>' + (q && q.last ? '$' + q.last.toFixed(2) : '—') + '</div>'
+      + '<div style="color:' + col + ';">' + (chg == null ? '—' : (chg >= 0 ? '+' : '') + chg.toFixed(2) + '%') + '</div>'
       + '<div style="color:' + brainCol + ';font-weight:' + (brainScore > 0 ? '700' : '500') + ';">' + (brainScore > 0 ? brainScore : '—') + '</div>';
-    row.onclick = () => { window.location.href = 'trade-coach.html?sym=' + sym; };
+    row.onclick = () => { window.location.href = 'ticker.html?sym=' + sym; };
     body.appendChild(row);
   });
-  document.getElementById('kBreadth').textContent = Math.round((greens / def.holdings.length) * 100) + '%';
+  document.getElementById('kBreadth').textContent = withData ? Math.round((greens / withData) * 100) + '%' : '—';
 
-  // Brain signals
+  // Brain signals (real browser findings)
   const symbols = new Set(def.holdings.map(h => h[0]));
   const findings = loadFindings().filter(f => f.meta && f.meta.sym && symbols.has(f.meta.sym) && (Date.now() - f.ts) < 4 * 3600 * 1000 && (f.severity || 1) >= 2);
   const sb = document.getElementById('signalsBody');
@@ -180,7 +213,8 @@ function paint() {
     sb.innerHTML = findings.slice(0, 8).map(f => '<div style="padding:10px 12px;border-bottom:1px solid var(--border);"><strong>' + f.meta.sym + '</strong> · ' + (f.title || f.type) + ' <span style="margin-left:6px;">' + '⭐'.repeat(f.severity || 1) + '</span></div>').join('');
   }
 }
-paint();
+loadSector();
+setInterval(loadSector, 60000);
 </script>
 </body>
 </html>
