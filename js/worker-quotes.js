@@ -87,15 +87,74 @@
     }
   }
 
+  // Pass 280: pull REAL prices for the FULL displayed universe (not just the ~24
+  // ranked signals), so every seed gets replaced by a real (delayed) price — e.g.
+  // SMCI now shows the real ~$40 down, not the months-old ~$51 seed. Degrades
+  // gracefully: if /brain/quotes isn't deployed yet (404) or errors, we simply keep
+  // the existing /brain/signals behavior — never fabricates, never breaks.
+  async function pollQuotes() {
+    if (typeof QUOTES === 'undefined') return;
+    const syms = Object.keys(QUOTES);
+    if (!syms.length) return;
+    const url = workerUrl() + '/brain/quotes?syms=' + encodeURIComponent(syms.join(','));
+    let j;
+    try {
+      const ctrl = new AbortController();
+      const to = setTimeout(() => ctrl.abort(), 9000);
+      const r = await fetch(url, { cache: 'no-store', signal: ctrl.signal });
+      clearTimeout(to);
+      if (!r.ok) return;
+      j = await r.json();
+    } catch (e) { return; }
+    const qm = (j && j.quotes) ? j.quotes : null;
+    if (!qm) return;
+    let applied = 0;
+    for (const sym in qm) {
+      const v = qm[sym];
+      const cur = QUOTES[sym];
+      if (!cur || !v || typeof v.last !== 'number' || !(v.last > 0)) continue;
+      // Never clobber a FRESHER real-time WS price (Finnhub/Coinbase) with the
+      // delayed worker price.
+      if ((cur.priceSource === 'finnhub' || cur.priceSource === 'coinbase' || cur.priceSource === 'coinbase-ws')
+        && cur.liveAt && (Date.now() - cur.liveAt) < 60000) continue;
+      const chgPct = typeof v.changePct === 'number' ? v.changePct : 0;
+      const prevClose = (typeof v.prevClose === 'number' && v.prevClose > 0)
+        ? v.prevClose
+        : (chgPct !== 0 ? v.last / (1 + chgPct / 100) : (cur.prevClose || v.last));
+      cur.last = +v.last;
+      cur.prevClose = +(+prevClose).toFixed(4);
+      cur.change = +(cur.last - cur.prevClose).toFixed(4);
+      cur.changePct = +chgPct.toFixed(4);
+      cur.bid = +(cur.last - 0.01).toFixed(2);
+      cur.ask = +(cur.last + 0.01).toFixed(2);
+      if (typeof v.volume === 'number') cur.volume = v.volume;
+      if (typeof v.rvol === 'number') cur.rvol = v.rvol;
+      cur.priceSource = 'worker-yahoo';
+      cur.liveAt = v.ts || Date.now();
+      cur.ts = Date.now();
+      cur.fresh = true;
+      if (typeof Feed !== 'undefined') Feed.publish(sym, cur);
+      applied++;
+    }
+    if (applied > 0) {
+      lastOk = Date.now();
+      if (typeof Feed !== 'undefined') Feed.publish('*', QUOTES);
+      try { if (typeof setDataMode === 'function') setDataMode('live'); } catch (e) {}
+      try { window.dispatchEvent(new CustomEvent('bpleone:quotes', { detail: { applied, at: lastOk } })); } catch (e) {}
+      try { window.dispatchEvent(new CustomEvent('bpleone:worker-quotes', { detail: { applied, at: lastOk } })); } catch (e) {}
+    }
+  }
+
   function start() {
     if (timer) return;
     pollOnce();
-    timer = setInterval(pollOnce, POLL_MS);
+    pollQuotes();
+    timer = setInterval(() => { pollOnce(); pollQuotes(); }, POLL_MS);
   }
 
-  function status() { return { lastOk, polling: !!timer, source: workerUrl() + '/brain/signals' }; }
+  function status() { return { lastOk, polling: !!timer, source: workerUrl() + '/brain/signals + /brain/quotes' }; }
 
-  window.WorkerQuotes = { start, pollOnce, status };
+  window.WorkerQuotes = { start, pollOnce, pollQuotes, status };
 
   if (typeof document !== 'undefined') {
     // Pass 243: start IMMEDIATELY (was 800ms) so real prices land ASAP.

@@ -38,7 +38,7 @@
 // Pass 200: version stamp so brain-proof.html + worker-setup.html can detect
 // when the deployed worker is behind the repo source. Bump on every meaningful
 // behavior change. Read via /brain/health → worker_version field.
-const WORKER_VERSION = 'pass-269';
+const WORKER_VERSION = 'pass-280';
 
 const UNIVERSE = [
   'SPY','QQQ','IWM','DIA','AAPL','NVDA','TSLA','MSFT','META','AMZN','GOOGL','AMD',
@@ -1472,6 +1472,39 @@ async function handleRequest(request, env, ctx) {
       note: 'Cross-sectional relative strength: each name ranked vs the current universe (regime-robust). Absolute P(up 5d) shown per row. Unusual VOLUME + brain conviction; free-data TA proxy, NOT options-flow whale prints.',
       signals: arr
     });
+  }
+
+  // ===== Pass 280: REAL quotes for the FULL displayed universe =====
+  // Browser pages were showing stale SEED prices for any symbol outside the ~24
+  // ranked signals (e.g. SMCI showed a months-old ~$51 instead of the real ~$40).
+  // This serves real Yahoo prices for any requested symbol so the browser can
+  // replace every seed with a real, delayed price. 60s-cached in KV so a flood of
+  // browser polls can't hammer Yahoo or blow the Workers subrequest budget.
+  if (path === '/brain/quotes') {
+    const reqRaw = (url.searchParams.get('syms') || '').toUpperCase();
+    let req = reqRaw ? reqRaw.split(',').map(s => s.trim()).filter(Boolean) : UNIVERSE.slice();
+    req = [...new Set(req)].filter(s => UNIVERSE.includes(s) || STOOQ_MAP[s]);
+    const CACHE_KEY = 'live_quotes_cache_v1';
+    let cache = {};
+    try { const raw = await env.BRAIN_KV.get(CACHE_KEY); if (raw) cache = JSON.parse(raw) || {}; } catch (e) {}
+    const now = Date.now();
+    const q = (cache && cache.quotes) ? cache.quotes : {};
+    const fresh = cache.updatedAt && (now - cache.updatedAt < 60000);
+    // Fetch the requested symbols that are missing (or, if the cache is stale, all
+    // of them) — capped at 24/request to stay under the free-tier subrequest limit.
+    const need = (fresh ? req.filter(s => !q[s]) : req).slice(0, 24);
+    if (need.length) {
+      const fetched = await Promise.all(need.map(s => fetchYahooQuote(s).catch(() => null)));
+      fetched.forEach((r, i) => {
+        if (r && typeof r.last === 'number' && r.last > 0) {
+          q[need[i]] = { last: r.last, prevClose: r.prevClose, changePct: r.changePct, volume: r.volume, dayHigh: r.dayHigh, dayLow: r.dayLow, ts: r.ts };
+        }
+      });
+      try { await env.BRAIN_KV.put(CACHE_KEY, JSON.stringify({ updatedAt: now, quotes: q }), { expirationTtl: 900 }); } catch (e) {}
+    }
+    const out = {};
+    req.forEach(s => { if (q[s]) out[s] = q[s]; });
+    return json({ updatedAt: (cache.updatedAt || now), count: Object.keys(out).length, quotes: out });
   }
 
   // ===== Pass 248: REAL news feed (Finnhub via worker key — free for all) =====
