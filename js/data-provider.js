@@ -502,19 +502,50 @@ const DataProvider = (function() {
 
   // ---------- Historical bars (REST) ----------
   // Returns: [{ t: epochMs, o, h, l, c, v }, ...]
-  async function getHistorical(symbol, resolution, fromMs, toMs) {
-    if (!config.enabled || config.provider === 'mock' || !config.apiKey) {
-      return generateSyntheticBars(symbol, resolution, fromMs, toMs);
-    }
+  function _dpWorkerUrl() {
+    try { if (typeof WorkerBridge !== 'undefined' && WorkerBridge.getUrl) { const u = WorkerBridge.getUrl(); if (u) return u; } } catch (e) {}
+    return 'https://bpleone-brain-worker.brandonpleone.workers.dev';
+  }
+  function _dpDemoMode() { try { return localStorage.getItem('bpleone_demo_mode') === '1'; } catch (e) { return false; } }
+  // Pass 284: REAL daily OHLC from the 24/7 worker (free, no API key).
+  async function workerDailyBars(symbol, fromMs, toMs) {
+    let r;
     try {
-      if (config.provider === 'finnhub') return await finnhubBars(symbol, resolution, fromMs, toMs);
-      if (config.provider === 'polygon') return await polygonBars(symbol, resolution, fromMs, toMs);
-      if (config.provider === 'tradier') return await tradierBars(symbol, resolution, fromMs, toMs);
-      if (config.provider === 'alpaca') return await alpacaBars(symbol, resolution, fromMs, toMs);
-    } catch (e) {
-      console.warn('[DataProvider] historical fetch failed, falling back to synthetic:', e);
+      const ctrl = new AbortController();
+      const to = setTimeout(() => ctrl.abort(), 9000);
+      r = await fetch(_dpWorkerUrl() + '/brain/bars?syms=' + encodeURIComponent(symbol) + '&days=40', { cache: 'no-store', signal: ctrl.signal });
+      clearTimeout(to);
+    } catch (e) { return []; }
+    if (!r.ok) return [];
+    let j; try { j = await r.json(); } catch (e) { return []; }
+    const arr = (j && j.bars && j.bars[symbol]) ? j.bars[symbol] : [];
+    return arr.map(b => ({ t: b.ts, o: b.o, h: b.h, l: b.l, c: b.c, v: b.v }))
+      .filter(b => typeof b.t === 'number' && b.c > 0 && (!fromMs || b.t >= fromMs) && (!toMs || b.t <= toMs));
+  }
+
+  async function getHistorical(symbol, resolution, fromMs, toMs) {
+    // 1) A user-configured paid provider serves any resolution (intraday + daily).
+    if (config.enabled && config.provider !== 'mock' && config.apiKey) {
+      try {
+        if (config.provider === 'finnhub') return await finnhubBars(symbol, resolution, fromMs, toMs);
+        if (config.provider === 'polygon') return await polygonBars(symbol, resolution, fromMs, toMs);
+        if (config.provider === 'tradier') return await tradierBars(symbol, resolution, fromMs, toMs);
+        if (config.provider === 'alpaca') return await alpacaBars(symbol, resolution, fromMs, toMs);
+      } catch (e) {
+        console.warn('[DataProvider] paid historical fetch failed, trying worker bars:', e);
+      }
     }
-    return generateSyntheticBars(symbol, resolution, fromMs, toMs);
+    // 2) Free default: REAL daily bars from the worker for daily+ resolutions. The
+    //    worker only keeps DAILY history, so intraday has no free real source.
+    const daily = (!resolution || resolution === '1d' || resolution === '1w' || resolution === '1mo');
+    if (daily) {
+      try { const real = await workerDailyBars(symbol, fromMs, toMs); if (real.length) return real; } catch (e) {}
+    }
+    // 3) No free real source (intraday, or worker not yet deployed): honest empty -
+    //    never fabricate price history on a customer-facing page. The synthetic
+    //    random walk runs ONLY in explicit demo mode (screenshots on a closed market).
+    if (_dpDemoMode()) return generateSyntheticBars(symbol, resolution, fromMs, toMs);
+    return [];
   }
 
   async function finnhubBars(symbol, res, from, to) {
