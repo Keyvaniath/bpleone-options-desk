@@ -24,7 +24,7 @@
   <div class="page-header">
     <div>
       <div class="page-title">⚖ Risk Parity</div>
-      <div class="page-subtitle">Equal-risk portfolio allocator · target vol · diversified beta · <span id="market-clock">--</span></div>
+      <div class="page-subtitle">Equal-risk allocator · real trailing 20d vol (* = long-run estimate) · <span id="market-clock">--</span></div>
     </div>
     <div class="flex gap-8">
       <input type="number" id="aum" placeholder="$ AUM" value="100000" style="background:var(--bg-elevated);border:1px solid var(--border);border-radius:8px;padding:6px 10px;color:var(--text-primary);font-family:var(--font-mono);width:140px;">
@@ -36,7 +36,7 @@
 
   <div class="grid grid-4 mb-24">
     <div class="card"><div class="card-header"><div class="card-title">Portfolio Vol</div></div><div class="mono" style="font-size:26px;font-weight:700;" id="kpiVol">--</div></div>
-    <div class="card"><div class="card-header"><div class="card-title">Estimated Sharpe</div></div><div class="mono" style="font-size:26px;font-weight:700;color:var(--green);" id="kpiSharpe">--</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">Diversification</div></div><div class="mono" style="font-size:26px;font-weight:700;color:var(--green);" id="kpiSharpe">--</div></div>
     <div class="card"><div class="card-header"><div class="card-title">Notional Exposure</div></div><div class="mono" style="font-size:26px;font-weight:700;color:var(--accent);" id="kpiNotional">--</div></div>
     <div class="card"><div class="card-header"><div class="card-title">Leverage</div></div><div class="mono" style="font-size:26px;font-weight:700;color:var(--yellow);" id="kpiLev">--</div></div>
   </div>
@@ -85,36 +85,59 @@ const ASSETS = [
   { sym: 'BTC', name: 'Crypto', vol: 70 }
 ];
 
+const WORKER = (window.WorkerBridge && WorkerBridge.getUrl && WorkerBridge.getUrl()) || 'https://bpleone-brain-worker.brandonpleone.workers.dev';
 let alloc = [];
+
+// Real trailing annualized vol (20d, from daily bars); null if not enough history.
+function realVol(bars) {
+  if (!Array.isArray(bars) || bars.length < 21) return null;
+  const c = bars.map(x => x.c).filter(x => x > 0);
+  if (c.length < 21) return null;
+  const rets = [];
+  for (let i = 1; i < c.length; i++) rets.push(Math.log(c[i] / c[i - 1]));
+  const win = rets.slice(-20);
+  const m = win.reduce((s, x) => s + x, 0) / win.length;
+  let v = 0; win.forEach(x => { const d = x - m; v += d * d; });
+  return +(Math.sqrt(v / win.length) * Math.sqrt(252) * 100).toFixed(1);
+}
+
+async function loadVols() {
+  const syms = ASSETS.map(a => a.sym).join(',');
+  const br = await fetch(WORKER + '/brain/bars?syms=' + syms + '&days=40', { cache: 'no-store' }).then(r => r.ok ? r.json() : null).catch(() => null);
+  const bars = (br && br.bars) || {};
+  ASSETS.forEach(a => {
+    const rv = realVol(bars[a.sym]);
+    a.useVol = rv != null ? rv : a.vol;   // real where available, else long-run estimate
+    a.volIsReal = rv != null;
+  });
+  compute();
+}
+
 function compute() {
   const aum = +document.getElementById('aum').value || 100000;
   const tv = +document.getElementById('targetVol').value || 10;
-  // Inverse-vol weights (un-normalized)
-  const rawWeights = ASSETS.map(a => 1 / a.vol);
+  ASSETS.forEach(a => { if (a.useVol == null) { a.useVol = a.vol; a.volIsReal = false; } });
+  // Inverse-vol weights, then lever to target vol (assume avg pairwise corr 0.3).
+  const rawWeights = ASSETS.map(a => 1 / a.useVol);
   const sumW = rawWeights.reduce((s, w) => s + w, 0);
   const baseWeights = rawWeights.map(w => w / sumW);
-  // Assume avg correlation 0.3 — portfolio vol ≈ sqrt(sum(wi^2 * vol_i^2) + 2*0.3*sum(wi*wj*vol_i*vol_j))
-  // For simplicity, baseline portfolio vol ≈ ASSETS' weighted average vol × sqrt(diversification factor ~0.5)
-  const portVol = Math.sqrt(baseWeights.reduce((s, w, i) => s + w * w * ASSETS[i].vol * ASSETS[i].vol, 0)
-    + 2 * 0.3 * baseWeights.reduce((s, w, i) => s + baseWeights.slice(i + 1).reduce((sj, wj, j) => sj + w * wj * ASSETS[i].vol * ASSETS[i + j + 1].vol, 0), 0));
-  // Scale to target vol
+  const portVol = Math.sqrt(baseWeights.reduce((s, w, i) => s + w * w * ASSETS[i].useVol * ASSETS[i].useVol, 0)
+    + 2 * 0.3 * baseWeights.reduce((s, w, i) => s + baseWeights.slice(i + 1).reduce((sj, wj, j) => sj + w * wj * ASSETS[i].useVol * ASSETS[i + j + 1].useVol, 0), 0));
   const lev = tv / portVol;
   alloc = ASSETS.map((a, i) => {
     const w = baseWeights[i] * lev;
-    const notional = aum * w;
-    const riskContr = w * w * a.vol * a.vol; // proportional to variance contribution
-    return { ...a, weight: w, notional, riskContr };
+    return { ...a, weight: w, notional: aum * w, riskContr: w * w * a.useVol * a.useVol };
   });
-  // Normalize risk contributions
   const sumRC = alloc.reduce((s, a) => s + a.riskContr, 0);
   alloc.forEach(a => a.riskPct = (a.riskContr / sumRC) * 100);
-
-  paint(portVol, lev, aum);
+  paint(portVol, lev, baseWeights);
 }
 
-function paint(portVol, lev, aum) {
+function paint(portVol, lev, baseWeights) {
   document.getElementById('kpiVol').textContent = (portVol * lev).toFixed(1) + '%';
-  document.getElementById('kpiSharpe').textContent = (0.7 + Math.random() * 0.3).toFixed(2); // synthetic
+  // Diversification ratio = weighted-avg vol / portfolio vol (>1 = diversification benefit). REAL math.
+  const wAvgVol = ASSETS.reduce((s, a, i) => s + baseWeights[i] * a.useVol, 0);
+  document.getElementById('kpiSharpe').textContent = portVol > 0 ? (wAvgVol / portVol).toFixed(2) + '×' : '—';
   const totalNotional = alloc.reduce((s, a) => s + a.notional, 0);
   document.getElementById('kpiNotional').textContent = '$' + totalNotional.toLocaleString(undefined, { maximumFractionDigits: 0 });
   document.getElementById('kpiLev').textContent = lev.toFixed(2) + '×';
@@ -126,7 +149,7 @@ function paint(portVol, lev, aum) {
     row.className = 'rp-row';
     row.innerHTML = '<div><strong>' + a.sym + '</strong></div>'
       + '<div style="color:var(--text-muted);font-family:Inter;font-size:11px;">' + a.name + '</div>'
-      + '<div>' + a.vol + '%</div>'
+      + '<div>' + a.useVol.toFixed(0) + '%' + (a.volIsReal ? '' : '<span style="color:var(--text-muted);">*</span>') + '</div>'
       + '<div style="color:var(--accent);font-weight:700;">' + (a.weight * 100).toFixed(1) + '%</div>'
       + '<div>$' + a.notional.toLocaleString(undefined, { maximumFractionDigits: 0 }) + '</div>'
       + '<div><div class="alloc-bar"><div style="width:' + Math.min(100, a.weight * 100 * 2) + '%;background:var(--accent);"></div></div></div>'
@@ -134,7 +157,6 @@ function paint(portVol, lev, aum) {
     body.appendChild(row);
   });
 
-  // Doughnut
   if (window._alloc) window._alloc.destroy();
   const ctx = document.getElementById('allocChart').getContext('2d');
   window._alloc = new Chart(ctx, {
@@ -146,7 +168,7 @@ function paint(portVol, lev, aum) {
     options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'right', labels: { color: '#9ca3af', font: { size: 11 } } } } }
   });
 }
-compute();
+loadVols();
 
 document.getElementById('goBtn').addEventListener('click', compute);
 </script>

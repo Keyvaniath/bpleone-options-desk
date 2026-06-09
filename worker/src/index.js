@@ -640,6 +640,13 @@ async function fetchYahooQuote(sym) {
   else if (sym === 'VIX6M') yhSym = '^VIX6M';
   else if (sym === 'VXN') yhSym = '^VXN';
   else if (sym === 'VVIX') yhSym = '^VVIX';
+  // Pass 283: tail-risk indices + treasury yields (also on-demand only, not in
+  // UNIVERSE). SKEW = CBOE tail-risk; TNX/IRX/FVX/TYX = 10y/13wk/5y/30y yields x10.
+  else if (sym === 'SKEW') yhSym = '^SKEW';
+  else if (sym === 'TNX') yhSym = '^TNX';
+  else if (sym === 'IRX') yhSym = '^IRX';
+  else if (sym === 'FVX') yhSym = '^FVX';
+  else if (sym === 'TYX') yhSym = '^TYX';
   const url = 'https://query1.finance.yahoo.com/v8/finance/chart/' + encodeURIComponent(yhSym) + '?range=5d&interval=1d';
   try {
     const r = await fetch(url, {
