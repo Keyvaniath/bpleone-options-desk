@@ -231,7 +231,14 @@ The whole site was swept so nothing fabricated reads as live. Three moves:
 
 3. **~26 paid-feed pages honestly labeled** with a yellow SAMPLE/ILLUSTRATIVE banner under the nav (options flow/chain/GEX, dark-pool, L2 order-book/tape, short-interest/squeeze, MOC imbalance, ETF flows, halts, sentiment, congress, perf-attribution). They genuinely need paid feeds; the banner says so + "do not trade on these figures." Calculator pages with legitimate Monte-Carlo (risk-of-ruin, risk-simulator, position-sizing) were left as-is.
 
-**Honesty rule going forward:** never show a fabricated number as live. If a feed is free-derivable (Yahoo/Stooq/Binance) wire it real; if it needs a paid feed, show '—' or the SAMPLE banner. Do not re-introduce `Math.random` into a data path.
+**Honesty rule going forward:** never show a fabricated number as live. If a feed is free-derivable (Yahoo/Stooq/Binance) wire it real; if it needs a paid feed, show '—' or the SAMPLE banner.
+
+**Fabrication-idiom watchlist (pass 284-286).** A `Math.random` scan is NOT sufficient — three other deterministic idioms were generating fake-but-real-looking data and evading every randomness scan. Do not re-introduce ANY of these into a data path; when you audit, grep for all of them:
+- `Math.random` — the obvious one.
+- **Seeded-sin PRNG:** `const rand = k => { const x = Math.sin(seed + k) * 10000; return x - Math.floor(x); }` — returns [0,1) deterministically, used exactly like `Math.random`. Found on 13 scanner pages (dollar-leaders, trend-strength, short-squeeze-alerts, etc.) + market-map's `Math.sin(charCodeAt)` fallback. Grep: `Math\.sin\([^)]*\)\s*\*\s*10000`.
+- **LCG / `seedRand` helper:** `s = (s * 9301 + 49297) % 233280; return s / 233280` — classic linear-congruential PRNG. Found on order-flow, seasonality, squeeze-radar, volume-profile, and (worst case) brain-vs-spy, which compared the real brain against a *synthetic SPY benchmark*. Grep: `9301|233280|seedRand`.
+- **charCodeAt-seeded values:** `sym.charCodeAt(0) * N` feeding a metric (not an id/hash/color). Usually the seed for one of the above.
+Outcome of the sweep: the seeded-sin / LCG pages were each wired real where free-derivable (dollar-leaders -> real $ volume; brain-vs-spy -> real SPY from /brain/bars with an honest "benchmark unavailable" state) or given a SAMPLE banner (paid-feed-dependent). `Array.from`-generated series and hardcoded chart arrays were also swept and found legit/labeled. **When adding a scanner page, derive from /brain/quotes or /brain/bars, or label it — never seed a PRNG to fill a table.**
 
 ### Worker endpoints
 
