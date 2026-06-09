@@ -430,6 +430,14 @@ document.addEventListener('DOMContentLoaded', () => {
         s.async = true;
         document.head.appendChild(s);
       }
+      // First-party usage analytics — anonymous page-view + event beacons so we
+      // can learn what early users actually do. No cookies, no PII. Site-wide.
+      if (!document.querySelector('script[src*="analytics.js"]')) {
+        const s = document.createElement('script');
+        s.src = 'js/analytics.js?v=v189';
+        s.async = true;
+        document.head.appendChild(s);
+      }
       // Pass 242: sample-data honesty banner — stamps an "illustrative, not live"
       // notice on the handful of pages that simulate paid-feed data.
       if (!document.querySelector('script[src*="sample-data-banner.js"]')) {

@@ -38,7 +38,7 @@
 // Pass 200: version stamp so brain-proof.html + worker-setup.html can detect
 // when the deployed worker is behind the repo source. Bump on every meaningful
 // behavior change. Read via /brain/health → worker_version field.
-const WORKER_VERSION = 'pass-267';
+const WORKER_VERSION = 'pass-268';
 
 const UNIVERSE = [
   'SPY','QQQ','IWM','DIA','AAPL','NVDA','TSLA','MSFT','META','AMZN','GOOGL','AMD',
@@ -65,6 +65,7 @@ const KV_KEYS = {
   SIGNALS: 'signals_v1',           // pass 231: unusual-volume + conviction scanner snapshot
   CONSTRAINTS: 'broadcast_constraints_v1', // pass 258: editable noise-control constraints for broadcasts
   RESEARCH: 'research_v1',          // pass 264: what the features CAN predict (volatility / dense direction)
+  ANALYTICS: 'analytics_v1',        // pass 268: first-party usage analytics (anon page views + events)
 };
 
 // Pass 218: bumped from 12,000 → 35,000. Live training triggers on the
@@ -413,6 +414,48 @@ async function kvPutTTL(env, key, value, ttlSec) {
 }
 async function kvDelete(env, key) {
   try { await env.BRAIN_KV.delete(key); } catch (e) {}
+}
+
+// ============================================================
+// First-party usage analytics (privacy-light: anon id + page + event).
+// One rolling KV blob; read-modify-write is approximate under heavy concurrency
+// but exact enough for early-stage "what do users actually do" learning.
+// ============================================================
+function capObj(o, n) {
+  const k = Object.keys(o || {});
+  if (k.length <= n) return o;
+  const out = {}; k.sort((x, y) => (o[y] - o[x])).slice(0, n).forEach(key => out[key] = o[key]);
+  return out;
+}
+function capDays(o, n) {
+  const k = Object.keys(o || {}).sort();
+  if (k.length <= n) return o;
+  const out = {}; k.slice(-n).forEach(key => out[key] = o[key]);
+  return out;
+}
+async function recordTrack(env, b) {
+  try {
+    const a = (await kvGet(env, KV_KEYS.ANALYTICS, null)) ||
+      { total: 0, pageviews: 0, new_users: 0, pages: {}, events: {}, days: {}, refs: {}, uniq: {}, recent: [], since: Date.now() };
+    a.total = (a.total || 0) + 1;
+    const ev = String(b.event || 'pageview').slice(0, 40);
+    if (ev === 'pageview') a.pageviews = (a.pageviews || 0) + 1;
+    a.events[ev] = (a.events[ev] || 0) + 1;
+    const page = String(b.page || '/').slice(0, 80);
+    a.pages[page] = (a.pages[page] || 0) + 1;
+    if (b.ref) { const r = String(b.ref).slice(0, 60); a.refs[r] = (a.refs[r] || 0) + 1; }
+    const day = new Date(b.ts || Date.now()).toISOString().slice(0, 10);
+    a.days[day] = (a.days[day] || 0) + 1;
+    if (b.anon) { if (!a.uniq) a.uniq = {}; a.uniq[String(b.anon).slice(0, 40)] = b.ts || Date.now(); }
+    if (b.nu) a.new_users = (a.new_users || 0) + 1;
+    a.recent = a.recent || [];
+    a.recent.push({ e: ev, p: page, r: b.ref || '', t: b.ts || Date.now() });
+    if (a.recent.length > 60) a.recent = a.recent.slice(-60);
+    a.pages = capObj(a.pages, 120); a.refs = capObj(a.refs, 80);
+    a.events = capObj(a.events, 60); a.days = capDays(a.days, 90); a.uniq = capObj(a.uniq, 3000);
+    a.updatedAt = Date.now();
+    await kvPut(env, KV_KEYS.ANALYTICS, a);
+  } catch (e) {}
 }
 
 // ============================================================
@@ -1201,6 +1244,24 @@ async function handleRequest(request, env, ctx) {
     user.prefsUpdatedAt = Date.now();
     await kvPut(env, 'user:' + email, user);
     return json({ ok: true, prefs: user.prefs });
+  }
+
+  // ===== Pass 268: first-party usage analytics (anon, privacy-light) =====
+  if (path === '/track' && request.method === 'POST') {
+    let b; try { b = await request.json(); } catch (e) { try { b = JSON.parse(await request.text()); } catch (e2) { b = null; } }
+    if (!b || !b.event) return json({ ok: false }, 200);
+    ctx.waitUntil(recordTrack(env, b));
+    return json({ ok: true });
+  }
+  if (path === '/track/stats') {
+    const a = await kvGet(env, KV_KEYS.ANALYTICS, null);
+    if (!a) return json({ ok: true, empty: true, total: 0, unique: 0, new_users: 0, pageviews: 0, pages: {}, events: {}, days: {}, refs: {}, recent: [] });
+    return json({
+      ok: true, total: a.total || 0, pageviews: a.pageviews || 0,
+      unique: a.uniq ? Object.keys(a.uniq).length : 0, new_users: a.new_users || 0,
+      pages: a.pages || {}, events: a.events || {}, days: a.days || {}, refs: a.refs || {},
+      recent: (a.recent || []).slice(-50), since: a.since || null, updatedAt: a.updatedAt || null
+    });
   }
 
   if (path === '/brain/health' || path === '/healthz') {
