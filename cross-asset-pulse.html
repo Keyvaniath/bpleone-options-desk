@@ -30,7 +30,7 @@
 .h-bar .val { width:50px; font-family:var(--font-mono); font-size:11px; text-align:right; }
 </style>
 </head>
-<body data-needs="live">
+<body>
 <div id="site-nav"></div>
 
 <div class="container">
@@ -145,11 +145,29 @@ const BLOCKS = {
   crypto:   { id: 'cryptoBlock',   syms: [['BTC','BTC'],['ETH','ETH'],['COIN','Coin'],['MSTR','MStr']] }
 };
 
-function getQ(sym) {
-  if (typeof QUOTES !== 'undefined' && QUOTES[sym]) return QUOTES[sym];
-  // Fallback synthetic
-  const seed = sym.charCodeAt(0) + sym.charCodeAt(1);
-  return { last: 100 + (seed % 50), changePct: ((seed % 200) - 100) / 50 };
+const WORKER = (window.WorkerBridge && WorkerBridge.getUrl && WorkerBridge.getUrl()) || 'https://bpleone-brain-worker.brandonpleone.workers.dev';
+let QM = {}, BM = {};
+function getQ(sym) { return QM[sym] || null; }
+function closes(s) { const b = BM[s]; return (b && b.length) ? b.map(x => x.c).filter(c => c > 0) : []; }
+function logReturns(s) { const c = closes(s), r = []; for (let i = 1; i < c.length; i++) r.push(Math.log(c[i] / c[i - 1])); return r; }
+function pearson(x, y) { const n = Math.min(x.length, y.length); if (n < 3) return null; const xs = x.slice(-n), ys = y.slice(-n); let mx = 0, my = 0; for (let i = 0; i < n; i++) { mx += xs[i]; my += ys[i]; } mx /= n; my /= n; let sxy = 0, sxx = 0, syy = 0; for (let i = 0; i < n; i++) { const dx = xs[i] - mx, dy = ys[i] - my; sxy += dx * dy; sxx += dx * dx; syy += dy * dy; } if (sxx <= 0 || syy <= 0) return null; return sxy / Math.sqrt(sxx * syy); }
+
+// Real data: /brain/quotes for live block %s + /brain/bars for real correlations and
+// the real daily regime history. No synthesized numbers.
+async function loadAll() {
+  const set = new Set(['VXX', 'TLT', 'HYG', 'UUP', 'SPY', 'GLD']);
+  for (const k in BLOCKS) BLOCKS[k].syms.forEach(([s]) => set.add(s));
+  PAIRS.forEach(([a, b]) => { set.add(a); set.add(b); });
+  const list = [...set];
+  try {
+    const [qr, br] = await Promise.all([
+      fetch(WORKER + '/brain/quotes?syms=' + list.join(','), { cache: 'no-store' }).then(r => r.ok ? r.json() : null).catch(() => null),
+      fetch(WORKER + '/brain/bars?syms=' + list.join(',') + '&days=40', { cache: 'no-store' }).then(r => r.ok ? r.json() : null).catch(() => null)
+    ]);
+    QM = (qr && qr.quotes) || {};
+    BM = (br && br.bars) || {};
+  } catch (e) {}
+  paintBlocks(); paintRegime(); paintCorr(); renderRegimeHist();
 }
 
 function paintBlocks() {
@@ -160,38 +178,25 @@ function paintBlocks() {
     wrap.innerHTML = '';
     cfg.syms.forEach(([sym, label]) => {
       const q = getQ(sym);
-      const chg = q.changePct || 0;
-      const cls = chg > 0.05 ? 'up' : chg < -0.05 ? 'dn' : 'fl';
-      const arrow = chg > 0 ? '▲' : chg < 0 ? '▼' : '—';
-      const col = chg > 0 ? 'var(--green)' : chg < 0 ? 'var(--red)' : 'var(--text-muted)';
+      const chg = q ? (q.changePct || 0) : null;
+      const cls = chg == null ? 'fl' : chg > 0.05 ? 'up' : chg < -0.05 ? 'dn' : 'fl';
+      const arrow = chg == null ? '—' : chg > 0 ? '▲' : chg < 0 ? '▼' : '—';
+      const col = chg == null ? 'var(--text-muted)' : chg > 0 ? 'var(--green)' : chg < 0 ? 'var(--red)' : 'var(--text-muted)';
       const block = document.createElement('div');
       block.className = 'pulse-block ' + cls;
       block.innerHTML = '<div class="label">' + label + ' · ' + sym + '</div>'
-        + '<div class="value">' + (q.last || 0).toFixed(2) + '</div>'
-        + '<div class="chg" style="color:' + col + ';">' + arrow + ' ' + Math.abs(chg).toFixed(2) + '%</div>';
+        + '<div class="value">' + (q && q.last ? q.last.toFixed(2) : '—') + '</div>'
+        + '<div class="chg" style="color:' + col + ';">' + arrow + ' ' + (chg == null ? '—' : Math.abs(chg).toFixed(2) + '%') + '</div>';
       wrap.appendChild(block);
     });
   }
 }
-paintBlocks();
 
-// Regime composite
+// Regime composite from REAL current changePcts
 function computeRegime() {
-  const vix = getQ('VXX').changePct || 0;
-  const tlt = getQ('TLT').changePct || 0;
-  const hyg = getQ('HYG').changePct || 0;
-  const uup = getQ('UUP').changePct || 0;
-  const spy = getQ('SPY').changePct || 0;
-  const gld = getQ('GLD').changePct || 0;
-  // Risk-on positive: SPY+, HYG+, VXX-, GLD-, UUP-
-  // Risk-off positive: SPY-, HYG-, VXX+, GLD+, UUP+
-  const score = 50
-    + spy * 5
-    + hyg * 6
-    - vix * 4
-    - uup * 3
-    - gld * 2
-    + tlt * 1;
+  const g = s => { const q = getQ(s); return q ? (q.changePct || 0) : 0; };
+  const vix = g('VXX'), tlt = g('TLT'), hyg = g('HYG'), uup = g('UUP'), spy = g('SPY'), gld = g('GLD');
+  const score = 50 + spy * 5 + hyg * 6 - vix * 4 - uup * 3 - gld * 2 + tlt * 1;
   return Math.max(0, Math.min(100, score));
 }
 function paintRegime() {
@@ -222,16 +227,6 @@ function paintRegime() {
   pill.style.color = col;
   pill.style.border = '1px solid ' + brd;
 }
-paintRegime();
-
-// Correlation stack — synthesize correlation between key pairs from cohabiting %change
-function corr(a, b) {
-  const ax = getQ(a).changePct || 0;
-  const bx = getQ(b).changePct || 0;
-  // Rough proxy: signed product normalized
-  const m = (ax * bx) / Math.max(0.5, Math.abs(ax) + Math.abs(bx));
-  return Math.max(-1, Math.min(1, m * 1.5));
-}
 const PAIRS = [
   ['SPY','TLT','S&P vs Long Bonds'],
   ['SPY','UUP','S&P vs USD'],
@@ -242,41 +237,52 @@ const PAIRS = [
   ['QQQ','TLT','Nasdaq vs Bonds (duration)'],
   ['USO','UUP','Oil vs USD']
 ];
-const cs = document.getElementById('corrStack');
-PAIRS.forEach(([a, b, label]) => {
-  const c = corr(a, b);
-  const pct = ((c + 1) / 2) * 100;
-  const col = c > 0.3 ? 'var(--green)' : c < -0.3 ? 'var(--red)' : 'var(--accent)';
-  const bar = document.createElement('div');
-  bar.className = 'h-bar';
-  bar.innerHTML = '<div class="lbl">' + a + '/' + b + '</div>'
-    + '<div class="track"><div class="fill" style="width:' + pct + '%;background:' + col + ';"></div></div>'
-    + '<div class="val" style="color:' + col + ';">' + (c >= 0 ? '+' : '') + c.toFixed(2) + '</div>'
-    + '<div style="flex:0 0 200px;font-size:11px;color:var(--text-muted);">' + label + '</div>';
-  cs.appendChild(bar);
-});
 
-// Regime history — synthesize 30 sessions
+// REAL 20-day Pearson correlation per pair from daily log-returns.
+function paintCorr() {
+  const cs = document.getElementById('corrStack');
+  cs.innerHTML = '';
+  PAIRS.forEach(([a, b, label]) => {
+    const c = pearson(logReturns(a).slice(-20), logReturns(b).slice(-20));
+    const bar = document.createElement('div');
+    bar.className = 'h-bar';
+    if (c == null) {
+      bar.innerHTML = '<div class="lbl">' + a + '/' + b + '</div><div class="track"></div><div class="val" style="color:var(--text-muted);">—</div><div style="flex:0 0 200px;font-size:11px;color:var(--text-muted);">' + label + '</div>';
+    } else {
+      const pct = ((c + 1) / 2) * 100;
+      const col = c > 0.3 ? 'var(--green)' : c < -0.3 ? 'var(--red)' : 'var(--accent)';
+      bar.innerHTML = '<div class="lbl">' + a + '/' + b + '</div>'
+        + '<div class="track"><div class="fill" style="width:' + pct + '%;background:' + col + ';"></div></div>'
+        + '<div class="val" style="color:' + col + ';">' + (c >= 0 ? '+' : '') + c.toFixed(2) + '</div>'
+        + '<div style="flex:0 0 200px;font-size:11px;color:var(--text-muted);">' + label + '</div>';
+    }
+    cs.appendChild(bar);
+  });
+}
+
+// REAL daily regime-score history from the drivers' daily bars.
 let regimeHistChart;
 function renderRegimeHist() {
+  const drivers = ['SPY', 'HYG', 'VXX', 'UUP', 'GLD', 'TLT'];
+  const lens = drivers.map(s => (BM[s] || []).length);
+  const hist = lens.every(n => n > 1) ? Math.min.apply(null, lens) : 0;
   const labels = [], data = [];
-  const now = computeRegime();
-  for (let i = 29; i >= 0; i--) {
-    const d = new Date(); d.setDate(d.getDate() - i);
-    labels.push(d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }));
-    // Synthesize trajectory ending at current
-    const noise = (Math.sin(i / 3) + Math.cos(i / 4)) * 8;
-    data.push(Math.max(10, Math.min(90, now + noise + (Math.random() - 0.5) * 6)));
+  if (hist > 1) {
+    for (let d = 1; d < hist; d++) {
+      const dp = s => { const b = BM[s]; const idx = b.length - hist + d; return (b[idx].c - b[idx - 1].c) / b[idx - 1].c * 100; };
+      const score = Math.max(0, Math.min(100, 50 + dp('SPY') * 5 + dp('HYG') * 6 - dp('VXX') * 4 - dp('UUP') * 3 - dp('GLD') * 2 + dp('TLT') * 1));
+      data.push(+score.toFixed(1));
+      const ts = BM.SPY[BM.SPY.length - hist + d].ts;
+      labels.push(ts ? new Date(ts).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '');
+    }
   }
-  data[data.length - 1] = now; // anchor
   if (regimeHistChart) regimeHistChart.destroy();
-  const ctx = document.getElementById('regimeHistChart').getContext('2d');
-  regimeHistChart = new Chart(ctx, {
+  regimeHistChart = new Chart(document.getElementById('regimeHistChart').getContext('2d'), {
     type: 'line',
-    data: { labels, datasets: [
-      { label: 'Regime', data, borderColor: 'rgba(0,212,255,1)', backgroundColor: 'rgba(0,212,255,0.1)', borderWidth: 2, tension: 0.25, fill: true, pointRadius: 0 },
-      { label: 'Risk-on threshold', data: labels.map(() => 65), borderColor: 'rgba(16,185,129,0.6)', borderDash: [4,4], pointRadius: 0, borderWidth: 1 },
-      { label: 'Risk-off threshold', data: labels.map(() => 35), borderColor: 'rgba(239,68,68,0.6)', borderDash: [4,4], pointRadius: 0, borderWidth: 1 }
+    data: { labels: labels, datasets: [
+      { label: 'Regime (real)', data: data, borderColor: 'rgba(0,212,255,1)', backgroundColor: 'rgba(0,212,255,0.1)', borderWidth: 2, tension: 0.25, fill: true, pointRadius: 0 },
+      { label: 'Risk-on threshold', data: labels.map(() => 65), borderColor: 'rgba(16,185,129,0.6)', borderDash: [4, 4], pointRadius: 0, borderWidth: 1 },
+      { label: 'Risk-off threshold', data: labels.map(() => 35), borderColor: 'rgba(239,68,68,0.6)', borderDash: [4, 4], pointRadius: 0, borderWidth: 1 }
     ] },
     options: { responsive: true, maintainAspectRatio: false,
       plugins: { legend: { display: true, position: 'bottom', labels: { color: '#9ca3af', font: { size: 10 } } } },
@@ -284,10 +290,10 @@ function renderRegimeHist() {
         y: { min: 0, max: 100, grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#6b7280', font: { size: 10 } } } } }
   });
 }
-renderRegimeHist();
 
-document.getElementById('refreshBtn').addEventListener('click', () => { paintBlocks(); paintRegime(); renderRegimeHist(); });
-setInterval(() => { paintBlocks(); paintRegime(); }, 30000);
+loadAll();
+document.getElementById('refreshBtn').addEventListener('click', loadAll);
+setInterval(loadAll, 30000);
 </script>
 </body>
 </html>
