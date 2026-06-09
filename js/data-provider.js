@@ -536,9 +536,12 @@ const DataProvider = (function() {
       }
     }
     // 2) Free default: REAL daily bars from the worker for daily+ resolutions. The
-    //    worker only keeps DAILY history, so intraday has no free real source.
-    const daily = (!resolution || resolution === '1d' || resolution === '1w' || resolution === '1mo');
-    if (daily) {
+    //    worker only keeps DAILY history, so pure-minute (intraday) requests have no
+    //    free real source. Detect intraday robustly - the backtest/correlation pages
+    //    pass 'D' (capital), while intraday pages pass '5' / '15' / '1m' etc.
+    const r = String(resolution || '1d').toLowerCase();
+    const intraday = /^(1|5|15|30|60|90|120|240)(m|min)?$/.test(r);
+    if (!intraday) {
       try { const real = await workerDailyBars(symbol, fromMs, toMs); if (real.length) return real; } catch (e) {}
     }
     // 3) No free real source (intraday, or worker not yet deployed): honest empty -
