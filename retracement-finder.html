@@ -24,7 +24,6 @@
 </head>
 <body data-needs="live">
 <div id="site-nav"></div>
-<div data-synthetic-banner style="background:linear-gradient(90deg,rgba(245,158,11,0.18),rgba(245,158,11,0.06));border-bottom:1px solid rgba(245,158,11,0.45);color:var(--yellow);font-size:12.5px;font-weight:600;padding:8px 16px;text-align:center;">SAMPLE / ILLUSTRATIVE DATA - the Fibonacci levels shown are placeholder values. Real swing-based retracements are free-derivable from daily OHLC (worker /brain/bars) - wiring pending.</div>
 
 <div class="container">
   <div class="page-header">
@@ -81,21 +80,29 @@ buildNav('retracement-finder');
 
 const UNIVERSE = ['NVDA','TSLA','AAPL','MSFT','META','AMZN','GOOGL','AMD','PLTR','COIN','SMCI','NFLX','MSTR','SHOP','UBER','HOOD','SOFI','PANW','SNOW','AVGO','MU','MRVL','LCID','RIVN','DIS','BA','JPM','XLE','XLF','XLK','TLT','GLD','BTC','ETH','SPY','QQQ','IWM'];
 
-function getQ(s) { return (typeof QUOTES !== 'undefined' && QUOTES[s]) ? QUOTES[s] : { last: 100 }; }
+const WORKER = (window.WorkerBridge && WorkerBridge.getUrl && WorkerBridge.getUrl()) || 'https://bpleone-brain-worker.brandonpleone.workers.dev';
 
-function generate() {
-  return UNIVERSE.map(sym => {
-    const seed = sym.charCodeAt(0) * 23 + (sym.charCodeAt(1) || 0);
-    const rand = (k) => { const x = Math.sin(seed + k) * 10000; return x - Math.floor(x); };
-    const q = getQ(sym);
-    const px = q.last || 100;
-    const swingH = +(px * (1 + 0.10 + rand(1) * 0.20)).toFixed(2);
-    const swingL = +(px * (1 - 0.05 - rand(2) * 0.15)).toFixed(2);
+let data = [];
+let loading = true;
+let barsAvailable = false;
+
+// Real Fibonacci retracement from the swing high/low of the worker's daily OHLC.
+// No fabrication: honest empty state until /brain/bars is deployed.
+async function loadData() {
+  const res = await fetch(WORKER + '/brain/bars?syms=' + encodeURIComponent(UNIVERSE.join(',')) + '&days=40', { cache: 'no-store' }).then(r => r.ok ? r.json() : null).catch(() => null);
+  const allBars = (res && res.bars) || {};
+  barsAvailable = Object.keys(allBars).length > 0;
+  data = UNIVERSE.map(sym => {
+    const bars = (allBars[sym] || []).filter(b => b && b.h > 0 && b.l > 0 && b.c > 0 && b.ts).sort((a, b) => a.ts - b.ts);
+    if (bars.length < 10) return null;
+    const px = bars[bars.length - 1].c;
+    const swingH = Math.max.apply(null, bars.map(b => b.h));
+    const swingL = Math.min.apply(null, bars.map(b => b.l));
     const range = swingH - swingL;
+    if (!(range > 0) || !(px > 0)) return null;
     const fib382 = +(swingH - range * 0.382).toFixed(2);
     const fib50 = +(swingH - range * 0.500).toFixed(2);
     const fib618 = +(swingH - range * 0.618).toFixed(2);
-    // Which band is closest?
     const distances = [
       { name: '38.2%', v: fib382, dist: Math.abs(px - fib382) / px },
       { name: '50%', v: fib50, dist: Math.abs(px - fib50) / px },
@@ -104,17 +111,24 @@ function generate() {
     distances.sort((a, b) => a.dist - b.dist);
     const nearest = distances[0];
     const atBand = nearest.dist < 0.015;
-    return { sym, px, swingH, swingL, fib382, fib50, fib618, nearest, atBand };
-  }).filter(d => d.atBand).sort((a, b) => a.nearest.dist - b.nearest.dist);
+    return { sym, px, swingH: +swingH.toFixed(2), swingL: +swingL.toFixed(2), fib382, fib50, fib618, nearest, atBand };
+  }).filter(Boolean).filter(d => d.atBand).sort((a, b) => a.nearest.dist - b.nearest.dist);
+  loading = false;
+  paint();
 }
-
-let data = generate();
 
 function paint() {
   const body = document.getElementById('fibBody');
+  if (loading) { body.innerHTML = '<div style="padding:30px;text-align:center;color:var(--text-muted);font-size:13px;">Loading daily bars…</div>'; return; }
   body.innerHTML = '';
+  if (!barsAvailable) {
+    body.innerHTML = '<div style="padding:30px;text-align:center;color:var(--text-muted);font-size:13px;">Daily OHLC bars not available yet - the worker <a href="worker-setup.html" style="color:var(--accent);">/brain/bars</a> feed is not deployed. Swing high/low and Fib levels compute from real bars once it is live.</div>';
+    ['kpiGolden', 'kpi50', 'kpi382', 'kpiTop'].forEach(id => { const e = document.getElementById(id); if (e) e.textContent = '—'; });
+    const tb = document.getElementById('kpiTopBody'); if (tb) tb.textContent = '';
+    return;
+  }
   if (data.length === 0) {
-    body.innerHTML = '<div style="padding:30px;text-align:center;color:var(--text-muted);font-size:13px;">No stocks currently at major Fib retracement bands. Try again later.</div>';
+    body.innerHTML = '<div style="padding:30px;text-align:center;color:var(--text-muted);font-size:13px;">No stocks currently at major Fib retracement bands. Check back as prices move.</div>';
   } else {
     data.forEach((d, i) => {
       const cls = d.nearest.name === '61.8%' ? 'golden' : d.nearest.name === '50%' ? 'support-50' : 'support-382';
@@ -143,7 +157,9 @@ function paint() {
   }
 }
 paint();
-document.getElementById('refreshBtn').addEventListener('click', () => { data = generate(); paint(); });
+loadData();
+document.getElementById('refreshBtn').addEventListener('click', () => { loading = true; paint(); loadData(); });
+setInterval(loadData, 60000);
 </script>
 </body>
 </html>
