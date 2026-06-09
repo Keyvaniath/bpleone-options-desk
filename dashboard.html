@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Dashboard — bpleone / trade</title>
-<meta name="description" content="Live market dashboard: index quotes, breadth, top movers, your watchlist, news, all from real Finnhub data.">
+<meta name="description" content="Market dashboard: index quotes, breadth, top movers, your watchlist, news - real market data (equities delayed ~15 min via Yahoo/Stooq, crypto real-time).">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="css/style.css?v=v193">
@@ -38,7 +38,7 @@
 <div class="container">
   <div class="page-header">
     <div>
-      <div class="page-title">Dashboard <span class="feat-badge feat-live">LIVE</span></div>
+      <div class="page-title">Dashboard <span class="feat-badge feat-live" id="dashLiveBadge">LIVE</span></div>
       <div class="page-subtitle"><span id="market-clock">--</span> · <span id="kAsOf">—</span></div>
     </div>
   </div>
@@ -207,7 +207,17 @@ function renderMovers() {
   </tr>`; }
   $('topGain').innerHTML = gainers.map(row).join('') || '<tr><td colspan="3" style="color:var(--text-muted);font-size:11px;">No data</td></tr>';
   $('topLose').innerHTML = losers.map(row).join('') || '<tr><td colspan="3" style="color:var(--text-muted);font-size:11px;">No data</td></tr>';
-  $('kAsOf').textContent = 'Live · ' + new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', second: '2-digit' });
+  // Honesty (pass 270): "Live" while the market is closed contradicts the data
+  // banner. Reflect the actual freshness of the index bellwethers (shared helper).
+  const _eqAge = (typeof equityDataAgeMin === 'function') ? equityDataAgeMin() : null;
+  const _stale = _eqAge !== null && _eqAge > 45;
+  const _t = new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', second: '2-digit' });
+  $('kAsOf').textContent = (_stale ? 'Last close · ' : 'Live · ') + _t;
+  const _badge = document.getElementById('dashLiveBadge');
+  if (_badge) {
+    if (_stale) { _badge.textContent = 'DELAYED'; _badge.style.background = 'rgba(245,158,11,0.15)'; _badge.style.color = 'var(--yellow)'; _badge.style.borderColor = 'rgba(245,158,11,0.4)'; }
+    else { _badge.textContent = 'LIVE'; _badge.style.background = ''; _badge.style.color = ''; _badge.style.borderColor = ''; }
+  }
 }
 
 async function loadNews() {
