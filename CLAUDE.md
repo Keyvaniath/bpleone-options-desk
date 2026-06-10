@@ -294,6 +294,7 @@ Outcome of the sweep: the seeded-sin / LCG pages were each wired real where free
 8. **Storage keys all start with `bpleone_`** and end with `_v1` (or `_v2` after schema changes).
 9. **Black-Scholes is in `live.js`**, not a separate file — don't refactor.
 10. **Match existing nav grouping logic.** Brain/training stuff → `brainGrp`. New tool → `toolsGrp`. New scanner → `scanGrp`. The `activePage` string passed to `buildNav()` MUST match the bare filename (without `.html`) for the active-state highlight to light up.
+11. **GitHub Pages runs Jekyll on this repo (there is deliberately NO `.nojekyll`).** Two production-only failure modes that local preview can NOT catch: (a) literal `{{... }}` or `{%... %}` in any HTML gets processed/stripped by Liquid on deploy (a `{{TOTAL}}` placeholder once shipped blank to production while looking fine locally) — never put double-brace syntax in HTML; (b) `_`-prefixed files at root are EXCLUDED from the deployed site (that's why the `_test_*.js` / `_*.py` dev artifacts stay private — keep them underscore-prefixed, and never reference a `_` file from a page). Before pushing, grep HTML for `\{\{` as a habit.
 
 ---
 
