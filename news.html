@@ -205,11 +205,18 @@ function render(items) {
   $('newsList').innerHTML = items.slice(0, 60).map(it => {
     const sentCls = it._sent.label === 'positive' ? 'sent-pos' : it._sent.label === 'negative' ? 'sent-neg' : 'sent-neu';
     const tickers = it.related ? String(it.related).split(',').filter(Boolean).slice(0, 4).join(', ') : '—';
+    // Google-News-style feeds return summary == headline (modulo the source
+    // suffix), which rendered every row twice. Only show the summary when it
+    // actually adds words beyond the headline.
+    const headNorm = String(it.headline || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+    const sumNorm = String(it.summary || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+    const sumRedundant = !sumNorm || sumNorm === headNorm || sumNorm.indexOf(headNorm) === 0 || headNorm.indexOf(sumNorm) === 0;
+    const sumHtml = sumRedundant ? '' : `<div class="sum">${escapeHtml((it.summary || '').slice(0, 200))}</div>`;
     return `<a href="${it.url}" target="_blank" rel="noopener" class="news-row" style="text-decoration:none;color:inherit;">
       <div class="ts">${fmtTime(it.datetime)}</div>
       <div>
         <div class="head">${escapeHtml(it.headline)}</div>
-        <div class="sum">${escapeHtml((it.summary || '').slice(0, 200))}</div>
+        ${sumHtml}
       </div>
       <div class="src">${escapeHtml(it.source || '—')}</div>
       <div class="related-syms">${escapeHtml(tickers)}</div>
