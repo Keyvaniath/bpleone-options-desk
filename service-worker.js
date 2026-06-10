@@ -8,9 +8,34 @@
 
 // Audit pass 94: bumped version so the new stale-while-revalidate strategy
 // activates on existing browsers (caches with the old version get cleared).
-const VERSION = 'v1.2';  // pass 174-175: CRITICAL fixes (Finnhub priceSource/liveAt + window.QUOTES TDZ) — force cache invalidation
+// Pass 291: v1.3 — the runtime cache had been accumulating EVERY versioned
+// asset URL since v1.2 (pass 174): each ?v= bump added ~110 new entries and
+// nothing ever deleted the old ones, so long-time users carried months of
+// dead cache (storage-quota pressure; on quota eviction Chrome can drop the
+// WHOLE origin including localStorage = the brain journal/model). The bump
+// clears the old caches on activate, and putPruned() below keeps exactly one
+// cached copy per asset path going forward.
+const VERSION = 'v1.3';
 const CACHE_SHELL = 'bpleone-shell-' + VERSION;
 const CACHE_RUNTIME = 'bpleone-runtime-' + VERSION;
+
+// Cache resp under req, then delete any other cached entry for the SAME
+// pathname (older ?v= variants, stale ?fresh= navigations). Keeps the
+// runtime cache bounded at one entry per asset/page forever.
+function putPruned(req, resp) {
+  return caches.open(CACHE_RUNTIME).then(cache =>
+    cache.put(req, resp)
+      .then(() => cache.keys())
+      .then(keys => {
+        const reqPath = new URL(req.url).pathname;
+        return Promise.all(keys.map(k => {
+          const kUrl = new URL(k.url);
+          if (kUrl.pathname === reqPath && k.url !== req.url) return cache.delete(k);
+          return null;
+        }));
+      })
+  ).catch(() => null);
+}
 
 const SHELL_ASSETS = [
   '/',
@@ -63,7 +88,7 @@ self.addEventListener('fetch', e => {
     e.respondWith(
       fetch(req).then(resp => {
         const copy = resp.clone();
-        caches.open(CACHE_RUNTIME).then(c => c.put(req, copy)).catch(() => null);
+        putPruned(req, copy);
         return resp;
       }).catch(() => caches.match(req).then(r => r || caches.match('/index.html')))
     );
@@ -82,7 +107,7 @@ self.addEventListener('fetch', e => {
       const network = fetch(req).then(resp => {
         if (resp && resp.status === 200 && resp.type === 'basic') {
           const copy = resp.clone();
-          caches.open(CACHE_RUNTIME).then(c => c.put(req, copy)).catch(() => null);
+          putPruned(req, copy);
         }
         return resp;
       }).catch(() => null);
