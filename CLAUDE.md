@@ -1,6 +1,6 @@
 # ⚠️ YOU ARE MID-PROJECT. READ THIS FIRST.
 
-> **Hi Claude. This is a continued session.** Prior Claudes built **400 HTML pages and 102 JS modules** — a complete institutional-grade trading platform with a **self-learning ML brain** (logistic regression + Adam optimizer, multi-horizon ensemble, MC dropout, bootstrap bagging, kNN recall, Platt + Isotonic + Regime calibration, OOD detection, drift PSI, conformal intervals, meta-stacking, per-symbol bias, label smoothing, sample-decay, mixup, self-distillation, hindsight replay, active learning), high-conviction push notifications, autopilot paper trading (AutoTrade), brain coach (live speech), per-symbol leaderboards, weekly auto-reports, what-if scenario tool, backup/restore, mobile dashboard. **DO NOT RESTART.** Don't propose to rebuild anything. Read this file, then continue from where the prior Claude left off.
+> **Hi Claude. This is a continued session.** Prior Claudes built **415 HTML pages and 111 JS modules** — a complete institutional-grade trading platform with a **self-learning ML brain** (logistic regression + Adam optimizer, multi-horizon ensemble, MC dropout, bootstrap bagging, kNN recall, Platt + Isotonic + Regime calibration, OOD detection, drift PSI, conformal intervals, meta-stacking, per-symbol bias, label smoothing, sample-decay, mixup, self-distillation, hindsight replay, active learning), high-conviction push notifications, autopilot paper trading (AutoTrade), brain coach (live speech), per-symbol leaderboards, weekly auto-reports, what-if scenario tool, backup/restore, mobile dashboard. **DO NOT RESTART.** Don't propose to rebuild anything. Read this file, then continue from where the prior Claude left off.
 >
 > **TL;DR for Brandon (the user):** he's building `options.bpleone.com` as a subdomain of `bpleone.com`. **The site IS LIVE on GitHub Pages** (CNAME at repo root). The Squarespace hub tile is documented in `SQUARESPACE-FIX.md` + `SQUARESPACE-TILE.html` + `squarespace-preview.html`. The Pokémon TCG desk is at `pokemon.bpleone.com`. Brandon's mode is autonomous-build: he says "continue" or "keep building" and expects you to ship without confirmation prompts. He hates being asked permission for routine work.
 >
@@ -35,11 +35,11 @@ The site is **static HTML/CSS/JS** (no build step, no framework). Drop the folde
 | | |
 |---|---|
 | **Domain** | `options.bpleone.com` (CNAME file at repo root) |
-| **Pages** | 400 HTML files at the root (no `pages/` subdir) |
-| **JS modules** | 102 files in `js/` |
+| **Pages** | 415 HTML files at the root (no `pages/` subdir) |
+| **JS modules** | 111 files in `js/` |
 | **CSS** | Single file: `css/style.css` (~1,500 lines, dark institutional theme) |
 | **Manifest** | `manifest.json` (PWA), theme color `#00d4ff` |
-| **SEO** | `robots.txt`, `sitemap.xml` (397 URLs) |
+| **SEO** | `robots.txt`, `sitemap.xml` (413 URLs, 1:1 with live pages; only 404.html + owner-only analytics.html excluded) |
 | **Deploy** | GitHub Pages from `main` |
 | **Hub linkage** | `index.html` opens with a ribbon back to `bpleone.com`; nav has a small ← Hub pill on every page |
 
@@ -66,7 +66,7 @@ Don't trust any list of named pages — it goes stale. Instead, the nav grouping
 
 ## JS architecture — read this
 
-All 102 JS modules attach to the global window. Most pages load this baseline:
+All 111 JS modules attach to the global window. Most pages load this baseline:
 
 ```html
 <script src="js/data-provider.js"></script>  <!-- WS/CSV adapter; Stooq fallback default -->
