@@ -4,14 +4,14 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Halt Tracker — bpleone / trade</title>
-<meta name="description" content="LULD halts, market-wide circuit breakers, T1 news pauses, and reopening tape — institutional halt monitor.">
+<meta name="description" content="Live trading halts from the NASDAQ Trader public feed — LULD trips, news pauses, regulatory halts, with resumption times. Real tape, no placeholders.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="css/style.css?v=v200">
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
 <style>
-.halt-row { display:grid; grid-template-columns: 90px 70px 90px 80px 90px 90px 1fr; gap:10px; padding:11px 12px; border-bottom:1px solid var(--border); font-family:var(--font-mono); font-size:11px; align-items:center; }
+.halt-row { display:grid; grid-template-columns: 90px 80px 90px 70px 90px 120px 1fr; gap:10px; padding:11px 12px; border-bottom:1px solid var(--border); font-family:var(--font-mono); font-size:11px; align-items:center; }
 .halt-row.luld { border-left:3px solid var(--yellow); }
 .halt-row.t1 { border-left:3px solid var(--accent); }
 .halt-row.t12 { border-left:3px solid var(--red); }
@@ -24,28 +24,27 @@
 </head>
 <body data-needs="live">
 <div id="site-nav"></div>
-<div style="background:linear-gradient(90deg,rgba(245,158,11,0.18),rgba(245,158,11,0.06));border-bottom:1px solid rgba(245,158,11,0.45);color:var(--yellow);font-size:12.5px;font-weight:600;padding:8px 16px;text-align:center;">SAMPLE / ILLUSTRATIVE DATA - layout and logic shown; A real-time exchange halt / LULD feed requires a paid feed (not connected). Do not trade on these figures.</div>
 
 <div class="container">
   <div class="page-header">
     <div>
       <div class="page-title">⏸ Halt Tracker</div>
-      <div class="page-subtitle">LULD halts · T1/T2 news pauses · MWCB · reopen tape · <span id="market-clock">--</span></div>
+      <div class="page-subtitle">Live NASDAQ halt tape · LULD · news pauses · regulatory · <span id="market-clock">--</span></div>
     </div>
     <div class="flex gap-8">
       <button class="btn btn-secondary" id="refreshBtn">🔄</button>
     </div>
   </div>
 
-  <!-- MWCB STATUS -->
+  <!-- MWCB STATUS (derived from the real SPY quote; SPX approximated as SPY x10) -->
   <div class="card mb-24" style="background:rgba(16,185,129,0.04);border-color:rgba(16,185,129,0.2);">
     <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;">
       <div>
-        <div style="font-size:14px;font-weight:700;color:var(--green);">🟢 Market-Wide Circuit Breakers: NOT TRIGGERED</div>
-        <div style="font-size:12px;color:var(--text-muted);margin-top:4px;">Level 1 at −7% · Level 2 at −13% · Level 3 at −20% (full-day halt)</div>
+        <div style="font-size:14px;font-weight:700;color:var(--green);" id="mwcbHead">🟢 Market-Wide Circuit Breakers: NOT TRIGGERED</div>
+        <div style="font-size:12px;color:var(--text-muted);margin-top:4px;">Level 1 at −7% · Level 2 at −13% · Level 3 at −20% (full-day halt) · distances from SPY day move</div>
       </div>
       <div style="display:flex;gap:18px;font-size:12px;font-family:var(--font-mono);">
-        <div>SPX <span id="spxNow">—</span></div>
+        <div>SPX≈ <span id="spxNow">—</span></div>
         <div>to L1 <span id="toL1" style="color:var(--green);">—</span></div>
         <div>to L2 <span id="toL2" style="color:var(--yellow);">—</span></div>
         <div>to L3 <span id="toL3" style="color:var(--red);">—</span></div>
@@ -54,37 +53,38 @@
   </div>
 
   <div class="grid grid-4 mb-24">
-    <div class="card"><div class="card-header"><div class="card-title">Total Halts Today</div></div><div class="mono" style="font-size:26px;font-weight:700;" id="kpiTotal">--</div><div class="mono" style="font-size:11px;color:var(--text-muted);">Active + reopened</div></div>
-    <div class="card"><div class="card-header"><div class="card-title">Currently Halted</div></div><div class="mono" style="font-size:26px;font-weight:700;color:var(--red);" id="kpiActive">--</div><div class="mono" style="font-size:11px;color:var(--text-muted);">Reopen pending</div></div>
-    <div class="card"><div class="card-header"><div class="card-title">Just Reopened (15m)</div></div><div class="mono" style="font-size:26px;font-weight:700;color:var(--green);" id="kpiReopen">--</div><div class="mono" style="font-size:11px;color:var(--text-muted);">Watch tape</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">Halts on Tape</div></div><div class="mono" style="font-size:26px;font-weight:700;" id="kpiTotal">--</div><div class="mono" style="font-size:11px;color:var(--text-muted);">NASDAQ feed (rolling)</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">Resumption Pending</div></div><div class="mono" style="font-size:26px;font-weight:700;color:var(--red);" id="kpiActive">--</div><div class="mono" style="font-size:11px;color:var(--text-muted);">No reopen time yet</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">LULD Trips</div></div><div class="mono" style="font-size:26px;font-weight:700;color:var(--yellow);" id="kpiLuld">--</div><div class="mono" style="font-size:11px;color:var(--text-muted);">Volatility halts</div></div>
     <div class="card"><div class="card-header"><div class="card-title">Most Common Code</div></div><div class="mono" style="font-size:26px;font-weight:700;color:var(--accent);" id="kpiCode">--</div><div class="mono" style="font-size:11px;color:var(--text-muted);" id="kpiCodeBody">--</div></div>
   </div>
 
   <div class="card" style="padding:0;">
-    <div class="card-header" style="padding:14px 16px;"><div class="card-title">📋 Halt Feed</div></div>
+    <div class="card-header" style="padding:14px 16px;"><div class="card-title">📋 Halt Feed (live)</div></div>
     <div class="halt-row" style="background:var(--bg-elevated);font-size:9px;color:var(--text-muted);font-weight:800;letter-spacing:0.5px;">
-      <div>TIME</div><div>SYM</div><div>TYPE</div><div>CODE</div><div>HALT PX</div><div>REOPEN PX</div><div>REASON / STATUS</div>
+      <div>HALT TIME ET</div><div>SYM</div><div>TYPE</div><div>CODE</div><div>MARKET</div><div>RESUMPTION</div><div>ISSUE NAME</div>
     </div>
-    <div id="haltBody"></div>
+    <div id="haltBody"><div style="padding:30px;text-align:center;color:var(--text-muted);font-size:13px;">Loading live halt tape…</div></div>
   </div>
 
   <!-- HOW TO USE -->
   <div class="card mt-24">
-    <div class="card-header"><div class="card-title">🧠 How to trade halts</div></div>
+    <div class="card-header"><div class="card-title">🧠 How to read halt codes</div></div>
     <div class="grid grid-3" style="gap:20px;">
       <div>
-        <div style="font-weight:700;color:var(--yellow);margin-bottom:6px;">LULD halt (5-min)</div>
-        <div style="font-size:13px;color:var(--text-muted);line-height:1.6;">Limit-Up Limit-Down trip. Volatility-driven. Often re-opens near halt price. Tape on reopen tells direction.</div>
+        <div style="font-weight:700;color:var(--yellow);margin-bottom:6px;">LUDP — LULD pause (5-min)</div>
+        <div style="font-size:13px;color:var(--text-muted);line-height:1.6;">Limit-Up Limit-Down volatility trip. Often reopens near the halt price; the reopen tape tells direction.</div>
       </div>
       <div>
-        <div style="font-weight:700;color:var(--accent);margin-bottom:6px;">T1 news pause</div>
-        <div style="font-size:13px;color:var(--text-muted);line-height:1.6;">News-pending. Stock reopens after exchange dissemination (15-30 min). Often big gap. Avoid pre-reopen; trade the reaction.</div>
+        <div style="font-weight:700;color:var(--accent);margin-bottom:6px;">T1 / T2 / H10 — news</div>
+        <div style="font-size:13px;color:var(--text-muted);line-height:1.6;">News pending or just disseminated. Reopens after the exchange release, often with a gap. Trade the reaction, not the pause.</div>
       </div>
       <div>
-        <div style="font-weight:700;color:var(--red);margin-bottom:6px;">T12 regulatory halt</div>
-        <div style="font-size:13px;color:var(--text-muted);line-height:1.6;">SEC/FINRA action. Can last days/weeks. Reopens often massively gapped. Avoid as primary entry — too binary.</div>
+        <div style="font-weight:700;color:var(--red);margin-bottom:6px;">T12 / H4 — regulatory</div>
+        <div style="font-size:13px;color:var(--text-muted);line-height:1.6;">Compliance or regulatory suspension. Can last days to weeks and reopen heavily gapped. Binary risk — avoid as a primary entry.</div>
       </div>
     </div>
+    <div style="margin-top:14px;font-size:11px;color:var(--text-muted);">Data: NASDAQ Trader public halt feed via the bpleone worker (~2-min cache). Zero rows means zero current halts on the feed — a normal, real state. Educational, not advice.</div>
   </div>
 </div>
 
@@ -98,83 +98,100 @@
 <script>
 buildNav('halt-tracker');
 
-function getQ(s) { return (typeof QUOTES !== 'undefined' && QUOTES[s]) ? QUOTES[s] : { last: 100, changePct: 0 }; }
+const WORKER = (window.WorkerBridge && WorkerBridge.getUrl && WorkerBridge.getUrl()) || 'https://bpleone-brain-worker.brandonpleone.workers.dev';
 
-// MWCB status
-const spy = getQ('SPY');
-const spx = (spy.last || 540) * 10;
-document.getElementById('spxNow').textContent = spx.toFixed(0);
-const dayChg = spy.changePct || 0;
-const toL1 = (-7 - dayChg).toFixed(2);
-const toL2 = (-13 - dayChg).toFixed(2);
-const toL3 = (-20 - dayChg).toFixed(2);
-document.getElementById('toL1').textContent = toL1 + '%';
-document.getElementById('toL2').textContent = toL2 + '%';
-document.getElementById('toL3').textContent = toL3 + '%';
-
-const HALTED_SYMS = ['NEUR','SCNI','BNED','MULN','ATER','BBLG','RVPH','ASNS','VSEE','GWAV','TIVC','HUSA','ZAPP','APRN','OPAD'];
-const CODES = [
-  { c: 'LUDP', d: 'Limit-Up Limit-Down (price)', type: 'luld', auto: true },
-  { c: 'T1', d: 'News pending', type: 't1', auto: false },
-  { c: 'T2', d: 'News disseminated', type: 't1', auto: false },
-  { c: 'M', d: 'MWCB Level 1', type: 't12', auto: false },
-  { c: 'H10', d: 'Single-stock news dissemination', type: 't1', auto: false },
-  { c: 'T12', d: 'Trading suspended (additional information)', type: 't12', auto: false }
-];
-
-function generateHalts() {
-  const halts = [];
-  const count = 8 + Math.floor(Math.random() * 6);
-  for (let i = 0; i < count; i++) {
-    const sym = HALTED_SYMS[Math.floor(Math.random() * HALTED_SYMS.length)];
-    const code = CODES[Math.floor(Math.random() * CODES.length)];
-    const haltPx = +(0.5 + Math.random() * 80).toFixed(2);
-    const minsAgo = Math.floor(Math.random() * 240);
-    // Reopen probability
-    const reopened = minsAgo > 8;
-    const reopenPx = reopened ? +(haltPx * (1 + (Math.random() - 0.45) * 0.4)).toFixed(2) : null;
-    halts.push({
-      sym, code: code.c, codeDesc: code.d, type: code.type, haltPx, reopened, reopenPx, minsAgo
-    });
-  }
-  return halts.sort((a, b) => a.minsAgo - b.minsAgo);
+// MWCB distances from the real SPY quote (QUOTES feed); SPX shown as SPY x10 approximation.
+function paintMwcb() {
+  const spy = (typeof QUOTES !== 'undefined' && QUOTES.SPY) ? QUOTES.SPY : null;
+  if (!spy || spy.last == null) return;
+  document.getElementById('spxNow').textContent = (spy.last * 10).toFixed(0);
+  const dayChg = spy.changePct || 0;
+  document.getElementById('toL1').textContent = (-7 - dayChg).toFixed(2) + '%';
+  document.getElementById('toL2').textContent = (-13 - dayChg).toFixed(2) + '%';
+  document.getElementById('toL3').textContent = (-20 - dayChg).toFixed(2) + '%';
+  if (dayChg <= -7) document.getElementById('mwcbHead').textContent = '🔴 Market-Wide Circuit Breaker territory — check exchange notices';
 }
-const halts = generateHalts();
+
+// Reason code -> visual class. LUDP = volatility, T1/T2/H10 = news, rest = regulatory.
+function codeType(code) {
+  if (code === 'LUDP' || code === 'M') return 'luld';
+  if (code === 'T1' || code === 'T2' || code === 'H10') return 't1';
+  return 't12';
+}
+const CODE_DESC = {
+  LUDP: 'Limit-Up Limit-Down volatility pause',
+  T1: 'News pending', T2: 'News disseminated', H10: 'News dissemination (single stock)',
+  T12: 'Trading suspended - additional information requested', H4: 'Non-compliance halt',
+  M: 'Market-wide circuit breaker', T3: 'News and resumption times announced', T7: 'Quote-only period'
+};
+
+let halts = [];
+let lastError = null;
+
+async function load() {
+  try {
+    const r = await fetch(WORKER + '/brain/halts');
+    if (!r.ok) { lastError = r.status; halts = []; paint(); return; }
+    const j = await r.json();
+    lastError = j.ok ? null : 'feed';
+    halts = j.halts || [];
+    paint();
+  } catch (e) { lastError = 'network'; halts = []; paint(); }
+}
 
 function paint() {
+  paintMwcb();
   const body = document.getElementById('haltBody');
+  if (!halts.length) {
+    body.innerHTML = '<div style="padding:30px;text-align:center;color:var(--text-muted);font-size:13px;">'
+      + (lastError === 404
+        ? 'Live halt feed ships with worker pass-284 — awaiting deploy. No placeholder data shown.'
+        : lastError
+          ? 'Halt feed unreachable (' + lastError + ') — nothing fabricated; retry shortly.'
+          : '0 halts on the NASDAQ feed right now — that is the real, live state.')
+      + '</div>';
+    document.getElementById('kpiTotal').textContent = lastError ? '--' : '0';
+    document.getElementById('kpiActive').textContent = lastError ? '--' : '0';
+    document.getElementById('kpiLuld').textContent = lastError ? '--' : '0';
+    document.getElementById('kpiCode').textContent = '--';
+    document.getElementById('kpiCodeBody').textContent = lastError ? 'feed unavailable' : 'no halts';
+    return;
+  }
   body.innerHTML = '';
   halts.forEach(h => {
-    const time = new Date(Date.now() - h.minsAgo * 60000).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
-    const cls = h.reopened && h.minsAgo < 15 ? 'reopen' : h.type;
-    const tagCls = h.reopened && h.minsAgo < 15 ? 'tag-reopen' : ('tag-' + h.type);
-    const tagText = h.reopened && h.minsAgo < 15 ? 'JUST REOPENED' : (h.type === 'luld' ? 'LULD' : h.type === 't1' ? 'NEWS' : 'REG');
-    const reopenCol = h.reopenPx ? (h.reopenPx > h.haltPx ? 'var(--green)' : 'var(--red)') : 'var(--text-muted)';
+    const pending = !h.resumptionTradeTime;
+    const type = codeType(h.reasonCode);
+    const cls = pending ? type : 'reopen';
+    const tagCls = pending ? ('tag-' + type) : 'tag-reopen';
+    const tagText = pending ? (type === 'luld' ? 'LULD' : type === 't1' ? 'NEWS' : 'REG') : 'RESUME SET';
     const row = document.createElement('div');
     row.className = 'halt-row ' + cls;
-    row.innerHTML = '<div style="color:var(--text-muted);">' + time + '</div>'
-      + '<div><strong>' + h.sym + '</strong></div>'
+    row.innerHTML = '<div style="color:var(--text-muted);">' + (h.haltTime || '—').split('.')[0] + '</div>'
+      + '<div><strong>' + h.symbol + '</strong></div>'
       + '<div><span class="' + tagCls + '">' + tagText + '</span></div>'
-      + '<div>' + h.code + '</div>'
-      + '<div>$' + h.haltPx.toFixed(2) + '</div>'
-      + '<div style="color:' + reopenCol + ';">' + (h.reopenPx ? '$' + h.reopenPx.toFixed(2) : '— pending') + '</div>'
-      + '<div style="color:var(--text-secondary);font-family:Inter;">' + h.codeDesc + '</div>';
+      + '<div>' + (h.reasonCode || '—') + '</div>'
+      + '<div>' + (h.market || '—') + '</div>'
+      + '<div style="color:' + (pending ? 'var(--red)' : 'var(--green)') + ';">' + (pending ? 'pending' : (h.resumptionTradeTime || '').split('.')[0]) + '</div>'
+      + '<div style="color:var(--text-secondary);font-family:Inter;font-size:11px;">' + (h.name || '') + (CODE_DESC[h.reasonCode] ? ' · ' + CODE_DESC[h.reasonCode] : '') + '</div>';
     body.appendChild(row);
   });
 
   document.getElementById('kpiTotal').textContent = halts.length;
-  document.getElementById('kpiActive').textContent = halts.filter(h => !h.reopened).length;
-  document.getElementById('kpiReopen').textContent = halts.filter(h => h.reopened && h.minsAgo < 15).length;
+  document.getElementById('kpiActive').textContent = halts.filter(h => !h.resumptionTradeTime).length;
+  document.getElementById('kpiLuld').textContent = halts.filter(h => h.reasonCode === 'LUDP').length;
   const codeCount = {};
-  halts.forEach(h => codeCount[h.code] = (codeCount[h.code] || 0) + 1);
+  halts.forEach(h => { if (h.reasonCode) codeCount[h.reasonCode] = (codeCount[h.reasonCode] || 0) + 1; });
   const top = Object.entries(codeCount).sort((a, b) => b[1] - a[1])[0];
   if (top) {
     document.getElementById('kpiCode').textContent = top[0];
-    document.getElementById('kpiCodeBody').textContent = top[1] + ' instances';
+    document.getElementById('kpiCodeBody').textContent = top[1] + ' on tape';
   }
 }
-paint();
-document.getElementById('refreshBtn').addEventListener('click', () => { halts.length = 0; halts.push(...generateHalts()); paint(); });
+
+document.getElementById('refreshBtn').addEventListener('click', load);
+load();
+setInterval(load, 120000);
+window.addEventListener('bpleone:quotes', paintMwcb);
 </script>
 </body>
 </html>

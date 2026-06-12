@@ -4,28 +4,31 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Pre-Market Gappers — bpleone / trade</title>
-<meta name="description" content="Pre-market gap scanner with relative volume, catalysts, and gap-fill probability — UW-style.">
+<meta name="description" content="Live extended-hours gap scanner — pre-market and after-hours moves vs the prior close, straight from the exchange tape via the bpleone worker. No placeholder data.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="css/style.css?v=v200">
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
 <style>
-.gap-row { display:grid; grid-template-columns: 30px 70px 80px 70px 70px 80px 90px 110px 1fr; gap:8px; padding:11px 12px; border-bottom:1px solid var(--border); font-family:var(--font-mono); font-size:11px; align-items:center; cursor:pointer; }
+.gap-row { display:grid; grid-template-columns: 30px 80px 90px 90px 100px 90px 1fr; gap:8px; padding:11px 12px; border-bottom:1px solid var(--border); font-family:var(--font-mono); font-size:11px; align-items:center; cursor:pointer; }
 .gap-row:hover { background:var(--bg-elevated); }
 .gap-row.gapup { border-left:3px solid var(--green); }
 .gap-row.gapdown { border-left:3px solid var(--red); }
+.session-pill { font-size:9px; font-weight:800; letter-spacing:0.5px; padding:2px 8px; border-radius:8px; }
+.session-pill.pre { background:rgba(0,212,255,0.15); color:var(--accent); }
+.session-pill.post { background:rgba(167,139,250,0.15); color:#a78bfa; }
+.session-pill.regular { background:rgba(16,185,129,0.15); color:var(--green); }
 </style>
 </head>
 <body data-needs="live">
 <div id="site-nav"></div>
-<div data-synthetic-banner style="background:linear-gradient(90deg,rgba(245,158,11,0.18),rgba(245,158,11,0.06));border-bottom:1px solid rgba(245,158,11,0.45);color:var(--yellow);font-size:12.5px;font-weight:600;padding:8px 16px;text-align:center;">SAMPLE / ILLUSTRATIVE DATA - the gap figures shown are placeholder values. Real pre-market gaps (open vs prior close) are free-derivable from the worker quotes feed - wiring pending.</div>
 
 <div class="container">
   <div class="page-header">
     <div>
       <div class="page-title">🌅 Pre-Market Gappers</div>
-      <div class="page-subtitle">Pre-market gap scan · RVOL · catalysts · gap-fill stats · <span id="market-clock">--</span></div>
+      <div class="page-subtitle">Live extended-hours gaps (pre-market + after-hours) vs prior close · <span id="market-clock">--</span></div>
     </div>
     <div class="flex gap-8">
       <button class="btn btn-secondary" id="refreshBtn">🔄</button>
@@ -33,44 +36,45 @@
   </div>
 
   <div class="grid grid-4 mb-24">
-    <div class="card"><div class="card-header"><div class="card-title">Gap-Ups ≥3%</div></div><div class="mono green-text" style="font-size:26px;font-weight:700;" id="kpiUp">--</div><div class="mono" style="font-size:11px;color:var(--text-muted);">vs prev close</div></div>
-    <div class="card"><div class="card-header"><div class="card-title">Gap-Downs ≥3%</div></div><div class="mono red-text" style="font-size:26px;font-weight:700;" id="kpiDown">--</div><div class="mono" style="font-size:11px;color:var(--text-muted);">vs prev close</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">Gap-Ups ≥3%</div></div><div class="mono green-text" style="font-size:26px;font-weight:700;" id="kpiUp">--</div><div class="mono" style="font-size:11px;color:var(--text-muted);">vs reference close</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">Gap-Downs ≥3%</div></div><div class="mono red-text" style="font-size:26px;font-weight:700;" id="kpiDown">--</div><div class="mono" style="font-size:11px;color:var(--text-muted);">vs reference close</div></div>
     <div class="card"><div class="card-header"><div class="card-title">Biggest Gap</div></div><div class="mono" style="font-size:26px;font-weight:700;color:var(--accent);" id="kpiMax">--</div><div class="mono" style="font-size:11px;color:var(--text-muted);" id="kpiMaxLbl">--</div></div>
-    <div class="card"><div class="card-header"><div class="card-title">High-RVOL Gappers</div></div><div class="mono" style="font-size:26px;font-weight:700;color:var(--yellow);" id="kpiRvol">--</div><div class="mono" style="font-size:11px;color:var(--text-muted);">RVOL &gt; 3 · tradeable</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">Session</div></div><div class="mono" style="font-size:26px;font-weight:700;color:var(--yellow);" id="kpiSession">--</div><div class="mono" style="font-size:11px;color:var(--text-muted);" id="kpiScanned">--</div></div>
   </div>
 
   <div class="card" style="padding:0;">
     <div class="card-header" style="padding:14px 16px;">
-      <div class="card-title">🎯 Pre-Market Scan</div>
+      <div class="card-title">🎯 Extended-Hours Scan</div>
       <div class="flex gap-8" style="font-size:10px;">
         <button class="btn btn-ghost btn-active" data-flt="all" style="padding:3px 8px;font-size:10px;">ALL</button>
         <button class="btn btn-ghost" data-flt="up" style="padding:3px 8px;font-size:10px;">UP</button>
         <button class="btn btn-ghost" data-flt="down" style="padding:3px 8px;font-size:10px;">DOWN</button>
-        <button class="btn btn-ghost" data-flt="rvol" style="padding:3px 8px;font-size:10px;">RVOL &gt; 3</button>
+        <button class="btn btn-ghost" data-flt="big" style="padding:3px 8px;font-size:10px;">≥3%</button>
       </div>
     </div>
     <div class="gap-row" style="background:var(--bg-elevated);font-size:9px;color:var(--text-muted);font-weight:800;letter-spacing:0.5px;">
-      <div>#</div><div>SYM</div><div>GAP %</div><div>PM PX</div><div>PREV CLOSE</div><div>PM VOL</div><div>RVOL</div><div>GAP-FILL %</div><div>CATALYST</div>
+      <div>#</div><div>SYM</div><div>GAP %</div><div>EXT PX</div><div>REF CLOSE</div><div>SESSION</div><div>LAST EXT TRADE</div>
     </div>
-    <div id="gapBody"></div>
+    <div id="gapBody"><div style="padding:30px;text-align:center;color:var(--text-muted);font-size:13px;">Loading live extended-hours data…</div></div>
   </div>
 
   <div class="card mt-24">
-    <div class="card-header"><div class="card-title">🧠 Gap statistics &amp; tactics</div></div>
+    <div class="card-header"><div class="card-title">🧠 How to read this (general gap tactics)</div></div>
     <div class="grid grid-3" style="gap:20px;">
       <div>
-        <div style="font-weight:700;color:var(--green);margin-bottom:6px;">Gap-up + RVOL ≥3</div>
-        <div style="font-size:13px;color:var(--text-muted);line-height:1.6;">Trend-day starter. Hold from open through first 30-min consolidation. 65% probability the high is set in the first 90 min.</div>
+        <div style="font-weight:700;color:var(--green);margin-bottom:6px;">Large gap-up</div>
+        <div style="font-size:13px;color:var(--text-muted);line-height:1.6;">Gaps that hold through the first 30-minute consolidation tend to mark trend days; gaps that fade immediately often fill. Confirm with regular-hours volume before acting.</div>
       </div>
       <div>
-        <div style="font-weight:700;color:var(--yellow);margin-bottom:6px;">Gap-up + RVOL &lt;1.5</div>
-        <div style="font-size:13px;color:var(--text-muted);line-height:1.6;">Weak gap — high gap-fill probability (~70% within 5 days). Fade open if intraday momentum doesn't confirm by 10am ET.</div>
+        <div style="font-weight:700;color:var(--yellow);margin-bottom:6px;">Small gap, no catalyst</div>
+        <div style="font-size:13px;color:var(--text-muted);line-height:1.6;">Most small gaps mean little — thin extended-hours tape exaggerates moves. Cross-check the news page for a real catalyst before assuming signal.</div>
       </div>
       <div>
-        <div style="font-weight:700;color:var(--red);margin-bottom:6px;">Gap-down + high RVOL</div>
-        <div style="font-size:13px;color:var(--text-muted);line-height:1.6;">Continuation candidate. Avoid the dead-cat bounce — wait for 10am low to be set, then short the failed bounce.</div>
+        <div style="font-weight:700;color:var(--red);margin-bottom:6px;">Gap-down</div>
+        <div style="font-size:13px;color:var(--text-muted);line-height:1.6;">Avoid catching the first bounce. Extended-hours prints are indicative, not guaranteed fills — spreads are wide and size is thin.</div>
       </div>
     </div>
+    <div style="margin-top:14px;font-size:11px;color:var(--text-muted);">Data: latest extended-hours trade per symbol via the bpleone worker (Yahoo tape, ~2-min cache). Pre-market and regular sessions gap vs the prior regular close; after-hours gaps vs today's regular close. General tactics above are educational, not advice.</div>
   </div>
 </div>
 
@@ -84,53 +88,73 @@
 <script>
 buildNav('pre-market-gappers');
 
-const UNIVERSE = ['NVDA','TSLA','AAPL','MSFT','META','AMZN','GOOGL','AMD','PLTR','COIN','SMCI','MSTR','NFLX','PYPL','HOOD','SOFI','UBER','LCID','RIVN','PANW','SHOP','MRVL','SNOW','AVGO','DIS','BA','GS','JPM','BAC','TGT','WMT','HD','COST','CVS','PFE','MRNA','GME','AMC','CVNA','SOUN','PATH','MARA','RIOT','OPRA','BBAI'];
-const CATALYSTS = ['Earnings beat', 'Earnings miss', 'Upgrade', 'Downgrade', 'Buyback announced', 'CEO change', 'FDA approval', 'Clinical trial fail', 'M&A rumor', 'Insider buying cluster', 'Analyst PT raise', 'Hot product launch', 'China headlines', 'Sector momentum', 'Short report', 'No catalyst'];
+const WORKER = (window.WorkerBridge && WorkerBridge.getUrl && WorkerBridge.getUrl()) || 'https://bpleone-brain-worker.brandonpleone.workers.dev';
+// 40-symbol scan list (worker caps at 40). Liquid names where extended-hours
+// tape is meaningful; the endpoint fetches Yahoo per symbol so off-universe
+// tickers are fine here (unlike /brain/bars).
+const SCAN = ['NVDA','TSLA','AAPL','MSFT','META','AMZN','GOOGL','AMD','PLTR','COIN','SMCI','MSTR','NFLX','PYPL','HOOD','SOFI','UBER','RIVN','PANW','SHOP','MRVL','SNOW','AVGO','DIS','BA','GS','JPM','BAC','TGT','WMT','HD','COST','MRNA','GME','AMC','CVNA','MARA','RIOT','SPY','QQQ'];
 
-function generate() {
-  return UNIVERSE.map(sym => {
-    const seed = sym.charCodeAt(0) * 11 + (sym.charCodeAt(1) || 0);
-    const rand = (k) => { const x = Math.sin(seed + k) * 10000; return x - Math.floor(x); };
-    const gap = +((rand(1) - 0.5) * 18).toFixed(2);
-    const prevClose = (typeof QUOTES !== 'undefined' && QUOTES[sym]) ? QUOTES[sym].last : 50 + rand(2) * 200;
-    const pmPx = +(prevClose * (1 + gap / 100)).toFixed(2);
-    const pmVol = Math.floor(50000 + rand(3) * 3000000);
-    const rvol = +(0.4 + rand(4) * 4.5).toFixed(2);
-    const gapFillProb = Math.max(15, Math.min(85, 50 + (Math.abs(gap) > 5 ? -15 : 5) + (rvol > 2 ? -10 : 10)));
-    const catalyst = Math.abs(gap) > 2 ? CATALYSTS[Math.floor(rand(5) * (CATALYSTS.length - 1))] : 'No catalyst';
-    return { sym, gap, prevClose, pmPx, pmVol, rvol, gapFillProb, catalyst };
-  });
+let data = [];
+let flt = 'all';
+let lastError = null;
+
+async function load() {
+  try {
+    const r = await fetch(WORKER + '/brain/premarket?syms=' + SCAN.join(','));
+    if (!r.ok) { lastError = r.status; data = []; paint(); return; }
+    const j = await r.json();
+    lastError = null;
+    data = Object.entries(j.quotes || {}).map(([sym, q]) => ({
+      sym,
+      gap: q.gapPct,
+      ext: q.ext,
+      reference: q.reference,
+      session: q.session,
+      extTs: q.extTs
+    })).filter(d => typeof d.gap === 'number' && isFinite(d.gap));
+    paint();
+  } catch (e) { lastError = 'network'; data = []; paint(); }
 }
 
-let data = generate();
-let flt = 'all';
+function fmtTime(ms) {
+  try { return new Date(ms).toLocaleTimeString('en-US', { timeZone: 'America/New_York', hour: '2-digit', minute: '2-digit' }) + ' ET'; }
+  catch (e) { return '—'; }
+}
 
 function paint() {
+  const body = document.getElementById('gapBody');
+  if (!data.length) {
+    body.innerHTML = '<div style="padding:30px;text-align:center;color:var(--text-muted);font-size:13px;">'
+      + (lastError === 404
+        ? 'Extended-hours feed ships with worker pass-284 — awaiting deploy. No placeholder data shown.'
+        : lastError
+          ? 'Feed unreachable (' + lastError + '). Nothing fabricated — retry shortly.'
+          : 'No extended-hours data returned.')
+      + '</div>';
+    ['kpiUp','kpiDown','kpiMax','kpiSession'].forEach(id => { document.getElementById(id).textContent = '--'; });
+    document.getElementById('kpiMaxLbl').textContent = '--';
+    document.getElementById('kpiScanned').textContent = '--';
+    return;
+  }
   let rows = data.slice().sort((a, b) => Math.abs(b.gap) - Math.abs(a.gap));
   if (flt === 'up') rows = rows.filter(r => r.gap > 0);
   if (flt === 'down') rows = rows.filter(r => r.gap < 0);
-  if (flt === 'rvol') rows = rows.filter(r => r.rvol > 3);
-  rows = rows.slice(0, 30);
+  if (flt === 'big') rows = rows.filter(r => Math.abs(r.gap) >= 3);
+  rows = rows.slice(0, 40);
 
-  const body = document.getElementById('gapBody');
   body.innerHTML = '';
   rows.forEach((r, i) => {
     const cls = r.gap > 0 ? 'gapup' : 'gapdown';
     const gapCol = r.gap > 0 ? 'var(--green)' : 'var(--red)';
-    const rvolCol = r.rvol > 3 ? 'var(--yellow)' : r.rvol > 1.5 ? 'var(--accent)' : 'var(--text-muted)';
-    const fillCol = r.gapFillProb > 70 ? 'var(--yellow)' : r.gapFillProb > 50 ? 'var(--accent)' : 'var(--green)';
-    const volStr = r.pmVol > 1e6 ? (r.pmVol / 1e6).toFixed(2) + 'M' : (r.pmVol / 1e3).toFixed(0) + 'k';
     const row = document.createElement('div');
     row.className = 'gap-row ' + cls;
     row.innerHTML = '<div>' + (i + 1) + '</div>'
       + '<div><strong>' + r.sym + '</strong></div>'
       + '<div style="color:' + gapCol + ';font-weight:700;">' + (r.gap > 0 ? '+' : '') + r.gap.toFixed(2) + '%</div>'
-      + '<div>$' + r.pmPx.toFixed(2) + '</div>'
-      + '<div>$' + r.prevClose.toFixed(2) + '</div>'
-      + '<div>' + volStr + '</div>'
-      + '<div style="color:' + rvolCol + ';font-weight:700;">' + r.rvol.toFixed(2) + '×</div>'
-      + '<div style="color:' + fillCol + ';">' + r.gapFillProb + '%</div>'
-      + '<div style="color:var(--text-secondary);font-family:Inter;font-size:11px;">' + r.catalyst + '</div>';
+      + '<div>$' + Number(r.ext).toFixed(2) + '</div>'
+      + '<div>$' + Number(r.reference).toFixed(2) + '</div>'
+      + '<div><span class="session-pill ' + r.session + '">' + r.session.toUpperCase() + '</span></div>'
+      + '<div style="color:var(--text-muted);">' + fmtTime(r.extTs) + '</div>';
     row.onclick = () => { window.location.href = 'ticker.html?sym=' + r.sym; };
     body.appendChild(row);
   });
@@ -141,9 +165,10 @@ function paint() {
   document.getElementById('kpiMax').textContent = (maxG.gap > 0 ? '+' : '') + maxG.gap.toFixed(1) + '%';
   document.getElementById('kpiMax').style.color = maxG.gap > 0 ? 'var(--green)' : 'var(--red)';
   document.getElementById('kpiMaxLbl').textContent = maxG.sym;
-  document.getElementById('kpiRvol').textContent = data.filter(d => d.rvol > 3).length;
+  const sess = (data[0] && data[0].session) || '--';
+  document.getElementById('kpiSession').textContent = sess.toUpperCase();
+  document.getElementById('kpiScanned').textContent = data.length + ' of ' + SCAN.length + ' scanned';
 }
-paint();
 
 document.querySelectorAll('[data-flt]').forEach(b => b.addEventListener('click', () => {
   document.querySelectorAll('[data-flt]').forEach(x => x.classList.remove('btn-active'));
@@ -151,8 +176,9 @@ document.querySelectorAll('[data-flt]').forEach(b => b.addEventListener('click',
   flt = b.dataset.flt;
   paint();
 }));
-document.getElementById('refreshBtn').addEventListener('click', () => { data = generate(); paint(); });
-setInterval(() => { data = generate(); paint(); }, 45000);
+document.getElementById('refreshBtn').addEventListener('click', load);
+load();
+setInterval(load, 120000);
 </script>
 </body>
 </html>

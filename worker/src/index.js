@@ -38,7 +38,7 @@
 // Pass 200: version stamp so brain-proof.html + worker-setup.html can detect
 // when the deployed worker is behind the repo source. Bump on every meaningful
 // behavior change. Read via /brain/health → worker_version field.
-const WORKER_VERSION = 'pass-283';
+const WORKER_VERSION = 'pass-284';
 
 const UNIVERSE = [
   'SPY','QQQ','IWM','DIA','AAPL','NVDA','TSLA','MSFT','META','AMZN','GOOGL','AMD',
@@ -1549,6 +1549,161 @@ async function handleRequest(request, env, ctx) {
       }
     }
     return json({ count: Object.keys(outB).length, days: daysB, bars: outB });
+  }
+
+  // ===== Pass 284: extended-hours quotes (pre/post-market) =====
+  // Display feed for pre-market-gappers.html. NOT a training input - these
+  // never touch the journal. Yahoo v8 1m chart with includePrePost gives the
+  // latest extended-hours trade plus session boundaries. gapPct is measured
+  // against the prior regular close (pre/regular session) or today's regular
+  // close (post session), which is what a gapper scan means in each session.
+  if (path === '/brain/premarket') {
+    const cache = caches.default;
+    const cacheKey = new Request(url.toString(), { method: 'GET' });
+    const hit = await cache.match(cacheKey);
+    if (hit) return hit;
+    const syms = (url.searchParams.get('syms') || 'SPY,QQQ,IWM,AAPL,NVDA,TSLA,MSFT,META,AMZN,GOOGL,AMD')
+      .toUpperCase().split(',').map(s => s.trim()).filter(Boolean).slice(0, 40);
+    const out = {};
+    await Promise.all(syms.map(async (sym) => {
+      try {
+        const r = await fetch(
+          'https://query1.finance.yahoo.com/v8/finance/chart/' + encodeURIComponent(sym)
+          + '?interval=1m&range=1d&includePrePost=true',
+          { headers: { 'User-Agent': 'Mozilla/5.0' } }
+        );
+        if (!r.ok) return;
+        const j = await r.json();
+        const res = j && j.chart && j.chart.result && j.chart.result[0];
+        if (!res || !res.meta) return;
+        const m = res.meta;
+        const ts = res.timestamp || [];
+        const cl = (res.indicators && res.indicators.quote && res.indicators.quote[0] && res.indicators.quote[0].close) || [];
+        let lastIdx = -1;
+        for (let i = cl.length - 1; i >= 0; i--) { if (cl[i] != null) { lastIdx = i; break; } }
+        if (lastIdx < 0) return;
+        const nowSec = Math.floor(Date.now() / 1000);
+        const reg = (m.currentTradingPeriod && m.currentTradingPeriod.regular) || {};
+        const session = (reg.start && nowSec < reg.start) ? 'pre'
+          : (reg.end && nowSec > reg.end) ? 'post' : 'regular';
+        const ext = cl[lastIdx];
+        const reference = session === 'post'
+          ? (m.regularMarketPrice != null ? m.regularMarketPrice : m.chartPreviousClose)
+          : (m.chartPreviousClose != null ? m.chartPreviousClose : m.previousClose);
+        if (reference == null || !(reference > 0)) return;
+        out[sym] = {
+          session,
+          ext: ext,
+          extTs: ts[lastIdx] * 1000,
+          regClose: m.regularMarketPrice != null ? m.regularMarketPrice : null,
+          prevClose: m.chartPreviousClose != null ? m.chartPreviousClose : null,
+          reference,
+          gapPct: (ext - reference) / reference * 100
+        };
+      } catch (e) { /* per-symbol failure leaves an honest hole, not a fake row */ }
+    }));
+    const resp = json({ ok: true, source: 'yahoo-prepost', count: Object.keys(out).length, updatedAt: Date.now(), quotes: out });
+    // 120s edge cache: extended-hours moves do not need second-resolution and
+    // this caps Yahoo fan-out at ~(syms/120s) regardless of visitor count.
+    resp.headers.set('Cache-Control', 'public, max-age=120');
+    ctx.waitUntil(cache.put(cacheKey, resp.clone()));
+    return resp;
+  }
+
+  // ===== Pass 284: live trading halts (NASDAQ Trader public RSS) =====
+  // Zero halts is a real, common state - the page must render that honestly.
+  if (path === '/brain/halts') {
+    const cache = caches.default;
+    const cacheKey = new Request(url.toString(), { method: 'GET' });
+    const hit = await cache.match(cacheKey);
+    if (hit) return hit;
+    let items = null;
+    try {
+      const r = await fetch('https://www.nasdaqtrader.com/rss.aspx?feed=tradehalts',
+        { headers: { 'User-Agent': 'Mozilla/5.0' } });
+      if (r.ok) {
+        const xml = await r.text();
+        items = [];
+        const itemRe = /<item>([\s\S]*?)<\/item>/g;
+        let mIt;
+        while ((mIt = itemRe.exec(xml)) !== null && items.length < 100) {
+          const block = mIt[1];
+          const field = (tag) => {
+            const f = block.match(new RegExp('<ndaq:' + tag + '>([^<]*)</ndaq:' + tag + '>'));
+            return f ? f[1].trim() : '';
+          };
+          const sym = field('IssueSymbol');
+          if (!sym) continue;
+          items.push({
+            symbol: sym,
+            name: field('IssueName'),
+            market: field('Market'),
+            reasonCode: field('ReasonCode'),
+            haltDate: field('HaltDate'),
+            haltTime: field('HaltTime'),
+            resumptionDate: field('ResumptionDate'),
+            resumptionQuoteTime: field('ResumptionQuoteTime'),
+            resumptionTradeTime: field('ResumptionTradeTime'),
+            pauseThresholdPrice: field('PauseThresholdPrice') || null
+          });
+        }
+      }
+    } catch (e) { items = null; }
+    const resp = json({
+      ok: Array.isArray(items),
+      source: 'nasdaqtrader-rss',
+      count: Array.isArray(items) ? items.length : 0,
+      updatedAt: Date.now(),
+      halts: items || [],
+      note: Array.isArray(items) ? undefined : 'halts feed unreachable'
+    });
+    resp.headers.set('Cache-Control', 'public, max-age=120');
+    ctx.waitUntil(cache.put(cacheKey, resp.clone()));
+    return resp;
+  }
+
+  // ===== Pass 284: economic calendar (ForexFactory weekly JSON, free) =====
+  if (path === '/brain/econ') {
+    const cache = caches.default;
+    const cacheKey = new Request(url.toString(), { method: 'GET' });
+    const hit = await cache.match(cacheKey);
+    if (hit) return hit;
+    const week = url.searchParams.get('week') === 'next' ? 'nextweek' : 'thisweek';
+    const impactFilter = (url.searchParams.get('impact') || '').toLowerCase();
+    const countryFilter = (url.searchParams.get('country') || '').toUpperCase();
+    let events = null;
+    try {
+      const r = await fetch('https://nfs.faireconomy.media/ff_calendar_' + week + '.json',
+        { headers: { 'User-Agent': 'Mozilla/5.0' } });
+      if (r.ok) {
+        const arr = await r.json();
+        if (Array.isArray(arr)) {
+          events = arr.map(e => ({
+            title: e.title || '',
+            country: e.country || '',
+            date: e.date || '',
+            impact: e.impact || '',
+            forecast: e.forecast || '',
+            previous: e.previous || ''
+          }));
+          if (impactFilter) events = events.filter(e => e.impact.toLowerCase() === impactFilter);
+          if (countryFilter) events = events.filter(e => e.country.toUpperCase() === countryFilter);
+        }
+      }
+    } catch (e) { events = null; }
+    const resp = json({
+      ok: Array.isArray(events),
+      source: 'forexfactory',
+      week,
+      count: Array.isArray(events) ? events.length : 0,
+      updatedAt: Date.now(),
+      events: events || [],
+      note: Array.isArray(events) ? undefined : 'calendar feed unreachable'
+    });
+    // Calendar content changes a few times a day at most - cache 1h.
+    resp.headers.set('Cache-Control', 'public, max-age=3600');
+    ctx.waitUntil(cache.put(cacheKey, resp.clone()));
+    return resp;
   }
 
   // ===== Pass 248: REAL news feed (Finnhub via worker key — free for all) =====
