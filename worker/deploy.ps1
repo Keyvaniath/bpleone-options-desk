@@ -71,28 +71,43 @@ if ($tomlContent -match 'REPLACE_WITH_KV_ID_FROM_WRANGLER_OUTPUT') {
 }
 
 # 4. Set secrets
-Write-Step '4. Set secrets'
+# Secrets persist on the Cloudflare account across deploys. Blank input
+# now means KEEP the existing secret. The old behavior piped blank input
+# into `wrangler secret put`, which OVERWROTE the working key with an
+# empty string and silently killed every Finnhub endpoint (news, insider)
+# until the next manual fix. Same trap existed for ADMIN_TOKEN, where
+# auto-generate replaced a working token the operator may not have saved.
+Write-Step '4. Set secrets (Enter = keep existing)'
 
-Write-Host '  FINNHUB_API_KEY needed.' -ForegroundColor Yellow
-$finnhubKey = Read-Host '  Paste FINNHUB_API_KEY [hidden]' -AsSecureString
+Write-Host '  FINNHUB_API_KEY - press Enter to keep the existing secret.' -ForegroundColor Yellow
+$finnhubKey = Read-Host '  Paste FINNHUB_API_KEY or Enter to keep [hidden]' -AsSecureString
 $finnhubKeyPlain = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto(
   [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($finnhubKey))
-$finnhubKeyPlain | wrangler secret put FINNHUB_API_KEY
-Write-Ok 'FINNHUB_API_KEY set'
+if ([string]::IsNullOrWhiteSpace($finnhubKeyPlain)) {
+  Write-Ok 'FINNHUB_API_KEY unchanged (kept existing secret)'
+} else {
+  $finnhubKeyPlain | wrangler secret put FINNHUB_API_KEY
+  Write-Ok 'FINNHUB_API_KEY set'
+}
 
-Write-Host '  ADMIN_TOKEN - press Enter to auto-generate.' -ForegroundColor Yellow
-$adminToken = Read-Host '  Paste ADMIN_TOKEN or Enter for auto' -AsSecureString
+Write-Host '  ADMIN_TOKEN - press Enter to keep the existing secret.' -ForegroundColor Yellow
+$adminToken = Read-Host '  Paste ADMIN_TOKEN, type NEW to auto-generate, or Enter to keep' -AsSecureString
 $adminTokenPlain = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto(
   [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($adminToken))
 if ([string]::IsNullOrWhiteSpace($adminTokenPlain)) {
+  Write-Ok 'ADMIN_TOKEN unchanged (kept existing secret)'
+} elseif ($adminTokenPlain -eq 'NEW') {
   $bytes = New-Object byte[] 24
   [System.Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($bytes)
   $adminTokenPlain = [Convert]::ToBase64String($bytes) -replace '[/+=]','x'
   Write-Host ('    Auto-generated ADMIN_TOKEN: ' + $adminTokenPlain) -ForegroundColor Green
   Write-Host '    SAVE THIS - you need it to re-trigger bootstrap.' -ForegroundColor Yellow
+  $adminTokenPlain | wrangler secret put ADMIN_TOKEN
+  Write-Ok 'ADMIN_TOKEN set'
+} else {
+  $adminTokenPlain | wrangler secret put ADMIN_TOKEN
+  Write-Ok 'ADMIN_TOKEN set'
 }
-$adminTokenPlain | wrangler secret put ADMIN_TOKEN
-Write-Ok 'ADMIN_TOKEN set'
 
 # 5. Deploy
 Write-Step '5. Deploy worker'
