@@ -102,7 +102,7 @@
   <div class="card">
     <div class="card-header">
       <div class="card-title">📅 This Week <span style="background:rgba(16,185,129,0.18);color:var(--green);font-size:9px;font-weight:800;padding:2px 8px;border-radius:8px;vertical-align:middle;">LIVE</span></div>
-      <div style="font-size:11px;color:var(--text-muted);">Times in ET · ForexFactory calendar via the bpleone worker · forecast/prior only (no actual prints in the free feed)</div>
+      <div style="font-size:11px;color:var(--text-muted);">Times in ET · ForexFactory calendar, refreshed daily · forecast/prior only (no actual prints in the free feed)</div>
     </div>
     <div class="event-row" style="background:var(--bg-elevated);font-size:11px;color:var(--text-muted);font-weight:700;text-transform:uppercase;">
       <div>When</div><div>Event</div><div>Forecast</div><div>Prior</div><div>Country</div><div>Impact</div>
@@ -136,11 +136,11 @@
     </div>
   </div>
 
-  <!-- NEXT WEEK (LIVE - ForexFactory calendar via worker) -->
+  <!-- HIGH-IMPACT VIEW (same live feed, headline events only) -->
   <div class="card mt-24">
     <div class="card-header">
-      <div class="card-title">🗓 Next Week <span style="background:rgba(16,185,129,0.18);color:var(--green);font-size:9px;font-weight:800;padding:2px 8px;border-radius:8px;vertical-align:middle;">LIVE</span></div>
-      <div style="font-size:11px;color:var(--text-muted);">Sorted by date · same live feed, next calendar week</div>
+      <div class="card-title">🗓 High-Impact This Week <span style="background:rgba(16,185,129,0.18);color:var(--green);font-size:9px;font-weight:800;padding:2px 8px;border-radius:8px;vertical-align:middle;">LIVE</span></div>
+      <div style="font-size:11px;color:var(--text-muted);">Only High-impact releases from the same feed - the prints that move SPY/TLT/DXY</div>
     </div>
     <div class="event-row" style="background:var(--bg-elevated);font-size:11px;color:var(--text-muted);font-weight:700;text-transform:uppercase;">
       <div>When</div><div>Event</div><div>Forecast</div><div>Prior</div><div>Country</div><div>Impact</div>
@@ -220,25 +220,34 @@ function renderEvents(list, target, emptyMsg) {
   });
 }
 
-async function loadWeek(week, target) {
+// Source order: same-origin /data JSON (committed daily by a GitHub Action,
+// because faireconomy blocks both Cloudflare-worker fetches and browser CORS),
+// then the worker endpoint as fallback. Nothing fabricated on failure.
+async function fetchCalendar() {
   try {
-    const r = await fetch(WORKER + '/brain/econ' + (week === 'next' ? '?week=next' : ''));
-    if (!r.ok) {
-      renderEvents([], target, r.status === 404
-        ? 'Live calendar ships with worker pass-284 — awaiting deploy. No placeholder events shown.'
-        : 'Calendar feed unreachable (' + r.status + ') — nothing fabricated; retry shortly.');
-      return;
-    }
-    const j = await r.json();
-    // Holiday rows add noise - keep real releases and speeches.
-    const events = (j.events || []).filter(e => (e.impact || '').toLowerCase() !== 'holiday');
-    renderEvents(events, target, 'No events returned for this week.');
-  } catch (e) {
-    renderEvents([], target, 'Calendar feed unreachable — nothing fabricated; retry shortly.');
-  }
+    const r = await fetch('data/econ-calendar-thisweek.json');
+    if (r.ok) { const arr = await r.json(); if (Array.isArray(arr) && arr.length) return arr; }
+  } catch (e) {}
+  try {
+    const r = await fetch(WORKER + '/brain/econ');
+    if (r.ok) { const j = await r.json(); if (j.ok && Array.isArray(j.events) && j.events.length) return j.events; }
+  } catch (e) {}
+  return null;
 }
-loadWeek('this', 'thisWeek');
-loadWeek('next', 'upcomingList');
+
+(async function loadCalendar() {
+  const raw = await fetchCalendar();
+  if (!raw) {
+    const msg = 'Calendar feed unreachable — nothing fabricated; retry shortly.';
+    renderEvents([], 'thisWeek', msg);
+    renderEvents([], 'upcomingList', msg);
+    return;
+  }
+  // Holiday rows add noise - keep real releases and speeches.
+  const events = raw.filter(e => (e.impact || '').toLowerCase() !== 'holiday');
+  renderEvents(events, 'thisWeek', 'No events in this week\'s feed.');
+  renderEvents(events.filter(e => (e.impact || '').toLowerCase() === 'high'), 'upcomingList', 'No High-impact events remaining this week.');
+})();
 
 // Filter buttons
 document.querySelectorAll('[data-filter]').forEach(b => {

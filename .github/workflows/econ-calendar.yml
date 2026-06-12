@@ -1,0 +1,36 @@
+name: Refresh economic calendar
+
+# Fetches the ForexFactory weekly calendar JSON and commits it into /data so
+# economic-events.html can read it same-origin. The worker cannot fetch this
+# source (faireconomy blocks Cloudflare egress), and the browser cannot fetch
+# it directly (no CORS header) - a once-daily commit is the clean free path.
+# Runtime is ~10 seconds once per day; negligible Actions usage.
+
+on:
+  schedule:
+    - cron: "20 10 * * *"   # 10:20 UTC daily (~6:20am ET, before US data drops)
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch calendar
+        run: |
+          curl -sf --max-time 30 "https://nfs.faireconomy.media/ff_calendar_thisweek.json" -o data/econ-calendar-thisweek.json
+          node -e "const a=JSON.parse(require('fs').readFileSync('data/econ-calendar-thisweek.json','utf8')); if(!Array.isArray(a)||!a.length){console.error('calendar fetch returned invalid/empty JSON');process.exit(1);} console.log(a.length,'events ok');"
+      - name: Commit if changed
+        run: |
+          git config user.name "econ-calendar-bot"
+          git config user.email "actions@github.com"
+          git add data/econ-calendar-thisweek.json
+          if git diff --cached --quiet; then
+            echo "No calendar changes."
+          else
+            git commit -m "data: refresh economic calendar [skip ci]"
+            git push
+          fi
