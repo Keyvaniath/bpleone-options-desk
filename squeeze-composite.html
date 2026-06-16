@@ -185,30 +185,11 @@ function paint() {
   document.getElementById('kpiBorrowName').textContent = topBorrow.sym + ' utilization';
   document.getElementById('kpiFloat').textContent = data.filter(d => d.floatM < 50).length;
 
-  // Emit top setups to brain
-  try {
-    const k = 'bpleone_brain_findings_v1';
-    let f = { items: [] };
-    try { f = JSON.parse(localStorage.getItem(k) || '{"items":[]}'); } catch (e) {}
-    const top = data.filter(d => d.composite >= 80).slice(0, 3);
-    top.forEach(t => {
-      const dedupKey = 'squeeze-composite|' + t.sym;
-      const cutoff = Date.now() - 60 * 60 * 1000;
-      if (f.items.find(x => x.dedupKey === dedupKey && x.ts > cutoff)) return;
-      f.items.unshift({
-        id: 'f_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7),
-        ts: Date.now(),
-        type: 'squeeze-composite',
-        severity: 3,
-        title: 'Extreme squeeze score — ' + t.sym,
-        body: t.sym + ' composite=' + t.composite + '. SI=' + t.si + '%, DTC=' + t.dtc + ', util=' + t.util + '%, float=' + t.floatM + 'M.',
-        meta: { sym: t.sym, setup: 'squeeze-composite', bias: 'bull', composite: t.composite },
-        dedupKey
-      });
-    });
-    if (f.items.length > 500) f.items.length = 500;
-    localStorage.setItem(k, JSON.stringify(f));
-  } catch (e) {}
+  // Pass 304 (honesty / data-hygiene): this page is SAMPLE - its composite / SI / DTC /
+  // util / float values are synthetic (real short-interest needs a paid feed). Emitting
+  // them into the shared brain findings store (bpleone_brain_findings_v1, read by ~55
+  // brain/feed pages, some NOT sample-labeled) would let fabricated figures surface as
+  // real findings, so the emit is disabled. The real brain ingests only live signals.
 }
 paint();
 
