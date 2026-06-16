@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Sentiment Heat — bpleone / trade</title>
-<meta name="description" content="Aggregated news + social sentiment heatmap across sectors and top names.">
+<meta name="description" content="Headline-derived keyword sentiment across the major names, scored from real Finnhub company news via the bpleone worker. A rough directional read of the news tone, not a paid social-sentiment feed.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="css/style.css?v=v200">
@@ -13,39 +13,46 @@
 <style>
 .heat-tile { padding:14px;border-radius:8px;text-align:center;cursor:pointer;transition:transform 0.1s; }
 .heat-tile:hover { transform:translateY(-2px); }
+.heat-tile.empty { cursor:default;background:var(--bg-elevated)!important;border:1px dashed var(--border); }
 .heat-tile .sym { font-family:var(--font-mono);font-weight:700;font-size:14px;color:#fff; }
+.heat-tile.empty .sym { color:var(--text-secondary); }
 .heat-tile .sent { font-family:var(--font-mono);font-size:11px;color:rgba(255,255,255,0.85);margin-top:4px; }
+.heat-tile.empty .sent { color:var(--text-muted); }
 .heat-tile .mentions { font-size:9px;color:rgba(255,255,255,0.6);margin-top:2px; }
+.heat-tile.empty .mentions { color:var(--text-muted); }
 </style>
 </head>
 <body data-needs="live">
 <div id="site-nav"></div>
-<div style="background:linear-gradient(90deg,rgba(245,158,11,0.18),rgba(245,158,11,0.06));border-bottom:1px solid rgba(245,158,11,0.45);color:var(--yellow);font-size:12.5px;font-weight:600;padding:8px 16px;text-align:center;">SAMPLE / ILLUSTRATIVE DATA - layout and logic shown; An aggregated social/news sentiment feed requires a paid feed (not connected). Do not trade on these figures.</div>
 
 <div class="container">
   <div class="page-header">
     <div>
       <div class="page-title">🌡 Sentiment Heat</div>
-      <div class="page-subtitle">Aggregated news + social sentiment · by sector + symbol · <span id="market-clock">--</span></div>
+      <div class="page-subtitle">Headline-derived keyword sentiment from real news · by sector + symbol · <span id="market-clock">--</span></div>
     </div>
     <div class="flex gap-8"><button class="btn btn-secondary" id="refreshBtn">🔄</button></div>
   </div>
 
+  <div style="background:rgba(0,212,255,0.06);border:1px solid rgba(0,212,255,0.25);border-radius:10px;padding:10px 14px;margin-bottom:18px;font-size:12px;color:var(--text-secondary);line-height:1.6;">
+    Tone is scored by a keyword model over each name's recent <strong>Finnhub company-news headlines</strong> (via the bpleone worker) — bullish words lift the score, bearish words lower it; "mentions" is the real article count. This is a rough directional read of the <em>news narrative</em>, not a paid social-sentiment feed and not a trade signal. Names with no recent headlines show as "no coverage" rather than a fabricated score.
+  </div>
+
   <div class="grid grid-4 mb-24">
-    <div class="card"><div class="card-header"><div class="card-title">Overall Sentiment</div></div><div class="mono" style="font-size:24px;font-weight:700;" id="kOverall">--</div><div class="mono" style="font-size:11px;color:var(--text-muted);" id="kOverallBody">--</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">Overall News Tone</div></div><div class="mono" style="font-size:24px;font-weight:700;" id="kOverall">--</div><div class="mono" style="font-size:11px;color:var(--text-muted);" id="kOverallBody">scoring…</div></div>
     <div class="card"><div class="card-header"><div class="card-title">Most Bullish</div></div><div class="mono green-text" style="font-size:18px;font-weight:700;" id="kBull">--</div><div class="mono" style="font-size:11px;color:var(--text-muted);" id="kBullBody">--</div></div>
     <div class="card"><div class="card-header"><div class="card-title">Most Bearish</div></div><div class="mono red-text" style="font-size:18px;font-weight:700;" id="kBear">--</div><div class="mono" style="font-size:11px;color:var(--text-muted);" id="kBearBody">--</div></div>
-    <div class="card"><div class="card-header"><div class="card-title">High-Mention</div></div><div class="mono" style="font-size:18px;font-weight:700;color:var(--accent);" id="kHigh">--</div><div class="mono" style="font-size:11px;color:var(--text-muted);" id="kHighBody">--</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">Most Coverage</div></div><div class="mono" style="font-size:18px;font-weight:700;color:var(--accent);" id="kHigh">--</div><div class="mono" style="font-size:11px;color:var(--text-muted);" id="kHighBody">--</div></div>
   </div>
 
   <div class="card mb-24">
-    <div class="card-header"><div class="card-title">🌡 Sector Sentiment</div></div>
+    <div class="card-header"><div class="card-title">🌡 Sector Tone <span style="font-size:10px;color:var(--text-muted);font-weight:400;">· average of covered names in each sector</span></div></div>
     <div id="sectorHeat" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:8px;"></div>
   </div>
 
   <div class="card">
-    <div class="card-header"><div class="card-title">🔥 Symbol Sentiment</div></div>
-    <div id="symHeat" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:8px;"></div>
+    <div class="card-header"><div class="card-title">🔥 Symbol Tone</div></div>
+    <div id="symHeat" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:8px;"><div style="grid-column:1/-1;padding:24px;text-align:center;color:var(--text-muted);font-size:13px;">Scoring live news headlines…</div></div>
   </div>
 </div>
 
@@ -59,82 +66,144 @@
 <script>
 buildNav('sentiment-heat');
 
-const SECTORS = [['XLK','Tech'],['XLF','Financials'],['XLE','Energy'],['XLV','Healthcare'],['XLY','Cons.Discr'],['XLI','Industrials'],['XLC','Comm'],['XLP','Staples'],['XLU','Utilities'],['XLB','Materials'],['XLRE','Real Estate']];
-const SYMBOLS = ['NVDA','TSLA','AAPL','MSFT','META','AMZN','GOOGL','AMD','PLTR','COIN','SMCI','NFLX','MSTR','SHOP','UBER','HOOD','SOFI','PANW','SNOW','AVGO','MRVL','MU','LCID','RIVN','BA','DIS','JPM','BAC','GS','PFE','MRNA','BTC','ETH','SPY','QQQ'];
+const WORKER = (window.WorkerBridge && WorkerBridge.getUrl && WorkerBridge.getUrl()) || 'https://bpleone-brain-worker.brandonpleone.workers.dev';
 
-function getQ(s) { return (typeof QUOTES !== 'undefined' && QUOTES[s]) ? QUOTES[s] : { changePct: 0 }; }
+// Single equities only - Finnhub company-news does not cover ETFs/crypto, so
+// putting them here would just produce honest-empty tiles. Each maps to a sector.
+const SYMBOLS = [
+  ['NVDA','Semis'],['AMD','Semis'],['AVGO','Semis'],['MU','Semis'],['SMCI','Semis'],['MRVL','Semis'],
+  ['AAPL','Tech'],['MSFT','Tech'],['PLTR','Tech'],['SNOW','Tech'],['PANW','Tech'],['ORCL','Tech'],
+  ['META','Comm'],['GOOGL','Comm'],['NFLX','Comm'],['DIS','Comm'],
+  ['AMZN','Cons Discr'],['TSLA','Cons Discr'],['SHOP','Cons Discr'],['UBER','Cons Discr'],
+  ['JPM','Financials'],['BAC','Financials'],['GS','Financials'],['COIN','Financials'],['HOOD','Financials'],
+  ['PFE','Health'],['MRNA','Health'],['BA','Industrials']
+];
 
-function colorFor(score) {
-  // score in [-10, +10]
+// Compact financial keyword lexicon. Scores are summed per headline then
+// normalized; this is deliberately simple and transparent (no black box).
+const POS = ['beat','beats','surge','surges','soar','soars','jump','jumps','rally','rallies','rallied','gain','gains','upgrade','upgraded','raise','raised','record','strong','growth','profit','outperform','bullish','top','tops','boost','boosted','wins','win','approval','approved','breakthrough','expand','expands','buyback','dividend','partnership','deal','rises','rose','climb','climbs','high','higher','optimistic','accelerate'];
+const NEG = ['miss','misses','missed','plunge','plunges','drop','drops','fall','falls','fell','slump','slumps','crash','crashes','downgrade','downgraded','cut','cuts','weak','loss','losses','decline','declines','underperform','bearish','warn','warns','warning','lawsuit','probe','investigation','recall','layoff','layoffs','fraud','bankruptcy','slide','slides','tumble','tumbles','sink','sinks','fears','concern','concerns','lower','slowdown','halt','sell-off','selloff'];
+
+function scoreText(t) {
+  const words = String(t || '').toLowerCase().split(/[^a-z'-]+/);
+  let s = 0, hits = 0;
+  for (const w of words) {
+    if (POS.indexOf(w) >= 0) { s += 1; hits++; }
+    else if (NEG.indexOf(w) >= 0) { s -= 1; hits++; }
+  }
+  // Normalize by hit count so a long headline with one signal word doesn't dominate.
+  return hits ? s / Math.max(1, hits) : 0;
+}
+
+function colorFor(score) { // score in [-10, +10]
   const x = Math.max(-1, Math.min(1, score / 10));
   if (x >= 0) {
-    const r = Math.round(40 - x * 30);
-    const g = Math.round(110 + x * 80);
-    const b = Math.round(50 - x * 20);
-    return `rgb(${r},${g},${b})`;
-  } else {
-    const r = Math.round(120 - x * 100);
-    const g = Math.round(60 + x * 20);
-    const b = Math.round(60 + x * 10);
-    return `rgb(${r},${g},${b})`;
+    return 'rgb(' + Math.round(40 - x * 30) + ',' + Math.round(110 + x * 80) + ',' + Math.round(50 - x * 20) + ')';
   }
+  return 'rgb(' + Math.round(120 - x * 100) + ',' + Math.round(60 + x * 20) + ',' + Math.round(60 + x * 10) + ')';
+}
+
+// Fetch with a small concurrency cap so we never fan out 28 requests at once.
+async function mapLimit(items, limit, fn) {
+  const out = new Array(items.length);
+  let i = 0;
+  async function worker() { while (i < items.length) { const idx = i++; out[idx] = await fn(items[idx], idx); } }
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+  return out;
+}
+
+async function scoreSymbol(sym) {
+  try {
+    const r = await fetch(WORKER + '/brain/news?symbol=' + encodeURIComponent(sym));
+    if (!r.ok) return { sym, covered: false };
+    const j = await r.json();
+    const items = (j.ok && Array.isArray(j.items)) ? j.items : [];
+    if (!items.length) return { sym, covered: false };
+    let sum = 0;
+    items.forEach(it => { sum += scoreText((it.headline || '') + ' ' + (it.summary || '')); });
+    const mean = sum / items.length;           // ~[-1, +1]
+    return { sym, covered: true, score: +(mean * 10).toFixed(1), mentions: items.length };
+  } catch (e) { return { sym, covered: false }; }
+}
+
+let results = [];
+
+async function load() {
+  document.getElementById('symHeat').innerHTML = '<div style="grid-column:1/-1;padding:24px;text-align:center;color:var(--text-muted);font-size:13px;">Scoring live news headlines…</div>';
+  results = await mapLimit(SYMBOLS, 4, ([sym]) => scoreSymbol(sym));
+  // attach sector
+  const secOf = {}; SYMBOLS.forEach(([s, sec]) => secOf[s] = sec);
+  results.forEach(r => r.sector = secOf[r.sym]);
+  paint();
 }
 
 function paint() {
-  // Sector
-  const sectorH = document.getElementById('sectorHeat');
-  sectorH.innerHTML = '';
-  const sectorScores = [];
-  SECTORS.forEach(([etf, name]) => {
-    const q = getQ(etf);
-    const chg = q.changePct || 0;
-    const score = +(chg * 2 + (Math.random() - 0.5) * 3).toFixed(1);
-    const mentions = Math.floor(80 + Math.random() * 350);
-    sectorScores.push({ etf, name, score, mentions });
-    const tile = document.createElement('div');
-    tile.className = 'heat-tile';
-    tile.style.background = colorFor(score);
-    tile.onclick = () => { window.location.href = 'sector-snapshot.html?sec=' + etf; };
-    tile.innerHTML = '<div class="sym">' + etf + '</div><div class="sent" style="font-size:10px;">' + name + '</div><div class="sent">' + (score >= 0 ? '+' : '') + score + '</div><div class="mentions">' + mentions + ' mentions</div>';
-    sectorH.appendChild(tile);
-  });
+  const covered = results.filter(r => r.covered);
 
   // Symbols
   const symH = document.getElementById('symHeat');
   symH.innerHTML = '';
-  const symScores = [];
-  SYMBOLS.forEach(sym => {
-    const q = getQ(sym);
-    const chg = q.changePct || 0;
-    const score = +(chg * 1.8 + (Math.random() - 0.5) * 4).toFixed(1);
-    const mentions = Math.floor(40 + Math.random() * 500);
-    symScores.push({ sym, score, mentions });
+  results.slice().sort((a, b) => (b.covered - a.covered) || (b.score - a.score)).forEach(r => {
     const tile = document.createElement('div');
-    tile.className = 'heat-tile';
-    tile.style.background = colorFor(score);
-    tile.onclick = () => { window.location.href = 'trade-coach.html?sym=' + sym; };
-    tile.innerHTML = '<div class="sym">' + sym + '</div><div class="sent">' + (score >= 0 ? '+' : '') + score + '</div><div class="mentions">' + mentions + ' mentions</div>';
+    if (!r.covered) {
+      tile.className = 'heat-tile empty';
+      tile.innerHTML = '<div class="sym">' + r.sym + '</div><div class="sent">no coverage</div><div class="mentions">0 headlines</div>';
+    } else {
+      tile.className = 'heat-tile';
+      tile.style.background = colorFor(r.score);
+      tile.onclick = () => { window.location.href = 'trade-coach.html?sym=' + r.sym; };
+      tile.innerHTML = '<div class="sym">' + r.sym + '</div><div class="sent">' + (r.score >= 0 ? '+' : '') + r.score + '</div><div class="mentions">' + r.mentions + ' headlines</div>';
+    }
     symH.appendChild(tile);
   });
 
+  // Sectors - average of covered names in each sector
+  const sectorH = document.getElementById('sectorHeat');
+  sectorH.innerHTML = '';
+  const bySec = {};
+  covered.forEach(r => { (bySec[r.sector] = bySec[r.sector] || []).push(r); });
+  const sectorOrder = ['Semis','Tech','Comm','Cons Discr','Financials','Health','Industrials'];
+  sectorOrder.forEach(sec => {
+    const arr = bySec[sec] || [];
+    const tile = document.createElement('div');
+    if (!arr.length) {
+      tile.className = 'heat-tile empty';
+      tile.innerHTML = '<div class="sym">' + sec + '</div><div class="sent">no coverage</div><div class="mentions">0 headlines</div>';
+    } else {
+      const score = +(arr.reduce((s, x) => s + x.score, 0) / arr.length).toFixed(1);
+      const mentions = arr.reduce((s, x) => s + x.mentions, 0);
+      tile.className = 'heat-tile';
+      tile.style.background = colorFor(score);
+      tile.innerHTML = '<div class="sym">' + sec + '</div><div class="sent">' + (score >= 0 ? '+' : '') + score + '</div><div class="mentions">' + arr.length + ' names · ' + mentions + ' headlines</div>';
+    }
+    sectorH.appendChild(tile);
+  });
+
   // KPIs
-  const overall = symScores.reduce((s, x) => s + x.score, 0) / symScores.length;
+  if (!covered.length) {
+    document.getElementById('kOverall').textContent = '—';
+    document.getElementById('kOverallBody').textContent = 'No news coverage right now';
+    ['kBull','kBear','kHigh'].forEach(id => document.getElementById(id).textContent = '—');
+    ['kBullBody','kBearBody','kHighBody'].forEach(id => document.getElementById(id).textContent = '—');
+    return;
+  }
+  const overall = covered.reduce((s, x) => s + x.score, 0) / covered.length;
   document.getElementById('kOverall').textContent = (overall >= 0 ? '+' : '') + overall.toFixed(2);
   document.getElementById('kOverall').style.color = overall > 1 ? 'var(--green)' : overall < -1 ? 'var(--red)' : 'var(--text-primary)';
-  document.getElementById('kOverallBody').textContent = overall > 1 ? 'BULLISH market sentiment' : overall < -1 ? 'BEARISH market sentiment' : 'Mixed';
-  const bull = symScores.slice().sort((a, b) => b.score - a.score)[0];
-  const bear = symScores.slice().sort((a, b) => a.score - b.score)[0];
-  const high = symScores.slice().sort((a, b) => b.mentions - a.mentions)[0];
+  document.getElementById('kOverallBody').textContent = (overall > 1 ? 'Bullish' : overall < -1 ? 'Bearish' : 'Mixed') + ' news tone · ' + covered.length + ' names covered';
+  const bull = covered.slice().sort((a, b) => b.score - a.score)[0];
+  const bear = covered.slice().sort((a, b) => a.score - b.score)[0];
+  const high = covered.slice().sort((a, b) => b.mentions - a.mentions)[0];
   document.getElementById('kBull').textContent = bull.sym;
-  document.getElementById('kBullBody').textContent = '+' + bull.score + ' · ' + bull.mentions + ' mentions';
+  document.getElementById('kBullBody').textContent = (bull.score >= 0 ? '+' : '') + bull.score + ' · ' + bull.mentions + ' headlines';
   document.getElementById('kBear').textContent = bear.sym;
-  document.getElementById('kBearBody').textContent = bear.score + ' · ' + bear.mentions + ' mentions';
+  document.getElementById('kBearBody').textContent = bear.score + ' · ' + bear.mentions + ' headlines';
   document.getElementById('kHigh').textContent = high.sym;
-  document.getElementById('kHighBody').textContent = high.mentions + ' mentions · ' + (high.score >= 0 ? '+' : '') + high.score;
+  document.getElementById('kHighBody').textContent = high.mentions + ' headlines · ' + (high.score >= 0 ? '+' : '') + high.score;
 }
-paint();
-document.getElementById('refreshBtn').addEventListener('click', paint);
-setInterval(paint, 60000);
+
+document.getElementById('refreshBtn').addEventListener('click', load);
+load();
 </script>
 </body>
 </html>
