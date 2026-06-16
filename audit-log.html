@@ -39,10 +39,15 @@
   </div>
 
   <div class="grid grid-4 mb-24">
-    <div class="tile" style="background:rgba(16,185,129,0.06);"><div class="lbl">Audit passes</div><div class="val" style="color:var(--green);">295</div></div>
-    <div class="tile" style="background:rgba(16,185,129,0.06);"><div class="lbl">Bugs fixed</div><div class="val" style="color:var(--green);">231+</div></div>
-    <div class="tile" style="background:rgba(220,38,38,0.06);"><div class="lbl">CRITICAL bugs</div><div class="val" style="color:var(--red);">42</div></div>
-    <div class="tile"><div class="lbl">Total commits</div><div class="val">230+</div></div>
+    <div class="tile" style="background:rgba(16,185,129,0.06);"><div class="lbl">Audit passes</div><div class="val" style="color:var(--green);">296</div></div>
+    <div class="tile" style="background:rgba(16,185,129,0.06);"><div class="lbl">Bugs fixed</div><div class="val" style="color:var(--green);">232+</div></div>
+    <div class="tile" style="background:rgba(220,38,38,0.06);"><div class="lbl">CRITICAL bugs</div><div class="val" style="color:var(--red);">43</div></div>
+    <div class="tile"><div class="lbl">Total commits</div><div class="val">233+</div></div>
+  </div>
+
+  <div style="padding:14px 18px;border-radius:10px;background:rgba(220,38,38,0.10);border-left:4px solid var(--red);margin-bottom:14px;font-size:13px;color:var(--text-secondary);line-height:1.6;">
+    <strong>Batch BC (pass 296) — CRITICAL honesty fix: the confluence forward-test was about to show an MD a fabricated "proven edge."</strong>
+    Asked "is the edge experiment actually resolving?", probed <code>/brain/confluence-score</code>, and found it had flipped to a GREEN verdict: <em>"YES — fusing adds edge, confluence hits 72.1%, beats a coin flip at 95%, paying for richer flow data is justified."</em> That directly contradicts the product's own honest spine (pass-267: the brain is mostly drift, 54.66% walk-forward, no proven timing edge) — so it got adversarial scrutiny instead of trust. <b>Root cause:</b> the live scorer's <code>score()</code> gated on beating a <b>50% coin flip</b> — the exact trap pass-267 fixed in the backtest metrics but never applied to this scorer. The brain is structurally short-biased, so in a directional window a book "hits" &gt;50% on market drift alone. Two tells confirmed it: the "brain hit rate" read 69.5% live vs the rigorous 54.66% walk-forward, and the alpha/POTD legs showed positive hit rates with <b>negative</b> average returns (directionally "right" yet losing money — small wins, big losses). <b>Fix (worker pass-286):</b> <code>score()</code> now computes the market-drift base rate (the unconditional move-rate in each call's direction) and gates on beating THAT at 95% (<code>beats_drift_95</code>), plus tracks profitability (avg directional return &gt; 0); the "worth paying for flow" verdict now requires beat-drift AND profitable AND beat-brain-only. Back-compat fields kept so no reader broke. The three MD-facing consumers (edge-scorecard banner + leg cards, pick-of-day, proof) now display the drift-and-profitability bar instead of a coin-flip badge. <b>Verified live after deploy:</b> confluence 72.1% hit vs a 69.9% drift-null &rarr; <code>beats_drift_95</code> FALSE; verdict now reads <em>"NOT YET — the hit rate is explained by drift, not timing edge. Paying for flow data is not justified."</em> Brain 69.5% vs 68.9% drift-null (finally consistent with the walk-forward). <b>Lesson: a too-good live number that contradicts your own backtest is a metric bug until proven otherwise — and "beats a coin flip" is never the bar; "beats drift, and makes money" is.</b>
   </div>
 
   <div style="padding:14px 18px;border-radius:10px;background:rgba(16,185,129,0.12);border-left:4px solid var(--green);margin-bottom:14px;font-size:13px;color:var(--text-secondary);line-height:1.6;">
