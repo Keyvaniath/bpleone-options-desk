@@ -40,7 +40,7 @@
   // module (e.g. data-mode-banner.js still rendered the old "every tick is current"
   // banner long after the fix deployed). Found via LIVE browser verify, not static
   // review. Deriving from self means it can never drift again.
-  let CACHE_BUST = 'v201';
+  let CACHE_BUST = 'v202';
   try {
     const me = document.currentScript;
     const src = me ? me.src : ([...document.querySelectorAll('script[src]')].map(s => s.src).find(u => /\/app\.js(\?|$)/.test(u)) || '');
@@ -271,7 +271,7 @@ function buildNav(activePage) {
     +   '<a href="alpha-scanner.html">📡 Alpha Scanner</a>'
     +   '<a href="smart-money-confluence.html">🐳 Smart-Money Confluence</a>'
     +   '<a href="edge-scorecard.html">📊 Edge Scorecard</a>'
-    +   '<a href="squeeze-radar.html">⛓ Squeeze Radar</a>'
+    +   '<a href="algo-signals.html">⚡ Algo Signals</a>'
     +   '<a href="hot-movers.html">🔥 Hot Movers</a>'
     +   '<a href="all-tools.html" style="opacity:0.65;">⋯ more →</a>'
     + '</div></li>'
@@ -290,12 +290,12 @@ function buildNav(activePage) {
     +   '<a href="congress-trades.html">🏛 Congress</a>'
     +   '<a href="economic-events.html">🏦 Economic Events</a>'
     +   '<a href="earnings-calendar.html">📅 Earnings</a>'
-    +   '<a href="macro.html">🌐 Macro</a>'
-    +   '<a href="market-internals.html">📊 Market Internals</a>'
+    +   '<a href="vix-pulse.html">🌡 VIX Pulse</a>'
+    +   '<a href="breadth-pro.html">📊 Breadth</a>'
     +   '<a href="all-tools.html" style="opacity:0.65;">⋯ more →</a>'
     + '</div></li>'
     + '<li class="nav-dd"><a href="#" class="' + ((isTools||isTrade)?'active':'') + '">🛠 Tools ▾</a><div class="nav-dropdown">'
-    +   '<a href="options-chain.html">⛓️ Options Chain</a>'
+    +   '<a href="fundamentals.html">📊 Fundamentals</a>'
     +   '<a href="options-pricer.html">🧮 Options Pricer</a>'
     +   '<a href="backtester.html">🔁 Backtester</a>'
     +   '<a href="journal.html">📓 Journal</a>'
@@ -499,8 +499,8 @@ function buildFooter() {
     + '</ul></div>'
     + '<div class="footer-col"><h4>📈 Trading</h4><ul>'
     + '<li><a href="dashboard.html">Dashboard</a></li>'
-    + '<li><a href="options-flow.html">Options Flow</a></li>'
-    + '<li><a href="options-chain.html">Options Chain</a></li>'
+    + '<li><a href="hot-movers.html">Hot Movers</a></li>'
+    + '<li><a href="sector-flow.html">Sector Flow</a></li>'
     + '<li><a href="technical-analysis.html">TA Scanner</a></li>'
     + '<li><a href="all-tools.html"><strong>View all trading tools →</strong></a></li>'
     + '</ul></div>'

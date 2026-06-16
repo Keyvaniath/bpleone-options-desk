@@ -7,7 +7,7 @@
 <meta name="description" content="Visual index of every page on the desk · searchable · categorized.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="css/style.css?v=v201">
+<link rel="stylesheet" href="css/style.css?v=v202">
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
 <style>
@@ -45,7 +45,7 @@
 
 <div id="site-footer"></div>
 
-<script src="js/app.js?v=v201"></script>
+<script src="js/app.js?v=v202"></script>
 <script>
 buildNav('all-tools');
 
@@ -288,18 +288,35 @@ const CATALOG = [
   }
 ];
 
+// Pass 305: paid-feed SAMPLE / placeholder pages are hidden from the catalog so the
+// desk surfaces ONLY real-data tools (they stay reachable by direct URL). These are
+// the pages that need a paid market-data feed (options flow/chain/GEX, dark pool, L2
+// tape/orderbook, short-interest/squeeze family, MOC, ETF flows, sweep counter) plus
+// the few seeded scanner/demo pages. Real tools + legit calculators are unaffected.
+const SAMPLE_FILES = new Set([
+  'options-flow.html','options-flow-live.html','options-chain.html','flow.html','chain.html',
+  'gex.html','gex-pro.html','vol-surface.html','vol-cone.html','zero-dte.html','opex-tracker.html',
+  'options-skew-radar.html','strike-chaser.html','iv-crush-tracker.html',
+  'dark-pool.html','dark-pool-pro.html','tape.html','trade-tape.html','orderbook.html','order-flow.html','flow-replay.html','big-bets.html','sweep-counter.html',
+  'short-interest.html','squeeze-radar.html','squeeze-radar-pro.html','squeeze-composite.html','short-squeeze-alerts.html','volume-profile.html',
+  'moc-imbalance.html','etf-flows.html','liquidity-health.html','pair-scanner.html','symbol-diff.html',
+  'heat-clock.html','earnings-reactor.html','sentiment-vs-model.html','anomalies.html','market-internals.html','macro.html','insider-congress-flow.html','seasonality.html'
+]);
+
 function paint() {
   const cat = document.getElementById('catalog');
   cat.innerHTML = '';
-  let totalCount = 0;
+  let totalCount = 0, hidden = 0;
   CATALOG.forEach(c => {
-    totalCount += c.tools.length;
+    const tools = c.tools.filter(t => { if (SAMPLE_FILES.has(t.file)) { hidden++; return false; } return true; });
+    if (!tools.length) return;
+    totalCount += tools.length;
     const section = document.createElement('div');
     section.className = 'cat-section';
-    section.innerHTML = '<div class="cat-title">' + c.cat + ' <span style="color:var(--text-muted);font-weight:500;font-size:11px;margin-left:6px;">(' + c.tools.length + ')</span></div>';
+    section.innerHTML = '<div class="cat-title">' + c.cat + ' <span style="color:var(--text-muted);font-weight:500;font-size:11px;margin-left:6px;">(' + tools.length + ')</span></div>';
     const grid = document.createElement('div');
     grid.className = 'tile-grid';
-    c.tools.forEach(t => {
+    tools.forEach(t => {
       const tile = document.createElement('a');
       tile.className = 'tool-tile';
       tile.href = t.file;
@@ -311,6 +328,12 @@ function paint() {
     cat.appendChild(section);
   });
   document.title = 'All Tools (' + totalCount + ') — bpleone / trade';
+  if (hidden > 0) {
+    const note = document.createElement('div');
+    note.style.cssText = 'margin-top:18px;padding:12px 14px;border:1px dashed var(--border);border-radius:8px;font-size:11px;color:var(--text-muted);line-height:1.6;';
+    note.innerHTML = '<strong>' + hidden + '</strong> paid-feed tools (options flow, dark pool, L2 tape/order-book, short-interest / squeeze, MOC, ETF flows) are hidden from this catalog because they need a paid market-data feed to show live numbers. The desk lists only real-data tools. <a href="data-truth.html" style="color:var(--accent);">How the data works →</a>';
+    cat.appendChild(note);
+  }
 }
 paint();
 
