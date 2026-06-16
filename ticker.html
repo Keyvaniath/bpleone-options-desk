@@ -338,13 +338,17 @@ async function loadRecs() {
 }
 
 async function loadInsider() {
-  if (typeof DataProvider === 'undefined' || DataProvider.getConfig().provider !== 'finnhub' || !DataProvider.getConfig().apiKey) {
-    noKeyMsg('insiderBox'); return;
-  }
+  // Pass 301: worker-first (server-side Finnhub key) so insider Form-4 activity
+  // shows keyless; fall back to a configured browser key, then an honest empty.
+  const WORKER = (window.WorkerBridge && WorkerBridge.getUrl && WorkerBridge.getUrl()) || 'https://bpleone-brain-worker.brandonpleone.workers.dev';
   try {
-    const txns = await DataProvider.getInsiderTransactions(sym);
+    let txns = null;
+    try { const r = await fetch(WORKER + '/brain/insider?symbol=' + encodeURIComponent(sym)); if (r.ok) { const j = await r.json(); if (j && j.ok && Array.isArray(j.transactions)) txns = j.transactions; } } catch (e) {}
+    if ((!txns || !txns.length) && typeof DataProvider !== 'undefined' && DataProvider.getConfig().provider === 'finnhub' && DataProvider.getConfig().apiKey) {
+      try { txns = await DataProvider.getInsiderTransactions(sym); } catch (e) {}
+    }
     if (!txns || !txns.length) { $('insiderBox').innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-muted);">No insider transactions.</div>'; return; }
-    txns.sort((a, b) => new Date(b.filingDate || b.transactionDate) - new Date(a.filingDate || a.transactionDate));
+    txns = txns.slice().sort((a, b) => new Date(b.filingDate || b.transactionDate) - new Date(a.filingDate || a.transactionDate));
     const top = txns.slice(0, 8);
     $('insiderBox').innerHTML = `<div class="table-wrap"><table><thead><tr>
       <th style="font-size:10px;">Filed</th><th style="font-size:10px;">Insider</th><th style="font-size:10px;">Code</th>
@@ -366,13 +370,16 @@ async function loadInsider() {
 }
 
 async function loadNews() {
-  if (typeof DataProvider === 'undefined' || DataProvider.getConfig().provider !== 'finnhub' || !DataProvider.getConfig().apiKey) {
-    noKeyMsg('newsBox'); return;
-  }
+  // Pass 301: worker-first company news (keyless) -> browser-key fallback -> honest empty.
+  const WORKER = (window.WorkerBridge && WorkerBridge.getUrl && WorkerBridge.getUrl()) || 'https://bpleone-brain-worker.brandonpleone.workers.dev';
   try {
-    const items = await DataProvider.getCompanyNews(sym, Date.now() - 14 * 86400000, Date.now());
-    if (!items.length) { $('newsBox').innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-muted);">No headlines.</div>'; return; }
-    items.sort((a, b) => b.datetime - a.datetime);
+    let items = null;
+    try { const r = await fetch(WORKER + '/brain/news?symbol=' + encodeURIComponent(sym)); if (r.ok) { const j = await r.json(); if (j && j.ok && Array.isArray(j.items)) items = j.items; } } catch (e) {}
+    if ((!items || !items.length) && typeof DataProvider !== 'undefined' && DataProvider.getConfig().provider === 'finnhub' && DataProvider.getConfig().apiKey) {
+      try { items = await DataProvider.getCompanyNews(sym, Date.now() - 14 * 86400000, Date.now()); } catch (e) {}
+    }
+    if (!items || !items.length) { $('newsBox').innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-muted);">No headlines.</div>'; return; }
+    items = items.slice().sort((a, b) => b.datetime - a.datetime);
     $('newsBox').innerHTML = items.slice(0, 12).map(n => `<div class="headline-row">
       <a href="${n.url}" target="_blank" rel="noopener"><strong>${escapeHtml(n.headline)}</strong></a>
       <div class="src">${escapeHtml(n.source || '')} · ${fmtTime(n.datetime)}</div>
