@@ -93,6 +93,7 @@
 buildNav('earnings');
 
 const $ = id => document.getElementById(id);
+const WORKER = (window.WorkerBridge && WorkerBridge.getUrl && WorkerBridge.getUrl()) || 'https://bpleone-brain-worker.brandonpleone.workers.dev';
 const MEGA = new Set(['AAPL','MSFT','NVDA','GOOGL','GOOG','AMZN','META','TSLA','BRK.A','BRK.B','JPM','V','MA','WMT','UNH','XOM','LLY','AVGO','HD','PG','COST','BAC','JNJ','ABBV','CVX']);
 let allItems = [];
 let filterQ = '';
@@ -100,11 +101,12 @@ let filterQ = '';
 function showError(msg, hint) {
   $('bigList').innerHTML = `<div class="empty-card">
     <div class="icon">⚠</div>
-    <div style="color:var(--red);font-weight:700;margin-bottom:6px;">${msg}</div>
-    <div style="font-size:13px;">${hint || ''}</div>
-    <a href="settings.html" class="btn btn-primary" style="margin-top:14px;">Open Settings</a>
+    <div style="color:var(--yellow);font-weight:700;margin-bottom:6px;">${escapeHtml(msg)}</div>
+    <div style="font-size:13px;">${escapeHtml(hint || '')}</div>
+    <button class="btn btn-primary" style="margin-top:14px;" onclick="load()">Retry</button>
   </div>`;
   $('dayGrid').innerHTML = '';
+  ['kCount','kMega','kBmo','kAmc'].forEach(id => $(id).textContent = '—');
 }
 
 async function load() {
@@ -112,16 +114,17 @@ async function load() {
   $('bigList').innerHTML = '<div class="empty-card"><div class="icon">⏳</div><div>Loading earnings calendar…</div></div>';
   $('kRange').textContent = 'Next ' + days + ' days';
 
-  if (typeof DataProvider === 'undefined' || DataProvider.getConfig().provider !== 'finnhub' || !DataProvider.getConfig().apiKey) {
-    showError('Finnhub key required', 'Earnings calendar pulled live from Finnhub. Open Settings → Market Data, paste your Finnhub key, and enable the feed.');
-    return;
-  }
-
+  // Fetch from the bpleone worker (holds the Finnhub key) so the calendar works
+  // for every visitor with no per-user setup. No fabricated fallback.
   let items;
   try {
-    items = await DataProvider.getEarningsCalendar(Date.now(), Date.now() + days * 86400000);
+    const r = await fetch(WORKER + '/brain/earnings?days=' + days);
+    if (!r.ok) { showError('Earnings feed unavailable (' + r.status + ')', 'The earnings calendar is served live by the bpleone worker. Nothing is fabricated - retry shortly.'); return; }
+    const j = await r.json();
+    if (!j.ok) { showError('Earnings feed temporarily empty', j.note || 'The upstream provider returned no data right now. Nothing fabricated - retry shortly.'); return; }
+    items = j.earnings || [];
   } catch (e) {
-    showError('Failed to fetch earnings: ' + e.message);
+    showError('Failed to fetch earnings: ' + e.message, 'Network error reaching the worker. Nothing fabricated - retry shortly.');
     return;
   }
   allItems = items || [];

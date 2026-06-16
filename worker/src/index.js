@@ -38,7 +38,7 @@
 // Pass 200: version stamp so brain-proof.html + worker-setup.html can detect
 // when the deployed worker is behind the repo source. Bump on every meaningful
 // behavior change. Read via /brain/health → worker_version field.
-const WORKER_VERSION = 'pass-284';
+const WORKER_VERSION = 'pass-285';
 
 const UNIVERSE = [
   'SPY','QQQ','IWM','DIA','AAPL','NVDA','TSLA','MSFT','META','AMZN','GOOGL','AMD',
@@ -585,6 +585,32 @@ async function fetchFinnhubCompanyNews(env, sym, days) {
     const j = await r.json();
     if (!Array.isArray(j)) return null;
     return j.filter(n => n && n.headline && n.url).slice(0, 80).map(normalizeNewsItem);
+  } catch (e) { return null; }
+}
+
+// Finnhub earnings calendar (free tier). Returns the upcoming reports in
+// [from,to] with EPS/revenue estimates and the session (bmo/amc/dmh).
+async function fetchFinnhubEarnings(env, fromStr, toStr) {
+  if (!env.FINNHUB_API_KEY) return null;
+  const url = 'https://finnhub.io/api/v1/calendar/earnings?from=' + fromStr + '&to=' + toStr +
+    '&token=' + encodeURIComponent(env.FINNHUB_API_KEY);
+  try {
+    const r = await fetch(url);
+    if (!r.ok) return null;
+    const j = await r.json();
+    const arr = (j && Array.isArray(j.earningsCalendar)) ? j.earningsCalendar : null;
+    if (!arr) return null;
+    return arr.map(e => ({
+      symbol: e.symbol,
+      date: e.date,
+      hour: e.hour || null,                       // bmo / amc / dmh
+      epsEstimate: e.epsEstimate != null ? e.epsEstimate : null,
+      epsActual: e.epsActual != null ? e.epsActual : null,
+      revenueEstimate: e.revenueEstimate != null ? e.revenueEstimate : null,
+      revenueActual: e.revenueActual != null ? e.revenueActual : null,
+      quarter: e.quarter != null ? e.quarter : null,
+      year: e.year != null ? e.year : null
+    })).filter(e => e.symbol && e.date);
   } catch (e) { return null; }
 }
 
@@ -1729,6 +1755,33 @@ async function handleRequest(request, env, ctx) {
     // Edge-cache 5 min: news doesn't change every second, and this shields the
     // 60-call/min free limit no matter how many customers hit it.
     resp.headers.set('Cache-Control', 'public, max-age=300');
+    ctx.waitUntil(cache.put(cacheKey, resp.clone()));
+    return resp;
+  }
+
+  // ===== Pass 285: REAL earnings calendar (Finnhub free tier) =====
+  if (path === '/brain/earnings') {
+    const cache = caches.default;
+    const cacheKey = new Request(url.toString(), { method: 'GET' });
+    const hit = await cache.match(cacheKey);
+    if (hit) return hit;
+    const days = Math.max(1, Math.min(60, parseInt(url.searchParams.get('days') || '14', 10) || 14));
+    const now = Date.now();
+    const fromStr = new Date(now).toISOString().slice(0, 10);
+    const toStr = new Date(now + days * 86400000).toISOString().slice(0, 10);
+    const items = await fetchFinnhubEarnings(env, fromStr, toStr);
+    const resp = json({
+      ok: Array.isArray(items),
+      source: 'finnhub/earnings-calendar',
+      from: fromStr,
+      to: toStr,
+      days,
+      count: Array.isArray(items) ? items.length : 0,
+      earnings: items || [],
+      note: Array.isArray(items) ? undefined : 'finnhub returned no earnings data (key missing/invalid or rate-limited)'
+    });
+    // Earnings dates change rarely intraday - cache 1h.
+    resp.headers.set('Cache-Control', 'public, max-age=3600');
     ctx.waitUntil(cache.put(cacheKey, resp.clone()));
     return resp;
   }
