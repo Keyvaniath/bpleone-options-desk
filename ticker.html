@@ -285,37 +285,42 @@ function renderGrowth(m) {
 }
 
 async function loadRecs() {
-  if (typeof DataProvider === 'undefined' || DataProvider.getConfig().provider !== 'finnhub' || !DataProvider.getConfig().apiKey) {
-    noKeyMsg('recBox'); return;
-  }
+  // Pass 287: worker-first so real analyst recommendation trends show for EVERY
+  // visitor (the worker holds the Finnhub key); fall back to a configured browser
+  // key if the worker is unreachable / not yet on pass-287. Never fabricates.
+  const WORKER = (window.WorkerBridge && WorkerBridge.getUrl && WorkerBridge.getUrl()) || 'https://bpleone-brain-worker.brandonpleone.workers.dev';
+  let latest = null;
   try {
-    const recs = await DataProvider.getRecommendations(sym);
-    if (!recs || !recs.length) { $('recBox').innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-muted);">No analyst recs.</div>'; return; }
-    recs.sort((a, b) => (b.period || '').localeCompare(a.period || ''));
-    const latest = recs[0];
-    const total = (latest.strongBuy||0)+(latest.buy||0)+(latest.hold||0)+(latest.sell||0)+(latest.strongSell||0);
-    if (!total) { $('recBox').innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-muted);">No recs.</div>'; return; }
-    function p(v) { return (v/total*100).toFixed(0); }
-    $('recBox').innerHTML = `
-      <div style="font-size:11px;color:var(--text-muted);margin-bottom:8px;padding:0 4px;">As of ${latest.period} · ${total} analysts</div>
-      <div class="rec-bar">
-        ${latest.strongBuy ? `<div style="flex:${latest.strongBuy};background:#059669;">${latest.strongBuy}</div>` : ''}
-        ${latest.buy ? `<div style="flex:${latest.buy};background:#10b981;">${latest.buy}</div>` : ''}
-        ${latest.hold ? `<div style="flex:${latest.hold};background:#6b7280;">${latest.hold}</div>` : ''}
-        ${latest.sell ? `<div style="flex:${latest.sell};background:#f87171;">${latest.sell}</div>` : ''}
-        ${latest.strongSell ? `<div style="flex:${latest.strongSell};background:#dc2626;">${latest.strongSell}</div>` : ''}
-      </div>
-      <div style="margin-top:14px;display:grid;grid-template-columns:repeat(5,1fr);gap:6px;text-align:center;font-size:10px;">
-        <div><div class="mono" style="color:#059669;font-weight:700;font-size:14px;">${latest.strongBuy||0}</div><div style="color:var(--text-muted);">SB</div></div>
-        <div><div class="mono" style="color:#10b981;font-weight:700;font-size:14px;">${latest.buy||0}</div><div style="color:var(--text-muted);">Buy</div></div>
-        <div><div class="mono" style="color:#6b7280;font-weight:700;font-size:14px;">${latest.hold||0}</div><div style="color:var(--text-muted);">Hold</div></div>
-        <div><div class="mono" style="color:#f87171;font-weight:700;font-size:14px;">${latest.sell||0}</div><div style="color:var(--text-muted);">Sell</div></div>
-        <div><div class="mono" style="color:#dc2626;font-weight:700;font-size:14px;">${latest.strongSell||0}</div><div style="color:var(--text-muted);">SS</div></div>
-      </div>
-    `;
-  } catch (e) {
-    $('recBox').innerHTML = '<div style="padding:20px;text-align:center;color:var(--red);font-size:12px;">' + e.message + '</div>';
+    const r = await fetch(WORKER + '/brain/recommendations?symbol=' + encodeURIComponent(sym));
+    if (r.ok) { const j = await r.json(); if (j && j.ok && j.latest) latest = j.latest; }
+  } catch (e) { /* fall through to browser key */ }
+  if (!latest && typeof DataProvider !== 'undefined' && DataProvider.getConfig().provider === 'finnhub' && DataProvider.getConfig().apiKey) {
+    try {
+      const recs = await DataProvider.getRecommendations(sym);
+      if (recs && recs.length) { recs.sort((a, b) => (b.period || '').localeCompare(a.period || '')); latest = recs[0]; }
+    } catch (e) { /* fall through to empty state */ }
   }
+  if (!latest) { $('recBox').innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-muted);font-size:12px;">No analyst recommendations available for ' + escapeHtml(sym) + '.</div>'; return; }
+  const total = (latest.strongBuy||0)+(latest.buy||0)+(latest.hold||0)+(latest.sell||0)+(latest.strongSell||0);
+  if (!total) { $('recBox').innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-muted);">No analyst recommendations.</div>'; return; }
+  $('recBox').innerHTML = `
+    <div style="font-size:11px;color:var(--text-muted);margin-bottom:8px;padding:0 4px;">As of ${latest.period} · ${total} analysts</div>
+    <div class="rec-bar">
+      ${latest.strongBuy ? `<div style="flex:${latest.strongBuy};background:#059669;">${latest.strongBuy}</div>` : ''}
+      ${latest.buy ? `<div style="flex:${latest.buy};background:#10b981;">${latest.buy}</div>` : ''}
+      ${latest.hold ? `<div style="flex:${latest.hold};background:#6b7280;">${latest.hold}</div>` : ''}
+      ${latest.sell ? `<div style="flex:${latest.sell};background:#f87171;">${latest.sell}</div>` : ''}
+      ${latest.strongSell ? `<div style="flex:${latest.strongSell};background:#dc2626;">${latest.strongSell}</div>` : ''}
+    </div>
+    <div style="margin-top:14px;display:grid;grid-template-columns:repeat(5,1fr);gap:6px;text-align:center;font-size:10px;">
+      <div><div class="mono" style="color:#059669;font-weight:700;font-size:14px;">${latest.strongBuy||0}</div><div style="color:var(--text-muted);">SB</div></div>
+      <div><div class="mono" style="color:#10b981;font-weight:700;font-size:14px;">${latest.buy||0}</div><div style="color:var(--text-muted);">Buy</div></div>
+      <div><div class="mono" style="color:#6b7280;font-weight:700;font-size:14px;">${latest.hold||0}</div><div style="color:var(--text-muted);">Hold</div></div>
+      <div><div class="mono" style="color:#f87171;font-weight:700;font-size:14px;">${latest.sell||0}</div><div style="color:var(--text-muted);">Sell</div></div>
+      <div><div class="mono" style="color:#dc2626;font-weight:700;font-size:14px;">${latest.strongSell||0}</div><div style="color:var(--text-muted);">SS</div></div>
+    </div>
+    <div style="margin-top:10px;font-size:10px;color:var(--text-muted);">Recommendation counts via Finnhub. Price targets require a paid feed — not shown.</div>
+  `;
 }
 
 async function loadInsider() {

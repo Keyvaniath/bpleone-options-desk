@@ -38,7 +38,7 @@
 // Pass 200: version stamp so brain-proof.html + worker-setup.html can detect
 // when the deployed worker is behind the repo source. Bump on every meaningful
 // behavior change. Read via /brain/health → worker_version field.
-const WORKER_VERSION = 'pass-286';
+const WORKER_VERSION = 'pass-287';
 
 const UNIVERSE = [
   'SPY','QQQ','IWM','DIA','AAPL','NVDA','TSLA','MSFT','META','AMZN','GOOGL','AMD',
@@ -644,6 +644,32 @@ async function fetchFinnhubInsider(env, sym) {
         openMarket: code === 'P' || code === 'S'   // P/S are the high-signal open-market trades
       };
     }).sort((a, b) => (b.filingDate || '').localeCompare(a.filingDate || '')).slice(0, 100);
+  } catch (e) { return null; }
+}
+
+// Pass 287: analyst recommendation TRENDS from Finnhub's free tier - the monthly
+// count of strongBuy/buy/hold/sell/strongSell ratings per symbol. This is NOT
+// analyst price targets (Finnhub gates /stock/price-target behind a paid plan) -
+// the page is honest about that. Routed through the worker (server-side key) so
+// ticker.html / fundamentals.html can show real analyst recs to EVERY visitor
+// without each browser needing its own Finnhub key - same move as /brain/insider.
+async function fetchFinnhubRecommendations(env, sym) {
+  if (!env.FINNHUB_API_KEY) return null;
+  const url = 'https://finnhub.io/api/v1/stock/recommendation?symbol=' +
+    encodeURIComponent(sym) + '&token=' + encodeURIComponent(env.FINNHUB_API_KEY);
+  try {
+    const r = await fetch(url);
+    if (!r.ok) return null;
+    const j = await r.json();
+    const data = Array.isArray(j) ? j : [];
+    return data.map(d => ({
+      period: String(d.period || ''),
+      strongBuy: Number(d.strongBuy) || 0,
+      buy: Number(d.buy) || 0,
+      hold: Number(d.hold) || 0,
+      sell: Number(d.sell) || 0,
+      strongSell: Number(d.strongSell) || 0
+    })).sort((a, b) => (b.period || '').localeCompare(a.period || ''));
   } catch (e) { return null; }
 }
 
@@ -1815,6 +1841,38 @@ async function handleRequest(request, env, ctx) {
     });
     // Insider filings update slowly (legal lag) — cache 1h.
     resp.headers.set('Cache-Control', 'public, max-age=3600');
+    ctx.waitUntil(cache.put(cacheKey, resp.clone()));
+    return resp;
+  }
+
+  // Pass 287: analyst recommendation trends (Finnhub free tier), worker-proxied
+  // so every visitor sees real analyst recs without their own key. Accepts
+  // ?symbol= or ?sym=. NOT price targets (those need Finnhub paid).
+  if (path === '/brain/recommendations') {
+    const sym = (url.searchParams.get('symbol') || url.searchParams.get('sym') || '').toUpperCase().trim();
+    if (!sym) return json({ ok: false, error: 'symbol required (e.g. ?symbol=NVDA)' }, 400);
+    const cache = caches.default;
+    const cacheKey = new Request(url.toString(), { method: 'GET' });
+    const hit = await cache.match(cacheKey);
+    if (hit) return hit;
+    const recs = await fetchFinnhubRecommendations(env, sym);
+    const arr = Array.isArray(recs) ? recs : [];
+    const latest = arr[0] || null;
+    const analysts = latest ? (latest.strongBuy + latest.buy + latest.hold + latest.sell + latest.strongSell) : 0;
+    const resp = json({
+      ok: Array.isArray(recs),
+      source: 'finnhub/recommendation-trends',
+      symbol: sym,
+      count: arr.length,
+      analysts,
+      latest,
+      trend: arr.slice(0, 6),
+      note: Array.isArray(recs)
+        ? 'Analyst recommendation trends: monthly counts of strongBuy/buy/hold/sell/strongSell. Price targets are NOT included (Finnhub paid tier).'
+        : 'finnhub returned no recommendation data (key missing/invalid or symbol unsupported)'
+    });
+    // Recommendation trends refresh ~monthly - cache 6h.
+    resp.headers.set('Cache-Control', 'public, max-age=21600');
     ctx.waitUntil(cache.put(cacheKey, resp.clone()));
     return resp;
   }
