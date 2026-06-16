@@ -108,9 +108,13 @@
     if (recent.length < 10) return { score: 70, ok: null, msg: 'Insufficient resolved predictions for rolling check' };
     const wins = recent.filter(r => r.correct).length;
     const acc = wins / recent.length;
-    if (acc >= 0.60) return { score: 95, ok: true, msg: 'Recent accuracy ' + (acc * 100).toFixed(0) + '% (hot streak)' };
-    if (acc >= 0.50) return { score: 85, ok: true, msg: 'Recent accuracy ' + (acc * 100).toFixed(0) + '% (above coin flip)' };
-    if (acc >= 0.40) return { score: 55, ok: false, msg: 'Recent accuracy ' + (acc * 100).toFixed(0) + '% (below average)' };
+    // Pass 286: the honest bar is the ~52% market-drift base rate, not a 50%
+    // coin flip. ~50-53% directional is essentially drift/noise, not a "go"
+    // signal, so it returns ok:null (neutral), not a confident ok:true.
+    if (acc >= 0.60) return { score: 90, ok: true, msg: 'Recent accuracy ' + (acc * 100).toFixed(0) + '% (clearly above the ~52% drift base rate)' };
+    if (acc >= 0.53) return { score: 72, ok: true, msg: 'Recent accuracy ' + (acc * 100).toFixed(0) + '% (modestly above drift)' };
+    if (acc >= 0.50) return { score: 60, ok: null, msg: 'Recent accuracy ' + (acc * 100).toFixed(0) + '% (around the drift base rate — no clear recent edge)' };
+    if (acc >= 0.40) return { score: 45, ok: false, msg: 'Recent accuracy ' + (acc * 100).toFixed(0) + '% (below the base rate)' };
     return { score: 25, ok: false, msg: 'Recent accuracy ' + (acc * 100).toFixed(0) + '% (cold — sit out)' };
   }
 
