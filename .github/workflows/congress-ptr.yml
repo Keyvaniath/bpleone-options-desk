@@ -1,0 +1,63 @@
+name: Refresh congressional PTR filings
+
+# Downloads the official US House Clerk financial-disclosure archive (the annual
+# FD .zip), unzips it, and parses the index for Periodic Transaction Reports
+# (FilingType P) into data/congress-trades.json so congress-trades.html can read
+# it same-origin. The Cloudflare worker has no native unzip and the browser
+# cannot reach the archive (no CORS), so a once-daily commit is the clean free
+# path - same pattern as the economic-calendar refresh. Runtime ~10s/day.
+#
+# What the index contains: member, state/district, filing date, DocID, official
+# PDF link. It does NOT contain ticker/side/amount (those are inside each PDF),
+# so the page is filing-level and never fabricates trade detail. House only -
+# the Senate eFD system is session-gated with no free machine feed.
+
+on:
+  schedule:
+    - cron: "30 11 * * *"   # 11:30 UTC daily (~6:30am/7:30am ET depending on DST)
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Fetch + parse House PTR index
+        run: |
+          set -e
+          UA="Mozilla/5.0 (compatible; bpleone-options-desk/1.0)"
+          TMP="$(mktemp -d)"
+          YEAR="$(date -u +%Y)"
+          got=""
+          # Try current year, then prior year (handles the first days of January
+          # before the new annual archive is published).
+          for Y in "$YEAR" "$((YEAR-1))"; do
+            url="https://disclosures-clerk.house.gov/public_disc/financial-pdfs/${Y}FD.zip"
+            if curl -sf --max-time 40 -A "$UA" "$url" -o "$TMP/fd.zip"; then
+              if unzip -o "$TMP/fd.zip" -d "$TMP" >/dev/null 2>&1 && [ -f "$TMP/${Y}FD.txt" ]; then
+                node _parse_congress.js "$TMP/${Y}FD.txt" data/congress-trades.json "$Y"
+                got="$Y"
+                break
+              fi
+            fi
+            echo "year $Y unavailable, trying fallback"
+          done
+          if [ -z "$got" ]; then echo "could not fetch any House FD archive"; exit 1; fi
+          node -e "const j=JSON.parse(require('fs').readFileSync('data/congress-trades.json','utf8')); if(!j||!Array.isArray(j.filings)||!j.filings.length){console.error('parsed feed empty');process.exit(1);} console.log(j.filings.length,'PTR filings ok for',j.year);"
+      - name: Commit if changed
+        run: |
+          git config user.name "congress-ptr-bot"
+          git config user.email "actions@github.com"
+          git add data/congress-trades.json
+          if git diff --cached --quiet; then
+            echo "No PTR changes."
+          else
+            git commit -m "data: refresh House PTR filings [skip ci]"
+            git push
+          fi
