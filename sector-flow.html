@@ -58,6 +58,23 @@
     </div>
   </div>
 
+  <!-- BEST PERFORMING + PROJECTED (pass 303) -->
+  <div class="grid grid-2 mb-24">
+    <div class="card">
+      <div class="card-header"><div class="card-title">🏆 Best Performing Sectors</div><div class="mono" style="font-size:10px;color:var(--text-muted);">real returns vs prior closes</div></div>
+      <div class="grid grid-3" style="gap:14px;">
+        <div><div style="font-size:10px;font-weight:800;letter-spacing:0.5px;color:var(--text-muted);margin-bottom:8px;text-transform:uppercase;">Today</div><div id="bestDay"></div></div>
+        <div><div style="font-size:10px;font-weight:800;letter-spacing:0.5px;color:var(--text-muted);margin-bottom:8px;text-transform:uppercase;">1 Week</div><div id="bestWeek"></div></div>
+        <div><div style="font-size:10px;font-weight:800;letter-spacing:0.5px;color:var(--text-muted);margin-bottom:8px;text-transform:uppercase;">1 Month</div><div id="bestMonth"></div></div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-header"><div class="card-title">🔮 Projected Leaders — Momentum Outlook</div></div>
+      <div id="projList"></div>
+      <div style="margin-top:10px;font-size:11px;color:var(--text-muted);line-height:1.5;">Ranked by real relative strength + momentum vs SPY (the RRG leading/improving read). Momentum tends to persist over a few weeks, so these are the sectors most likely to keep leading <em>if the trend holds</em> — a momentum lean from live price data, not a guaranteed forecast.</div>
+    </div>
+  </div>
+
   <!-- RRG QUADRANT + TABLE -->
   <div class="grid grid-12">
     <div class="card col-6">
@@ -188,6 +205,38 @@ function paint() {
   document.getElementById('kpiBreadth').textContent = data.filter(d => d.dayPct > 0).length + ' / ' + data.length;
   const pivotCount = data.filter(d => Math.abs(d.mom - 100) > 1.5).length;
   document.getElementById('kpiPivots').textContent = pivotCount;
+
+  // Best Performing Sectors (pass 303) — real returns, top 3 per window
+  function renderBest(elId, field) {
+    const el = document.getElementById(elId);
+    if (!el) return;
+    const rows = data.filter(d => d[field] != null && isFinite(d[field])).sort((a, b) => b[field] - a[field]).slice(0, 3);
+    el.innerHTML = rows.length ? rows.map((d, i) =>
+      '<div style="display:flex;justify-content:space-between;align-items:center;padding:4px 0;font-size:12px;">'
+      + '<span><span style="color:var(--text-muted);">' + (i + 1) + '.</span> <strong>' + d.etf + '</strong></span>'
+      + '<span class="mono" style="color:' + pctCol(d[field]) + ';font-weight:700;">' + pct(d[field]) + '</span></div>'
+    ).join('') : '<div style="color:var(--text-muted);font-size:11px;">—</div>';
+  }
+  renderBest('bestDay', 'dayPct');
+  renderBest('bestWeek', 'weekPct');
+  renderBest('bestMonth', 'moPct');
+
+  // Projected Leaders (pass 303) — momentum outlook: real RS + momentum vs SPY,
+  // ranked into the RRG leading quadrant. A momentum lean, not a forecast.
+  const proj = data.filter(d => d.rs != null && d.mom != null)
+    .map(d => ({ d: d, score: (d.rs - 100) + (d.mom - 100) }))
+    .sort((a, b) => b.score - a.score).slice(0, 4).map(x => x.d);
+  const pl = document.getElementById('projList');
+  if (pl) {
+    pl.innerHTML = proj.length ? proj.map(d => {
+      const col = d.quad === 'Leading' ? 'var(--green)' : d.quad === 'Improving' ? 'var(--accent)' :
+                  d.quad === 'Weakening' ? 'var(--yellow)' : 'var(--red)';
+      return '<div style="display:flex;justify-content:space-between;align-items:center;padding:7px 0;border-bottom:1px solid var(--border);">'
+        + '<div><strong>' + d.etf + '</strong> <span style="color:var(--text-muted);font-size:11px;">' + d.name + '</span>'
+        + '<div style="font-size:10px;color:var(--text-muted);margin-top:2px;">RS ' + d.rs.toFixed(1) + ' · Mom ' + d.mom.toFixed(1) + ' · Mo ' + pct(d.moPct) + '</div></div>'
+        + '<span class="mono" style="color:' + col + ';font-weight:700;font-size:11px;">' + d.quad + '</span></div>';
+    }).join('') : '<div style="color:var(--text-muted);font-size:11px;">No data.</div>';
+  }
 
   // Scorecard
   const body = document.getElementById('sectorBody');
