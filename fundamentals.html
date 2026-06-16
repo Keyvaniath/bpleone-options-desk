@@ -103,21 +103,40 @@ async function load() {
   document.title = sym + ' Fundamentals — bpleone';
   $('content').innerHTML = '<div class="empty-card"><div class="icon">⏳</div><div>Loading ' + sym + ' from Finnhub…</div></div>';
 
-  if (typeof DataProvider === 'undefined' || DataProvider.getConfig().provider !== 'finnhub' || !DataProvider.getConfig().apiKey) {
-    showError('Finnhub key required', 'Open Settings → Market Data and connect Finnhub.');
-    return;
+  // Pass 300: worker-first (server-side Finnhub key) so this page renders for EVERY
+  // visitor with no browser key; fall back to a configured key, then to an honest
+  // empty state. Never fabricates.
+  const WORKER = (window.WorkerBridge && WorkerBridge.getUrl && WorkerBridge.getUrl()) || 'https://bpleone-brain-worker.brandonpleone.workers.dev';
+  async function wj(pq) { try { const r = await fetch(WORKER + pq); if (!r.ok) return null; return await r.json(); } catch (e) { return null; } }
+
+  let profile = null, metrics = null, recs = [], q = {};
+  const [wp, wf, wr, wq] = await Promise.all([
+    wj('/brain/profile?symbol=' + encodeURIComponent(sym)),
+    wj('/brain/fundamentals?symbol=' + encodeURIComponent(sym)),
+    wj('/brain/recommendations?symbol=' + encodeURIComponent(sym)),
+    wj('/brain/quotes?syms=' + encodeURIComponent(sym))
+  ]);
+  if (wp && wp.ok && wp.profile) profile = wp.profile;
+  if (wf && wf.ok && wf.metric) metrics = wf.metric;
+  if (wr && wr.ok && Array.isArray(wr.trend)) recs = wr.trend;
+  if (wq && wq.quotes && wq.quotes[sym]) { const x = wq.quotes[sym]; q = { c: x.last, pc: x.prevClose, h: x.dayHigh, l: x.dayLow }; }
+
+  // Fall back to a configured browser key if the worker had nothing (e.g. pre-deploy).
+  if ((!profile || !metrics) && typeof DataProvider !== 'undefined' && DataProvider.getConfig().provider === 'finnhub' && DataProvider.getConfig().apiKey) {
+    const [bp, bm, br, bq] = await Promise.all([
+      DataProvider.getStockProfile(sym).catch(e => null),
+      DataProvider.getBasicFinancials(sym).catch(e => null),
+      DataProvider.getRecommendations(sym).catch(e => []),
+      DataProvider.getQuote(sym).catch(e => ({}))
+    ]);
+    if (!profile && bp) profile = bp;
+    if (!metrics && bm) metrics = bm;
+    if ((!recs || !recs.length) && br && br.length) recs = br;
+    if (q.c == null && bq && bq.c != null) q = bq;
   }
 
-  // Parallel fetches
-  const [profile, metrics, recs, q] = await Promise.all([
-    DataProvider.getStockProfile(sym).catch(e => ({ _err: e.message })),
-    DataProvider.getBasicFinancials(sym).catch(e => ({ _err: e.message })),
-    DataProvider.getRecommendations(sym).catch(e => []),
-    DataProvider.getQuote(sym).catch(e => ({ _err: e.message }))
-  ]);
-
-  if (profile._err && metrics._err) {
-    showError('Failed to load ' + sym, profile._err);
+  if (!profile && !metrics) {
+    showError('Fundamentals unavailable for ' + sym, 'The data feed is unavailable right now — nothing fabricated. This populates once the worker is live; if you have your own Finnhub key, connect it in Settings to load it immediately.');
     return;
   }
   render(sym, profile || {}, metrics || {}, recs || [], q || {});

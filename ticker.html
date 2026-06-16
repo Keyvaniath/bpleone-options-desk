@@ -210,15 +210,29 @@ function renderQuote(last, pc, hi, lo, open) {
 }
 
 async function loadProfile() {
-  if (typeof DataProvider === 'undefined' || DataProvider.getConfig().provider !== 'finnhub' || !DataProvider.getConfig().apiKey) {
-    noKeyMsg('profileBox'); noKeyMsg('valBox'); noKeyMsg('growthBox');
-    return;
-  }
+  // Pass 300: worker-first (server-side Finnhub key) so profile/valuation/growth
+  // render for EVERY visitor with no browser key; fall back to a configured key if
+  // present, then to an honest empty state. Never fabricates.
+  const WORKER = (window.WorkerBridge && WorkerBridge.getUrl && WorkerBridge.getUrl()) || 'https://bpleone-brain-worker.brandonpleone.workers.dev';
+  async function wj(pq) { try { const r = await fetch(WORKER + pq); if (!r.ok) return null; return await r.json(); } catch (e) { return null; } }
+  let p = null, m = null;
   try {
-    const [p, m] = await Promise.all([
-      DataProvider.getStockProfile(sym).catch(e => ({})),
-      DataProvider.getBasicFinancials(sym).catch(e => ({}))
+    const [wp, wf] = await Promise.all([
+      wj('/brain/profile?symbol=' + encodeURIComponent(sym)),
+      wj('/brain/fundamentals?symbol=' + encodeURIComponent(sym))
     ]);
+    if (wp && wp.ok && wp.profile) p = wp.profile;
+    if (wf && wf.ok && wf.metric) m = wf.metric;
+    if ((!p || !m) && typeof DataProvider !== 'undefined' && DataProvider.getConfig().provider === 'finnhub' && DataProvider.getConfig().apiKey) {
+      const [bp, bm] = await Promise.all([
+        DataProvider.getStockProfile(sym).catch(e => null),
+        DataProvider.getBasicFinancials(sym).catch(e => null)
+      ]);
+      if (!p && bp) p = bp;
+      if (!m && bm) m = bm;
+    }
+    if (!p && !m) { noKeyMsg('profileBox'); noKeyMsg('valBox'); noKeyMsg('growthBox'); return; }
+    p = p || {}; m = m || {};
     renderProfile(p, m);
     renderValuation(m);
     renderGrowth(m);

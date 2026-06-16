@@ -38,7 +38,7 @@
 // Pass 200: version stamp so brain-proof.html + worker-setup.html can detect
 // when the deployed worker is behind the repo source. Bump on every meaningful
 // behavior change. Read via /brain/health → worker_version field.
-const WORKER_VERSION = 'pass-287';
+const WORKER_VERSION = 'pass-288';
 
 const UNIVERSE = [
   'SPY','QQQ','IWM','DIA','AAPL','NVDA','TSLA','MSFT','META','AMZN','GOOGL','AMD',
@@ -670,6 +670,35 @@ async function fetchFinnhubRecommendations(env, sym) {
       sell: Number(d.sell) || 0,
       strongSell: Number(d.strongSell) || 0
     })).sort((a, b) => (b.period || '').localeCompare(a.period || ''));
+  } catch (e) { return null; }
+}
+
+// Pass 300: company profile + basic-financials metrics from Finnhub's free tier,
+// worker-proxied so ticker.html / fundamentals.html render the full per-symbol
+// view for EVERY visitor without a browser key (completes the pass-287 recs unlock).
+async function fetchFinnhubProfile(env, sym) {
+  if (!env.FINNHUB_API_KEY) return null;
+  const url = 'https://finnhub.io/api/v1/stock/profile2?symbol=' +
+    encodeURIComponent(sym) + '&token=' + encodeURIComponent(env.FINNHUB_API_KEY);
+  try {
+    const r = await fetch(url);
+    if (!r.ok) return null;
+    const j = await r.json();
+    // profile2 returns {} for unknown/unsupported symbols - treat as no data.
+    if (!j || typeof j !== 'object' || !j.name) return null;
+    return j;   // {name, ticker, exchange, country, currency, ipo, marketCapitalization, shareOutstanding, finnhubIndustry, weburl, logo, ...}
+  } catch (e) { return null; }
+}
+async function fetchFinnhubMetrics(env, sym) {
+  if (!env.FINNHUB_API_KEY) return null;
+  const url = 'https://finnhub.io/api/v1/stock/metric?symbol=' +
+    encodeURIComponent(sym) + '&metric=all&token=' + encodeURIComponent(env.FINNHUB_API_KEY);
+  try {
+    const r = await fetch(url);
+    if (!r.ok) return null;
+    const j = await r.json();
+    if (!j || !j.metric || typeof j.metric !== 'object') return null;
+    return j.metric;   // peTTM, psTTM, 52WeekHigh/Low, marketCapitalization, beta, margins, growth, roeTTM, ...
   } catch (e) { return null; }
 }
 
@@ -1873,6 +1902,51 @@ async function handleRequest(request, env, ctx) {
     });
     // Recommendation trends refresh ~monthly - cache 6h.
     resp.headers.set('Cache-Control', 'public, max-age=21600');
+    ctx.waitUntil(cache.put(cacheKey, resp.clone()));
+    return resp;
+  }
+
+  // Pass 300: company profile (Finnhub /stock/profile2), worker-proxied so the
+  // per-symbol pages render keyless. Accepts ?symbol= or ?sym=.
+  if (path === '/brain/profile') {
+    const sym = (url.searchParams.get('symbol') || url.searchParams.get('sym') || '').toUpperCase().trim();
+    if (!sym) return json({ ok: false, error: 'symbol required (e.g. ?symbol=NVDA)' }, 400);
+    const cache = caches.default;
+    const cacheKey = new Request(url.toString(), { method: 'GET' });
+    const hit = await cache.match(cacheKey);
+    if (hit) return hit;
+    const profile = await fetchFinnhubProfile(env, sym);
+    const resp = json({
+      ok: !!profile,
+      source: 'finnhub/profile2',
+      symbol: sym,
+      profile: profile || null,
+      note: profile ? 'Company profile from Finnhub.' : 'finnhub returned no profile (key missing/invalid or symbol unsupported)'
+    });
+    resp.headers.set('Cache-Control', 'public, max-age=43200');  // profiles change rarely - 12h
+    ctx.waitUntil(cache.put(cacheKey, resp.clone()));
+    return resp;
+  }
+
+  // Pass 300: basic financials / valuation-growth-margin metrics
+  // (Finnhub /stock/metric?metric=all). Returns the `metric` object verbatim so
+  // the page render code is a drop-in match for DataProvider.getBasicFinancials.
+  if (path === '/brain/fundamentals') {
+    const sym = (url.searchParams.get('symbol') || url.searchParams.get('sym') || '').toUpperCase().trim();
+    if (!sym) return json({ ok: false, error: 'symbol required (e.g. ?symbol=NVDA)' }, 400);
+    const cache = caches.default;
+    const cacheKey = new Request(url.toString(), { method: 'GET' });
+    const hit = await cache.match(cacheKey);
+    if (hit) return hit;
+    const metric = await fetchFinnhubMetrics(env, sym);
+    const resp = json({
+      ok: !!metric,
+      source: 'finnhub/metric',
+      symbol: sym,
+      metric: metric || null,
+      note: metric ? 'Valuation / growth / margin metrics from Finnhub.' : 'finnhub returned no metrics (key missing/invalid or symbol unsupported)'
+    });
+    resp.headers.set('Cache-Control', 'public, max-age=21600');  // 6h
     ctx.waitUntil(cache.put(cacheKey, resp.clone()));
     return resp;
   }
