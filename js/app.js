@@ -40,7 +40,7 @@
   // module (e.g. data-mode-banner.js still rendered the old "every tick is current"
   // banner long after the fix deployed). Found via LIVE browser verify, not static
   // review. Deriving from self means it can never drift again.
-  let CACHE_BUST = 'v202';
+  let CACHE_BUST = 'v203';
   try {
     const me = document.currentScript;
     const src = me ? me.src : ([...document.querySelectorAll('script[src]')].map(s => s.src).find(u => /\/app\.js(\?|$)/.test(u)) || '');
@@ -189,7 +189,7 @@ function updateTickerItem(sym, q) {
 
 function buildNav(activePage) {
   activePage = activePage || '';
-  const playsGrp = ['totd','plays','signals','earnings','earnings-preview','pre-market','zero-dte','setup-wizard','paper-trade','game-plan','hot-movers','squeeze-radar','trade-plan','trade-of-the-day'];
+  const playsGrp = ['totd','options-lab','plays','signals','earnings','earnings-preview','pre-market','zero-dte','setup-wizard','paper-trade','game-plan','hot-movers','squeeze-radar','trade-plan','trade-of-the-day'];
   const tradeGrp = ['flow','chain','ta','momentum','market-internals','smart-money','heatmap','watchlists','vol-surface','gex','tape','sectors','pairs','calendar-analyzer','vol-cone','dark-pool','short-interest','etf-flows','volume-profile','order-flow','ticker','multi-leg-builder','bracket-builder','spread-scanner','wheel','correlation','big-bets','dark-pool-pro','day-trader-pro','flow-replay','gex-pro','iv-crush-tracker','opex-tracker','options-builder','options-pricer','options-skew-radar','orderbook','trade-tape','vol-term'];
   // Daily workflow group — top of funnel
   const dailyGrp = ['pick-of-day','morning-brief','daily-debrief','tomorrow-playbook','friday-summary','catalyst-clock','ai-narrative','daily-stats','conviction-stack','game-plan'];
@@ -258,6 +258,7 @@ function buildNav(activePage) {
     + '<li><a href="dashboard.html" class="' + (activePage==='dashboard'?'active':'') + '">Dashboard</a></li>'
     + '<li class="nav-dd"><a href="#" class="' + (isPlays?'active':'') + '">Daily ▾</a><div class="nav-dropdown">'
     +   '<a href="pick-of-day.html">🎯 Pick of the Day</a>'
+    +   '<a href="options-lab.html">🤖 Options Play Lab</a>'
     +   '<a href="morning-brief.html">☀ Morning Brief</a>'
     +   '<a href="conviction-stack.html">⭐ Conviction Stack</a>'
     +   '<a href="trade-of-the-day.html">🎯 Trade of the Day</a>'

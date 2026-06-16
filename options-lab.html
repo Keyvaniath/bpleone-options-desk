@@ -1,0 +1,277 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Options Play Lab — search a symbol, get a concrete play — bpleone / trade</title>
+<meta name="description" content="Search any ticker and the brain hands you a concrete options play: its directional lean + real technical read + an exact structure (strikes, expirations, defined risk) and what to monitor. Premiums are Black-Scholes estimates; educational, not advice.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css?v=v203">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.ol-search { display:flex; gap:10px; margin-bottom:8px; }
+.ol-search input { flex:1; padding:14px 16px; background:var(--bg-elevated); border:1px solid var(--border); border-radius:10px; color:var(--text-primary); font-size:16px; font-family:var(--font-mono); text-transform:uppercase; }
+.ol-chip { display:inline-block; padding:4px 10px; margin:2px; background:var(--bg-elevated); border:1px solid var(--border); border-radius:14px; font-size:11px; font-family:var(--font-mono); cursor:pointer; color:var(--text-secondary); }
+.ol-chip:hover { border-color:var(--accent); color:var(--accent); }
+.leg-row { display:grid; grid-template-columns: 1fr 70px 90px 90px 1fr; gap:8px; padding:9px 12px; border-bottom:1px solid var(--border); font-family:var(--font-mono); font-size:12px; align-items:center; }
+.kv { display:flex; justify-content:space-between; padding:5px 0; font-size:12px; border-bottom:1px solid var(--border); }
+.kv .k { color:var(--text-muted); } .kv .v { font-family:var(--font-mono); font-weight:600; }
+.bias-pill { display:inline-flex; align-items:center; gap:6px; padding:4px 12px; border-radius:999px; font-size:12px; font-weight:800; letter-spacing:0.5px; }
+.mono { font-family:var(--font-mono); }
+</style>
+</head>
+<body data-needs="live">
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">🤖 Options Play Lab</div>
+      <div class="page-subtitle">Search a ticker → the brain's directional lean + real technicals + a concrete options structure with exact strikes &amp; expirations · <span id="market-clock">--</span></div>
+    </div>
+  </div>
+
+  <div class="card mb-24">
+    <div class="ol-search">
+      <input id="symInput" placeholder="Type a ticker (NVDA, AAPL, SPY…) and press Enter" autofocus autocomplete="off">
+      <button class="btn btn-primary" id="goBtn">Generate Play</button>
+    </div>
+    <div id="chips"></div>
+    <div style="margin-top:10px;font-size:11px;color:var(--text-muted);line-height:1.6;">
+      The robot reads live price + the brain's calibrated 5-day directional lean + real technicals, then proposes a <strong>defined-risk</strong> structure with exact strikes and real expiration dates. <strong style="color:var(--yellow);">Premiums are Black-Scholes estimates</strong> from the stock's realized volatility — there's no live options-chain feed on the free tier, so confirm exact fills on your broker. The brain's lean has <strong>no proven timing edge</strong> (it's mostly market drift — see <a href="proof.html" style="color:var(--accent);">the proof</a>); this is an educational framework, not advice.
+    </div>
+  </div>
+
+  <div id="result"></div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js?v=v203"></script>
+<script src="js/ai-client.js?v=v203"></script>
+<script src="js/app.js?v=v203"></script>
+<script src="js/notify.js?v=v203"></script>
+<script src="js/live.js?v=v203"></script>
+<script>
+buildNav('options-lab');
+
+const WORKER = (window.WorkerBridge && WorkerBridge.getUrl && WorkerBridge.getUrl()) || 'https://bpleone-brain-worker.brandonpleone.workers.dev';
+const POPULAR = ['NVDA','TSLA','AAPL','SPY','QQQ','AMD','META','MSFT','AMZN','COIN','PLTR','XLE'];
+const $ = id => document.getElementById(id);
+
+// ---- helpers (all real math) ----
+function stdStrike(px) { const inc = px < 25 ? 0.5 : px < 50 ? 1 : px < 100 ? 2.5 : 5; return Math.round(px / inc) * inc; }
+function roundInc(px, k) { const inc = px < 25 ? 0.5 : px < 50 ? 1 : px < 100 ? 2.5 : 5; return Math.round(k / inc) * inc; }
+function fmt$(v, d = 2) { return (v == null || !isFinite(v)) ? '—' : '$' + Number(v).toFixed(d); }
+function fmtPct(v, d = 1) { return (v == null || !isFinite(v)) ? '—' : (v >= 0 ? '+' : '') + Number(v).toFixed(d) + '%'; }
+
+function thirdFriday(year, monthIdx) {
+  let count = 0;
+  for (let d = 1; d <= 31; d++) {
+    const t = new Date(year, monthIdx, d);
+    if (t.getMonth() !== monthIdx) break;
+    if (t.getDay() === 5) { count++; if (count === 3) return t; }
+  }
+  return null;
+}
+function nearestMonthly(minDte) {
+  const now = new Date();
+  for (let m = 0; m < 6; m++) {
+    const base = new Date(now.getFullYear(), now.getMonth() + m, 1);
+    const exp = thirdFriday(base.getFullYear(), base.getMonth());
+    if (!exp) continue;
+    const dte = Math.round((exp - now) / 86400000);
+    if (dte >= minDte) return { date: exp, dte };
+  }
+  return null;
+}
+function fmtDate(d) { return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }); }
+
+function annualizedVol(bars) {
+  if (!bars || bars.length < 8) return null;
+  const r = [];
+  for (let i = 1; i < bars.length; i++) { if (bars[i - 1].c > 0 && bars[i].c > 0) r.push(Math.log(bars[i].c / bars[i - 1].c)); }
+  if (r.length < 6) return null;
+  const m = r.reduce((a, b) => a + b, 0) / r.length;
+  const v = r.reduce((a, b) => a + (b - m) * (b - m), 0) / (r.length - 1);
+  return Math.sqrt(v * 252);
+}
+function sma(bars, p) { if (!bars || bars.length < p) return null; const s = bars.slice(-p); return s.reduce((a, b) => a + b.c, 0) / p; }
+function rsi(bars, p = 14) {
+  if (!bars || bars.length < p + 1) return null;
+  let g = 0, l = 0;
+  for (let i = bars.length - p; i < bars.length; i++) { const ch = bars[i].c - bars[i - 1].c; if (ch >= 0) g += ch; else l -= ch; }
+  if (l === 0) return 100;
+  const rs = (g / p) / (l / p);
+  return 100 - 100 / (1 + rs);
+}
+function atr(bars, p = 14) {
+  if (!bars || bars.length < p + 1) return null;
+  let sum = 0;
+  for (let i = bars.length - p; i < bars.length; i++) {
+    const tr = Math.max(bars[i].h - bars[i].l, Math.abs(bars[i].h - bars[i - 1].c), Math.abs(bars[i].l - bars[i - 1].c));
+    sum += tr;
+  }
+  return sum / p;
+}
+
+async function wj(pq) { try { const r = await fetch(WORKER + pq, { cache: 'no-store' }); if (!r.ok) return null; return await r.json(); } catch (e) { return null; } }
+
+async function generate(sym) {
+  sym = (sym || '').toUpperCase().trim();
+  if (!sym) return;
+  $('result').innerHTML = '<div class="card" style="text-align:center;padding:40px;color:var(--text-muted);">Reading ' + sym + ' — live price, the brain’s lean, and the tape…</div>';
+  history.replaceState(null, '', 'options-lab.html?sym=' + sym);
+
+  const [pred, barsR, recR, earnR] = await Promise.all([
+    wj('/brain/predict?sym=' + encodeURIComponent(sym)),
+    wj('/brain/bars?syms=' + encodeURIComponent(sym) + '&days=40'),
+    wj('/brain/recommendations?symbol=' + encodeURIComponent(sym)),
+    wj('/brain/earnings?days=70')
+  ]);
+
+  if (!pred || !pred.quote || !(pred.quote.last > 0)) {
+    $('result').innerHTML = '<div class="card" style="text-align:center;padding:40px;color:var(--text-muted);">No live data for <strong>' + sym + '</strong> right now — check the symbol, or try a liquid large-cap. Nothing fabricated.</div>';
+    return;
+  }
+
+  const S = pred.quote.last;
+  const chg = pred.quote.changePct;
+  const conv = (pred.conviction != null) ? pred.conviction : 0.5;       // calibrated prob of the directional call
+  const dir = pred.direction || (conv >= 0.5 ? 'LONG' : 'SHORT');
+  const vix = pred.vix || null;
+  const bars = (barsR && barsR.bars && barsR.bars[sym]) ? barsR.bars[sym] : null;
+
+  // Real technicals
+  const rVol = annualizedVol(bars);
+  const iv = rVol != null ? rVol : (vix ? (vix / 100) * 1.15 : 0.35);   // IV estimate = realized vol (or VIX-scaled fallback)
+  const ivSource = rVol != null ? 'realized vol' : (vix ? 'VIX-scaled' : 'default');
+  const sma20 = sma(bars, 20), sma50 = sma(bars, 50);
+  const rsiV = rsi(bars, 14);
+  const atrV = atr(bars, 14);
+  const hi20 = bars ? Math.max(...bars.slice(-20).map(b => b.h)) : null;
+  const lo20 = bars ? Math.min(...bars.slice(-20).map(b => b.l)) : null;
+
+  // Bias gate (honest: small edge -> don't force a play)
+  const bull = dir === 'LONG';
+  let stance, stanceCol, structure;
+  if (conv >= 0.60) { stance = bull ? 'BULLISH' : 'BEARISH'; stanceCol = bull ? 'var(--green)' : 'var(--red)'; structure = bull ? 'call-debit' : 'put-debit'; }
+  else if (conv >= 0.555) { stance = bull ? 'MILD BULL' : 'MILD BEAR'; stanceCol = bull ? 'var(--green)' : 'var(--red)'; structure = bull ? 'call-debit' : 'put-debit'; }
+  else { stance = 'NO CLEAR EDGE'; stanceCol = 'var(--yellow)'; structure = 'none'; }
+
+  // Earnings (monitor)
+  let nextErn = null;
+  try { const arr = (earnR && earnR.earnings) || (earnR && earnR.calendar) || []; const hit = arr.find(e => (e.symbol || e.sym || '').toUpperCase() === sym); if (hit) nextErn = hit.date || hit.day || null; } catch (e) {}
+
+  // ---- build the play ----
+  const r = 0.043; // risk-free proxy
+  let playHtml;
+  if (structure === 'none') {
+    playHtml = '<div class="card mb-24"><div class="card-header"><div class="card-title">🎯 Suggested Play</div></div>'
+      + '<div style="padding:14px;font-size:13px;color:var(--text-secondary);line-height:1.7;">The brain’s lean here is only <strong>' + (conv * 100).toFixed(0) + '%</strong> — too close to the market’s natural drift to justify a directional options bet. <strong style="color:var(--yellow);">The honest call is to WAIT / monitor</strong>, not to force a trade. Watch for the conviction to firm up past ~60% with price reclaiming its 20-day average, or trade the underlying small. (A defined-risk neutral structure like an iron condor is the only "play" that fits a no-edge read — and only if you want premium-decay exposure, not direction.)</div></div>';
+  } else {
+    const callPut = structure === 'call-debit' ? 'call' : 'put';
+    const isCall = structure === 'call-debit';
+    const near = nearestMonthly(12), swing = nearestMonthly(32);
+    const inc = S < 25 ? 0.5 : S < 50 ? 1 : S < 100 ? 2.5 : 5;
+    const move = Math.max(atrV || S * 0.035, S * 0.02);            // ~1 ATR, floored at 2%
+    // long = at-the-money in the trade direction (slightly OTM keeps it cheaper / better R:R)
+    const longK = isCall ? Math.ceil(S / inc) * inc : Math.floor(S / inc) * inc;
+    // spread width ~1.5 ATR, at least one strike increment and ~3% of spot
+    const width = Math.max(inc, Math.round(Math.max(move * 1.5, S * 0.03) / inc) * inc);
+    const shortK = isCall ? longK + width : longK - width;
+
+    function legPlay(exp) {
+      if (!exp) return '';
+      const T = exp.dte / 365;
+      const longP = BS.price(callPut, S, longK, T, r, iv);
+      const shortP = BS.price(callPut, S, shortK, T, r, iv);
+      const debit = Math.max(0.01, longP - shortP);
+      const maxGain = Math.max(0, width - debit);
+      const be = structure === 'call-debit' ? longK + debit : longK - debit;
+      const rr = debit > 0 ? (maxGain / debit) : 0;
+      return '<div class="card mb-16" style="border:1px solid ' + stanceCol + '33;">'
+        + '<div class="card-header"><div class="card-title">' + (structure === 'call-debit' ? '📈 Call Debit Spread' : '📉 Put Debit Spread') + ' — exp ' + fmtDate(exp.date) + ' (' + exp.dte + ' DTE)</div></div>'
+        + '<div class="leg-row" style="background:var(--bg-elevated);font-size:9px;color:var(--text-muted);font-weight:800;letter-spacing:0.5px;"><div>LEG</div><div>STRIKE</div><div>EST PX</div><div>DELTA</div><div></div></div>'
+        + '<div class="leg-row"><div style="color:var(--green);">BUY ' + callPut.toUpperCase() + '</div><div>' + fmt$(longK) + '</div><div>' + fmt$(longP) + '</div><div>' + BS.greeks(callPut, S, longK, T, r, iv).delta.toFixed(2) + '</div><div style="color:var(--text-muted);">~ at-the-money</div></div>'
+        + '<div class="leg-row"><div style="color:var(--red);">SELL ' + callPut.toUpperCase() + '</div><div>' + fmt$(shortK) + '</div><div>' + fmt$(shortP) + '</div><div>' + BS.greeks(callPut, S, shortK, T, r, iv).delta.toFixed(2) + '</div><div style="color:var(--text-muted);">caps gain, cuts cost</div></div>'
+        + '<div style="padding:12px 14px;display:grid;grid-template-columns:repeat(4,1fr);gap:10px;text-align:center;">'
+        + '<div><div class="mono" style="font-size:16px;font-weight:700;">' + fmt$(debit) + '</div><div style="font-size:10px;color:var(--text-muted);">Net debit / risk</div></div>'
+        + '<div><div class="mono" style="font-size:16px;font-weight:700;color:var(--green);">' + fmt$(maxGain) + '</div><div style="font-size:10px;color:var(--text-muted);">Max gain</div></div>'
+        + '<div><div class="mono" style="font-size:16px;font-weight:700;">' + fmt$(be) + '</div><div style="font-size:10px;color:var(--text-muted);">Breakeven</div></div>'
+        + '<div><div class="mono" style="font-size:16px;font-weight:700;color:var(--accent);">' + rr.toFixed(1) + ':1</div><div style="font-size:10px;color:var(--text-muted);">Reward : risk</div></div>'
+        + '</div>'
+        + '<div style="padding:0 14px 12px;font-size:11px;color:var(--text-muted);">Per 1 spread (×100 = $' + (debit * 100).toFixed(0) + ' risked for $' + (maxGain * 100).toFixed(0) + ' max). Premiums Black-Scholes-estimated from ' + ivSource + ' (' + (iv * 100).toFixed(0) + '% IV); confirm live on your broker chain.</div>'
+        + '</div>';
+    }
+    playHtml = '<div class="card mb-24" style="padding:14px 16px;"><div class="card-title" style="margin-bottom:4px;">🎯 Suggested Play — ' + (structure === 'call-debit' ? 'bullish call debit spread' : 'bearish put debit spread') + '</div>'
+      + '<div style="font-size:12px;color:var(--text-muted);">Defined-risk: you can only lose the debit. The brain leans <strong style="color:' + stanceCol + ';">' + (bull ? 'UP' : 'DOWN') + '</strong> at <strong>' + (conv * 100).toFixed(0) + '%</strong> conviction over ~5 trading days — a spread monetizes that lean while capping cost and theta vs a naked long option. Two expirations below: a near-term and a swing.</div></div>'
+      + legPlay(near) + legPlay(swing);
+  }
+
+  // ---- monitor list (real) ----
+  const monitor = [];
+  if (nextErn) monitor.push('<strong>Earnings ' + nextErn + '</strong> — if it lands before your expiration, expect an IV crush; either close before, or size for the gap risk.');
+  if (lo20 != null) monitor.push('Support ≈ <strong>' + fmt$(lo20) + '</strong> (20-day low) — a close below it invalidates a bullish thesis; use it as your mental stop on the underlying.');
+  if (hi20 != null) monitor.push('Resistance ≈ <strong>' + fmt$(hi20) + '</strong> (20-day high) — a breakout/failure here is the tell for continuation vs fade.');
+  if (vix) monitor.push('VIX <strong>' + vix.toFixed(1) + '</strong> — ' + (vix > 22 ? 'elevated: options are pricey, favor spreads over naked longs.' : vix < 14 ? 'low: cheap premium, but moves may be small.' : 'normal regime.'));
+  monitor.push('Brain conviction <strong>' + (conv * 100).toFixed(0) + '%</strong> — it re-scores every market-hours minute; if it drifts back toward 50% the edge is gone, so re-check before adding.');
+
+  // analyst skew
+  let recLine = '';
+  if (recR && recR.ok && recR.latest) {
+    const L = recR.latest; const tot = L.strongBuy + L.buy + L.hold + L.sell + L.strongSell;
+    if (tot) recLine = '<div class="kv"><span class="k">Analyst skew (' + tot + ', via Finnhub)</span><span class="v">' + (L.strongBuy + L.buy) + ' buy / ' + L.hold + ' hold / ' + (L.sell + L.strongSell) + ' sell</span></div>';
+  }
+
+  // ---- render ----
+  $('result').innerHTML =
+    // snapshot + lean
+    '<div class="grid grid-12 mb-24">'
+    + '<div class="card col-5"><div class="card-header"><div class="card-title">' + sym + ' snapshot</div>'
+    + '<span class="bias-pill" style="background:' + stanceCol + '22;color:' + stanceCol + ';">' + stance + '</span></div>'
+    + '<div style="display:flex;align-items:baseline;gap:10px;margin:6px 0 10px;"><span class="mono" style="font-size:30px;font-weight:700;">' + fmt$(S) + '</span><span class="mono ' + (chg >= 0 ? 'green-text' : 'red-text') + '">' + fmtPct(chg, 2) + '</span></div>'
+    + '<div class="kv"><span class="k">Brain 5-day lean</span><span class="v" style="color:' + stanceCol + ';">' + (bull ? 'LONG' : 'SHORT') + ' · ' + (conv * 100).toFixed(0) + '% conviction</span></div>'
+    + recLine
+    + '<div style="margin-top:10px;font-size:11px;color:var(--text-muted);line-height:1.6;">The lean is the brain’s calibrated probability the next ~5-day move is ' + (bull ? 'up' : 'down') + '. It has <strong>no proven timing edge</strong> beyond market drift — treat it as a tilt, not a signal.</div>'
+    + '</div>'
+    // technicals
+    + '<div class="card col-7"><div class="card-header"><div class="card-title">📊 Technical read (real)</div></div>'
+    + '<div class="grid grid-2" style="gap:0 18px;">'
+    + '<div class="kv"><span class="k">Trend vs 20-day</span><span class="v">' + (sma20 ? (S >= sma20 ? 'above (' + fmt$(sma20) + ')' : 'below (' + fmt$(sma20) + ')') : '—') + '</span></div>'
+    + '<div class="kv"><span class="k">Trend vs 50-day</span><span class="v">' + (sma50 ? (S >= sma50 ? 'above (' + fmt$(sma50) + ')' : 'below (' + fmt$(sma50) + ')') : '—') + '</span></div>'
+    + '<div class="kv"><span class="k">RSI(14)</span><span class="v">' + (rsiV != null ? rsiV.toFixed(0) + (rsiV >= 70 ? ' overbought' : rsiV <= 30 ? ' oversold' : '') : '—') + '</span></div>'
+    + '<div class="kv"><span class="k">ATR(14)</span><span class="v">' + (atrV != null ? fmt$(atrV) + ' (' + (atrV / S * 100).toFixed(1) + '%)' : '—') + '</span></div>'
+    + '<div class="kv"><span class="k">20-day range</span><span class="v">' + fmt$(lo20) + ' – ' + fmt$(hi20) + '</span></div>'
+    + '<div class="kv"><span class="k">Realized vol (ann.)</span><span class="v">' + (rVol != null ? (rVol * 100).toFixed(0) + '%' : '—') + '</span></div>'
+    + '</div>'
+    + '<div style="margin-top:10px;font-size:11px;color:var(--text-muted);">Computed from real daily bars (' + (bars ? bars.length : 0) + ' days) via the bpleone worker. Used to size strikes (±ATR) and estimate option premiums.</div>'
+    + '</div>'
+    + '</div>'
+    // the play
+    + playHtml
+    // monitor
+    + '<div class="card mb-24"><div class="card-header"><div class="card-title">👀 What to monitor</div></div>'
+    + '<ul style="margin:0;padding-left:18px;font-size:12.5px;color:var(--text-secondary);line-height:1.9;">'
+    + monitor.map(m => '<li>' + m + '</li>').join('')
+    + '</ul></div>'
+    // links + disclaimer
+    + '<div class="card"><div style="font-size:12px;color:var(--text-secondary);line-height:1.7;">'
+    + '<strong>Dig deeper:</strong> <a href="ticker.html?sym=' + sym + '" style="color:var(--accent);">' + sym + ' full profile</a> · <a href="options-pricer.html" style="color:var(--accent);">price these legs exactly</a> · <a href="multi-leg-builder.html" style="color:var(--accent);">build a custom structure</a> · <a href="trade-plan.html?sym=' + sym + '" style="color:var(--accent);">stock trade plan</a>.'
+    + '<div style="margin-top:10px;font-size:11px;color:var(--text-muted);">Educational only — not investment advice and not a recommendation to trade. Option premiums are Black-Scholes <em>estimates</em> from realized volatility (no live options chain on the free tier); real fills, IV and Greeks will differ. The brain’s directional lean is mostly market drift with no statistically-proven timing edge. The brain keeps learning from real outcomes every market-hours minute — today’s read can change tomorrow.</div>'
+    + '</div></div>';
+}
+
+// chips
+$('chips').innerHTML = POPULAR.map(s => '<span class="ol-chip" data-sym="' + s + '">' + s + '</span>').join('');
+document.querySelectorAll('.ol-chip').forEach(c => c.addEventListener('click', () => { $('symInput').value = c.dataset.sym; generate(c.dataset.sym); }));
+$('goBtn').addEventListener('click', () => generate($('symInput').value));
+$('symInput').addEventListener('keydown', e => { if (e.key === 'Enter') generate($('symInput').value); });
+
+// deep-link ?sym=
+(function () { const u = new URLSearchParams(location.search); const s = u.get('sym'); if (s) { $('symInput').value = s.toUpperCase(); generate(s); } })();
+</script>
+</body>
+</html>
