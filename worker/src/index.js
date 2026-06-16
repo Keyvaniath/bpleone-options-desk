@@ -38,7 +38,7 @@
 // Pass 200: version stamp so brain-proof.html + worker-setup.html can detect
 // when the deployed worker is behind the repo source. Bump on every meaningful
 // behavior change. Read via /brain/health → worker_version field.
-const WORKER_VERSION = 'pass-285';
+const WORKER_VERSION = 'pass-286';
 
 const UNIVERSE = [
   'SPY','QQQ','IWM','DIA','AAPL','NVDA','TSLA','MSFT','META','AMZN','GOOGL','AMD',
@@ -1881,20 +1881,39 @@ async function handleRequest(request, env, ctx) {
     const resolved = log.filter(e => e && e.resolved && typeof e.ret === 'number');
     // Grade a leg: dirFn(e) -> +1 (bullish call) / -1 (bearish call) / 0 (no call).
     // A call is a HIT if the realized 5-day move went the called direction.
+    // Pass 286 (CRITICAL honesty fix): grade directional calls against MARKET
+    // DRIFT, not a 50% coin flip. The brain is structurally short-biased, so in
+    // a down window a short book "hits" >50% on drift alone - beating a coin
+    // flip proves nothing (this is the same trap pass-267 fixed in the backtest
+    // metrics; it had never been applied to this live scorer). The honest null
+    // for a call is the unconditional move-rate in its direction: P(up)=driftUp
+    // for longs, P(down)=1-driftUp for shorts. AND a signal is only "worth it"
+    // if following it is actually PROFITABLE (positive average directional
+    // return) - a high hit rate with negative returns (small wins, big losses)
+    // is not edge.
+    const driftUp = resolved.length ? resolved.filter(e => e.ret > 0).length / resolved.length : 0.5;
     function score(entries, dirFn) {
       const calls = entries.map(e => ({ dir: dirFn(e), ret: e.ret })).filter(c => c.dir !== 0);
       const n = calls.length;
       const hits = calls.filter(c => (c.dir > 0 && c.ret > 0) || (c.dir < 0 && c.ret < 0)).length;
       // Directional return: + when the move went our way. Mean across calls.
       const avgDirRet = n ? calls.reduce((a, c) => a + c.ret * c.dir, 0) / n : null;
-      // One-sided z vs a 50% coin flip (binomial normal approx).
-      const z = n >= 5 ? (hits - n * 0.5) / Math.sqrt(n * 0.25) : null;
+      // Expected hits if the calls had NO timing skill and only rode drift.
+      let nullHits = 0;
+      calls.forEach(c => { nullHits += (c.dir > 0 ? driftUp : (1 - driftUp)); });
+      const p0 = n ? nullHits / n : 0.5;
+      const zDrift = (n >= 5 && p0 > 0 && p0 < 1) ? (hits - n * p0) / Math.sqrt(n * p0 * (1 - p0)) : null;
+      const zCoin = n >= 5 ? (hits - n * 0.5) / Math.sqrt(n * 0.25) : null;
       return {
         n, hits,
         hit_rate: n ? +(hits / n).toFixed(4) : null,
+        drift_null_rate: +p0.toFixed(4),
         avg_directional_ret_pct: avgDirRet != null ? +avgDirRet.toFixed(3) : null,
-        z_score: z != null ? +z.toFixed(2) : null,
-        beats_coin_flip_95: z != null && z > 1.64
+        profitable: avgDirRet != null && avgDirRet > 0,
+        z_score: zCoin != null ? +zCoin.toFixed(2) : null,             // back-compat: z vs 50%
+        z_score_vs_drift: zDrift != null ? +zDrift.toFixed(2) : null,
+        beats_coin_flip_95: zCoin != null && zCoin > 1.64,             // back-compat (weak bar)
+        beats_drift_95: zDrift != null && zDrift > 1.64                // the honest bar
       };
     }
     const confDir = e => (e.brainDir !== 0 && e.insDir !== 0 && Math.sign(e.brainDir) === Math.sign(e.insDir)) ? e.brainDir : 0;
@@ -1935,22 +1954,34 @@ async function handleRequest(request, env, ctx) {
       };
     } else {
       const cHit = confluenceLeg.hit_rate, bHit = (brainLeg.n >= 10) ? brainLeg.hit_rate : null;
-      const beatsCoin = !!confluenceLeg.beats_coin_flip_95;
+      const beatsDrift = !!confluenceLeg.beats_drift_95;
+      const profitable = !!confluenceLeg.profitable;
       const beatsBrain = (bHit != null) ? (cHit > bHit) : null;   // confluence stronger than brain-only?
-      const worthIt = beatsCoin && beatsBrain === true;
+      // Pass 286: "worth paying for flow data" requires the honest trifecta -
+      // beat MARKET DRIFT (not a coin flip), be PROFITABLE on average (a high
+      // hit rate with negative returns is not edge), and beat brain-only.
+      const worthIt = beatsDrift && profitable && beatsBrain === true;
+      const driftPct = vpct(confluenceLeg.drift_null_rate);
+      const retStr = (confluenceLeg.avg_directional_ret_pct >= 0 ? '+' : '') + confluenceLeg.avg_directional_ret_pct + '%';
       verdict = {
         ready: true,
         n: confluenceLeg.n,
         confluence_hit_rate: cHit,
         brain_hit_rate: bHit,
-        confluence_beats_coin_flip_95: beatsCoin,
+        drift_base_rate: confluenceLeg.drift_null_rate,
+        avg_return_pct: confluenceLeg.avg_directional_ret_pct,
+        confluence_profitable: profitable,
+        confluence_beats_drift_95: beatsDrift,
+        confluence_beats_coin_flip_95: !!confluenceLeg.beats_coin_flip_95,  // back-compat (weak bar)
         confluence_beats_brain_only: beatsBrain,
         fusing_worth_it: worthIt,
         headline: worthIt
-          ? 'YES — fusing signals adds edge. Confluence (brain + insiders agree) hits ' + vpct(cHit) + ' over ' + confluenceLeg.n + ' graded calls, beats a coin flip at 95%, AND beats brain-only (' + vpct(bHit) + '). Paying for richer flow data is justified by this evidence.'
-          : (beatsCoin
-            ? 'PARTIAL — confluence beats a coin flip (' + vpct(cHit) + ', n=' + confluenceLeg.n + ') but does NOT clearly beat brain-only (' + vpct(bHit) + '), so fusing adds little on its own. Paying for flow data is not yet justified.'
-            : 'NO — confluence does not beat a coin flip (' + vpct(cHit) + ', n=' + confluenceLeg.n + '). On this evidence, fusing these signals is not worth it and paying for flow data would not be justified.')
+          ? 'YES — fusing signals adds edge. Confluence (brain + insiders agree) hits ' + vpct(cHit) + ' over ' + confluenceLeg.n + ' graded calls, beats the market-drift base rate (' + driftPct + ') at 95%, is profitable (avg ' + retStr + ' per call), AND beats brain-only (' + vpct(bHit) + '). Paying for richer flow data is justified by this evidence.'
+          : (!profitable
+            ? 'NOT YET — confluence calls are directionally right ' + vpct(cHit) + ' of the time (n=' + confluenceLeg.n + '), but average return is ' + retStr + ' per call: directionally right is not the same as profitable (small wins, big losses on the misses). On this evidence, paying for flow data is not justified.'
+            : (!beatsDrift
+              ? 'NOT YET — confluence hits ' + vpct(cHit) + ' (n=' + confluenceLeg.n + '), but that does not clear the market-drift base rate (' + driftPct + ') at 95%: the hit rate is explained by drift, not timing edge. Paying for flow data is not justified.'
+              : 'PARTIAL — confluence beats drift and is profitable, but does not yet clearly beat brain-only (' + vpct(bHit) + '), so fusing adds little on its own. Not yet a reason to pay for flow data.'))
       };
     }
     return json({

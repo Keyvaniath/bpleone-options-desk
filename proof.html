@@ -252,9 +252,14 @@ async function loadAll() {
 function recBlock(leg) {
   if (!leg || leg.n == null || leg.n === 0) return '<span style="color:var(--text-muted);">Accruing — graded at 5 days, fills in over the coming weeks.</span>';
   const hr = (leg.hit_rate * 100).toFixed(1);
-  const col = leg.hit_rate > 0.5 ? 'var(--green)' : leg.hit_rate < 0.5 ? 'var(--red)' : 'var(--text-muted)';
-  return '<span style="font-size:22px;font-weight:800;color:' + col + ';">' + hr + '%</span> <span style="color:var(--text-muted);font-size:12px;">hit rate · ' + leg.n + ' graded · avg ' + (leg.avg_directional_ret_pct >= 0 ? '+' : '') + leg.avg_directional_ret_pct + '%</span>'
-    + (leg.beats_coin_flip_95 ? ' <span style="color:var(--green);font-size:11px;">✓ beats coin flip (95%)</span>' : '');
+  // Pass 286: honest bar = beat market drift AND be profitable, not a coin flip.
+  const good = leg.beats_drift_95 && leg.profitable;
+  const losesMoney = leg.profitable === false;
+  const col = good ? 'var(--green)' : losesMoney ? 'var(--red)' : 'var(--text-muted)';
+  const tag = good ? ' <span style="color:var(--green);font-size:11px;">✓ beats drift &amp; profitable (95%)</span>'
+    : losesMoney ? ' <span style="color:var(--red);font-size:11px;">— loses money on average</span>'
+    : ' <span style="color:var(--text-muted);font-size:11px;">— explained by drift, not edge</span>';
+  return '<span style="font-size:22px;font-weight:800;color:' + col + ';">' + hr + '%</span> <span style="color:var(--text-muted);font-size:12px;">hit rate · ' + leg.n + ' graded · avg ' + (leg.avg_directional_ret_pct >= 0 ? '+' : '') + leg.avg_directional_ret_pct + '%/call</span>' + tag;
 }
 
 loadAll();
