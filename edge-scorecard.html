@@ -186,20 +186,26 @@ async function loadForward() {
     const d = s[L.key] || {};
     const has = d.n >= 1;
     const hr = d.hit_rate != null ? (d.hit_rate * 100).toFixed(1) + '%' : '—';
-    const cls = !has ? '' : d.beats_coin_flip_95 ? 'win' : (d.hit_rate > 0.5 ? 'weak' : 'lose');
+    // Pass 286: honest bar = beat MARKET DRIFT and be PROFITABLE, not a coin flip.
+    const good = d.beats_drift_95 && d.profitable;
+    const losesMoney = d.profitable === false;
+    const cls = !has ? '' : good ? 'win' : (losesMoney ? 'lose' : 'weak');
     let pill;
     if (!has || d.n < 5) pill = '<span class="verdict-pill vp-wait">Too few graded</span>';
-    else if (d.beats_coin_flip_95) pill = '<span class="verdict-pill vp-win">✓ Beats coin flip (95%)</span>';
-    else if (d.hit_rate > 0.5) pill = '<span class="verdict-pill vp-weak">Ahead, not yet significant</span>';
-    else pill = '<span class="verdict-pill vp-lose">Behind coin flip</span>';
-    const hrColor = !has ? 'var(--text-muted)' : d.hit_rate > 0.5 ? 'var(--green)' : 'var(--red)';
+    else if (good) pill = '<span class="verdict-pill vp-win">✓ Beats drift &amp; profitable (95%)</span>';
+    else if (losesMoney) pill = '<span class="verdict-pill vp-lose">Loses money on average</span>';
+    else if (d.beats_drift_95) pill = '<span class="verdict-pill vp-weak">Beats drift, not yet profitable</span>';
+    else pill = '<span class="verdict-pill vp-weak">Explained by drift, not edge</span>';
+    const hrColor = !has ? 'var(--text-muted)' : good ? 'var(--green)' : losesMoney ? 'var(--red)' : 'var(--text-muted)';
+    const zd = (d.z_score_vs_drift != null ? d.z_score_vs_drift : d.z_score);
     return '<div class="sc-card ' + cls + '">'
       + '<div class="sc-lbl">' + L.label + '</div>'
       + '<div class="sc-big" style="color:' + hrColor + ';">' + hr + '</div>'
       + '<div style="font-size:11px;color:var(--text-muted);margin:2px 0 8px;">' + L.desc + '</div>'
       + '<div class="sc-row"><span>graded calls</span><span>' + (d.n || 0) + '</span></div>'
-      + '<div class="sc-row"><span>avg move (our way)</span><span style="color:' + ((d.avg_directional_ret_pct || 0) >= 0 ? 'var(--green)' : 'var(--red)') + ';">' + (d.avg_directional_ret_pct != null ? (d.avg_directional_ret_pct >= 0 ? '+' : '') + d.avg_directional_ret_pct + '%' : '—') + '</span></div>'
-      + '<div class="sc-row"><span>z vs coin flip</span><span>' + (d.z_score != null ? d.z_score : '—') + '</span></div>'
+      + '<div class="sc-row"><span>drift base rate</span><span>' + (d.drift_null_rate != null ? (d.drift_null_rate * 100).toFixed(1) + '%' : '—') + '</span></div>'
+      + '<div class="sc-row"><span>avg return / call</span><span style="color:' + ((d.avg_directional_ret_pct || 0) >= 0 ? 'var(--green)' : 'var(--red)') + ';">' + (d.avg_directional_ret_pct != null ? (d.avg_directional_ret_pct >= 0 ? '+' : '') + d.avg_directional_ret_pct + '%' : '—') + '</span></div>'
+      + '<div class="sc-row"><span>z vs drift</span><span>' + (zd != null ? zd : '—') + '</span></div>'
       + pill
       + '</div>';
   }).join('');
