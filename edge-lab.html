@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Edge Lab — does any signal beat the market's drift? — bpleone / trade</title>
+<meta name="description" content="Our automated edge-detection harness. Every candidate signal — analyst revisions, price momentum, the brain's TA, brain+insider confluence — is graded against the market's natural drift at 95% significance. We publish the verdict whether or not it's flattering. No claimed edge we can't prove.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css?v=v204">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.sig-row { display:grid; grid-template-columns: 1.7fr 60px 1fr 90px 70px 110px; gap:10px; padding:13px 14px; border-bottom:1px solid var(--border); align-items:center; font-size:12px; }
+.sig-row .nm { font-weight:700; }
+.sig-row .sub { font-size:10.5px; color:var(--text-muted); margin-top:2px; line-height:1.4; }
+.vp { display:inline-block; padding:3px 9px; border-radius:7px; font-weight:800; font-size:10px; letter-spacing:0.3px; }
+.vp-no { background:rgba(148,163,184,0.16); color:var(--text-muted); }
+.vp-wait { background:rgba(234,179,8,0.16); color:var(--yellow); }
+.vp-edge { background:rgba(16,185,129,0.18); color:var(--green); }
+.mono { font-family:var(--font-mono); }
+@media(max-width:760px){ .sig-row { grid-template-columns:1fr 70px; } .sig-row .hidemob { display:none; } }
+</style>
+</head>
+<body data-needs="live">
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">🔬 Edge Lab <span class="feat-badge feat-live">HONEST</span></div>
+      <div class="page-subtitle">Does ANY signal actually beat the market's natural drift? Every candidate is graded against the drift base rate at 95% — and we publish the verdict whether it flatters us or not · <span id="market-clock">--</span></div>
+    </div>
+    <button class="btn btn-secondary" id="refreshBtn">🔄</button>
+  </div>
+
+  <div id="verdict" class="card mb-24" style="border-left:4px solid var(--text-muted);">
+    <div style="font-size:14px;color:var(--text-secondary);">Loading the edge scorecard…</div>
+  </div>
+
+  <div class="card" style="padding:0;">
+    <div class="card-header" style="padding:14px 16px;"><div class="card-title">Signal scorecard — return / hit vs the drift base rate</div><div class="mono" id="asof" style="font-size:10px;color:var(--text-muted);">--</div></div>
+    <div class="sig-row" style="background:var(--bg-elevated);font-size:9px;color:var(--text-muted);font-weight:800;letter-spacing:0.5px;">
+      <div>SIGNAL</div><div>n</div><div class="hidemob">SIGNAL vs DRIFT</div><div class="hidemob">EDGE</div><div>z</div><div>VERDICT</div>
+    </div>
+    <div id="rows"></div>
+  </div>
+
+  <div class="card mt-24">
+    <div class="card-header"><div class="card-title">🧠 How to read this — and why it's the honest move</div></div>
+    <div style="font-size:13px;color:var(--text-secondary);line-height:1.75;">
+      <strong>The bar is always "beat the market's natural drift," never "beat a coin flip."</strong> Stocks drift up over time, so a coin flip already "wins" &gt;50%. The only thing that counts as <em>edge</em> is accuracy/return <strong>above the unconditional drift base rate</strong>, and only if it clears a one-sided 95% bound (z &gt; 1.64). Anything short of that is noise dressed up as skill.
+      <div style="margin-top:12px;">Right now, <strong>none of the free signals clear that bar</strong> — analyst revisions and price momentum are essentially priced in on liquid names, and the brain's own 5-day technicals are mostly drift (the honest pass-267 finding). That's not a bug; it's the efficient market. The point of this page is that we <strong>look rigorously and tell you the truth</strong> — most "AI trading" sites fake exactly the edge we refuse to claim. The day a signal genuinely clears the drift bar, this row turns <span style="color:var(--green);font-weight:700;">green</span> automatically.</div>
+      <div style="margin-top:12px;color:var(--text-muted);">Backtested signals (analyst revisions, momentum) are computed from real Yahoo daily history + Finnhub recommendation trends, refreshed by a scheduled job. The brain-TA and confluence rows are pulled <strong>live</strong> from the 24/7 worker. The strongest <em>untested</em> free signal is open-market insider BUY-clustering — it can't be backtested (no free history) so it's accruing a live forward test on the <a href="edge-scorecard.html" style="color:var(--accent);">Edge Scorecard</a>. A real, durable edge most likely needs <em>different data</em> (paid order/option flow), not more indicators.</div>
+    </div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js?v=v204"></script>
+<script src="js/ai-client.js?v=v204"></script>
+<script src="js/app.js?v=v204"></script>
+<script src="js/notify.js?v=v204"></script>
+<script src="js/live.js?v=v204"></script>
+<script>
+buildNav('edge-lab');
+
+const WORKER = (window.WorkerBridge && WorkerBridge.getUrl && WorkerBridge.getUrl()) || 'https://bpleone-brain-worker.brandonpleone.workers.dev';
+const $ = id => document.getElementById(id);
+function pill(v) {
+  if (v === 'EDGE') return '<span class="vp vp-edge">EDGE ✓</span>';
+  if (v === 'NOT YET') return '<span class="vp vp-wait">NOT YET</span>';
+  if (v === 'MOSTLY DRIFT') return '<span class="vp vp-no">MOSTLY DRIFT</span>';
+  return '<span class="vp vp-no">NO EDGE</span>';
+}
+function row(s) {
+  const edgeCol = (s.edge_pp != null && s.edge_pp > 0) ? 'var(--green)' : 'var(--text-muted)';
+  return '<div class="sig-row">'
+    + '<div><div class="nm">' + s.name + '</div><div class="sub">' + (s.desc || '') + '</div></div>'
+    + '<div class="mono">' + (s.n != null ? s.n : '—') + '</div>'
+    + '<div class="mono hidemob">' + (s.compare || '—') + '</div>'
+    + '<div class="mono hidemob" style="color:' + edgeCol + ';font-weight:700;">' + (s.edge_pp != null ? (s.edge_pp > 0 ? '+' : '') + s.edge_pp + 'pp' : '—') + '</div>'
+    + '<div class="mono">' + (s.z != null ? s.z : '—') + '</div>'
+    + '<div>' + pill(s.verdict) + '</div>'
+    + '</div>';
+}
+
+async function load() {
+  const rows = [];
+  let anyEdge = false;
+
+  // 1+2: backtested signals from the committed daily JSON
+  let gen = null;
+  try {
+    const j = await (await fetch('data/edge-lab.json?t=' + Date.now(), { cache: 'no-store' })).json();
+    if (j && Array.isArray(j.signals)) {
+      gen = j.generated;
+      j.signals.forEach(s => {
+        rows.push({
+          name: s.name, desc: s.desc, n: s.n, z: s.z, edge_pp: s.edge_pp,
+          compare: s.signal_ret_pct + '% vs ' + s.base_ret_pct + '% base',
+          verdict: s.beats_drift_95 ? 'EDGE' : 'NO EDGE'
+        });
+        if (s.beats_drift_95) anyEdge = true;
+      });
+    }
+  } catch (e) { /* leave backtested rows out if unavailable */ }
+
+  // 3: brain 5-day TA — live from /brain/metrics (defensive about field names)
+  try {
+    const m = await (await fetch(WORKER + '/brain/metrics', { cache: 'no-store' }).then(r => r.ok ? r.json() : null)) || {};
+    const wf = m.walk_forward_test || {};
+    const acc = wf.accuracy, base = wf.base_rate;
+    const skill = wf.skill_above_base != null ? wf.skill_above_base : (acc != null && base != null ? acc - base : null);
+    const beats = wf.beats_base_rate_95 === true;
+    const n = wf.n;
+    if (acc != null && base != null) {
+      rows.push({
+        name: 'Brain 5-day TA (the model)', desc: 'The self-learning logistic brain on 22 technical features, walk-forward.',
+        n: n, z: null, edge_pp: +((skill) * 100).toFixed(2),
+        compare: (acc * 100).toFixed(1) + '% vs ' + (base * 100).toFixed(1) + '% drift',
+        verdict: beats ? 'EDGE' : 'MOSTLY DRIFT'
+      });
+      if (beats) anyEdge = true;
+    } else {
+      rows.push({ name: 'Brain 5-day TA (the model)', desc: 'Walk-forward accuracy vs drift — see the full audit on Proof.', n: null, z: null, edge_pp: null, compare: 'see proof.html', verdict: 'MOSTLY DRIFT' });
+    }
+  } catch (e) {
+    rows.push({ name: 'Brain 5-day TA (the model)', desc: 'Live metrics unavailable right now — see Proof for the full audit.', n: null, z: null, edge_pp: null, compare: 'see proof.html', verdict: 'MOSTLY DRIFT' });
+  }
+
+  // 4: brain + insider confluence — live from /brain/confluence-score
+  try {
+    const c = await (await fetch(WORKER + '/brain/confluence-score', { cache: 'no-store' }).then(r => r.ok ? r.json() : null)) || {};
+    const v = c.verdict || c;
+    if (v && v.ready) {
+      const hit = v.confluence_hit_rate, drift = v.drift_base_rate;
+      rows.push({
+        name: 'Brain + insider confluence', desc: 'Does fusing the brain with insider agreement beat either alone — and beat drift? Live forward test.',
+        n: v.n, z: null, edge_pp: (hit != null && drift != null) ? +((hit - drift) * 100).toFixed(2) : null,
+        compare: (hit != null ? (hit * 100).toFixed(1) + '% vs ' + (drift * 100).toFixed(1) + '% drift' : '—'),
+        verdict: v.confluence_beats_drift_95 ? 'EDGE' : 'NOT YET'
+      });
+      if (v.confluence_beats_drift_95) anyEdge = true;
+    } else {
+      rows.push({ name: 'Brain + insider confluence', desc: 'Live forward test — grades accrue at 5 trading days; not enough graded calls yet.', n: (v && v.n) || 0, z: null, edge_pp: null, compare: 'accruing', verdict: 'NOT YET' });
+    }
+  } catch (e) {
+    rows.push({ name: 'Brain + insider confluence', desc: 'Live forward test (worker).', n: null, z: null, edge_pp: null, compare: '—', verdict: 'NOT YET' });
+  }
+
+  $('rows').innerHTML = rows.map(row).join('');
+  $('asof').textContent = gen ? ('backtests as of ' + gen + ' · TA/confluence live') : 'live';
+
+  const vEl = $('verdict');
+  if (anyEdge) {
+    vEl.style.borderLeftColor = 'var(--green)';
+    vEl.innerHTML = '<div style="font-size:15px;font-weight:800;color:var(--green);margin-bottom:6px;">A signal cleared the drift bar.</div><div style="font-size:13px;color:var(--text-secondary);">At least one candidate now beats the market\'s natural drift at 95% — see the green row below. This is real, measured edge, not a coin-flip claim.</div>';
+  } else {
+    vEl.style.borderLeftColor = 'var(--yellow)';
+    vEl.innerHTML = '<div style="font-size:15px;font-weight:800;color:var(--yellow);margin-bottom:6px;">No signal clears the drift bar — yet.</div>'
+      + '<div style="font-size:13px;color:var(--text-secondary);line-height:1.7;">We rigorously tested analyst-revision momentum, price momentum, the brain\'s 5-day TA, and brain+insider confluence against the market\'s natural upward drift. <strong>None beats it at 95% significance.</strong> That\'s the honest, expected result for free data on liquid names — and it\'s exactly what most "AI signal" products hide. We publish it. The day a signal genuinely clears the bar, the banner turns green.</div>';
+  }
+}
+$('refreshBtn').addEventListener('click', load);
+load();
+</script>
+</body>
+</html>

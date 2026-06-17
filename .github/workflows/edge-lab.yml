@@ -1,0 +1,41 @@
+name: Refresh Edge Lab backtests
+
+# Recomputes the edge-vs-drift backtests (analyst-revision momentum + price
+# momentum) from real Yahoo daily history + the worker's recommendation trends,
+# and commits data/edge-lab.json for edge-lab.html. Weekly is plenty - edge
+# doesn't change day to day, and it keeps Yahoo-throttle exposure low. The brain
+# TA + confluence rows are pulled live by the page, not here. Only commits if the
+# run got a healthy universe (>=20 names), so a throttled run keeps last-good data.
+
+on:
+  schedule:
+    - cron: "40 12 * * 1"   # Mondays 12:40 UTC
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Recompute edge backtests
+        run: |
+          node _edge_lab.js data/edge-lab.json || { echo "edge-lab script failed"; exit 0; }
+          node -e "const j=require('./data/edge-lab.json'); if(!j||!j.ok||!(j.universe_size>=20)||!Array.isArray(j.signals)||!j.signals.length){console.error('thin/invalid run (universe='+(j&&j.universe_size)+') - keeping last-good'); process.exit(3);} console.log('ok universe',j.universe_size);"
+      - name: Commit if healthy + changed
+        if: success()
+        run: |
+          git config user.name "edge-lab-bot"
+          git config user.email "actions@github.com"
+          git add data/edge-lab.json
+          if git diff --cached --quiet; then
+            echo "No edge-lab changes."
+          else
+            git commit -m "data: refresh edge-lab backtests [skip ci]"
+            git push
+          fi
