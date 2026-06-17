@@ -167,6 +167,11 @@ async function generate(sym) {
 
   // ---- build the play ----
   const r = 0.043; // risk-free proxy
+  // Shareable one-paste summary (the spread branch overrides with strike detail).
+  window.__playShare = '🤖 bpleone Options Play Lab — ' + sym + ' @ ' + fmt$(S) + '\n'
+    + 'Brain 5-day lean: ' + (bull ? 'LONG' : 'SHORT') + ' ' + (conv * 100).toFixed(0) + '%'
+    + (structure === 'none' ? ' — no clear edge; the lab says WAIT, not a forced trade.' : '.') + '\n'
+    + 'https://options.bpleone.com/options-lab.html?sym=' + sym + '\n(Educational, not advice.)';
   let playHtml;
   if (structure === 'none') {
     playHtml = '<div class="card mb-24"><div class="card-header"><div class="card-title">🎯 Suggested Play</div></div>'
@@ -182,6 +187,19 @@ async function generate(sym) {
     // spread width ~1.5 ATR, at least one strike increment and ~3% of spot
     const width = Math.max(inc, Math.round(Math.max(move * 1.5, S * 0.03) / inc) * inc);
     const shortK = isCall ? longK + width : longK - width;
+
+    // richer shareable summary for the spread (priced on the near-term leg)
+    (function () {
+      const _T = (near ? near.dte : 30) / 365;
+      const _d = Math.max(0.01, BS.price(callPut, S, longK, _T, r, iv) - BS.price(callPut, S, shortK, _T, r, iv));
+      const _rr = (_d > 0) ? Math.max(0, width - _d) / _d : 0;
+      window.__playShare = '🤖 bpleone Options Play Lab — ' + sym + ' @ ' + fmt$(S) + '\n'
+        + 'Brain leans ' + (bull ? 'UP' : 'DOWN') + ' ' + (conv * 100).toFixed(0) + '% (5d) · '
+        + (isCall ? 'bull call spread ' : 'bear put spread ') + fmt$(longK) + '/' + fmt$(shortK)
+        + (near ? ' exp ' + fmtDate(near.date) : '') + ' (~' + _rr.toFixed(1) + ':1)\n'
+        + 'Full play + the brain that keeps learning: https://options.bpleone.com/options-lab.html?sym=' + sym + '\n'
+        + '(Educational, not advice. Premiums are Black-Scholes estimates.)';
+    })();
 
     function legPlay(exp) {
       if (!exp) return '';
@@ -236,6 +254,7 @@ async function generate(sym) {
     + '<div class="kv"><span class="k">Brain 5-day lean</span><span class="v" style="color:' + stanceCol + ';">' + (bull ? 'LONG' : 'SHORT') + ' · ' + (conv * 100).toFixed(0) + '% conviction</span></div>'
     + recLine
     + '<div style="margin-top:10px;font-size:11px;color:var(--text-muted);line-height:1.6;">The lean is the brain’s calibrated probability the next ~5-day move is ' + (bull ? 'up' : 'down') + '. It has <strong>no proven timing edge</strong> beyond market drift — treat it as a tilt, not a signal.</div>'
+    + '<button id="shareBtn" class="btn btn-secondary" style="margin-top:12px;width:100%;">📋 Copy / share this play</button>'
     + '</div>'
     // technicals
     + '<div class="card col-7"><div class="card-header"><div class="card-title">📊 Technical read (real)</div></div>'
@@ -262,6 +281,17 @@ async function generate(sym) {
     + '<strong>Dig deeper:</strong> <a href="ticker.html?sym=' + sym + '" style="color:var(--accent);">' + sym + ' full profile</a> · <a href="options-pricer.html" style="color:var(--accent);">price these legs exactly</a> · <a href="multi-leg-builder.html" style="color:var(--accent);">build a custom structure</a> · <a href="trade-plan.html?sym=' + sym + '" style="color:var(--accent);">stock trade plan</a>.'
     + '<div style="margin-top:10px;font-size:11px;color:var(--text-muted);">Educational only — not investment advice and not a recommendation to trade. Option premiums are Black-Scholes <em>estimates</em> from realized volatility (no live options chain on the free tier); real fills, IV and Greeks will differ. The brain’s directional lean is mostly market drift with no statistically-proven timing edge. The brain keeps learning from real outcomes every market-hours minute — today’s read can change tomorrow.</div>'
     + '</div></div>';
+
+  const _sb = document.getElementById('shareBtn');
+  if (_sb) _sb.addEventListener('click', copyShare);
+}
+
+function copyShare() {
+  const t = window.__playShare || '';
+  if (!t) return;
+  const done = () => { const b = document.getElementById('shareBtn'); if (b) { const o = b.textContent; b.textContent = '✓ Copied — paste into a text / tweet / Substack'; setTimeout(() => { b.textContent = o; }, 2200); } };
+  if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(t).then(done).catch(() => window.prompt('Copy this play:', t));
+  else window.prompt('Copy this play:', t);
 }
 
 // chips
