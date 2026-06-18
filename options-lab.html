@@ -126,6 +126,24 @@ async function wj(pq) { try { const r = await fetch(WORKER + pq, { cache: 'no-st
 // universe"), so the empty state can explain WHY rather than guess "feed down".
 async function wjBody(pq) { try { const r = await fetch(WORKER + pq, { cache: 'no-store' }); return await r.json().catch(() => null); } catch (e) { return null; } }
 
+// Pass 320: real options chain (premiums + greeks) when a paid feed is wired
+// server-side (worker /brain/options-chain, flag-gated on OPTIONS_API_KEY).
+// Returns the chain object for an expiration, or null -> the play falls back to
+// Black-Scholes estimates and says so. Never throws.
+async function fetchChain(symbol, dateObj) {
+  try {
+    const expISO = dateObj.toISOString().slice(0, 10);
+    const j = await wj('/brain/options-chain?sym=' + encodeURIComponent(symbol) + '&expiration=' + expISO);
+    if (j && j.ok && Array.isArray(j.contracts) && j.contracts.length) return j;
+  } catch (e) {}
+  return null;
+}
+// Find a contract (type + strike, small float tolerance) in a real chain.
+function chainContract(chain, type, K) {
+  if (!chain || !Array.isArray(chain.contracts)) return null;
+  return chain.contracts.find(c => c.type === type && Math.abs((c.strike || 0) - K) < 0.01) || null;
+}
+
 async function generate(sym) {
   sym = (sym || '').toUpperCase().trim();
   if (!sym) return;
@@ -214,32 +232,46 @@ async function generate(sym) {
         + '(Educational, not advice. Premiums are Black-Scholes estimates.)';
     })();
 
-    function legPlay(exp) {
+    // Pass 320: prefer REAL chain prices/greeks (worker /brain/options-chain when
+    // a paid feed is wired) and fall back to Black-Scholes estimates otherwise.
+    function legPlay(exp, chain) {
       if (!exp) return '';
       const T = exp.dte / 365;
-      const longP = BS.price(callPut, S, longK, T, r, iv);
-      const shortP = BS.price(callPut, S, shortK, T, r, iv);
+      const cl = chainContract(chain, callPut, longK), cs = chainContract(chain, callPut, shortK);
+      const real = !!(cl && cl.mid > 0 && cs && cs.mid > 0);
+      const longP = real ? cl.mid : BS.price(callPut, S, longK, T, r, iv);
+      const shortP = real ? cs.mid : BS.price(callPut, S, shortK, T, r, iv);
+      const longD = (cl && cl.delta != null) ? cl.delta : BS.greeks(callPut, S, longK, T, r, iv).delta;
+      const shortD = (cs && cs.delta != null) ? cs.delta : BS.greeks(callPut, S, shortK, T, r, iv).delta;
       const debit = Math.max(0.01, longP - shortP);
       const maxGain = Math.max(0, width - debit);
       const be = structure === 'call-debit' ? longK + debit : longK - debit;
       const rr = debit > 0 ? (maxGain / debit) : 0;
+      const pxLbl = real ? 'MID PX' : 'EST PX';
+      const liveTag = real ? ' <span style="font-size:9px;color:var(--green);font-weight:800;border:1px solid var(--green);border-radius:4px;padding:1px 5px;vertical-align:middle;">LIVE CHAIN</span>' : '';
+      const note = real
+        ? 'Premiums from the live ' + (chain.provider || 'broker') + ' options chain' + (chain.delayedMin ? ' (' + chain.delayedMin + '-min delayed)' : '') + ' — confirm fills on your broker.'
+        : 'Premiums Black-Scholes-estimated from ' + ivSource + ' (' + (iv * 100).toFixed(0) + '% IV); confirm live on your broker chain.';
       return '<div class="card mb-16" style="border:1px solid ' + stanceCol + '33;">'
-        + '<div class="card-header"><div class="card-title">' + (structure === 'call-debit' ? '📈 Call Debit Spread' : '📉 Put Debit Spread') + ' — exp ' + fmtDate(exp.date) + ' (' + exp.dte + ' DTE)</div></div>'
-        + '<div class="leg-row" style="background:var(--bg-elevated);font-size:9px;color:var(--text-muted);font-weight:800;letter-spacing:0.5px;"><div>LEG</div><div>STRIKE</div><div>EST PX</div><div>DELTA</div><div></div></div>'
-        + '<div class="leg-row"><div style="color:var(--green);">BUY ' + callPut.toUpperCase() + '</div><div>' + fmt$(longK) + '</div><div>' + fmt$(longP) + '</div><div>' + BS.greeks(callPut, S, longK, T, r, iv).delta.toFixed(2) + '</div><div style="color:var(--text-muted);">~ at-the-money</div></div>'
-        + '<div class="leg-row"><div style="color:var(--red);">SELL ' + callPut.toUpperCase() + '</div><div>' + fmt$(shortK) + '</div><div>' + fmt$(shortP) + '</div><div>' + BS.greeks(callPut, S, shortK, T, r, iv).delta.toFixed(2) + '</div><div style="color:var(--text-muted);">caps gain, cuts cost</div></div>'
+        + '<div class="card-header"><div class="card-title">' + (structure === 'call-debit' ? '📈 Call Debit Spread' : '📉 Put Debit Spread') + ' — exp ' + fmtDate(exp.date) + ' (' + exp.dte + ' DTE)' + liveTag + '</div></div>'
+        + '<div class="leg-row" style="background:var(--bg-elevated);font-size:9px;color:var(--text-muted);font-weight:800;letter-spacing:0.5px;"><div>LEG</div><div>STRIKE</div><div>' + pxLbl + '</div><div>DELTA</div><div></div></div>'
+        + '<div class="leg-row"><div style="color:var(--green);">BUY ' + callPut.toUpperCase() + '</div><div>' + fmt$(longK) + '</div><div>' + fmt$(longP) + '</div><div>' + longD.toFixed(2) + '</div><div style="color:var(--text-muted);">~ at-the-money</div></div>'
+        + '<div class="leg-row"><div style="color:var(--red);">SELL ' + callPut.toUpperCase() + '</div><div>' + fmt$(shortK) + '</div><div>' + fmt$(shortP) + '</div><div>' + shortD.toFixed(2) + '</div><div style="color:var(--text-muted);">caps gain, cuts cost</div></div>'
         + '<div style="padding:12px 14px;display:grid;grid-template-columns:repeat(4,1fr);gap:10px;text-align:center;">'
         + '<div><div class="mono" style="font-size:16px;font-weight:700;">' + fmt$(debit) + '</div><div style="font-size:10px;color:var(--text-muted);">Net debit / risk</div></div>'
         + '<div><div class="mono" style="font-size:16px;font-weight:700;color:var(--green);">' + fmt$(maxGain) + '</div><div style="font-size:10px;color:var(--text-muted);">Max gain</div></div>'
         + '<div><div class="mono" style="font-size:16px;font-weight:700;">' + fmt$(be) + '</div><div style="font-size:10px;color:var(--text-muted);">Breakeven</div></div>'
         + '<div><div class="mono" style="font-size:16px;font-weight:700;color:var(--accent);">' + rr.toFixed(1) + ':1</div><div style="font-size:10px;color:var(--text-muted);">Reward : risk</div></div>'
         + '</div>'
-        + '<div style="padding:0 14px 12px;font-size:11px;color:var(--text-muted);">Per 1 spread (×100 = $' + (debit * 100).toFixed(0) + ' risked for $' + (maxGain * 100).toFixed(0) + ' max). Premiums Black-Scholes-estimated from ' + ivSource + ' (' + (iv * 100).toFixed(0) + '% IV); confirm live on your broker chain.</div>'
+        + '<div style="padding:0 14px 12px;font-size:11px;color:var(--text-muted);">Per 1 spread (×100 = $' + (debit * 100).toFixed(0) + ' risked for $' + (maxGain * 100).toFixed(0) + ' max). ' + note + '</div>'
         + '</div>';
     }
+    // Try the real chain for each expiration (null + BS fallback if no feed/match).
+    const nearChain = near ? await fetchChain(sym, near.date) : null;
+    const swingChain = swing ? await fetchChain(sym, swing.date) : null;
     playHtml = '<div class="card mb-24" style="padding:14px 16px;"><div class="card-title" style="margin-bottom:4px;">🎯 Suggested Play — ' + (structure === 'call-debit' ? 'bullish call debit spread' : 'bearish put debit spread') + '</div>'
       + '<div style="font-size:12px;color:var(--text-muted);">Defined-risk: you can only lose the debit. The brain leans <strong style="color:' + stanceCol + ';">' + (bull ? 'UP' : 'DOWN') + '</strong> at <strong>' + (conv * 100).toFixed(0) + '%</strong> conviction over ~5 trading days — a spread monetizes that lean while capping cost and theta vs a naked long option. Two expirations below: a near-term and a swing.</div></div>'
-      + legPlay(near) + legPlay(swing);
+      + legPlay(near, nearChain) + legPlay(swing, swingChain);
   }
 
   // ---- monitor list (real) ----

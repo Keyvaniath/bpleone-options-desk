@@ -38,7 +38,7 @@
 // Pass 200: version stamp so brain-proof.html + worker-setup.html can detect
 // when the deployed worker is behind the repo source. Bump on every meaningful
 // behavior change. Read via /brain/health → worker_version field.
-const WORKER_VERSION = 'pass-288';
+const WORKER_VERSION = 'pass-289';
 
 const UNIVERSE = [
   'SPY','QQQ','IWM','DIA','AAPL','NVDA','TSLA','MSFT','META','AMZN','GOOGL','AMD',
@@ -700,6 +700,89 @@ async function fetchFinnhubMetrics(env, sym) {
     if (!j || !j.metric || typeof j.metric !== 'object') return null;
     return j.metric;   // peTTM, psTTM, 52WeekHigh/Low, marketCapitalization, beta, margins, growth, roeTTM, ...
   } catch (e) { return null; }
+}
+
+// ===== Pass 289: REAL options chain (premiums + greeks + IV) =====
+// Provider-agnostic so a single OPTIONS_API_KEY + OPTIONS_PROVIDER env flips it
+// on. Used to replace the Black-Scholes ESTIMATES in options-lab with real mid
+// prices when configured. Returns null when no key is set (pages fall back to BS
+// estimates and say so). Keys live SERVER-SIDE here, exactly like FINNHUB_API_KEY
+// - the browser never sees them.
+function _optNum(x) { const n = Number(x); return Number.isFinite(n) ? n : null; }
+
+async function fetchOptionsChain(env, sym, expiration) {
+  if (!env.OPTIONS_API_KEY) return null;
+  const provider = (env.OPTIONS_PROVIDER || 'polygon').toLowerCase();
+  try {
+    if (provider === 'tradier') return await fetchTradierChain(env, sym, expiration);
+    return await fetchPolygonChain(env, sym, expiration);
+  } catch (e) { return null; }
+}
+
+// Polygon.io v3 options snapshot — OPRA-licensed bid/ask/greeks/IV. Options
+// Starter ($29/mo) is 15-min delayed, which is fine for a swing horizon.
+async function fetchPolygonChain(env, sym, expiration) {
+  let u = 'https://api.polygon.io/v3/snapshot/options/' + encodeURIComponent(sym) +
+    '?limit=250&apiKey=' + encodeURIComponent(env.OPTIONS_API_KEY);
+  if (expiration) u += '&expiration_date=' + encodeURIComponent(expiration);
+  const r = await fetch(u);
+  if (!r.ok) return null;
+  const j = await r.json();
+  const rows = Array.isArray(j.results) ? j.results : [];
+  if (!rows.length) return null;
+  const expSet = new Set();
+  const contracts = [];
+  for (const c of rows) {
+    const d = c.details || {}, q = c.last_quote || {}, g = c.greeks || {}, day = c.day || {};
+    if (d.expiration_date) expSet.add(d.expiration_date);
+    const bid = _optNum(q.bid), ask = _optNum(q.ask);
+    let mid = (bid != null && ask != null && ask > 0) ? (bid + ask) / 2 : _optNum(q.midpoint);
+    if (mid == null) mid = _optNum(day.close);
+    contracts.push({
+      type: d.contract_type, strike: _optNum(d.strike_price), expiration: d.expiration_date,
+      bid, ask, mid, last: _optNum(day.close), iv: _optNum(c.implied_volatility),
+      delta: _optNum(g.delta), gamma: _optNum(g.gamma), theta: _optNum(g.theta), vega: _optNum(g.vega),
+      oi: _optNum(c.open_interest), volume: _optNum(day.volume)
+    });
+  }
+  return { provider: 'polygon', delayedMin: 15, underlying: sym, expirations: [...expSet].sort(), contracts };
+}
+
+// Tradier markets options chains — real-time for brokerage-account holders, free
+// if you already trade there. OPTIONS_TRADIER_BASE can point at the sandbox.
+async function fetchTradierChain(env, sym, expiration) {
+  const base = env.OPTIONS_TRADIER_BASE || 'https://api.tradier.com';
+  const headers = { 'Authorization': 'Bearer ' + env.OPTIONS_API_KEY, 'Accept': 'application/json' };
+  let exp = expiration;
+  if (!exp) {
+    const er = await fetch(base + '/v1/markets/options/expirations?symbol=' + encodeURIComponent(sym), { headers });
+    if (!er.ok) return null;
+    const ej = await er.json();
+    let dates = ((ej.expirations || {}) || {}).date || [];
+    dates = Array.isArray(dates) ? dates : [dates];
+    exp = dates[0];
+    if (!exp) return null;
+  }
+  const r = await fetch(base + '/v1/markets/options/chains?symbol=' + encodeURIComponent(sym) +
+    '&expiration=' + encodeURIComponent(exp) + '&greeks=true', { headers });
+  if (!r.ok) return null;
+  const j = await r.json();
+  let opts = ((j.options || {}) || {}).option || [];
+  opts = Array.isArray(opts) ? opts : [opts];
+  if (!opts.length) return null;
+  const contracts = opts.map(o => {
+    const g = o.greeks || {};
+    const bid = _optNum(o.bid), ask = _optNum(o.ask);
+    let mid = (bid != null && ask != null && ask > 0) ? (bid + ask) / 2 : _optNum(o.last);
+    return {
+      type: o.option_type, strike: _optNum(o.strike), expiration: o.expiration_date,
+      bid, ask, mid, last: _optNum(o.last),
+      iv: _optNum(g.mid_iv != null ? g.mid_iv : g.smv_vol),
+      delta: _optNum(g.delta), gamma: _optNum(g.gamma), theta: _optNum(g.theta), vega: _optNum(g.vega),
+      oi: _optNum(o.open_interest), volume: _optNum(o.volume)
+    };
+  });
+  return { provider: 'tradier', delayedMin: 0, underlying: sym, expirations: [exp], contracts };
 }
 
 // Pass 230: live quote from Yahoo's v8 chart — returns the same shape as
@@ -1947,6 +2030,43 @@ async function handleRequest(request, env, ctx) {
       note: metric ? 'Valuation / growth / margin metrics from Finnhub.' : 'finnhub returned no metrics (key missing/invalid or symbol unsupported)'
     });
     resp.headers.set('Cache-Control', 'public, max-age=21600');  // 6h
+    ctx.waitUntil(cache.put(cacheKey, resp.clone()));
+    return resp;
+  }
+
+  // Pass 289: REAL options chain (premiums + greeks + IV), provider-agnostic.
+  // Flag-gated on OPTIONS_API_KEY (+ OPTIONS_PROVIDER=polygon|tradier). When no
+  // key is set it returns ok:false with a reason so options-lab cleanly falls
+  // back to its Black-Scholes estimates. Accepts ?sym= (or ?symbol=) and an
+  // optional ?expiration=YYYY-MM-DD.
+  if (path === '/brain/options-chain') {
+    const sym = (url.searchParams.get('sym') || url.searchParams.get('symbol') || '').toUpperCase().trim();
+    if (!sym) return json({ ok: false, error: 'symbol required (e.g. ?sym=NVDA)' }, 400);
+    if (!env.OPTIONS_API_KEY) {
+      return json({
+        ok: false, reason: 'no-options-feed', symbol: sym,
+        note: 'No options data feed configured. Set OPTIONS_API_KEY (and OPTIONS_PROVIDER=polygon|tradier) as a worker secret to enable real chains; pages fall back to Black-Scholes estimates until then.'
+      });
+    }
+    const expiration = (url.searchParams.get('expiration') || '').trim() || null;
+    const cache = caches.default;
+    const cacheKey = new Request(url.toString(), { method: 'GET' });
+    const hit = await cache.match(cacheKey);
+    if (hit) return hit;
+    const chain = await fetchOptionsChain(env, sym, expiration);
+    const ok = !!(chain && Array.isArray(chain.contracts) && chain.contracts.length);
+    const resp = json({
+      ok,
+      source: chain ? ('options:' + chain.provider) : 'options',
+      symbol: sym,
+      provider: chain ? chain.provider : (env.OPTIONS_PROVIDER || 'polygon'),
+      delayedMin: chain ? chain.delayedMin : null,
+      expirations: chain ? chain.expirations : [],
+      contracts: chain ? chain.contracts : [],
+      note: ok ? 'Real options chain.' : 'No chain returned (key invalid, symbol unsupported, or market closed).'
+    });
+    // Delayed/EOD-ish data + a fast-moving chain: 5-min edge cache.
+    resp.headers.set('Cache-Control', 'public, max-age=300');
     ctx.waitUntil(cache.put(cacheKey, resp.clone()));
     return resp;
   }
