@@ -190,13 +190,20 @@
     healthScore = Math.max(0, Math.min(100, healthScore));
     let headline, headlineColor;
     if (untrained) {
-      // Cap health at the lower of the per-module-derived score OR 35.
-      // An untrained brain is NOT 100/100 no matter how clean the modules look.
+      // Cap health at the lower of the per-module-derived score OR 35 — an
+      // untrained LOCAL model is NOT 100/100 no matter how clean the modules look.
       healthScore = Math.min(healthScore, 35);
+      // BUT: the authoritative brain for this site is the 24/7 Cloudflare worker
+      // (every page reads its live data + real track record). A fresh or idle
+      // browser SESSION having an untrained local model is by design — the local
+      // trainers defer to the worker (pass-199 ownership rule). So this is NOT a
+      // red five-alarm fire; painting it red contradicted the worker's real
+      // resolved track record on a visitor's very first load. Frame it honestly
+      // and point to the worker instead.
       headline = journalLen > 0
-        ? 'Brain UNTRAINED — capturing data but not learning yet (' + journalLen + ' captures, ' + untrainedReason + ')'
-        : 'Brain UNTRAINED — no model weights, no journal (' + untrainedReason + ')';
-      headlineColor = 'var(--red)';
+        ? 'This browser session is capturing (' + journalLen + ' so far) but hasn’t trained a local model yet — the always-on 24/7 worker is the authoritative brain (its real track record is on Money Made).'
+        : 'This browser session hasn’t trained a local model yet — the always-on 24/7 worker is the authoritative brain (see its real, resolved track record on Money Made / Edge Scorecard).';
+      headlineColor = 'var(--yellow)';
     } else if (alertCount > 0 && healthScore < 60) {
       // Only scream "degraded" when the health score actually agrees. An alert at
       // 85/100 is a single thing to review, not a five-alarm fire — saying so on

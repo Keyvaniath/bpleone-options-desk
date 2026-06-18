@@ -40,7 +40,7 @@
   // module (e.g. data-mode-banner.js still rendered the old "every tick is current"
   // banner long after the fix deployed). Found via LIVE browser verify, not static
   // review. Deriving from self means it can never drift again.
-  let CACHE_BUST = 'v204';
+  let CACHE_BUST = 'v205';
   try {
     const me = document.currentScript;
     const src = me ? me.src : ([...document.querySelectorAll('script[src]')].map(s => s.src).find(u => /\/app\.js(\?|$)/.test(u)) || '');
