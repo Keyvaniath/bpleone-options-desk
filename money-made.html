@@ -48,7 +48,7 @@ table.t td { padding:10px 12px;border-bottom:1px solid rgba(255,255,255,0.04);fo
   <div class="page-header">
     <div>
       <div class="page-title">💵 Money Made by the Brain</div>
-      <div class="page-subtitle">Cumulative P&amp;L if you had followed every high-conviction signal with disciplined sizing. The headline card below is the <strong>real 24/7 brain</strong>; lower sections are this browser session.</div>
+      <div class="page-subtitle">The headline card is the <strong>real 24/7 brain track record</strong> — every prediction graded on the actual 5-day move, shared across all visitors. The lower sections simulate cumulative P&amp;L for <em>this browser session</em> if you'd sized each high-conviction signal.</div>
     </div>
   </div>
 
@@ -183,38 +183,76 @@ const WT_WORKER = (window.WorkerBridge && WorkerBridge.getUrl && WorkerBridge.ge
 async function renderWorkerTrack() {
   const el = document.getElementById('wt-body');
   if (!el) return;
-  let s;
-  try { s = await fetch(WT_WORKER + '/brain/confluence-score', { cache: 'no-store' }).then(r => r.json()); }
-  catch (e) { el.innerHTML = '<span style="color:var(--red);">Could not reach the 24/7 brain worker.</span>'; return; }
-  const bankroll = parseFloat((document.getElementById('cfg-bankroll') || {}).value) || 10000;
-  const riskPct = (parseFloat((document.getElementById('cfg-risk') || {}).value) || 2) / 100;
-  const notional = bankroll * riskPct * 10;   // 2% risk -> ~$2,000 position/call on $10k, no leverage
-  const trades = Array.isArray(s.recent_resolved) ? s.recent_resolved : [];
-  if (!s || s.graded === 0 || trades.length === 0) {
-    el.innerHTML = '<div style="font-size:15px;color:var(--text);font-weight:700;margin-bottom:6px;">📡 Capturing — first real trades resolve in ~' + (s && s.days_to_first_grade != null ? s.days_to_first_grade : 1) + ' day(s).</div>'
-      + '<div style="line-height:1.6;">The 24/7 brain has logged <strong style="color:var(--accent);">' + ((s && s.total_logged) || 0) + ' real calls</strong>; each is graded against the actual 5-trading-day move, then shown here in dollars — <strong>automatically, no demo data needed.</strong> '
-      + 'Right now <strong>0 are graded</strong> simply because a 5-day call can\'t be scored until 5 days pass. This is why the number is $0 — the clock, not the brain.</div>';
+  // Real track record from the always-on worker brain. /brain/metrics is the
+  // authoritative aggregate over ALL resolved predictions (live_resolved =
+  // running out-of-sample tally; walk_forward_test = the rigorous, base-rate-
+  // adjusted backtest). /brain/confluence-score is the independent forward-test.
+  // Honesty doctrine: lead with sample size + skill-vs-drift, never raw accuracy
+  // as an edge badge.
+  let m = null, s = null;
+  try {
+    [m, s] = await Promise.all([
+      fetch(WT_WORKER + '/brain/metrics', { cache: 'no-store' }).then(r => r.json()).catch(() => null),
+      fetch(WT_WORKER + '/brain/confluence-score', { cache: 'no-store' }).then(r => r.json()).catch(() => null)
+    ]);
+  } catch (e) {}
+  if (!m || (!m.live_resolved && !m.walk_forward_test)) {
+    el.innerHTML = '<span style="color:var(--red);">Could not reach the 24/7 brain worker.</span>';
     return;
   }
-  const ordered = trades.slice().reverse();   // oldest first
-  let pnl = 0, wins = 0, sumRet = 0;
-  ordered.forEach(t => {
-    const r = (t.dir * t.ret) / 100;          // dir * realized 5d % move
-    pnl += notional * r;
-    sumRet += t.dir * t.ret;
-    if (t.dir * t.ret > 0) wins++;
-  });
-  const n = ordered.length;
-  const hitRate = (wins / n * 100).toFixed(1);
-  const avgRet = (sumRet / n).toFixed(2);
-  const col = pnl >= 0 ? 'var(--green)' : 'var(--red)';
-  el.innerHTML = '<div style="display:flex;gap:30px;flex-wrap:wrap;align-items:center;">'
-    + '<div><div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;">Real P&amp;L · ' + n + ' graded calls</div>'
-    + '<div style="font-family:var(--font-mono);font-size:38px;font-weight:900;color:' + col + ';">' + (pnl >= 0 ? '+' : '-') + '$' + Math.abs(pnl).toLocaleString(undefined, { maximumFractionDigits: 0 }) + '</div></div>'
-    + '<div><div style="font-size:11px;color:var(--text-muted);">Hit rate</div><div style="font-family:var(--font-mono);font-size:22px;font-weight:800;color:' + (hitRate >= 50 ? 'var(--green)' : 'var(--red)') + ';">' + hitRate + '%</div></div>'
-    + '<div><div style="font-size:11px;color:var(--text-muted);">Avg move / call</div><div style="font-family:var(--font-mono);font-size:22px;font-weight:800;color:' + (avgRet >= 0 ? 'var(--green)' : 'var(--red)') + ';">' + (avgRet >= 0 ? '+' : '') + avgRet + '%</div></div>'
-    + '</div>'
-    + '<div style="font-size:11px;color:var(--text-muted);margin-top:12px;line-height:1.5;">Real trades from the 24/7 brain, each graded on the actual 5-day move — sized at ~$' + notional.toLocaleString() + '/call (' + (riskPct * 100).toFixed(0) + '% risk, no leverage/fees; adjust above). The honest version of "money made": it only grows as real calls resolve.</div>';
+  const lr = m.live_resolved || {};
+  const wf = m.walk_forward_test || {};
+  const resolved = lr.n || 0;
+  const pending = lr.captures_pending || 0;
+  const totalMade = m.total_captures || (resolved + pending);
+  const acc = lr.accuracy != null ? lr.accuracy * 100 : null;     // live directional accuracy
+  const bss = lr.bss;                                             // >0 = better than always-guess-base-rate
+  const wfAcc = wf.accuracy != null ? wf.accuracy * 100 : null;
+  const drift = wf.base_rate != null ? wf.base_rate * 100 : null; // market's natural up-rate (the real bar)
+  const skill = wf.skill_above_base != null ? wf.skill_above_base * 100 : null;
+  const sig = wf.beats_base_rate_95;
+  const ece = wf.ece != null ? wf.ece * 100 : null;               // calibration error
+
+  // Honest verdict chip (gates on skill beating drift at 95%, never raw accuracy)
+  let vTxt, vCol;
+  if (sig === true) { vCol = 'var(--green)'; vTxt = 'Beats the market’s drift at 95% confidence — a real, statistically-significant timing edge.'; }
+  else if (skill != null && skill > 0) { vCol = 'var(--yellow)'; vTxt = 'Beats a coin flip (50%), but <strong>not yet the market’s drift</strong> (' + (drift != null ? drift.toFixed(1) + '%' : 'base rate') + ') at 95% confidence — the +' + skill.toFixed(1) + 'pp skill isn’t statistically significant. We publish this rather than hide it; that honesty is the point.'; }
+  else { vCol = 'var(--red)'; vTxt = 'No positive timing skill over market drift yet.'; }
+
+  const stat = (label, val, col) => '<div><div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.4px;">' + label + '</div><div style="font-family:var(--font-mono);font-size:20px;font-weight:800;' + (col ? 'color:' + col + ';' : '') + '">' + val + '</div></div>';
+
+  // Hero = real sample size (credible, makes no edge claim)
+  let html = '<div style="display:flex;gap:34px;flex-wrap:wrap;align-items:flex-end;margin-bottom:14px;">'
+    + '<div><div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;">Real predictions graded</div>'
+    + '<div style="font-family:var(--font-mono);font-size:42px;font-weight:900;color:var(--accent);line-height:1;">' + resolved.toLocaleString() + '</div>'
+    + '<div style="font-size:12px;color:var(--text-muted);margin-top:4px;">of <strong>' + totalMade.toLocaleString() + '</strong> total made · ' + pending.toLocaleString() + ' still pending — each graded on the actual 5-trading-day move</div></div>'
+    + '</div>';
+
+  // Honest verdict
+  html += '<div style="padding:10px 14px;border-radius:8px;background:rgba(255,255,255,0.03);border-left:3px solid ' + vCol + ';font-size:12.5px;line-height:1.55;color:var(--text-secondary);margin-bottom:14px;"><strong style="color:' + vCol + ';">Honest verdict:</strong> ' + vTxt + '</div>';
+
+  // Stat grid
+  html += '<div style="display:flex;gap:26px;flex-wrap:wrap;">'
+    + stat('Live accuracy', acc != null ? acc.toFixed(1) + '%' : '—', acc != null && acc >= 50 ? 'var(--green)' : '')
+    + stat('Walk-forward acc', wfAcc != null ? wfAcc.toFixed(1) + '%' : '—')
+    + stat('Market drift (the bar)', drift != null ? drift.toFixed(1) + '%' : '—')
+    + stat('Skill over drift', skill != null ? (skill >= 0 ? '+' : '') + skill.toFixed(1) + 'pp' : '—', skill != null ? (sig ? 'var(--green)' : (skill > 0 ? 'var(--yellow)' : 'var(--red)')) : '')
+    + stat('Brier / BSS', (lr.brier != null ? lr.brier.toFixed(3) : '—') + ' / ' + (bss != null ? (bss >= 0 ? '+' : '') + bss.toFixed(3) : '—'), bss != null ? (bss >= 0 ? 'var(--green)' : 'var(--red)') : '')
+    + stat('Calibration err', ece != null ? ece.toFixed(1) + '%' : '—')
+    + '</div>';
+
+  // Independent forward-test (confluence) status, secondary
+  if (s && s.verdict) {
+    const cv = s.verdict;
+    const fwd = cv.ready
+      ? ('verdict: ' + (cv.confluence_beats_drift_95 ? '<span style="color:var(--green);">beats drift</span>' : 'no edge over drift yet'))
+      : 'still accruing (needs more graded calls)';
+    html += '<div style="font-size:11px;color:var(--text-muted);margin-top:14px;line-height:1.5;">Independent forward-test (brain×insider confluence): <strong>' + (s.graded || 0) + '</strong> graded of ' + (s.total_logged || 0) + ' logged — ' + fwd + '.</div>';
+  }
+
+  html += '<div style="font-size:11px;color:var(--text-muted);margin-top:10px;">Real calls from the always-on worker brain — no demo data, shared across every visitor. <a href="edge-scorecard.html" style="color:var(--accent);font-weight:700;">Full statistical proof →</a></div>';
+
+  el.innerHTML = html;
 }
 
 function loadCfgIntoInputs() {
