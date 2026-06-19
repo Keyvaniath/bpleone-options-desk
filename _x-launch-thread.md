@@ -101,3 +101,33 @@ Equity research in public. Building bpleone / trade — a free options desk + a 
 - **Don't oversell the cashtags.** One ($SPY) at most; cashtag spam reads as a pump account.
 - **Numbers are live** — re-pull before posting and keep the thread's claims matching what a visitor sees on the site that day. Mismatched numbers undercut the entire honesty pitch.
 - **Hold the Discord.** This thread sells research + honesty, which scales as broadcast. A community/signals room creates a daily-edge expectation you can't honestly meet yet.
+
+---
+
+## ===== LINKEDIN VERSION (professional / MD-credibility angle) =====
+
+One post, no thread. Tone: an analyst reflecting on rigor — NOT a product pitch. This doubles as a credibility artifact you can send an MD or link in your profile. Refresh the numbers before posting.
+
+**Post:**
+
+I built a self-learning options-trading model. The most useful thing it does is tell me when it has no edge.
+
+Over the last few months I built bpleone / trade — a free options & technical-analysis desk backed by a model that grades thousands of its own past predictions and reports the result honestly. Here's the part most "AI trading" tools won't show you, which I made the centerpiece:
+
+• The bar is not "beat a coin flip." Equities drift up over time, so a coin flip already wins >50%. The only thing that counts as edge is beating that drift — and only if it clears a 95% confidence bound.
+
+• By that bar, the model currently has no proven edge. ~1,012 live predictions graded: 55.4% directional accuracy versus a ~52.4% drift base rate. The +2.3-point gap is not statistically significant. So the verdict, stated plainly on the site, is "mostly drift — no demonstrated timing edge yet."
+
+I could have hidden that behind a cherry-picked equity curve. Publishing the null result is the more honest signal — about the model, and about how I evaluate anything.
+
+What's real, on free data: live quotes, live options chains with greeks, SEC insider flow, congressional disclosure flow, and a fully transparent methodology + audit log. It's a research desk — not investment advice, not a signals service.
+
+If you value calibration over confidence, I'd genuinely welcome your eyes on the methodology → options.bpleone.com/start-here.html. Happy to walk anyone through how it grades itself.
+
+#quantfinance #options #machinelearning #investing
+
+**LinkedIn notes:**
+- This is the version to put in front of the MD / hiring audience — it reads as analytical character, not a hustle.
+- Post mid-morning on a weekday; LinkedIn favors native text posts (the link can go in the first comment if you want max reach, same as X).
+- No thread needed; LinkedIn rewards a single substantive post.
+- Consider attaching the proof-page screenshot as the post image (the honest scorecard is the hook).
