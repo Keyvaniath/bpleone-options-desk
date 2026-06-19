@@ -40,7 +40,7 @@
   // module (e.g. data-mode-banner.js still rendered the old "every tick is current"
   // banner long after the fix deployed). Found via LIVE browser verify, not static
   // review. Deriving from self means it can never drift again.
-  let CACHE_BUST = 'v206';
+  let CACHE_BUST = 'v207';
   try {
     const me = document.currentScript;
     const src = me ? me.src : ([...document.querySelectorAll('script[src]')].map(s => s.src).find(u => /\/app\.js(\?|$)/.test(u)) || '');
@@ -491,7 +491,7 @@ function buildFooter() {
   f.innerHTML = ''
     + '<footer class="footer"><div class="footer-container">'
     + '<div class="footer-brand"><h3>bpleone / trade</h3>'
-    + '<p>Institutional-grade technical analysis and options intelligence. Built by traders, for traders. Continuously self-learning.</p></div>'
+    + '<p>Real-data options &amp; technical-analysis research, with a self-learning brain that states its edge plainly — and admits what is still unproven. Research, not investment advice.</p></div>'
     + '<div class="footer-col"><h4>💰 Money</h4><ul>'
     + '<li><a href="money-made.html">Money Made</a></li>'
     + '<li><a href="make-money.html">Make Money Dashboard</a></li>'
