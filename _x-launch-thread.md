@@ -1,6 +1,6 @@
 # X / Twitter launch thread — bpleone / trade
 
-**Status:** DRAFT, ready to post. Underscore-prefixed so Jekyll never deploys it.
+**Status:** ⛔ ON HOLD — DO NOT POST (decision 2026-06-19). The desk's *broadcast* picks are net-negative so far (Pick of the Day ≈ −1.0%/call, Alpha ≈ −1.0%/call), so a public "follow me" growth thread isn't warranted yet — even disclosed honestly, a losing-picks account isn't worth following. Honesty here is a **credibility** asset (use it in the MD conversation), not a retail-growth hook. **Revisit only if/when a broadcast track record turns non-negative.** Copy below stays parked + ready. Underscore-prefixed so Jekyll never deploys it.
 **Angle:** honesty-as-the-product. Market the rigor, never a (non-existent) edge.
 **Voice:** Brandon — equity-research analyst, confident but allergic to hype.
 
