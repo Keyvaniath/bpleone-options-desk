@@ -38,7 +38,7 @@
 // Pass 200: version stamp so brain-proof.html + worker-setup.html can detect
 // when the deployed worker is behind the repo source. Bump on every meaningful
 // behavior change. Read via /brain/health → worker_version field.
-const WORKER_VERSION = 'pass-289';
+const WORKER_VERSION = 'pass-290';
 
 const UNIVERSE = [
   'SPY','QQQ','IWM','DIA','AAPL','NVDA','TSLA','MSFT','META','AMZN','GOOGL','AMD',
@@ -702,21 +702,65 @@ async function fetchFinnhubMetrics(env, sym) {
   } catch (e) { return null; }
 }
 
-// ===== Pass 289: REAL options chain (premiums + greeks + IV) =====
-// Provider-agnostic so a single OPTIONS_API_KEY + OPTIONS_PROVIDER env flips it
-// on. Used to replace the Black-Scholes ESTIMATES in options-lab with real mid
-// prices when configured. Returns null when no key is set (pages fall back to BS
-// estimates and say so). Keys live SERVER-SIDE here, exactly like FINNHUB_API_KEY
-// - the browser never sees them.
+// ===== Pass 289/290: REAL options chain (premiums + greeks + IV) =====
+// Pass 290: CBOE's free delayed-quotes JSON is the DEFAULT provider, so real
+// option premiums + greeks work for every visitor with NO key and NO account.
+// A configured OPTIONS_API_KEY (+ OPTIONS_PROVIDER=tradier|polygon) upgrades to
+// those feeds (e.g. real-time). Keys live SERVER-SIDE, like FINNHUB_API_KEY.
+// Replaces the Black-Scholes ESTIMATES in options-lab with real mid prices.
 function _optNum(x) { const n = Number(x); return Number.isFinite(n) ? n : null; }
 
 async function fetchOptionsChain(env, sym, expiration) {
-  if (!env.OPTIONS_API_KEY) return null;
-  const provider = (env.OPTIONS_PROVIDER || 'polygon').toLowerCase();
+  const provider = (env.OPTIONS_PROVIDER || '').toLowerCase();
   try {
-    if (provider === 'tradier') return await fetchTradierChain(env, sym, expiration);
-    return await fetchPolygonChain(env, sym, expiration);
+    if (provider === 'tradier' && env.OPTIONS_API_KEY) return await fetchTradierChain(env, sym, expiration);
+    if (provider === 'polygon' && env.OPTIONS_API_KEY) return await fetchPolygonChain(env, sym, expiration);
+    // Default: free CBOE delayed chain — no key, no account needed.
+    return await fetchCboeOptionsChain(sym, expiration);
   } catch (e) { return null; }
+}
+
+// Parse an OCC option symbol (e.g. "NVDA260821P00420000") -> {expiration,type,strike}.
+// Layout: ROOT + YYMMDD + C|P + strike*1000 (8 digits). Root length varies, so
+// anchor on the trailing 15 chars.
+function parseOccSymbol(occ) {
+  const m = String(occ || '').match(/(\d{6})([CP])(\d{8})$/);
+  if (!m) return null;
+  return {
+    expiration: '20' + m[1].slice(0, 2) + '-' + m[1].slice(2, 4) + '-' + m[1].slice(4, 6),
+    type: m[2] === 'C' ? 'call' : 'put',
+    strike: parseInt(m[3], 10) / 1000
+  };
+}
+
+// CBOE delayed options (free, no key, ~15-min delayed) — includes greeks + IV.
+// Returns the FULL chain filtered to `expiration` when given.
+async function fetchCboeOptionsChain(sym, expiration) {
+  const url = 'https://cdn.cboe.com/api/global/delayed_quotes/options/' +
+    encodeURIComponent(String(sym).toUpperCase()) + '.json';
+  const r = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0' } });
+  if (!r.ok) return null;
+  const j = await r.json();
+  const rows = j && j.data && Array.isArray(j.data.options) ? j.data.options : [];
+  if (!rows.length) return null;
+  const expSet = new Set();
+  const contracts = [];
+  for (const o of rows) {
+    const p = parseOccSymbol(o.option);
+    if (!p) continue;
+    if (expiration && p.expiration !== expiration) continue;
+    expSet.add(p.expiration);
+    const bid = _optNum(o.bid), ask = _optNum(o.ask);
+    let mid = (bid != null && ask != null && ask > 0) ? (bid + ask) / 2 : _optNum(o.last_trade_price);
+    contracts.push({
+      type: p.type, strike: p.strike, expiration: p.expiration,
+      bid, ask, mid, last: _optNum(o.last_trade_price), iv: _optNum(o.iv),
+      delta: _optNum(o.delta), gamma: _optNum(o.gamma), theta: _optNum(o.theta), vega: _optNum(o.vega),
+      oi: _optNum(o.open_interest), volume: _optNum(o.volume)
+    });
+  }
+  if (!contracts.length) return null;
+  return { provider: 'CBOE', delayedMin: 15, underlying: sym, expirations: [...expSet].sort(), contracts };
 }
 
 // Polygon.io v3 options snapshot — OPRA-licensed bid/ask/greeks/IV. Options
@@ -2042,12 +2086,8 @@ async function handleRequest(request, env, ctx) {
   if (path === '/brain/options-chain') {
     const sym = (url.searchParams.get('sym') || url.searchParams.get('symbol') || '').toUpperCase().trim();
     if (!sym) return json({ ok: false, error: 'symbol required (e.g. ?sym=NVDA)' }, 400);
-    if (!env.OPTIONS_API_KEY) {
-      return json({
-        ok: false, reason: 'no-options-feed', symbol: sym,
-        note: 'No options data feed configured. Set OPTIONS_API_KEY (and OPTIONS_PROVIDER=polygon|tradier) as a worker secret to enable real chains; pages fall back to Black-Scholes estimates until then.'
-      });
-    }
+    // No key gate: the default provider (CBOE) is free. A configured
+    // OPTIONS_API_KEY just upgrades to Tradier/Polygon.
     const expiration = (url.searchParams.get('expiration') || '').trim() || null;
     const cache = caches.default;
     const cacheKey = new Request(url.toString(), { method: 'GET' });
@@ -2059,7 +2099,7 @@ async function handleRequest(request, env, ctx) {
       ok,
       source: chain ? ('options:' + chain.provider) : 'options',
       symbol: sym,
-      provider: chain ? chain.provider : (env.OPTIONS_PROVIDER || 'polygon'),
+      provider: chain ? chain.provider : (env.OPTIONS_PROVIDER || 'CBOE'),
       delayedMin: chain ? chain.delayedMin : null,
       expirations: chain ? chain.expirations : [],
       contracts: chain ? chain.contracts : [],
