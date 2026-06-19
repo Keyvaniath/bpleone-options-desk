@@ -78,19 +78,35 @@
     </div>
     <script>
     (function () {
+      var W = 'https://bpleone-brain-worker.brandonpleone.workers.dev';
+      function setTxt(id, v) { var e = document.getElementById(id); if (e) e.textContent = v; }
       try {
-        fetch('https://bpleone-brain-worker.brandonpleone.workers.dev/brain/confluence-score', { cache: 'no-store' })
+        // Real resolved track record (authoritative) -> the hero stat + track-record band.
+        fetch(W + '/brain/metrics', { cache: 'no-store' })
+          .then(function (r) { return r.json(); })
+          .then(function (m) {
+            if (!m) return;
+            var lr = m.live_resolved || {}, wf = m.walk_forward_test || {};
+            if (lr.n) { setTxt('hs-graded', lr.n.toLocaleString()); setTxt('home-tr-graded', lr.n.toLocaleString()); }
+            if (lr.accuracy != null) setTxt('home-tr-acc', (lr.accuracy * 100).toFixed(1) + '%');
+            if (wf.base_rate != null) setTxt('home-tr-drift', (wf.base_rate * 100).toFixed(1) + '%');
+          }).catch(function () {});
+        // Confluence forward-test = the "proving the edge in public" line (avoid the
+        // nonsensical "556 / 20" once graded exceeds the threshold).
+        fetch(W + '/brain/confluence-score', { cache: 'no-store' })
           .then(function (r) { return r.json(); })
           .then(function (d) {
-            var el = document.getElementById('home-conf'); if (!el || !d) return;
-            var g = d.graded || 0, n = (d.verdict && d.verdict.need) || 20;
-            el.textContent = (d.verdict && d.verdict.ready) ? 'verdict ready →' : (g + ' / ' + n + ' calls graded');
-            var g2 = document.getElementById('hs-graded'); if (g2) g2.textContent = (d.verdict && d.verdict.ready) ? 'graded' : (g + ' / ' + n);
-            var g3 = document.getElementById('home-tr-graded'); if (g3) g3.textContent = (g + ' / ' + n);
+            if (!d) return;
+            var g = d.graded || 0, need = (d.verdict && d.verdict.need) || 20;
+            var ready = d.verdict && d.verdict.ready, beats = d.verdict && d.verdict.confluence_beats_drift_95;
+            var conf = (g >= need)
+              ? (g.toLocaleString() + ' graded · ' + (ready ? (beats ? 'beats drift' : 'no edge over drift yet') : 'accruing'))
+              : (g + ' / ' + need + ' calls graded');
+            setTxt('home-conf', conf);
           }).catch(function () {});
-        fetch('https://bpleone-brain-worker.brandonpleone.workers.dev/brain/health', { cache: 'no-store' })
+        fetch(W + '/brain/health', { cache: 'no-store' })
           .then(function (r) { return r.json(); })
-          .then(function (h) { var t = document.getElementById('hs-trained'); if (t && h && h.model_trained) t.textContent = (h.model_trained).toLocaleString(); })
+          .then(function (h) { if (h && h.model_trained) setTxt('hs-trained', (h.model_trained).toLocaleString()); })
           .catch(function () {});
       } catch (e) {}
     })();
@@ -177,8 +193,8 @@
         <div class="stat-label">Real outcomes trained on</div>
       </div>
       <div class="stat-block">
-        <div class="stat-value" id="hs-graded">0 / 20</div>
-        <div class="stat-label">Live calls graded (proving it)</div>
+        <div class="stat-value" id="hs-graded">1,000+</div>
+        <div class="stat-label">Real predictions graded</div>
       </div>
       <div class="stat-block">
         <div class="stat-value">24/7</div>
@@ -240,7 +256,7 @@
   <div class="container">
     <div class="card" style="text-align:center;padding:34px 24px;">
       <div class="card-title" style="font-size:20px;margin-bottom:10px;">📊 The track record — built in the open</div>
-      <p style="color:var(--text-secondary);max-width:660px;margin:0 auto 18px;line-height:1.7;">No cherry-picked back-tested curve. Every Pick of the Day and Alpha call is logged with its entry price and graded against the <strong>real</strong> 5-day move — the record starts empty and fills in over the coming weeks. The honest count so far: <strong id="home-tr-graded" style="color:var(--accent);">0 / 20</strong> calls graded. When there's a real record to show, it shows up here — not before.</p>
+      <p style="color:var(--text-secondary);max-width:660px;margin:0 auto 18px;line-height:1.7;">No cherry-picked back-tested curve. Every prediction is logged with its entry price and graded against the <strong>real</strong> 5-day move. So far: <strong id="home-tr-graded" style="color:var(--accent);">1,000+</strong> real calls graded &mdash; directionally right <strong id="home-tr-acc" style="color:var(--accent);">~55%</strong>, versus the market&rsquo;s <strong id="home-tr-drift">~52%</strong> natural drift. The honest read: that edge over drift isn&rsquo;t yet statistically significant, so we call it &ldquo;mostly drift&rdquo; &mdash; and we publish that rather than hide it.</p>
       <a href="edge-scorecard.html" class="btn btn-primary">See the live forward test →</a>
     </div>
   </div>
