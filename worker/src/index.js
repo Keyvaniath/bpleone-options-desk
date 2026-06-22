@@ -38,7 +38,7 @@
 // Pass 200: version stamp so brain-proof.html + worker-setup.html can detect
 // when the deployed worker is behind the repo source. Bump on every meaningful
 // behavior change. Read via /brain/health → worker_version field.
-const WORKER_VERSION = 'pass-290';
+const WORKER_VERSION = 'pass-291';
 
 const UNIVERSE = [
   'SPY','QQQ','IWM','DIA','AAPL','NVDA','TSLA','MSFT','META','AMZN','GOOGL','AMD',
@@ -2107,6 +2107,72 @@ async function handleRequest(request, env, ctx) {
     });
     // Delayed/EOD-ish data + a fast-moving chain: 5-min edge cache.
     resp.headers.set('Cache-Control', 'public, max-age=300');
+    ctx.waitUntil(cache.put(cacheKey, resp.clone()));
+    return resp;
+  }
+
+  // ===== Pass 291: free options-flow signal — aggregated daily activity from the
+  // CBOE chain (per-name call/put volume, OI, $-flow, unusual=vol>OI). Read-only,
+  // edge-cached 15 min. The live surface of the free options-flow EDGE EXPERIMENT.
+  // This is DAILY-AGGREGATE flow, not real-time sweeps (that needs a paid feed),
+  // and it is NOT yet graded vs drift — the forward-test is a separate step. =====
+  if (path === '/brain/options-flow') {
+    const cache = caches.default;
+    const cacheKey = new Request(url.toString(), { method: 'GET' });
+    const hit = await cache.match(cacheKey);
+    if (hit) return hit;
+    function flowFromChain(chain) {
+      const cs = (chain && chain.contracts) || [];
+      let callVol = 0, putVol = 0, callOI = 0, putOI = 0, callDol = 0, putDol = 0, unusual = 0;
+      for (const c of cs) {
+        const v = +c.volume || 0, oi = +c.oi || 0, mid = +c.mid || 0;
+        const dol = v * mid * 100;
+        if (c.type === 'call') { callVol += v; callOI += oi; callDol += dol; }
+        else if (c.type === 'put') { putVol += v; putOI += oi; putDol += dol; }
+        if (v > oi && v > 100) unusual++;
+      }
+      const totDol = callDol + putDol;
+      const netDolPct = totDol > 0 ? +(((callDol - putDol) / totDol)).toFixed(3) : 0;  // -1..+1
+      return {
+        callVol, putVol, callOI, putOI,
+        pcVol: callVol > 0 ? +(putVol / callVol).toFixed(2) : null,
+        callDollar: Math.round(callDol), putDollar: Math.round(putDol), totalDollar: Math.round(totDol),
+        netDollarPct: netDolPct,
+        dir: netDolPct > 0.15 ? 1 : (netDolPct < -0.15 ? -1 : 0),  // +1 bullish $-flow / -1 bearish / 0 neutral
+        unusual
+      };
+    }
+    const BASKET = ['SPY', 'QQQ', 'NVDA', 'TSLA', 'AAPL', 'META', 'AMZN', 'AMD', 'MSFT', 'GOOGL', 'PLTR', 'COIN', 'NFLX', 'AVGO'];
+    const reqSyms = (url.searchParams.get('syms') || url.searchParams.get('symbols') || '').toUpperCase().split(',').map(s => s.trim()).filter(Boolean);
+    const syms = (reqSyms.length ? reqSyms : BASKET).slice(0, 16);
+    const results = await Promise.all(syms.map(s =>
+      fetchOptionsChain(env, s, null).then(ch => ({ sym: s, ch })).catch(() => ({ sym: s, ch: null }))
+    ));
+    const flows = [];
+    let aggCall = 0, aggPut = 0, aggUnusual = 0, provider = 'CBOE';
+    for (const r of results) {
+      if (!r.ch || !Array.isArray(r.ch.contracts) || !r.ch.contracts.length) continue;
+      provider = r.ch.provider || provider;
+      const f = flowFromChain(r.ch);
+      aggCall += f.callDollar; aggPut += f.putDollar; aggUnusual += f.unusual;
+      flows.push(Object.assign({ sym: r.sym }, f));
+    }
+    flows.sort((a, b) => b.totalDollar - a.totalDollar);
+    const aggTot = aggCall + aggPut;
+    const resp = json({
+      ok: flows.length > 0,
+      provider,
+      delayedMin: 15,
+      basket: syms,
+      symbols_with_data: flows.length,
+      agg_call_dollar: aggCall,
+      agg_put_dollar: aggPut,
+      agg_net_dollar_pct: aggTot > 0 ? +(((aggCall - aggPut) / aggTot).toFixed(3)) : 0,
+      agg_unusual: aggUnusual,
+      flows,
+      note: 'Real daily-aggregate options activity from the free CBOE delayed chain (~15-min delayed): per-name call/put volume, open interest, $-flow, and unusual (volume>OI) counts. NOT real-time sweeps/blocks (that tape needs a paid feed). Experimental directional signal; not yet graded vs market drift.'
+    });
+    resp.headers.set('Cache-Control', 'public, max-age=900');
     ctx.waitUntil(cache.put(cacheKey, resp.clone()));
     return resp;
   }

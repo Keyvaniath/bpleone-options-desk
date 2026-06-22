@@ -3,201 +3,55 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Options Flow — bpleone / trade</title>
+<title>Options Flow (free, daily) — bpleone / trade</title>
+<meta name="description" content="Real daily options activity from the free CBOE chain — per-name call/put volume, dollar-flow, and unusual (volume>OI) counts. An experimental directional signal, graded honestly against market drift. Not real-time sweeps; not investment advice.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="css/style.css?v=v208">
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.flow-strip{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:14px;margin-bottom:20px;}
+.flow-strip .card{padding:16px 18px;}
+.flow-strip .lbl{color:var(--text-muted);font-size:11px;text-transform:uppercase;letter-spacing:0.05em;font-weight:700;}
+.flow-strip .val{font-family:var(--font-mono);font-size:26px;font-weight:800;margin-top:5px;}
+table.flow{width:100%;border-collapse:collapse;font-size:13px;}
+table.flow th{text-align:right;padding:9px 12px;border-bottom:1px solid var(--border);color:var(--text-muted);font-size:11px;text-transform:uppercase;letter-spacing:0.04em;font-weight:700;}
+table.flow th:first-child{text-align:left;}
+table.flow td{padding:9px 12px;border-bottom:1px solid rgba(255,255,255,0.05);font-family:var(--font-mono);text-align:right;}
+table.flow td:first-child{text-align:left;font-weight:800;}
+.read{font-weight:800;font-size:11px;padding:2px 9px;border-radius:6px;}
+.read.bull{background:rgba(16,185,129,0.16);color:var(--green);}
+.read.bear{background:rgba(220,38,38,0.16);color:var(--red);}
+.read.neut{background:rgba(120,140,160,0.14);color:var(--text-muted);}
+.netbar{display:inline-block;height:8px;border-radius:4px;vertical-align:middle;margin-left:6px;}
+</style>
 </head>
 <body>
 <div id="site-nav"></div>
-<div style="background:linear-gradient(90deg,rgba(245,158,11,0.18),rgba(245,158,11,0.06));border-bottom:1px solid rgba(245,158,11,0.45);color:var(--yellow);font-size:12.5px;font-weight:600;padding:8px 16px;text-align:center;">SAMPLE / ILLUSTRATIVE DATA - layout and logic shown; Real-time options-flow / unusual-activity data requires a paid feed (not connected). Do not trade on these figures.</div>
 
 <div class="container">
   <div class="page-header">
     <div>
-      <div class="page-title">Options Flow</div>
-      <div class="page-subtitle">Unusual options activity, sweeps, blocks · <span id="market-clock">--</span></div>
+      <div class="page-title">📡 Options Flow <span style="font-size:11px;font-weight:800;color:var(--accent);border:1px solid rgba(0,212,255,0.4);border-radius:6px;padding:2px 8px;vertical-align:middle;">FREE · LIVE</span></div>
+      <div class="page-subtitle">Real daily options activity from the free CBOE chain (~15-min delayed) · <span id="market-clock">--</span></div>
     </div>
-    <div class="flex gap-8">
-      <button class="btn btn-secondary">⏸ Pause</button>
-      <button class="btn btn-primary">⚙ Filters</button>
-    </div>
+    <button class="btn btn-secondary" onclick="loadFlow()">↻ Refresh</button>
   </div>
 
-  <div class="demo-banner"><span class="icon">⚠</span><div><strong>Demo data on this page.</strong> Real-time options flow (sweeps / blocks / unusual activity) is not on Finnhub free tier. Numbers below are illustrative. Required upgrade: <span class="req">Polygon Options Starter (~$29/mo) or Unusual Whales</span>. <a href="settings.html">Configure provider →</a></div></div>
-
-  <!-- Top metric strip -->
-  <div class="grid grid-4" style="margin-bottom:24px;">
-    <div class="card">
-      <div style="color:var(--text-muted);font-size:11px;text-transform:uppercase;letter-spacing:0.05em;">Total Premium Today</div>
-      <div class="mono" style="font-size:24px;font-weight:700;margin-top:4px;">$4.82B</div>
-      <div class="mono green-text" style="font-size:13px;">+18.4% vs avg</div>
-    </div>
-    <div class="card">
-      <div style="color:var(--text-muted);font-size:11px;text-transform:uppercase;letter-spacing:0.05em;">Call/Put Ratio</div>
-      <div class="mono" style="font-size:24px;font-weight:700;margin-top:4px;">1.78</div>
-      <div class="mono green-text" style="font-size:13px;">Bullish skew</div>
-    </div>
-    <div class="card">
-      <div style="color:var(--text-muted);font-size:11px;text-transform:uppercase;letter-spacing:0.05em;">Unusual Volume</div>
-      <div class="mono" style="font-size:24px;font-weight:700;margin-top:4px;">312</div>
-      <div class="mono" style="font-size:13px;color:var(--text-muted);">contracts > 2x OI</div>
-    </div>
-    <div class="card">
-      <div style="color:var(--text-muted);font-size:11px;text-transform:uppercase;letter-spacing:0.05em;">Sweeps Detected</div>
-      <div class="mono" style="font-size:24px;font-weight:700;margin-top:4px;">84</div>
-      <div class="mono purple-text" style="font-size:13px;">$1.2B premium</div>
-    </div>
+  <div style="background:linear-gradient(90deg,rgba(0,212,255,0.10),rgba(0,212,255,0.03));border:1px solid rgba(0,212,255,0.3);border-radius:10px;color:var(--text-secondary);font-size:12.5px;line-height:1.6;padding:11px 16px;margin-bottom:20px;">
+    <strong style="color:var(--accent);">This is REAL data — and an experiment.</strong> Per-name call/put volume, open interest and dollar-flow come straight from the free CBOE delayed chain. This is <em>daily-aggregate</em> activity, <strong>not</strong> real-time sweeps/blocks (that tape needs a paid feed). The directional read below is an <strong>experimental signal — not yet graded against market drift</strong>; we're forward-testing whether it has any edge. Don't trade it as proven. <a href="edge-scorecard.html" style="color:var(--accent);">See how we grade signals →</a>
   </div>
 
-  <!-- Filter toolbar -->
-  <div class="card mb-16" style="margin-bottom:16px;">
-    <div class="toolbar">
-      <input type="text" class="search-input" placeholder="Search ticker..." data-search-target="flowTable">
-      <div class="filter-group" data-target="flowTable">
-        <button class="filter-btn active" data-filter="all">All</button>
-        <button class="filter-btn" data-filter="call">Calls</button>
-        <button class="filter-btn" data-filter="put">Puts</button>
-      </div>
-      <div class="filter-group">
-        <button class="filter-btn active">All Sizes</button>
-        <button class="filter-btn">> $100k</button>
-        <button class="filter-btn">> $500k</button>
-        <button class="filter-btn">> $1M</button>
-      </div>
-      <div class="filter-group">
-        <button class="filter-btn active">All Types</button>
-        <button class="filter-btn">Sweeps</button>
-        <button class="filter-btn">Blocks</button>
-        <button class="filter-btn">Splits</button>
-      </div>
-      <div style="margin-left:auto;color:var(--text-muted);font-size:12px;">
-        <span class="signal-dot green"></span> Live · 1,284 prints today
-      </div>
-    </div>
-  </div>
+  <div id="agg-strip" class="flow-strip"></div>
 
-  <!-- Main flow table -->
-  <div class="card mb-16" style="margin-bottom:24px;" data-filter-target="flowTable">
-    <div class="table-wrap">
-      <table>
-        <thead>
-          <tr>
-            <th>Time</th>
-            <th class="sortable">Symbol</th>
-            <th>Type</th>
-            <th>Strike</th>
-            <th>Expiry</th>
-            <th class="sortable" data-type="num">DTE</th>
-            <th class="sortable" data-type="num">Spot</th>
-            <th class="sortable" data-type="num">Premium</th>
-            <th class="sortable" data-type="num">Size</th>
-            <th>Price</th>
-            <th>Side</th>
-            <th class="sortable" data-type="num">IV</th>
-            <th>Tag</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr data-cat="call"><td>14:32:18</td><td class="symbol">NVDA</td><td><span class="pill call">CALL</span></td><td>$145</td><td>6/20</td><td>38</td><td>$138.27</td><td class="green-text">$2.4M</td><td>6,200</td><td>$3.85</td><td class="green-text">ASK</td><td>38.4</td><td><span class="pill sweep">SWEEP</span></td></tr>
-          <tr data-cat="call"><td>14:28:04</td><td class="symbol">AMD</td><td><span class="pill call">CALL</span></td><td>$170</td><td>6/20</td><td>38</td><td>$162.18</td><td class="green-text">$1.8M</td><td>4,200</td><td>$4.20</td><td class="green-text">ASK</td><td>42.1</td><td><span class="pill sweep">SWEEP</span></td></tr>
-          <tr data-cat="put"><td>14:21:47</td><td class="symbol">TSLA</td><td><span class="pill put">PUT</span></td><td>$240</td><td>5/23</td><td>10</td><td>$248.61</td><td class="red-text">$1.2M</td><td>3,100</td><td>$3.85</td><td class="red-text">ASK</td><td>52.4</td><td><span class="pill sweep">SWEEP</span></td></tr>
-          <tr data-cat="call"><td>14:18:32</td><td class="symbol">AAPL</td><td><span class="pill call">CALL</span></td><td>$220</td><td>5/30</td><td>17</td><td>$218.94</td><td class="green-text">$2.1M</td><td>8,500</td><td>$2.45</td><td>MID</td><td>28.4</td><td><span class="pill block">BLOCK</span></td></tr>
-          <tr data-cat="call"><td>14:14:18</td><td class="symbol">META</td><td><span class="pill call">CALL</span></td><td>$600</td><td>6/20</td><td>38</td><td>$587.42</td><td class="green-text">$3.2M</td><td>2,400</td><td>$13.20</td><td class="green-text">ASK</td><td>32.8</td><td><span class="pill sweep">SWEEP</span></td></tr>
-          <tr data-cat="call"><td>14:09:51</td><td class="symbol">SPY</td><td><span class="pill call">CALL</span></td><td>$570</td><td>5/16</td><td>3</td><td>$562.18</td><td class="green-text">$842k</td><td>4,800</td><td>$1.75</td><td>MID</td><td>14.2</td><td><span class="pill block">BLOCK</span></td></tr>
-          <tr data-cat="put"><td>14:04:27</td><td class="symbol">QQQ</td><td><span class="pill put">PUT</span></td><td>$480</td><td>5/30</td><td>17</td><td>$487.32</td><td class="red-text">$1.4M</td><td>3,200</td><td>$4.40</td><td class="red-text">ASK</td><td>18.4</td><td><span class="pill sweep">SWEEP</span></td></tr>
-          <tr data-cat="call"><td>13:58:14</td><td class="symbol">SMCI</td><td><span class="pill call">CALL</span></td><td>$55</td><td>5/23</td><td>10</td><td>$48.21</td><td class="green-text">$684k</td><td>5,400</td><td>$1.27</td><td class="green-text">ASK</td><td>78.4</td><td><span class="pill sweep">SWEEP</span></td></tr>
-          <tr data-cat="call"><td>13:52:38</td><td class="symbol">MSFT</td><td><span class="pill call">CALL</span></td><td>$430</td><td>6/20</td><td>38</td><td>$425.18</td><td class="green-text">$1.9M</td><td>2,800</td><td>$6.85</td><td class="green-text">ASK</td><td>22.4</td><td><span class="pill sweep">SWEEP</span></td></tr>
-          <tr data-cat="call"><td>13:47:02</td><td class="symbol">COIN</td><td><span class="pill call">CALL</span></td><td>$260</td><td>5/30</td><td>17</td><td>$248.92</td><td class="green-text">$1.1M</td><td>1,800</td><td>$6.10</td><td class="green-text">ASK</td><td>68.4</td><td><span class="pill sweep">SWEEP</span></td></tr>
-          <tr data-cat="put"><td>13:42:18</td><td class="symbol">IWM</td><td><span class="pill put">PUT</span></td><td>$215</td><td>6/20</td><td>38</td><td>$218.45</td><td class="red-text">$528k</td><td>2,400</td><td>$2.20</td><td class="red-text">ASK</td><td>21.4</td><td><span class="pill sweep">SWEEP</span></td></tr>
-          <tr data-cat="call"><td>13:38:54</td><td class="symbol">PLTR</td><td><span class="pill call">CALL</span></td><td>$35</td><td>6/20</td><td>38</td><td>$31.84</td><td class="green-text">$842k</td><td>11,200</td><td>$0.75</td><td class="green-text">ASK</td><td>62.4</td><td><span class="pill sweep">SWEEP</span></td></tr>
-          <tr data-cat="call"><td>13:34:21</td><td class="symbol">GOOGL</td><td><span class="pill call">CALL</span></td><td>$185</td><td>6/20</td><td>38</td><td>$178.32</td><td class="green-text">$1.2M</td><td>3,400</td><td>$3.50</td><td class="green-text">ASK</td><td>28.4</td><td><span class="pill sweep">SWEEP</span></td></tr>
-          <tr data-cat="call"><td>13:29:48</td><td class="symbol">AMZN</td><td><span class="pill call">CALL</span></td><td>$220</td><td>5/30</td><td>17</td><td>$213.55</td><td class="green-text">$924k</td><td>4,200</td><td>$2.20</td><td>MID</td><td>26.8</td><td><span class="pill block">BLOCK</span></td></tr>
-          <tr data-cat="put"><td>13:24:32</td><td class="symbol">XLE</td><td><span class="pill put">PUT</span></td><td>$90</td><td>6/20</td><td>38</td><td>$94.20</td><td class="red-text">$412k</td><td>2,800</td><td>$1.47</td><td class="red-text">ASK</td><td>24.8</td><td><span class="pill sweep">SWEEP</span></td></tr>
-          <tr data-cat="call"><td>13:18:54</td><td class="symbol">BABA</td><td><span class="pill call">CALL</span></td><td>$95</td><td>6/20</td><td>38</td><td>$88.42</td><td class="green-text">$724k</td><td>8,200</td><td>$0.88</td><td class="green-text">ASK</td><td>42.8</td><td><span class="pill sweep">SWEEP</span></td></tr>
-          <tr data-cat="put"><td>13:12:21</td><td class="symbol">RIVN</td><td><span class="pill put">PUT</span></td><td>$11</td><td>5/30</td><td>17</td><td>$12.18</td><td class="red-text">$184k</td><td>4,200</td><td>$0.44</td><td class="red-text">ASK</td><td>78.2</td><td><span class="pill sweep">SWEEP</span></td></tr>
-          <tr data-cat="call"><td>13:06:18</td><td class="symbol">SHOP</td><td><span class="pill call">CALL</span></td><td>$72</td><td>6/20</td><td>38</td><td>$68.50</td><td class="green-text">$612k</td><td>3,400</td><td>$1.80</td><td class="green-text">ASK</td><td>38.4</td><td><span class="pill sweep">SWEEP</span></td></tr>
-        </tbody>
-      </table>
-    </div>
-  </div>
-
-  <!-- Analytics row -->
-  <div class="grid grid-12" style="margin-bottom:24px;">
-    <div class="card col-4">
-      <div class="card-header"><div class="card-title">📊 Call / Put Premium</div></div>
-      <div class="chart-container small">
-        <canvas id="flowDonut"></canvas>
-      </div>
-      <div style="text-align:center;margin-top:8px;">
-        <div style="font-family:var(--font-mono);font-size:11px;color:var(--text-muted);">Premium-weighted · Today</div>
-        <div style="display:flex;justify-content:space-around;margin-top:12px;">
-          <div><div class="mono green-text" style="font-size:18px;font-weight:700;">$3.06B</div><div style="font-size:10px;color:var(--text-muted);">CALLS</div></div>
-          <div><div class="mono red-text" style="font-size:18px;font-weight:700;">$1.76B</div><div style="font-size:10px;color:var(--text-muted);">PUTS</div></div>
-        </div>
-      </div>
-    </div>
-
-    <div class="card col-4">
-      <div class="card-header"><div class="card-title">📈 IV Smile · SPY 6/20</div></div>
-      <div class="chart-container small">
-        <canvas id="ivChart"></canvas>
-      </div>
-      <div style="text-align:center;font-size:11px;color:var(--text-muted);margin-top:8px;">Smile steeper on downside — typical hedging skew</div>
-    </div>
-
-    <div class="card col-4">
-      <div class="card-header"><div class="card-title">🌡️ Top by Premium</div></div>
-      <div style="font-size:12px;">
-        <div style="display:grid;grid-template-columns:auto 1fr auto;gap:12px;padding:8px 0;border-bottom:1px solid var(--border);align-items:center;">
-          <div class="mono" style="font-weight:700;">NVDA</div>
-          <div class="meter"><div class="meter-fill" style="width:100%"></div></div>
-          <div class="mono green-text">$48M</div>
-        </div>
-        <div style="display:grid;grid-template-columns:auto 1fr auto;gap:12px;padding:8px 0;border-bottom:1px solid var(--border);align-items:center;">
-          <div class="mono" style="font-weight:700;">SPY</div>
-          <div class="meter"><div class="meter-fill" style="width:78%"></div></div>
-          <div class="mono green-text">$38M</div>
-        </div>
-        <div style="display:grid;grid-template-columns:auto 1fr auto;gap:12px;padding:8px 0;border-bottom:1px solid var(--border);align-items:center;">
-          <div class="mono" style="font-weight:700;">META</div>
-          <div class="meter"><div class="meter-fill" style="width:62%"></div></div>
-          <div class="mono green-text">$31M</div>
-        </div>
-        <div style="display:grid;grid-template-columns:auto 1fr auto;gap:12px;padding:8px 0;border-bottom:1px solid var(--border);align-items:center;">
-          <div class="mono" style="font-weight:700;">AMD</div>
-          <div class="meter"><div class="meter-fill" style="width:48%"></div></div>
-          <div class="mono green-text">$24M</div>
-        </div>
-        <div style="display:grid;grid-template-columns:auto 1fr auto;gap:12px;padding:8px 0;border-bottom:1px solid var(--border);align-items:center;">
-          <div class="mono" style="font-weight:700;">TSLA</div>
-          <div class="meter"><div class="meter-fill red" style="width:42%"></div></div>
-          <div class="mono red-text">$21M</div>
-        </div>
-        <div style="display:grid;grid-template-columns:auto 1fr auto;gap:12px;padding:8px 0;align-items:center;">
-          <div class="mono" style="font-weight:700;">AAPL</div>
-          <div class="meter"><div class="meter-fill" style="width:36%"></div></div>
-          <div class="mono green-text">$18M</div>
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <!-- OI by Strike chart -->
   <div class="card">
-    <div class="card-header">
-      <div class="card-title">🎯 SPY · Open Interest by Strike (Friday 5/16 Expiry)</div>
-      <div style="font-size:12px;color:var(--text-muted);">Max pain: <span class="mono yellow-text">$558</span> · Gamma flip: <span class="mono yellow-text">$555</span></div>
-    </div>
-    <div class="chart-container">
-      <canvas id="oiChart"></canvas>
-    </div>
-    <div style="font-size:12px;color:var(--text-muted);margin-top:12px;line-height:1.6;">
-      Large call wall at <strong style="color:var(--green);">$560</strong> may act as a magnet — dealers short gamma above tend to hedge by buying, slowing upside moves. Put support concentrated around <strong style="color:var(--red);">$555-$560</strong>. Heavy 0DTE flow can override structural levels intraday.
-    </div>
+    <div class="card-header"><div class="card-title">Per-symbol daily flow</div><div style="font-size:12px;color:var(--text-muted);" id="flow-provider"></div></div>
+    <div id="flow-body" style="color:var(--text-muted);padding:18px;">Loading real options activity…</div>
+  </div>
+
+  <div style="font-size:11.5px;color:var(--text-muted);line-height:1.6;margin-top:14px;">
+    <strong>How to read it:</strong> <b>P/C</b> = put volume ÷ call volume (low = call-heavy / bullish skew). <b>Net $-flow</b> = (call$ − put$) ÷ total$, so positive = more dollars into calls. <b>Unusual</b> = contracts trading above their open interest (fresh positioning). The "Read" is just the sign of net $-flow — a hypothesis we're testing, not a recommendation. Options involve substantial risk of loss; this is research, not investment advice.
   </div>
 </div>
 
@@ -205,15 +59,45 @@
 
 <script src="js/app.js?v=v208"></script>
 <script src="js/notify.js?v=v208"></script>
-<script src="js/charts.js?v=v208"></script>
 <script src="js/live.js?v=v208"></script>
 <script>
-  buildNav('flow');
-  document.addEventListener('DOMContentLoaded', () => {
-    renderFlowDonut('flowDonut', 63, 37);
-    renderIVSmile('ivChart');
-    renderOIByStrike('oiChart');
-  });
+buildNav('flow');
+const W = 'https://bpleone-brain-worker.brandonpleone.workers.dev';
+function fmtD(n){ if(n==null||!isFinite(n)) return '—'; var a=Math.abs(n); if(a>=1e9) return '$'+(n/1e9).toFixed(2)+'B'; if(a>=1e6) return '$'+(n/1e6).toFixed(1)+'M'; if(a>=1e3) return '$'+(n/1e3).toFixed(0)+'k'; return '$'+n.toFixed(0); }
+function fmtN(n){ return (n==null||!isFinite(n))?'—':Number(n).toLocaleString(); }
+function readTag(dir){ return dir>0?'<span class="read bull">BULLISH</span>':dir<0?'<span class="read bear">BEARISH</span>':'<span class="read neut">NEUTRAL</span>'; }
+async function loadFlow(){
+  var body=document.getElementById('flow-body'), strip=document.getElementById('agg-strip');
+  body.textContent='Loading real options activity…';
+  try{
+    var r=await fetch(W+'/brain/options-flow?cb='+Date.now(),{cache:'no-store'});
+    if(r.status===404){ strip.innerHTML=''; body.innerHTML='<span style="color:var(--yellow);">The options-flow feed is not deployed on the worker yet. Run <code>git pull &amp;&amp; cd worker &amp;&amp; npx wrangler deploy</code>, then refresh this page.</span>'; return; }
+    var d=await r.json();
+    if(!d.ok || !Array.isArray(d.flows) || !d.flows.length){ strip.innerHTML=''; body.innerHTML='<span style="color:var(--text-muted);">No options activity returned right now (market may be closed, or CBOE is between updates). Try Refresh shortly.</span>'; return; }
+    document.getElementById('flow-provider').textContent=(d.provider||'CBOE')+' · ~'+(d.delayedMin||15)+' min delayed · '+d.symbols_with_data+' names';
+    var net=d.agg_net_dollar_pct||0;
+    strip.innerHTML=
+      '<div class="card"><div class="lbl">Basket net $-flow</div><div class="val" style="color:'+(net>0.05?'var(--green)':net<-0.05?'var(--red)':'var(--text)')+';">'+(net>=0?'+':'')+(net*100).toFixed(0)+'%</div><div style="font-size:11px;color:var(--text-muted);margin-top:2px;">'+(net>0.05?'calls > puts':net<-0.05?'puts > calls':'balanced')+'</div></div>'+
+      '<div class="card"><div class="lbl">Call $-flow</div><div class="val green-text">'+fmtD(d.agg_call_dollar)+'</div></div>'+
+      '<div class="card"><div class="lbl">Put $-flow</div><div class="val red-text">'+fmtD(d.agg_put_dollar)+'</div></div>'+
+      '<div class="card"><div class="lbl">Unusual contracts</div><div class="val">'+fmtN(d.agg_unusual)+'</div><div style="font-size:11px;color:var(--text-muted);margin-top:2px;">vol &gt; open interest</div></div>';
+    var rows='<div style="overflow-x:auto;"><table class="flow"><thead><tr><th>Symbol</th><th>P/C vol</th><th>Call $</th><th>Put $</th><th>Net $-flow</th><th>Unusual</th><th style="text-align:center;">Read</th></tr></thead><tbody>';
+    d.flows.forEach(function(f){
+      var np=f.netDollarPct||0, w=Math.min(90,Math.round(Math.abs(np)*90));
+      var bar='<span class="netbar" style="width:'+w+'px;background:'+(np>=0?'var(--green)':'var(--red)')+';"></span>';
+      rows+='<tr><td><a href="symbol-deep-dive.html?sym='+f.sym+'" style="color:var(--accent);text-decoration:none;">'+f.sym+'</a></td>'+
+        '<td>'+(f.pcVol==null?'—':f.pcVol.toFixed(2))+'</td>'+
+        '<td class="green-text">'+fmtD(f.callDollar)+'</td>'+
+        '<td class="red-text">'+fmtD(f.putDollar)+'</td>'+
+        '<td>'+(np>=0?'+':'')+(np*100).toFixed(0)+'%'+bar+'</td>'+
+        '<td>'+fmtN(f.unusual)+'</td>'+
+        '<td style="text-align:center;">'+readTag(f.dir)+'</td></tr>';
+    });
+    rows+='</tbody></table></div>';
+    body.innerHTML=rows;
+  }catch(e){ strip.innerHTML=''; body.innerHTML='<span style="color:var(--yellow);">Could not load the options-flow feed ('+((e&&e.message)||e)+'). It may not be deployed yet, or the worker is waking up — try Refresh.</span>'; }
+}
+document.addEventListener('DOMContentLoaded', loadFlow);
 </script>
 </body>
 </html>
