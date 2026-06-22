@@ -85,6 +85,12 @@
     <div class="sc-grid" id="ft-cards"></div>
   </div>
 
+  <div class="card" style="margin-bottom:18px;">
+    <div class="card-header"><div class="card-title">🧪 Free options-flow — does the chain's $-flow beat drift?</div></div>
+    <div style="font-size:12.5px;color:var(--text-muted);line-height:1.6;margin-bottom:10px;">A separate, isolated forward-test (pass 292): each weekday we capture the daily call/put $-flow direction per liquid name from the free CBOE chain, grade the 5-day move, and test it against the market-drift base rate at 95%. <a href="options-flow.html" style="color:var(--accent);">See the live flow board →</a></div>
+    <div id="flow-test" style="font-size:13px;color:var(--text-muted);">Loading…</div>
+  </div>
+
   <div style="margin-top:18px;padding:14px 18px;border-radius:10px;background:rgba(148,163,184,0.06);border-left:3px solid var(--text-muted);font-size:12px;color:var(--text-muted);line-height:1.6;">
     <strong>How to read this.</strong> <strong>Backtest</strong> = how the brain scored on history it never saw, split into the market's natural drift vs real timing skill (only skill above the base rate counts as edge). <strong>Forward test</strong> = the live, no-excuses receipt: did today's calls actually work? "Beats coin flip" needs a one-sided z &gt; 1.64 (95% confidence) — which needs enough graded calls, so early on it correctly says "too few." A real edge here is small by nature (markets are efficient): even 53–55% directional with positive expectancy only counts as edge if it clears the base rate (drift), not just a coin flip. Today the backtest is mostly drift, so the live confluence test below is what we're watching: if the <strong>confluence</strong> leg (brain + insiders agreeing) beats the <strong>brain-only</strong> leg over time, that's the proof that fusing more signals — including paid options flow — adds real edge.
   </div>
@@ -214,7 +220,26 @@ async function loadForward() {
   }).join('');
 }
 
-function loadAll() { loadBacktest(); loadForward(); }
+async function loadFlowTest() {
+  const el = $('flow-test'); if (!el) return;
+  let d;
+  try { d = await fetch(WORKER + '/brain/flow-score', { cache: 'no-store' }).then(r => r.json()); }
+  catch (e) { el.innerHTML = '<span style="color:var(--text-muted);">Flow forward-test unavailable (worker deploying?).</span>'; return; }
+  const v = (d && d.verdict) || {}, leg = (d && d.leg) || {};
+  if (!v.ready) {
+    el.innerHTML = '<div style="color:var(--accent);font-weight:700;margin-bottom:4px;">⏳ Accruing — ' + (v.graded || 0) + ' of ' + (v.needed || 20) + ' graded</div><div style="color:var(--text-muted);line-height:1.6;">' + (v.headline || '') + '</div>';
+  } else {
+    const good = v.beats_drift_95 && v.profitable;
+    const pill = good ? '<span class="verdict-pill vp-win">✓ Beats drift &amp; profitable (95%)</span>'
+      : (v.profitable === false ? '<span class="verdict-pill vp-lose">Loses money on average</span>'
+        : '<span class="verdict-pill vp-weak">Explained by drift, not edge</span>');
+    el.innerHTML = pill + '<div style="margin-top:8px;color:var(--text-secondary);line-height:1.6;">' + (v.headline || '') + '</div>'
+      + '<div class="sc-row" style="margin-top:8px;"><span>graded calls</span><span>' + (leg.n || 0) + '</span></div>'
+      + '<div class="sc-row"><span>hit rate</span><span>' + pct(leg.hit_rate) + '</span></div>'
+      + '<div class="sc-row"><span>drift base rate</span><span>' + pct(leg.drift_null_rate) + '</span></div>';
+  }
+}
+function loadAll() { loadBacktest(); loadForward(); loadFlowTest(); }
 loadAll();
 setInterval(loadAll, 120000);
 </script>
