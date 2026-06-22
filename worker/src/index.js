@@ -38,7 +38,7 @@
 // Pass 200: version stamp so brain-proof.html + worker-setup.html can detect
 // when the deployed worker is behind the repo source. Bump on every meaningful
 // behavior change. Read via /brain/health → worker_version field.
-const WORKER_VERSION = 'pass-292';
+const WORKER_VERSION = 'pass-293';
 
 const UNIVERSE = [
   'SPY','QQQ','IWM','DIA','AAPL','NVDA','TSLA','MSFT','META','AMZN','GOOGL','AMD',
@@ -1540,8 +1540,9 @@ async function handleRequest(request, env, ctx) {
       ok: true,
       lastTickAgo: ageS,
       lastTick: lt,
-      healthy: ageS != null && ageS < 180,           // strict (market-hours) — kept for back-compat
-      self_sustaining: selfSustaining,                 // pass 251: market-aware — MONITOR THIS, not `healthy`
+      healthy: selfSustaining,                         // pass 293: market-aware now. Was strict (ageS<180), which false-alarmed off-hours/weekends when the cron is deliberately throttled (~30m, pass 244) — a flag named "healthy" reading false while the system is fine is misleading. Now == self_sustaining (tick fresh for the session + model trained).
+      tick_fresh_strict: ageS != null && ageS < 180,   // the old strict 3-min freshness, kept under an honest name; raw age stays in lastTickAgo + the cron_tick_fresh audit check
+      self_sustaining: selfSustaining,                 // pass 251: market-aware — uptime monitors watch this (now == healthy)
       audit,                                           // pass 258: structured self-audit checks
       audit_pass: auditPass,                           // pass 258: true only if every check passes
       issues,                                          // pass 251: human-readable problems (empty array = all good)
