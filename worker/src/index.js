@@ -38,7 +38,7 @@
 // Pass 200: version stamp so brain-proof.html + worker-setup.html can detect
 // when the deployed worker is behind the repo source. Bump on every meaningful
 // behavior change. Read via /brain/health → worker_version field.
-const WORKER_VERSION = 'pass-291';
+const WORKER_VERSION = 'pass-292';
 
 const UNIVERSE = [
   'SPY','QQQ','IWM','DIA','AAPL','NVDA','TSLA','MSFT','META','AMZN','GOOGL','AMD',
@@ -2177,6 +2177,65 @@ async function handleRequest(request, env, ctx) {
     return resp;
   }
 
+  // ===== Pass 292: free options-flow FORWARD-TEST verdict — does following the
+  // daily $-flow direction beat market drift? Grades flow_log_v1 (captured +
+  // resolved by maybeFlowScorecard) with the same honest machinery as the
+  // confluence scorer: hit-rate vs the per-direction drift null, profitability,
+  // 95% bound. ready=false until >= 20 graded calls (accrues over weeks). =====
+  if (path === '/brain/flow-score') {
+    const log = await kvGet(env, 'flow_log_v1', []);
+    const resolved = log.filter(e => e && e.resolved && typeof e.ret === 'number');
+    const driftUp = resolved.length ? resolved.filter(e => e.ret > 0).length / resolved.length : 0.5;
+    function score(entries, dirFn) {
+      const calls = entries.map(e => ({ dir: dirFn(e), ret: e.ret })).filter(c => c.dir !== 0);
+      const n = calls.length;
+      const hits = calls.filter(c => (c.dir > 0 && c.ret > 0) || (c.dir < 0 && c.ret < 0)).length;
+      const avgDirRet = n ? calls.reduce((a, c) => a + c.ret * c.dir, 0) / n : null;
+      let nullHits = 0;
+      calls.forEach(c => { nullHits += (c.dir > 0 ? driftUp : (1 - driftUp)); });
+      const p0 = n ? nullHits / n : 0.5;
+      const zDrift = (n >= 5 && p0 > 0 && p0 < 1) ? (hits - n * p0) / Math.sqrt(n * p0 * (1 - p0)) : null;
+      return {
+        n, hits,
+        hit_rate: n ? +(hits / n).toFixed(4) : null,
+        drift_null_rate: +p0.toFixed(4),
+        avg_directional_ret_pct: avgDirRet != null ? +avgDirRet.toFixed(3) : null,
+        profitable: avgDirRet != null && avgDirRet > 0,
+        z_score_vs_drift: zDrift != null ? +zDrift.toFixed(2) : null,
+        beats_drift_95: zDrift != null && zDrift > 1.64
+      };
+    }
+    const leg = score(resolved, e => e.flowDir);
+    const VERDICT_MIN_N = 20;
+    const pending = log.filter(e => e && !e.resolved).length;
+    const vpct = x => (x == null ? '—' : (x * 100).toFixed(1) + '%');
+    let verdict;
+    if (leg.n < VERDICT_MIN_N) {
+      verdict = {
+        ready: false, status: 'ACCRUING', graded: leg.n, needed: VERDICT_MIN_N, pending,
+        headline: 'Options-flow forward-test still accruing — ' + leg.n + ' of ' + VERDICT_MIN_N + ' flow calls graded. No verdict yet; each call grades 5 trading days after capture, so this fills in over the coming weeks.'
+      };
+    } else {
+      const beats = !!leg.beats_drift_95, profitable = !!leg.profitable;
+      const retStr = (leg.avg_directional_ret_pct >= 0 ? '+' : '') + leg.avg_directional_ret_pct + '%';
+      verdict = {
+        ready: true,
+        status: (beats && profitable) ? 'EDGE' : 'NO_EDGE',
+        graded: leg.n, hit_rate: leg.hit_rate, drift_base_rate: leg.drift_null_rate,
+        avg_return_pct: leg.avg_directional_ret_pct, profitable, beats_drift_95: beats,
+        headline: (beats && profitable)
+          ? 'YES — free options-flow shows edge. Following the daily $-flow direction hits ' + vpct(leg.hit_rate) + ' over ' + leg.n + ' graded calls, beats the market-drift base rate (' + vpct(leg.drift_null_rate) + ') at 95%, and is profitable (avg ' + retStr + ' per call). This justifies pursuing richer / real-time flow data.'
+          : (!profitable
+            ? 'NO — flow calls are directionally right ' + vpct(leg.hit_rate) + ' (n=' + leg.n + '), but average return is ' + retStr + ' per call: not profitable (small wins, big losses on misses). Free options-flow shows no tradeable edge.'
+            : 'NO — flow hits ' + vpct(leg.hit_rate) + ' (n=' + leg.n + '), but that does not clear the market-drift base rate (' + vpct(leg.drift_null_rate) + ') at 95%: the hit rate is explained by drift, not a flow edge.')
+      };
+    }
+    return json({
+      ok: true, signal: 'free-cboe-options-flow', leg, verdict,
+      note: 'Forward-test of the FREE daily options-flow signal: each weekday the worker captures the $-flow direction per liquid name, grades the realized 5-day move, and checks whether following the flow beats the market-drift base rate at 95%. Honest null = drift; a high hit-rate that merely rides drift is not edge.'
+    });
+  }
+
   // ===== Pass 248: aggregated market-wide insider feed (one cached call) =====
   // The browser "Insider Trades Live" page wants a cross-symbol feed; rather
   // than fan out 16 calls from every visitor's browser, the worker assembles
@@ -3707,6 +3766,71 @@ function backtestSegments(heldoutRaw) {
   };
 }
 
+// ---- Pass 292: free options-flow forward-test. Fully ISOLATED from the
+// confluence experiment (its own KV log, own snap-day key, own try/catch) so it
+// can never disturb it. Captures the daily $-flow direction per liquid name,
+// grades the realized 5-day move, and /brain/flow-score reports whether following
+// the flow beats the market-drift base rate at 95%. Honest prior: probably not.
+function flowAgg(chain) {
+  const cs = (chain && chain.contracts) || [];
+  let callDol = 0, putDol = 0;
+  for (const c of cs) {
+    const v = +c.volume || 0, mid = +c.mid || 0, dol = v * mid * 100;
+    if (c.type === 'call') callDol += dol;
+    else if (c.type === 'put') putDol += dol;
+  }
+  const totDol = callDol + putDol;
+  const netDolPct = totDol > 0 ? +(((callDol - putDol) / totDol)).toFixed(3) : 0;
+  return { netDollarPct: netDolPct, dir: netDolPct > 0.15 ? 1 : (netDolPct < -0.15 ? -1 : 0) };
+}
+
+async function maybeFlowScorecard(env) {
+  try {
+    const dayKey = etDayKeyNow();
+    const etDow = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/New_York' })).getUTCDay();
+    const isWeekday = etDow >= 1 && etDow <= 5;
+    const snapDay = await kvGet(env, 'flow_snap_day_v1', 0);
+    if (snapDay !== dayKey && isWeekday) {
+      const snap = await kvGet(env, KV_KEYS.SIGNALS, { signals: {} });
+      const sigFresh = snap.updatedAt && (Date.now() - snap.updatedAt) < 12 * 3600 * 1000;
+      const sigMap = snap.signals || {};
+      const FLOW_SET = ['NVDA', 'TSLA', 'AAPL', 'META', 'AMZN', 'AMD', 'MSFT', 'GOOGL', 'PLTR', 'COIN', 'NFLX', 'AVGO', 'MU', 'CRM'];
+      const targets = FLOW_SET.filter(s => sigMap[s] && sigMap[s].last > 0).slice(0, 14);
+      if (sigFresh && targets.length >= 4) {
+        const log = await kvGet(env, 'flow_log_v1', []);
+        for (const sym of targets) {
+          try {
+            const ch = await fetchOptionsChain(env, sym, null);
+            if (!ch || !Array.isArray(ch.contracts) || !ch.contracts.length) continue;
+            const f = flowAgg(ch);
+            if (f.dir === 0) continue;   // no directional flow call to grade today
+            log.push({ dayKey, ts: Date.now(), sym, entry: +sigMap[sym].last, flowDir: f.dir, netDollarPct: f.netDollarPct, resolved: false });
+          } catch (e) { /* skip this symbol; never break the snapshot */ }
+        }
+        await kvPut(env, 'flow_log_v1', log.slice(-4000));
+        await kvPut(env, 'flow_snap_day_v1', dayKey);
+        return;   // capture this tick; resolve on a later one (bound the work)
+      }
+    }
+    // ---- RESOLVE (bounded): grade calls >= 5 trading days (~7 calendar) old.
+    const log = await kvGet(env, 'flow_log_v1', []);
+    const now = Date.now();
+    let resolvedCount = 0, dirty = false;
+    for (const e of log) {
+      if (e.resolved || (now - e.ts) < 7 * 86400000) continue;
+      if (resolvedCount >= 6) break;                        // cap Yahoo fetches/tick
+      const q = await fetchYahooQuote(e.sym);
+      resolvedCount++;
+      if (!q || !q.last) continue;
+      e.exit = +q.last.toFixed(2);
+      e.ret = +(((q.last - e.entry) / e.entry) * 100).toFixed(3);   // 5-day % move
+      e.resolved = true;
+      dirty = true;
+    }
+    if (dirty) await kvPut(env, 'flow_log_v1', log);
+  } catch (e) { /* never let the flow scorecard break the cron */ }
+}
+
 async function maybeConfluenceScorecard(env) {
   try {
     const dayKey = etDayKeyNow();
@@ -3768,6 +3892,8 @@ export default {
     ctx.waitUntil(maybeAutoBootstrap(env));
     // Pass 252: live edge scorecard — snapshot daily, grade at 5 days
     ctx.waitUntil(maybeConfluenceScorecard(env));
+    // Pass 292: free options-flow forward-test (isolated; own log + try/catch)
+    ctx.waitUntil(maybeFlowScorecard(env));
     // Pass 257: daily delivery — post Pick of the Day to Discord (weekday AM, once)
     ctx.waitUntil(maybeDailyDigest(env));
   }

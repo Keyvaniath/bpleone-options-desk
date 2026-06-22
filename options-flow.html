@@ -43,6 +43,8 @@ table.flow td:first-child{text-align:left;font-weight:800;}
     <strong style="color:var(--accent);">This is REAL data — and an experiment.</strong> Per-name call/put volume, open interest and dollar-flow come straight from the free CBOE delayed chain. This is <em>daily-aggregate</em> activity, <strong>not</strong> real-time sweeps/blocks (that tape needs a paid feed). The directional read below is an <strong>experimental signal — not yet graded against market drift</strong>; we're forward-testing whether it has any edge. Don't trade it as proven. <a href="edge-scorecard.html" style="color:var(--accent);">See how we grade signals →</a>
   </div>
 
+  <div id="flow-verdict" class="card" style="margin-bottom:20px;border-left:3px solid var(--accent);display:none;"></div>
+
   <div id="agg-strip" class="flow-strip"></div>
 
   <div class="card">
@@ -98,6 +100,19 @@ async function loadFlow(){
   }catch(e){ strip.innerHTML=''; body.innerHTML='<span style="color:var(--yellow);">Could not load the options-flow feed ('+((e&&e.message)||e)+'). It may not be deployed yet, or the worker is waking up — try Refresh.</span>'; }
 }
 document.addEventListener('DOMContentLoaded', loadFlow);
+async function loadVerdict(){
+  var el=document.getElementById('flow-verdict');
+  try{
+    var r=await fetch(W+'/brain/flow-score?cb='+Date.now(),{cache:'no-store'});
+    if(!r.ok) return;
+    var d=await r.json(), v=d.verdict||{};
+    var color = v.status==='EDGE' ? 'var(--green)' : v.status==='NO_EDGE' ? 'var(--red)' : 'var(--accent)';
+    var label = v.status==='EDGE' ? 'EDGE FOUND' : v.status==='NO_EDGE' ? 'NO EDGE' : 'ACCRUING';
+    el.style.borderLeftColor=color; el.style.display='block';
+    el.innerHTML='<div style="display:flex;align-items:center;gap:10px;margin-bottom:6px;flex-wrap:wrap;"><span style="font-weight:800;font-size:11px;letter-spacing:0.5px;color:'+color+';border:1px solid '+color+';border-radius:6px;padding:2px 9px;">'+label+'</span><span style="font-weight:800;font-size:13px;">Forward-test: does this flow beat market drift?</span></div><div style="font-size:12.5px;color:var(--text-secondary);line-height:1.6;">'+(v.headline||'')+'</div>';
+  }catch(e){}
+}
+document.addEventListener('DOMContentLoaded', loadVerdict);
 </script>
 </body>
 </html>
