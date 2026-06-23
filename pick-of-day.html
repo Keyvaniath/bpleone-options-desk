@@ -158,9 +158,20 @@ async function loadAll() {
   } else if (es) { es.style.display = 'none'; }
   // Hero
   const p = picks && picks.pick_of_day;
+  // Noise gate ("sit out on weak days"): if even the #1 name is too close to a
+  // coin flip, don't force a call — show "sit out" instead. Tune WEAK_CONVICTION
+  // here, or set potd_min_conviction server-side in constraints.html.
+  const WEAK_CONVICTION = 0.40;
   if (!p) {
     $('potd-hero').className = 'potd-hero';
     $('potd-hero').innerHTML = '<div style="color:var(--text-muted);">No pick yet — the scanner populates during market hours (the brain rotates the universe every few minutes).</div>';
+  } else if (typeof p.conviction === 'number' && p.conviction < WEAK_CONVICTION) {
+    $('potd-hero').className = 'potd-hero';
+    $('potd-hero').innerHTML =
+      '<div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:1px;font-weight:700;margin-bottom:8px;">Today\'s #1 conviction call · 5-day horizon</div>'
+      + '<div style="font-size:24px;font-weight:900;color:var(--text-muted);">😴 No clear pick today — sit out</div>'
+      + '<div style="font-size:13.5px;color:var(--text-secondary);margin-top:12px;line-height:1.6;">Even the brain\'s strongest read today (' + p.sym + ', only ' + Math.round(p.conviction * 100) + '% conviction) is too close to a coin flip to broadcast. Forcing a call on a flat day is exactly the noise we filter out — the disciplined move is no trade.</div>'
+      + '<div style="font-size:11.5px;color:var(--text-muted);margin-top:12px;">Gate: a pick only shows when the #1 name clears ' + Math.round(WEAK_CONVICTION * 100) + '% conviction. Adjust it in <a href="constraints.html" style="color:var(--accent);">constraints</a>.</div>';
   } else {
     const up = p.dir === 'UP';
     $('potd-hero').className = 'potd-hero ' + (up ? 'up' : 'down');
