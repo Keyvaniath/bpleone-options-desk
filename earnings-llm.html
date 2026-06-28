@@ -1,0 +1,577 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Earnings Call LLM - bpleone / trade</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css?v=v208">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.ell-drop { border:1.5px dashed var(--border); border-radius:10px; padding:14px; text-align:center; color:var(--text-muted); font-size:12px; cursor:pointer; transition:all .15s; }
+.ell-drop:hover, .ell-drop.over { border-color:var(--accent); color:var(--accent); background:rgba(0,212,255,0.05); }
+.ell-ta { width:100%; min-height:220px; background:var(--bg-elevated); border:1px solid var(--border); color:var(--text-primary); padding:12px 14px; border-radius:10px; font-family:var(--font-mono); font-size:12px; line-height:1.55; resize:vertical; }
+.ell-ta:focus { outline:none; border-color:var(--accent); }
+.ell-in { background:var(--bg-elevated); border:1px solid var(--border); color:var(--text-primary); padding:9px 12px; border-radius:8px; font-family:inherit; font-size:13px; }
+.ell-in:focus { outline:none; border-color:var(--accent); }
+.ell-stance { font-size:30px; font-weight:800; letter-spacing:-0.5px; }
+.ell-gauge { position:relative; height:14px; border-radius:999px; background:linear-gradient(90deg, var(--red), var(--yellow) 50%, var(--green)); margin:10px 0 4px; }
+.ell-gauge .mark { position:absolute; top:-4px; width:4px; height:22px; background:var(--text-primary); border-radius:2px; box-shadow:0 0 0 2px var(--bg-secondary); transform:translateX(-2px); }
+.ell-gauge-scale { display:flex; justify-content:space-between; font-size:10px; color:var(--text-muted); font-family:var(--font-mono); }
+.ell-quote { border-left:2px solid var(--border); padding:2px 0 2px 10px; margin:4px 0 10px; color:var(--text-muted); font-size:12px; font-style:italic; }
+.ell-li { margin-bottom:10px; font-size:13px; line-height:1.5; }
+.ell-li b { color:var(--text-primary); }
+.ell-chip { display:inline-block; padding:3px 10px; border-radius:999px; font-size:11px; font-weight:700; }
+.ell-metric-row td { padding:6px 8px; border-bottom:1px solid var(--border); font-size:12px; }
+.ell-hist-row { display:grid; grid-template-columns:64px 1fr auto auto auto; gap:10px; align-items:center; padding:8px 6px; border-bottom:1px solid var(--border); font-size:12px; cursor:pointer; }
+.ell-hist-row:hover { background:var(--bg-elevated); }
+.ell-pill-sm { padding:2px 8px; border-radius:999px; font-size:10px; font-weight:700; font-family:var(--font-mono); }
+.ell-kpi { text-align:center; }
+.ell-kpi .v { font-size:24px; font-weight:800; font-family:var(--font-mono); }
+.ell-kpi .l { font-size:10px; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.5px; margin-top:2px; }
+.ell-spin { display:inline-block; width:14px; height:14px; border:2px solid var(--border); border-top-color:var(--accent); border-radius:50%; animation:ellspin .8s linear infinite; vertical-align:middle; }
+@keyframes ellspin { to { transform:rotate(360deg); } }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">Earnings Call LLM</div>
+      <div class="page-subtitle">Paste a transcript &rarr; structured bullish / bearish read that learns your style &middot; <span id="market-clock">--</span></div>
+    </div>
+    <div class="flex gap-8">
+      <span id="aiBadge" class="status-pill disconnected"><span class="dot"></span> NOT CONFIGURED</span>
+      <a href="settings.html#ai" class="btn btn-ghost">&#9881; Configure</a>
+    </div>
+  </div>
+
+  <div id="cfgBanner" class="card" style="display:none;border-color:rgba(245,158,11,0.4);background:var(--yellow-bg,rgba(245,158,11,0.08));margin-bottom:16px;">
+    <div style="font-size:13px;line-height:1.6;">
+      <strong style="color:var(--yellow);">Claude isn't connected yet.</strong>
+      Add your Anthropic API key in <a href="settings.html#ai" style="color:var(--accent);">Settings &rarr; AI</a> to turn on the analyzer.
+      Your key is stored locally in this browser only. The tool runs on <code>claude-opus-4-8</code>.
+    </div>
+  </div>
+
+  <div class="grid grid-12">
+    <!-- INPUT -->
+    <div class="col-5">
+      <div class="card">
+        <div class="card-header"><div class="card-title">&#128196; Transcript</div></div>
+        <div class="flex gap-8" style="margin-bottom:10px;">
+          <input id="tkr" class="ell-in" placeholder="Ticker (e.g. NVDA)" style="width:130px;text-transform:uppercase;">
+          <input id="qtr" class="ell-in" placeholder="Period (e.g. Q2 2026)" style="flex:1;">
+        </div>
+        <div id="eHint" style="font-size:11px;color:var(--text-muted);margin-bottom:10px;min-height:14px;"></div>
+        <div id="drop" class="ell-drop" style="margin-bottom:10px;">
+          Drop a <b>.txt</b>, <b>.md</b> or <b>.pdf</b> here, or click to choose &mdash; or just paste below
+          <input id="file" type="file" accept=".txt,.md,.csv,.pdf,text/plain" style="display:none;">
+        </div>
+        <textarea id="txt" class="ell-ta" placeholder="Paste the earnings-call transcript (prepared remarks + Q&amp;A is best)..."></textarea>
+        <div class="flex" style="justify-content:space-between;align-items:center;margin-top:10px;">
+          <span id="cnt" style="font-size:11px;color:var(--text-muted);font-family:var(--font-mono);">0 chars</span>
+          <button id="goBtn" class="btn btn-primary" style="padding:9px 18px;">Analyze &rarr;</button>
+        </div>
+        <div id="aStatus" style="font-size:12px;margin-top:10px;min-height:16px;"></div>
+      </div>
+
+      <!-- SCOREBOARD -->
+      <div class="card" style="margin-top:14px;">
+        <div class="card-header"><div class="card-title">&#127919; Training Scoreboard</div></div>
+        <div class="grid grid-4" style="gap:10px;">
+          <div class="ell-kpi"><div class="v" id="sbTotal">0</div><div class="l">Calls</div></div>
+          <div class="ell-kpi"><div class="v" id="sbLabeled">0</div><div class="l">Labeled</div></div>
+          <div class="ell-kpi"><div class="v" id="sbAgree">&mdash;</div><div class="l">Agree &plusmn;1</div></div>
+          <div class="ell-kpi"><div class="v" id="sbHit">&mdash;</div><div class="l">Outcome hit</div></div>
+        </div>
+        <div id="sbBias" style="font-size:12px;color:var(--text-muted);margin-top:12px;line-height:1.6;"></div>
+        <div style="font-size:11px;color:var(--text-muted);margin-top:10px;line-height:1.6;border-top:1px solid var(--border);padding-top:10px;">
+          <strong style="color:var(--text-secondary);">How it learns:</strong> each read you label (your score, a note, the realized move) is folded into a calibration profile that's injected into every future prompt. It's prompt-level continual learning &mdash; not weight fine-tuning &mdash; so it converges to <em>your</em> read over time.
+        </div>
+      </div>
+
+      <!-- RULES -->
+      <div class="card" style="margin-top:14px;">
+        <div class="card-header"><div class="card-title">&#128221; Standing Rules</div></div>
+        <div style="font-size:11px;color:var(--text-muted);margin-bottom:8px;">One rule per line. These are sent on every analysis (e.g. "MGMT sandbags Q4 guidance", "discount buyback hype", "weight datacenter capex above EPS beats").</div>
+        <textarea id="rulesTa" class="ell-ta" style="min-height:110px;" placeholder="One standing rule per line..."></textarea>
+        <button id="saveRulesBtn" class="btn btn-secondary" style="margin-top:8px;padding:7px 14px;">Save rules</button>
+        <span id="rulesStatus" style="font-size:11px;color:var(--green);margin-left:10px;"></span>
+      </div>
+    </div>
+
+    <!-- OUTPUT -->
+    <div class="col-7">
+      <div id="empty" class="card" style="text-align:center;padding:48px 20px;color:var(--text-muted);">
+        <div style="font-size:40px;margin-bottom:10px;">&#128202;</div>
+        <div style="font-size:14px;">Paste a transcript and hit <b>Analyze</b>. The read shows up here &mdash; then label it to train the model.</div>
+      </div>
+
+      <div id="results" style="display:none;">
+        <div class="card">
+          <div class="flex" style="justify-content:space-between;align-items:flex-start;">
+            <div>
+              <div class="ell-stance" id="stanceText">&mdash;</div>
+              <div style="font-size:12px;color:var(--text-muted);margin-top:2px;" id="stanceSub">&mdash;</div>
+            </div>
+            <div style="text-align:right;">
+              <div style="font-size:34px;font-weight:800;font-family:var(--font-mono);" id="scoreText">0</div>
+              <div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;">score &minus;5..+5</div>
+            </div>
+          </div>
+          <div class="ell-gauge"><div class="mark" id="gMark" style="left:50%;"></div></div>
+          <div class="ell-gauge-scale"><span>&minus;5 bearish</span><span>0</span><span>+5 bullish</span></div>
+          <div id="rSummary" style="font-size:13px;line-height:1.6;margin-top:14px;"></div>
+        </div>
+
+        <div class="grid grid-2" style="margin-top:14px;gap:14px;">
+          <div class="card">
+            <div class="card-header"><div class="card-title" style="color:var(--green);">&#9650; Bull case</div></div>
+            <div id="bullList"></div>
+          </div>
+          <div class="card">
+            <div class="card-header"><div class="card-title" style="color:var(--red);">&#9660; Bear case</div></div>
+            <div id="bearList"></div>
+          </div>
+        </div>
+
+        <div class="card" style="margin-top:14px;">
+          <div class="grid grid-2" style="gap:14px;">
+            <div>
+              <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px;">Guidance vs expectations</div>
+              <div id="rGuideChip" class="ell-chip" style="margin-bottom:6px;">&mdash;</div>
+              <div id="rGuideDetail" style="font-size:12px;line-height:1.5;color:var(--text-secondary);"></div>
+            </div>
+            <div>
+              <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px;">Tone shift vs prior quarter</div>
+              <div id="rTone" style="font-size:12px;line-height:1.5;color:var(--text-secondary);"></div>
+            </div>
+          </div>
+          <div id="rMetricsWrap" style="margin-top:14px;">
+            <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px;">Key metrics</div>
+            <table style="width:100%;border-collapse:collapse;"><tbody id="rMetrics"></tbody></table>
+          </div>
+          <div id="rRisksWrap" style="margin-top:14px;">
+            <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px;">Risks</div>
+            <ul id="rRisks" style="margin:0;padding-left:18px;font-size:12px;line-height:1.6;color:var(--text-secondary);"></ul>
+          </div>
+        </div>
+
+        <div class="card" style="margin-top:14px;border-color:rgba(0,212,255,0.35);">
+          <div class="card-header"><div class="card-title" style="color:var(--accent);">&#9889; Trade implication</div></div>
+          <div id="rTrade" style="font-size:13px;line-height:1.6;"></div>
+          <div id="rCaveats" style="font-size:11px;color:var(--text-muted);margin-top:10px;font-style:italic;"></div>
+        </div>
+
+        <!-- FEEDBACK / SELF-TRAIN -->
+        <div class="card" style="margin-top:14px;border-color:rgba(245,158,11,0.35);">
+          <div class="card-header"><div class="card-title">&#127891; Train it &mdash; your call</div></div>
+          <div class="flex gap-12" style="align-items:flex-end;flex-wrap:wrap;">
+            <div>
+              <div style="font-size:11px;color:var(--text-muted);margin-bottom:4px;">Your score</div>
+              <select id="bScore" class="ell-in"></select>
+            </div>
+            <div style="flex:1;min-width:200px;">
+              <div style="font-size:11px;color:var(--text-muted);margin-bottom:4px;">Note (why you disagree / what to remember)</div>
+              <input id="bNotes" class="ell-in" style="width:100%;" placeholder="e.g. guidance looks sandbagged, I'd fade the dip">
+            </div>
+            <button id="saveFbBtn" class="btn btn-primary" style="padding:9px 16px;">Save label</button>
+          </div>
+          <div style="border-top:1px solid var(--border);margin-top:14px;padding-top:14px;">
+            <div style="font-size:11px;color:var(--text-muted);margin-bottom:6px;">Realized outcome (post-call move)</div>
+            <div class="flex gap-8" style="align-items:flex-end;flex-wrap:wrap;">
+              <div>
+                <div style="font-size:10px;color:var(--text-muted);margin-bottom:3px;">Call date</div>
+                <input id="oDate" type="date" class="ell-in">
+              </div>
+              <div>
+                <div style="font-size:10px;color:var(--text-muted);margin-bottom:3px;">5-day move %</div>
+                <input id="oMove" class="ell-in" style="width:110px;" placeholder="e.g. -6.2">
+              </div>
+              <button id="oAuto" class="btn btn-ghost" style="padding:9px 12px;" title="Try to pull the move from the worker's daily bars">&#8635; Auto-fetch</button>
+              <button id="saveOutBtn" class="btn btn-secondary" style="padding:9px 14px;">Save outcome</button>
+              <span id="oStatus" style="font-size:11px;color:var(--text-muted);"></span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- HISTORY -->
+  <div class="card" style="margin-top:14px;">
+    <div class="card-header" style="justify-content:space-between;">
+      <div class="card-title">&#128220; History &amp; training set</div>
+      <button id="clearAllBtn" class="btn btn-ghost" style="padding:5px 10px;font-size:11px;">Clear all</button>
+    </div>
+    <div id="hist"></div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js?v=v208"></script>
+<script src="js/ai-client.js?v=v208"></script>
+<script src="js/app.js?v=v208"></script>
+<script src="js/notify.js?v=v208"></script>
+<script src="js/live.js?v=v208"></script>
+<script src="js/earnings-awareness.js?v=v208"></script>
+<script src="js/earnings-llm.js?v=v208"></script>
+<script>
+buildNav('earnings-llm');
+
+var $ = function (id) { return document.getElementById(id); };
+function esc(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+    return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+  });
+}
+var currentRead = null;
+var currentId = null;
+
+// ---- AI status badge / config banner ----
+function refreshBadge() {
+  var s = AIClient.getStatus();
+  var badge = $('aiBadge');
+  if (s.enabled) {
+    badge.className = 'status-pill connected';
+    badge.innerHTML = '<span class="dot"></span> CLAUDE &middot; ' + (s.model || '').replace('claude-', '').toUpperCase();
+    $('cfgBanner').style.display = 'none';
+    $('goBtn').disabled = false;
+  } else {
+    badge.className = 'status-pill disconnected';
+    badge.innerHTML = '<span class="dot"></span> NOT CONFIGURED';
+    $('cfgBanner').style.display = 'block';
+    $('goBtn').disabled = true;
+  }
+}
+if (window.AIClient && AIClient.onStatus) AIClient.onStatus(refreshBadge); else refreshBadge();
+
+// ---- quarter guess + earnings hint ----
+function guessQuarter() {
+  var now = new Date();
+  var m = now.getMonth(); // 0-11
+  var y = now.getFullYear();
+  // Companies report the PRIOR quarter; map current month to the most-recently-ended fiscal quarter.
+  var q, yr = y;
+  if (m <= 1) { q = 4; yr = y - 1; }
+  else if (m <= 4) { q = 1; }
+  else if (m <= 7) { q = 2; }
+  else if (m <= 10) { q = 3; }
+  else { q = 4; }
+  return 'Q' + q + ' ' + yr;
+}
+$('qtr').value = guessQuarter();
+
+$('tkr').addEventListener('input', function () {
+  var sym = this.value.toUpperCase().trim();
+  var hint = $('eHint');
+  if (!sym) { hint.textContent = ''; return; }
+  try {
+    var e = (window.EarningsAwareness && EarningsAwareness.nextEarnings) ? EarningsAwareness.nextEarnings(sym) : null;
+    if (e && e.date) {
+      var d = e.date.toLocaleDateString();
+      hint.innerHTML = 'Next earnings ~ <b>' + esc(d) + '</b> <span style="opacity:0.6;">(' + esc(e.source) + ')</span>';
+    } else {
+      hint.textContent = 'No earnings pattern on file for ' + sym + '.';
+    }
+  } catch (err) { hint.textContent = ''; }
+});
+
+// ---- transcript input + counter ----
+function updateCount() {
+  var n = $('txt').value.length;
+  $('cnt').textContent = n.toLocaleString() + ' chars  (~' + Math.round(n / 4).toLocaleString() + ' tokens)';
+}
+$('txt').addEventListener('input', updateCount);
+
+// ---- file / drop / pdf ----
+var drop = $('drop');
+drop.addEventListener('click', function () { $('file').click(); });
+drop.addEventListener('dragover', function (e) { e.preventDefault(); drop.classList.add('over'); });
+drop.addEventListener('dragleave', function () { drop.classList.remove('over'); });
+drop.addEventListener('drop', function (e) {
+  e.preventDefault(); drop.classList.remove('over');
+  if (e.dataTransfer.files && e.dataTransfer.files[0]) readFile(e.dataTransfer.files[0]);
+});
+$('file').addEventListener('change', function () { if (this.files[0]) readFile(this.files[0]); });
+
+function readFile(file) {
+  var name = (file.name || '').toLowerCase();
+  if (name.endsWith('.pdf')) {
+    $('aStatus').innerHTML = '<span class="ell-spin"></span> Extracting PDF text...';
+    extractPdf(file).then(function (text) {
+      $('txt').value = text; updateCount(); $('aStatus').textContent = '';
+      if (!$('tkr').value) tryGuessTickerFrom(text);
+    }).catch(function (err) {
+      $('aStatus').innerHTML = '<span style="color:var(--red);">PDF read failed: ' + esc(err.message || err) + '. Paste the text instead.</span>';
+    });
+    return;
+  }
+  var reader = new FileReader();
+  reader.onload = function () { $('txt').value = reader.result || ''; updateCount(); if (!$('tkr').value) tryGuessTickerFrom($('txt').value); };
+  reader.readAsText(file);
+}
+
+function tryGuessTickerFrom(text) {
+  var m = (text || '').match(/\(\s*(?:NASDAQ|NYSE|NYSEAMERICAN|OTC)\s*:\s*([A-Z]{1,6})\s*\)/);
+  if (m) { $('tkr').value = m[1]; $('tkr').dispatchEvent(new Event('input')); }
+}
+
+var pdfLoading = null;
+function loadPdfLib() {
+  if (window.pdfjsLib) return Promise.resolve(window.pdfjsLib);
+  if (pdfLoading) return pdfLoading;
+  pdfLoading = new Promise(function (resolve, reject) {
+    var s = document.createElement('script');
+    s.src = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
+    s.onload = function () {
+      try { window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js'; } catch (e) {}
+      resolve(window.pdfjsLib);
+    };
+    s.onerror = function () { reject(new Error('could not load pdf.js')); };
+    document.head.appendChild(s);
+  });
+  return pdfLoading;
+}
+function extractPdf(file) {
+  return loadPdfLib().then(function (lib) {
+    return file.arrayBuffer();
+  }).then(function (buf) {
+    return window.pdfjsLib.getDocument({ data: buf }).promise;
+  }).then(function (pdf) {
+    var pages = [];
+    var chain = Promise.resolve();
+    for (var p = 1; p <= pdf.numPages; p++) {
+      (function (pageNum) {
+        chain = chain.then(function () {
+          return pdf.getPage(pageNum).then(function (page) {
+            return page.getTextContent().then(function (tc) {
+              pages.push(tc.items.map(function (it) { return it.str; }).join(' '));
+            });
+          });
+        });
+      })(p);
+    }
+    return chain.then(function () { return pages.join('\n\n'); });
+  });
+}
+
+// ---- analyze ----
+$('goBtn').addEventListener('click', function () {
+  var ticker = $('tkr').value.toUpperCase().trim();
+  var quarter = $('qtr').value.trim();
+  var transcript = $('txt').value.trim();
+  if (transcript.length < 200) { $('aStatus').innerHTML = '<span style="color:var(--red);">Paste a fuller transcript first.</span>'; return; }
+
+  $('goBtn').disabled = true;
+  var t0 = Date.now();
+  var timer = setInterval(function () {
+    $('aStatus').innerHTML = '<span class="ell-spin"></span> Reading the call... ' + Math.round((Date.now() - t0) / 1000) + 's';
+  }, 250);
+
+  EarningsLLM.analyze({ ticker: ticker, quarter: quarter, transcript: transcript })
+    .then(function (read) {
+      clearInterval(timer); $('aStatus').textContent = ''; $('goBtn').disabled = false;
+      currentRead = read;
+      // journal the read immediately (label/outcome filled in later)
+      var rec = {
+        id: EarningsLLM.newId(),
+        ts: new Date().toISOString(),
+        ticker: ticker, quarter: quarter,
+        read: read,
+        feedback: { brandonScore: null, brandonStance: null, notes: '' },
+        outcome: { move5d: null, direction: null, source: null },
+        excerpt: transcript.slice(0, 600),
+        model: read._model || 'claude-opus-4-8'
+      };
+      EarningsLLM.saveRecord(rec);
+      currentId = rec.id;
+      renderRead(read);
+      renderScoreboard(); renderHistory();
+    })
+    .catch(function (err) {
+      clearInterval(timer); $('goBtn').disabled = false;
+      $('aStatus').innerHTML = '<span style="color:var(--red);">' + esc(err.message || String(err)) + '</span>';
+    });
+});
+
+function renderRead(r) {
+  $('empty').style.display = 'none';
+  $('results').style.display = 'block';
+  var color = EarningsLLM.scoreColor(r.score);
+  $('stanceText').textContent = r.stance || EarningsLLM.stanceForScore(r.score);
+  $('stanceText').style.color = color;
+  $('stanceSub').textContent = ($('tkr').value || '') + '  ' + ($('qtr').value || '') + '  -  conviction: ' + (r.conviction || 'Medium');
+  $('scoreText').textContent = (r.score > 0 ? '+' : '') + r.score;
+  $('scoreText').style.color = color;
+  $('gMark').style.left = (((r.score + 5) / 10) * 100) + '%';
+  $('rSummary').textContent = r.summary || '';
+
+  $('bullList').innerHTML = (r.bull_points || []).map(function (b) {
+    return '<div class="ell-li"><b>' + esc(b.point) + '</b>' + (b.quote ? '<div class="ell-quote">&ldquo;' + esc(b.quote) + '&rdquo;</div>' : '') + '</div>';
+  }).join('') || '<div style="font-size:12px;color:var(--text-muted);">None flagged.</div>';
+
+  $('bearList').innerHTML = (r.bear_points || []).map(function (b) {
+    return '<div class="ell-li"><b>' + esc(b.point) + '</b>' + (b.quote ? '<div class="ell-quote">&ldquo;' + esc(b.quote) + '&rdquo;</div>' : '') + '</div>';
+  }).join('') || '<div style="font-size:12px;color:var(--text-muted);">None flagged.</div>';
+
+  var gv = r.guidance_vs_expectations || 'No clear guidance';
+  var gColor = /Above|Raised/.test(gv) ? 'var(--green)' : (/Below|Lowered/.test(gv) ? 'var(--red)' : 'var(--yellow)');
+  var gChip = $('rGuideChip');
+  gChip.textContent = gv;
+  gChip.style.background = 'rgba(125,125,125,0.12)';
+  gChip.style.color = gColor;
+  gChip.style.border = '1px solid ' + gColor;
+  $('rGuideDetail').textContent = r.guidance_detail || '';
+  $('rTone').textContent = r.tone_shift || '';
+
+  $('rMetrics').innerHTML = (r.key_metrics || []).map(function (m) {
+    return '<tr class="ell-metric-row"><td style="font-weight:600;color:var(--text-primary);">' + esc(m.metric) +
+      '</td><td class="mono">' + esc(m.value) + '</td><td style="color:var(--text-muted);">' + esc(m.read) + '</td></tr>';
+  }).join('');
+  $('rMetricsWrap').style.display = (r.key_metrics && r.key_metrics.length) ? 'block' : 'none';
+
+  $('rRisks').innerHTML = (r.risks || []).map(function (x) { return '<li>' + esc(x) + '</li>'; }).join('');
+  $('rRisksWrap').style.display = (r.risks && r.risks.length) ? 'block' : 'none';
+
+  $('rTrade').textContent = r.trade_implication || '';
+  $('rCaveats').textContent = r.confidence_caveats ? ('Caveats: ' + r.confidence_caveats) : '';
+
+  // prefill feedback
+  var sel = $('bScore');
+  sel.innerHTML = '';
+  for (var v = 5; v >= -5; v--) {
+    var o = document.createElement('option');
+    o.value = v; o.textContent = (v > 0 ? '+' : '') + v + '  ' + EarningsLLM.stanceForScore(v);
+    sel.appendChild(o);
+  }
+  sel.value = r.score;
+  $('bNotes').value = '';
+  $('oDate').value = new Date().toISOString().slice(0, 10);
+  $('oMove').value = '';
+  $('oStatus').textContent = '';
+  $('results').scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+// ---- save feedback ----
+$('saveFbBtn').addEventListener('click', function () {
+  if (!currentId) return;
+  var bs = parseInt($('bScore').value, 10);
+  EarningsLLM.updateRecord(currentId, {
+    feedback: { brandonScore: bs, brandonStance: EarningsLLM.stanceForScore(bs), notes: $('bNotes').value || '' }
+  });
+  renderScoreboard(); renderHistory();
+  flash($('saveFbBtn'), 'Saved');
+});
+
+// ---- outcome ----
+$('oAuto').addEventListener('click', function () {
+  var sym = $('tkr').value.toUpperCase().trim();
+  var date = $('oDate').value;
+  if (!sym || !date) { $('oStatus').textContent = 'Need ticker + call date.'; return; }
+  $('oStatus').innerHTML = '<span class="ell-spin"></span> fetching...';
+  EarningsLLM.gradeOutcomeAuto(sym, date, 5).then(function (o) {
+    if (!o) { $('oStatus').innerHTML = '<span style="color:var(--yellow);">No bar data (off-universe or &gt;40d). Enter manually.</span>'; return; }
+    $('oMove').value = o.move5d;
+    $('oStatus').innerHTML = '<span style="color:var(--green);">' + o.move5d + '% (' + o.direction + ')</span>';
+  });
+});
+$('saveOutBtn').addEventListener('click', function () {
+  if (!currentId) return;
+  var mv = parseFloat($('oMove').value);
+  if (isNaN(mv)) { $('oStatus').innerHTML = '<span style="color:var(--red);">Enter a number.</span>'; return; }
+  var dir = mv > 1 ? 'up' : (mv < -1 ? 'down' : 'flat');
+  EarningsLLM.updateRecord(currentId, { outcome: { move5d: mv, direction: dir, source: 'manual' } });
+  $('oStatus').innerHTML = '<span style="color:var(--green);">saved (' + dir + ')</span>';
+  renderScoreboard(); renderHistory();
+});
+
+// ---- scoreboard ----
+function renderScoreboard() {
+  var s = EarningsLLM.stats();
+  $('sbTotal').textContent = s.total;
+  $('sbLabeled').textContent = s.labeled;
+  $('sbAgree').textContent = (s.agreePct == null ? '—' : s.agreePct + '%');
+  $('sbHit').textContent = (s.hitPct == null ? '—' : s.hitPct + '%');
+  var bias = '';
+  if (s.bias != null && Math.abs(s.bias) >= 0.1) {
+    bias = 'You run <b style="color:' + (s.bias > 0 ? 'var(--green)' : 'var(--red)') + ';">' +
+      Math.abs(s.bias) + ' pts more ' + (s.bias > 0 ? 'bullish' : 'bearish') + '</b> than the model on average &mdash; this is being corrected for.';
+  } else if (s.labeled >= 3) {
+    bias = 'Your scores track the model closely so far.';
+  } else {
+    bias = 'Label a few reads to start calibrating the model to your style.';
+  }
+  $('sbBias').innerHTML = bias;
+}
+
+// ---- rules ----
+function loadRules() { $('rulesTa').value = (EarningsLLM.getRules() || []).join('\n'); }
+$('saveRulesBtn').addEventListener('click', function () {
+  var arr = $('rulesTa').value.split('\n').map(function (x) { return x.trim(); }).filter(Boolean);
+  EarningsLLM.setRules(arr);
+  renderScoreboard();
+  var st = $('rulesStatus'); st.textContent = 'Saved ' + arr.length + ' rule' + (arr.length === 1 ? '' : 's');
+  setTimeout(function () { st.textContent = ''; }, 2000);
+});
+
+// ---- history ----
+function renderHistory() {
+  var recs = EarningsLLM.getRecords();
+  if (!recs.length) { $('hist').innerHTML = '<div style="font-size:12px;color:var(--text-muted);padding:8px 6px;">No analyses yet.</div>'; return; }
+  $('hist').innerHTML = recs.map(function (r) {
+    var sc = r.read ? r.read.score : 0;
+    var col = EarningsLLM.scoreColor(sc);
+    var you = (r.feedback && r.feedback.brandonScore != null) ? ((r.feedback.brandonScore > 0 ? '+' : '') + r.feedback.brandonScore) : '—';
+    var out = (r.outcome && r.outcome.move5d != null) ? (r.outcome.move5d + '%') : '—';
+    var outCol = (r.outcome && r.outcome.direction === 'up') ? 'var(--green)' : (r.outcome && r.outcome.direction === 'down') ? 'var(--red)' : 'var(--text-muted)';
+    return '<div class="ell-hist-row" data-id="' + r.id + '">' +
+      '<span class="ell-pill-sm" style="background:rgba(125,125,125,0.12);color:' + col + ';border:1px solid ' + col + ';">' + (sc > 0 ? '+' : '') + sc + '</span>' +
+      '<span><b>' + esc(r.ticker || '?') + '</b> <span style="color:var(--text-muted);">' + esc(r.quarter || '') + '</span> &middot; ' + esc(r.read ? r.read.stance : '') + '</span>' +
+      '<span style="color:var(--text-muted);font-size:11px;">' + new Date(r.ts).toLocaleDateString() + '</span>' +
+      '<span title="your score" style="font-family:var(--font-mono);">you ' + you + '</span>' +
+      '<span title="5d move" style="font-family:var(--font-mono);color:' + outCol + ';">' + out + '</span>' +
+      '</div>';
+  }).join('');
+  Array.prototype.forEach.call(document.querySelectorAll('.ell-hist-row'), function (row) {
+    row.addEventListener('click', function () { openRecord(row.getAttribute('data-id')); });
+  });
+}
+
+function openRecord(id) {
+  var rec = EarningsLLM.getRecords().filter(function (r) { return r.id === id; })[0];
+  if (!rec || !rec.read) return;
+  $('tkr').value = rec.ticker || ''; $('tkr').dispatchEvent(new Event('input'));
+  $('qtr').value = rec.quarter || '';
+  currentRead = rec.read; currentId = rec.id;
+  renderRead(rec.read);
+  if (rec.feedback && rec.feedback.brandonScore != null) { $('bScore').value = rec.feedback.brandonScore; $('bNotes').value = rec.feedback.notes || ''; }
+  if (rec.outcome && rec.outcome.move5d != null) { $('oMove').value = rec.outcome.move5d; }
+}
+
+$('clearAllBtn').addEventListener('click', function () {
+  if (!confirm('Delete all saved earnings reads and labels? This cannot be undone.')) return;
+  EarningsLLM.clearAll();
+  renderScoreboard(); renderHistory();
+  $('results').style.display = 'none'; $('empty').style.display = 'block';
+});
+
+function flash(btn, msg) {
+  var old = btn.textContent; btn.textContent = msg;
+  setTimeout(function () { btn.textContent = old; }, 1400);
+}
+
+// ---- init ----
+loadRules();
+renderScoreboard();
+renderHistory();
+updateCount();
+</script>
+</body>
+</html>

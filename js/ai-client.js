@@ -34,7 +34,7 @@ const AIClient = (function() {
     return {
       provider: 'claude',           // 'claude' only for now
       apiKey: '',
-      model: 'claude-opus-4-7',     // latest Opus
+      model: 'claude-opus-4-8',     // latest Opus
       maxTokens: 1024,
       enabled: false
     };
@@ -106,11 +106,14 @@ const AIClient = (function() {
     }
     opts = opts || {};
     const body = {
-      model: config.model,
+      model: opts.model || config.model,
       max_tokens: opts.maxTokens || config.maxTokens || 1024,
       system: opts.system || buildSystemPrompt(),
       messages: messages
     };
+    // Optional per-call structured-output constraint (used by earnings-llm.js to
+    // force a strict JSON schema). Pass-through only; harmless when absent.
+    if (opts.output_config) body.output_config = opts.output_config;
     const resp = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: {
@@ -144,7 +147,7 @@ const AIClient = (function() {
     if (!isReady()) throw new Error('AI client not configured.');
     opts = opts || {};
     const body = {
-      model: config.model,
+      model: opts.model || config.model,
       max_tokens: opts.maxTokens || config.maxTokens || 1024,
       system: opts.system || buildSystemPrompt(),
       messages,
