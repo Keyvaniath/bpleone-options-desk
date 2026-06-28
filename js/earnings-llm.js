@@ -107,6 +107,26 @@
       'risks', 'trade_implication', 'confidence_caveats']
   };
 
+  // Plain-text shape used by the fallback path (when the API rejects the
+  // structured-output schema, we ask for this JSON shape in the prompt instead).
+  var SHAPE_HINT = [
+    '{',
+    '  "stance": "Bullish|Lean Bullish|Neutral|Lean Bearish|Bearish",',
+    '  "score": integer from -5 to 5,',
+    '  "conviction": "Low|Medium|High",',
+    '  "summary": "2-4 sentence overall read",',
+    '  "bull_points": [ { "point": "...", "quote": "verbatim from transcript" } ],',
+    '  "bear_points": [ { "point": "...", "quote": "verbatim from transcript" } ],',
+    '  "guidance_vs_expectations": "Raised / Above|In-line|Lowered / Below|No clear guidance",',
+    '  "guidance_detail": "...",',
+    '  "tone_shift": "how management tone changed vs the prior quarter",',
+    '  "key_metrics": [ { "metric": "...", "value": "...", "read": "bullish/bearish/neutral and why" } ],',
+    '  "risks": [ "..." ],',
+    '  "trade_implication": "near-term move plus options angle",',
+    '  "confidence_caveats": "..."',
+    '}'
+  ].join('\n');
+
   // ---------------- storage ----------------
   function getRecords() {
     try { return JSON.parse(localStorage.getItem(REC_KEY) || '[]'); } catch (e) { return []; }
@@ -246,50 +266,53 @@
   }
 
   // ---------------- the analysis call ----------------
+  // Primary path constrains output with the JSON schema (structured outputs).
+  // If the API rejects output_config or the reply is unparseable, retry once
+  // prompt-only (JSON shape described in the system prompt) so the tool still
+  // works. A safety refusal is surfaced, not retried.
   function analyze(input) {
     input = input || {};
     var ticker = (input.ticker || '').toUpperCase().trim();
     var quarter = (input.quarter || '').trim();
     var transcript = (input.transcript || '').trim();
 
-    return new Promise(function (resolve, reject) {
-      if (typeof AIClient === 'undefined' || !AIClient.isReady()) {
-        reject(new Error('Claude is not configured. Add your API key in Settings to enable the analyzer.'));
-        return;
-      }
-      if (transcript.length < 200) {
-        reject(new Error('Paste a fuller transcript - this looks too short to analyze.'));
-        return;
-      }
+    if (typeof AIClient === 'undefined' || !AIClient.isReady()) {
+      return Promise.reject(new Error('Claude is not configured. Add your API key in Settings to enable the analyzer.'));
+    }
+    if (transcript.length < 200) {
+      return Promise.reject(new Error('Paste a fuller transcript - this looks too short to analyze.'));
+    }
 
-      var system = buildSystemPrompt(ticker, quarter);
-      var userMsg = 'Analyze the following earnings-call transcript for ' + (ticker || 'the company') +
-        ' (' + (quarter || 'period unknown') + ') and return the structured read.\n\n=== TRANSCRIPT START ===\n' +
-        transcript + '\n=== TRANSCRIPT END ===';
+    var system = buildSystemPrompt(ticker, quarter);
+    var userMsg = 'Analyze the following earnings-call transcript for ' + (ticker || 'the company') +
+      ' (' + (quarter || 'period unknown') + ') and return the structured read.\n\n=== TRANSCRIPT START ===\n' +
+      transcript + '\n=== TRANSCRIPT END ===';
 
-      AIClient.chat(
-        [{ role: 'user', content: userMsg }],
-        {
-          system: system,
-          model: MODEL,
-          maxTokens: 6000,
-          output_config: { format: { type: 'json_schema', schema: SCHEMA } }
-        }
-      ).then(function (resp) {
-        if (resp.stop_reason === 'refusal') {
-          reject(new Error('The model declined to analyze this text.'));
-          return;
-        }
+    function callOnce(useStructured) {
+      var opts = { system: system, model: MODEL, maxTokens: 6000 };
+      if (useStructured) {
+        opts.output_config = { format: { type: 'json_schema', schema: SCHEMA } };
+      } else {
+        opts.system = system + '\n\nOUTPUT FORMAT: respond with ONLY a single JSON object, no prose and no code fences, matching exactly this shape:\n' + SHAPE_HINT;
+      }
+      return AIClient.chat([{ role: 'user', content: userMsg }], opts).then(function (resp) {
+        if (resp.stop_reason === 'refusal') throw new Error('__refusal__');
         var read = parseRead(resp.text);
-        if (!read) {
-          reject(new Error('Could not parse a structured read from the response.'));
-          return;
-        }
+        if (!read) throw new Error('__unparseable__');
         read._model = resp.model || MODEL;
         read._usage = resp.usage || null;
-        resolve(read);
-      }).catch(function (err) {
-        reject(err);
+        return read;
+      });
+    }
+
+    return callOnce(true).catch(function (err) {
+      if (err && err.message === '__refusal__') throw new Error('The model declined to analyze this text.');
+      // structured path failed (output_config rejected or unparseable) - retry prompt-only
+      return callOnce(false).catch(function (err2) {
+        if (err2 && err2.message === '__refusal__') throw new Error('The model declined to analyze this text.');
+        var m = (err2 && err2.message) || String(err2);
+        if (m === '__unparseable__') m = 'could not parse a structured read from the response';
+        throw new Error('Analysis failed: ' + m);
       });
     });
   }
@@ -396,6 +419,18 @@
     };
   }
 
+  // Most recent prior read for the same ticker (excludes a given id), for
+  // quarter-over-quarter deltas. getRecords() is newest-first, so the first
+  // match is the latest prior read.
+  function priorReadFor(ticker, excludeId) {
+    if (!ticker) return null;
+    var recs = getRecords();
+    for (var i = 0; i < recs.length; i++) {
+      if (recs[i].ticker === ticker && recs[i].id !== excludeId && recs[i].read) return recs[i];
+    }
+    return null;
+  }
+
   window.EarningsLLM = {
     analyze: analyze,
     getRecords: getRecords,
@@ -408,6 +443,7 @@
     buildCalibrationProfile: buildCalibrationProfile,
     stats: stats,
     gradeOutcomeAuto: gradeOutcomeAuto,
+    priorReadFor: priorReadFor,
     newId: newId,
     SCORE_BANDS: SCORE_BANDS,
     scoreColor: scoreColor,

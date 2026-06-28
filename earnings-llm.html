@@ -113,6 +113,9 @@
       </div>
 
       <div id="results" style="display:none;">
+        <div class="flex" style="justify-content:flex-end;margin-bottom:10px;">
+          <button id="copyBtn" class="btn btn-ghost" style="padding:6px 12px;font-size:12px;">&#128203; Copy read (markdown)</button>
+        </div>
         <div class="card">
           <div class="flex" style="justify-content:space-between;align-items:flex-start;">
             <div>
@@ -126,6 +129,7 @@
           </div>
           <div class="ell-gauge"><div class="mark" id="gMark" style="left:50%;"></div></div>
           <div class="ell-gauge-scale"><span>&minus;5 bearish</span><span>0</span><span>+5 bullish</span></div>
+          <div id="deltaLine" style="font-size:12px;margin-top:12px;display:none;padding:8px 10px;border-radius:8px;background:var(--bg-elevated);border:1px solid var(--border);"></div>
           <div id="rSummary" style="font-size:13px;line-height:1.6;margin-top:14px;"></div>
         </div>
 
@@ -216,12 +220,12 @@
 <div id="site-footer"></div>
 
 <script src="js/data-provider.js?v=v208"></script>
-<script src="js/ai-client.js?v=v208"></script>
+<script src="js/ai-client.js?v=ell2"></script>
 <script src="js/app.js?v=v208"></script>
 <script src="js/notify.js?v=v208"></script>
 <script src="js/live.js?v=v208"></script>
 <script src="js/earnings-awareness.js?v=v208"></script>
-<script src="js/earnings-llm.js?v=v208"></script>
+<script src="js/earnings-llm.js?v=ell2"></script>
 <script>
 buildNav('earnings-llm');
 
@@ -413,6 +417,8 @@ function renderRead(r) {
   $('gMark').style.left = (((r.score + 5) / 10) * 100) + '%';
   $('rSummary').textContent = r.summary || '';
 
+  renderDelta(r);
+
   $('bullList').innerHTML = (r.bull_points || []).map(function (b) {
     return '<div class="ell-li"><b>' + esc(b.point) + '</b>' + (b.quote ? '<div class="ell-quote">&ldquo;' + esc(b.quote) + '&rdquo;</div>' : '') + '</div>';
   }).join('') || '<div style="font-size:12px;color:var(--text-muted);">None flagged.</div>';
@@ -458,6 +464,71 @@ function renderRead(r) {
   $('oStatus').textContent = '';
   $('results').scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
+
+// ---- quarter-over-quarter delta vs the last stored read for this ticker ----
+function renderDelta(r) {
+  var el = $('deltaLine');
+  var ticker = ($('tkr').value || '').toUpperCase().trim();
+  var prior = EarningsLLM.priorReadFor(ticker, currentId);
+  if (!ticker || !prior || !prior.read) { el.style.display = 'none'; return; }
+  var pr = prior.read;
+  var d = r.score - pr.score;
+  var arrow = d > 0 ? '&#9650;' : (d < 0 ? '&#9660;' : '&#8226;');
+  var col = d > 0 ? 'var(--green)' : (d < 0 ? 'var(--red)' : 'var(--text-muted)');
+  var bits = [];
+  bits.push('vs <b>' + esc(prior.quarter || 'prior') + '</b>: score ' + (pr.score > 0 ? '+' : '') + pr.score + ' &rarr; ' + (r.score > 0 ? '+' : '') + r.score +
+    ' <span style="color:' + col + ';font-weight:700;">' + arrow + ' ' + (d > 0 ? '+' : '') + d + '</span>');
+  if (pr.guidance_vs_expectations && r.guidance_vs_expectations && pr.guidance_vs_expectations !== r.guidance_vs_expectations) {
+    bits.push('guidance ' + esc(pr.guidance_vs_expectations) + ' &rarr; ' + esc(r.guidance_vs_expectations));
+  }
+  if (prior.outcome && typeof prior.outcome.move5d === 'number') {
+    bits.push('last call then moved ' + prior.outcome.move5d + '% (5d)');
+  }
+  el.innerHTML = bits.join(' &nbsp;&middot;&nbsp; ');
+  el.style.display = 'block';
+}
+
+// ---- export current read as markdown ----
+function copyRead() {
+  if (!currentRead) return;
+  var r = currentRead;
+  var L = [];
+  L.push('# ' + (($('tkr').value || '').toUpperCase()) + ' ' + ($('qtr').value || '') + ' - earnings read');
+  L.push('');
+  L.push('**' + (r.stance || '') + '**  (score ' + (r.score > 0 ? '+' : '') + r.score + ', conviction ' + (r.conviction || '') + ')');
+  L.push('');
+  if (r.summary) { L.push(r.summary); L.push(''); }
+  L.push('**Guidance vs expectations:** ' + (r.guidance_vs_expectations || '-') + (r.guidance_detail ? ' - ' + r.guidance_detail : ''));
+  if (r.tone_shift) L.push('**Tone shift:** ' + r.tone_shift);
+  L.push('');
+  L.push('**Bull case**');
+  (r.bull_points || []).forEach(function (b) { L.push('- ' + b.point + (b.quote ? '  _"' + b.quote + '"_' : '')); });
+  L.push('');
+  L.push('**Bear case**');
+  (r.bear_points || []).forEach(function (b) { L.push('- ' + b.point + (b.quote ? '  _"' + b.quote + '"_' : '')); });
+  if (r.key_metrics && r.key_metrics.length) {
+    L.push(''); L.push('**Key metrics**');
+    r.key_metrics.forEach(function (m) { L.push('- ' + m.metric + ': ' + m.value + ' - ' + m.read); });
+  }
+  if (r.risks && r.risks.length) {
+    L.push(''); L.push('**Risks**');
+    r.risks.forEach(function (x) { L.push('- ' + x); });
+  }
+  L.push('');
+  L.push('**Trade implication:** ' + (r.trade_implication || '-'));
+  if (r.confidence_caveats) { L.push(''); L.push('_Caveats: ' + r.confidence_caveats + '_'); }
+  L.push('');
+  L.push('_Generated by Earnings Call LLM (' + (r._model || 'claude-opus-4-8') + ')_');
+  var text = L.join('\n');
+  var done = function () { flash($('copyBtn'), '✓ Copied'); };
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(text).then(done, function () { fallbackCopy(text); done(); });
+  } else { fallbackCopy(text); done(); }
+}
+function fallbackCopy(text) {
+  try { var ta = document.createElement('textarea'); ta.value = text; document.body.appendChild(ta); ta.select(); document.execCommand('copy'); document.body.removeChild(ta); } catch (e) {}
+}
+$('copyBtn').addEventListener('click', copyRead);
 
 // ---- save feedback ----
 $('saveFbBtn').addEventListener('click', function () {
