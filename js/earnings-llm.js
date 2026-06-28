@@ -431,6 +431,32 @@
     return null;
   }
 
+  // Export/import the whole training set so it survives a cache clear or moves
+  // between browsers/machines. Import is non-destructive: it appends records
+  // not already present (by id) and unions rules.
+  function exportData() {
+    return { type: 'bpleone_earnings_llm', version: 1, exportedAt: new Date().toISOString(), records: getRecords(), rules: getRules() };
+  }
+  function importData(obj) {
+    if (!obj || obj.type !== 'bpleone_earnings_llm') return { ok: false, error: 'not an earnings-llm export file' };
+    var existing = getRecords();
+    var byId = {};
+    existing.forEach(function (r) { if (r && r.id) byId[r.id] = true; });
+    var added = 0;
+    (Array.isArray(obj.records) ? obj.records : []).forEach(function (r) {
+      if (r && r.id && !byId[r.id]) { existing.push(r); byId[r.id] = true; added++; }
+    });
+    existing.sort(function (a, b) { return (b.ts || '').localeCompare(a.ts || ''); });
+    writeRecords(existing);
+    var ru = getRules();
+    var have = {};
+    ru.forEach(function (s) { have[s] = true; });
+    var rulesAdded = 0;
+    (Array.isArray(obj.rules) ? obj.rules : []).forEach(function (s) { if (s && !have[s]) { ru.push(s); have[s] = true; rulesAdded++; } });
+    setRules(ru);
+    return { ok: true, added: added, rulesAdded: rulesAdded, total: existing.length };
+  }
+
   window.EarningsLLM = {
     analyze: analyze,
     getRecords: getRecords,
@@ -444,6 +470,8 @@
     stats: stats,
     gradeOutcomeAuto: gradeOutcomeAuto,
     priorReadFor: priorReadFor,
+    exportData: exportData,
+    importData: importData,
     newId: newId,
     SCORE_BANDS: SCORE_BANDS,
     scoreColor: scoreColor,

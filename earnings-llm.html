@@ -224,7 +224,12 @@
   <div class="card" style="margin-top:14px;">
     <div class="card-header" style="justify-content:space-between;">
       <div class="card-title">&#128220; History &amp; training set</div>
-      <button id="clearAllBtn" class="btn btn-ghost" style="padding:5px 10px;font-size:11px;">Clear all</button>
+      <div class="flex gap-8">
+        <button id="exportBtn" class="btn btn-ghost" style="padding:5px 10px;font-size:11px;">&#11015; Export</button>
+        <button id="importBtn" class="btn btn-ghost" style="padding:5px 10px;font-size:11px;">&#11014; Import</button>
+        <input id="importFile" type="file" accept="application/json,.json" style="display:none;">
+        <button id="clearAllBtn" class="btn btn-ghost" style="padding:5px 10px;font-size:11px;">Clear all</button>
+      </div>
     </div>
     <div id="hist"></div>
   </div>
@@ -238,7 +243,7 @@
 <script src="js/notify.js?v=v208"></script>
 <script src="js/live.js?v=v208"></script>
 <script src="js/earnings-awareness.js?v=v208"></script>
-<script src="js/earnings-llm.js?v=ell2"></script>
+<script src="js/earnings-llm.js?v=ell3"></script>
 <script>
 buildNav('earnings-llm');
 
@@ -690,6 +695,35 @@ $('clearAllBtn').addEventListener('click', function () {
   EarningsLLM.clearAll();
   renderScoreboard(); renderHistory();
   $('results').style.display = 'none'; $('empty').style.display = 'block';
+});
+
+// ---- export / import training set ----
+$('exportBtn').addEventListener('click', function () {
+  var data = EarningsLLM.exportData();
+  var blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+  var url = URL.createObjectURL(blob);
+  var a = document.createElement('a');
+  a.href = url;
+  a.download = 'earnings-llm-backup-' + new Date().toISOString().slice(0, 10) + '.json';
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
+  flash($('exportBtn'), '✓ ' + (data.records ? data.records.length : 0));
+});
+$('importBtn').addEventListener('click', function () { $('importFile').click(); });
+$('importFile').addEventListener('change', function () {
+  var f = this.files && this.files[0];
+  if (!f) return;
+  var reader = new FileReader();
+  reader.onload = function () {
+    var obj = null;
+    try { obj = JSON.parse(reader.result); } catch (e) { alert('Could not read that file - not valid JSON.'); return; }
+    var res = EarningsLLM.importData(obj);
+    if (!res.ok) { alert('Import failed: ' + (res.error || 'unknown')); return; }
+    renderScoreboard(); renderHistory();
+    alert('Imported ' + res.added + ' new read' + (res.added === 1 ? '' : 's') + ' and ' + res.rulesAdded + ' rule' + (res.rulesAdded === 1 ? '' : 's') + '. Total reads: ' + res.total + '.');
+  };
+  reader.readAsText(f);
+  this.value = '';
 });
 
 function flash(btn, msg) {
