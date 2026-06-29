@@ -94,6 +94,7 @@
           <div class="ell-kpi"><div class="v" id="sbHit">&mdash;</div><div class="l">Outcome hit</div></div>
         </div>
         <div id="sbBias" style="font-size:12px;color:var(--text-muted);margin-top:12px;line-height:1.6;"></div>
+        <div id="sbCost" style="font-size:11px;color:var(--text-muted);margin-top:6px;font-family:var(--font-mono);"></div>
         <div style="font-size:11px;color:var(--text-muted);margin-top:10px;line-height:1.6;border-top:1px solid var(--border);padding-top:10px;">
           <strong style="color:var(--text-secondary);">How it learns:</strong> each read you label (your score, a note, the realized move) is folded into a calibration profile that's injected into every future prompt. It's prompt-level continual learning &mdash; not weight fine-tuning &mdash; so it converges to <em>your</em> read over time.
         </div>
@@ -184,6 +185,7 @@
           <div class="card-header"><div class="card-title" style="color:var(--accent);">&#9889; Trade implication</div></div>
           <div id="rTrade" style="font-size:13px;line-height:1.6;"></div>
           <div id="rCaveats" style="font-size:11px;color:var(--text-muted);margin-top:10px;font-style:italic;"></div>
+          <div id="costLine" style="font-size:11px;color:var(--text-muted);margin-top:8px;font-family:var(--font-mono);display:none;"></div>
         </div>
 
         <!-- FEEDBACK / SELF-TRAIN -->
@@ -244,7 +246,7 @@
 <script src="js/notify.js?v=v208"></script>
 <script src="js/live.js?v=v208"></script>
 <script src="js/earnings-awareness.js?v=v208"></script>
-<script src="js/earnings-llm.js?v=ell3"></script>
+<script src="js/earnings-llm.js?v=ell4"></script>
 <script>
 buildNav('earnings-llm');
 
@@ -503,6 +505,14 @@ function renderRead(r) {
 
   $('rTrade').textContent = r.trade_implication || '';
   $('rCaveats').textContent = r.confidence_caveats ? ('Caveats: ' + r.confidence_caveats) : '';
+  (function () {
+    var u = r._usage, cl = $('costLine');
+    if (u) {
+      var k = function (n) { return (Math.round((n || 0) / 100) / 10) + 'k'; };
+      cl.textContent = 'cost ~$' + EarningsLLM.estimateCost(u).toFixed(2) + '  ·  ' + k(u.input_tokens) + ' in / ' + k(u.output_tokens) + ' out  ·  ' + (r._model || 'opus-4-8');
+      cl.style.display = 'block';
+    } else { cl.style.display = 'none'; }
+  })();
 
   // prefill feedback
   var sel = $('bScore');
@@ -635,6 +645,9 @@ function renderScoreboard() {
     bias = 'Label a few reads to start calibrating the model to your style.';
   }
   $('sbBias').innerHTML = bias;
+  $('sbCost').textContent = (s.costTotal > 0)
+    ? ('Lifetime API spend on reads: ~$' + s.costTotal.toFixed(2) + ' over ' + s.analysesPriced + ' analysis' + (s.analysesPriced === 1 ? '' : 'es'))
+    : '';
   renderCalibration();
 }
 

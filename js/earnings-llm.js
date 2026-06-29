@@ -373,6 +373,13 @@
   }
 
   // ---------------- scoreboard ----------------
+  // Cost estimate for one analysis (Opus 4.8 standard rates, USD).
+  var PRICE_IN = 5, PRICE_OUT = 25; // per million tokens
+  function estimateCost(usage) {
+    if (!usage) return 0;
+    return ((usage.input_tokens || 0) * PRICE_IN + (usage.output_tokens || 0) * PRICE_OUT) / 1e6;
+  }
+
   function stats() {
     var recs = getRecords();
     var labeled = recs.filter(function (r) {
@@ -408,6 +415,11 @@
       hitPct = Math.round((hits / graded.length) * 100);
     }
 
+    var costTotal = 0, analysesPriced = 0;
+    recs.forEach(function (r) {
+      if (r.read && r.read._usage) { costTotal += estimateCost(r.read._usage); analysesPriced++; }
+    });
+
     return {
       total: recs.length,
       labeled: labeled.length,
@@ -415,7 +427,9 @@
       bias: bias,
       agreePct: agreePct,
       hitPct: hitPct,
-      rules: getRules().length
+      rules: getRules().length,
+      costTotal: costTotal,
+      analysesPriced: analysesPriced
     };
   }
 
@@ -475,6 +489,7 @@
     newId: newId,
     SCORE_BANDS: SCORE_BANDS,
     scoreColor: scoreColor,
+    estimateCost: estimateCost,
     stanceForScore: stanceForScore,
     SCHEMA: SCHEMA
   };
