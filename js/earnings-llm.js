@@ -436,11 +436,14 @@
   // Most recent prior read for the same ticker (excludes a given id), for
   // quarter-over-quarter deltas. getRecords() is newest-first, so the first
   // match is the latest prior read.
-  function priorReadFor(ticker, excludeId) {
+  function priorReadFor(ticker, excludeId, beforeTs) {
     if (!ticker) return null;
-    var recs = getRecords();
+    var recs = getRecords(); // newest-first
     for (var i = 0; i < recs.length; i++) {
-      if (recs[i].ticker === ticker && recs[i].id !== excludeId && recs[i].read) return recs[i];
+      var r = recs[i];
+      if (r.ticker !== ticker || r.id === excludeId || !r.read) continue;
+      if (beforeTs && !((r.ts || '') < beforeTs)) continue; // only reads older than the reference
+      return r;
     }
     return null;
   }
