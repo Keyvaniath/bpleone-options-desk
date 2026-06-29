@@ -474,6 +474,37 @@
     return { ok: true, added: added, rulesAdded: rulesAdded, total: existing.length };
   }
 
+  // ---------------- transcript auto-fetch (API Ninjas, browser-direct) ----------------
+  // API Ninjas allows browser CORS, so this needs no worker. The key is the
+  // user's, stored locally. Defensive about the response shape.
+  var ANINJAS_KEY = 'bpleone_apininjas_key_v1';
+  function getTranscriptKey() { try { return localStorage.getItem(ANINJAS_KEY) || ''; } catch (e) { return ''; } }
+  function setTranscriptKey(k) { try { localStorage.setItem(ANINJAS_KEY, k || ''); } catch (e) {} }
+  function fetchTranscript(ticker, opts) {
+    ticker = (ticker || '').toUpperCase().trim();
+    opts = opts || {};
+    var key = opts.key || getTranscriptKey();
+    return new Promise(function (resolve, reject) {
+      if (!key) { reject(new Error('Add your API Ninjas key to auto-fetch transcripts.')); return; }
+      if (!ticker) { reject(new Error('Enter a ticker first.')); return; }
+      var url = 'https://api.api-ninjas.com/v1/earningstranscript?ticker=' + encodeURIComponent(ticker);
+      if (opts.year) url += '&year=' + encodeURIComponent(opts.year);
+      if (opts.quarter) url += '&quarter=' + encodeURIComponent(opts.quarter);
+      fetch(url, { headers: { 'X-Api-Key': key } }).then(function (r) {
+        if (r.status === 401 || r.status === 403) throw new Error('API Ninjas rejected the key - check it, and that your plan includes transcripts.');
+        if (!r.ok) return r.text().then(function (t) { throw new Error('Fetch failed (HTTP ' + r.status + '). ' + (t || '').slice(0, 140)); });
+        return r.json();
+      }).then(function (data) {
+        var d = Array.isArray(data) ? (data[0] || {}) : (data || {});
+        var text = d.transcript ||
+          (Array.isArray(d.transcript_split) ? d.transcript_split.map(function (s) { return (s.speaker ? s.speaker + ': ' : '') + (s.text || ''); }).join('\n\n') : '') ||
+          d.text || '';
+        if (!text || text.length < 100) throw new Error('No transcript found for ' + ticker + '. The latest call may not be indexed yet, or your plan may not include transcripts.');
+        resolve({ text: text, date: d.date || '', ticker: ticker });
+      }).catch(reject);
+    });
+  }
+
   window.EarningsLLM = {
     analyze: analyze,
     getRecords: getRecords,
@@ -489,6 +520,9 @@
     priorReadFor: priorReadFor,
     exportData: exportData,
     importData: importData,
+    fetchTranscript: fetchTranscript,
+    getTranscriptKey: getTranscriptKey,
+    setTranscriptKey: setTranscriptKey,
     newId: newId,
     SCORE_BANDS: SCORE_BANDS,
     scoreColor: scoreColor,
