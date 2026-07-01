@@ -38,7 +38,7 @@
 // Pass 200: version stamp so brain-proof.html + worker-setup.html can detect
 // when the deployed worker is behind the repo source. Bump on every meaningful
 // behavior change. Read via /brain/health → worker_version field.
-const WORKER_VERSION = 'pass-294';
+const WORKER_VERSION = 'pass-295';
 
 const UNIVERSE = [
   'SPY','QQQ','IWM','DIA','AAPL','NVDA','TSLA','MSFT','META','AMZN','GOOGL','AMD',
@@ -1415,20 +1415,34 @@ function json(body, status) {
 // ============================================================
 const SCRAPE_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Safari/537.36';
 
-async function findFoolTranscriptUrl(ticker) {
-  const tl = ticker.toLowerCase();
-  const q = ticker + ' earnings call transcript';
-  let urls = [];
+// Resolve ticker -> company name via Yahoo search. A bare 2-letter ticker (MU)
+// is too ambiguous for a search engine, especially from a datacenter IP; the
+// company name ("Micron Technology") makes discovery reliable.
+async function resolveCompanyName(ticker) {
   try {
-    const r = await fetch('https://html.duckduckgo.com/html/?q=' + encodeURIComponent(q + ' site:fool.com'), { headers: { 'User-Agent': SCRAPE_UA } });
-    if (r.ok) { const b = await r.text(); let m; const re = /uddg=([^&"]+)/g; while ((m = re.exec(b)) !== null) { try { urls.push(decodeURIComponent(m[1])); } catch (e) {} } }
-  } catch (e) {}
-  if (!urls.some(function (u) { return /fool\.com\/earnings\/call-transcripts/i.test(u); })) {
-    try {
-      const r = await fetch('https://www.bing.com/search?q=' + encodeURIComponent(q + ' fool.com'), { headers: { 'User-Agent': SCRAPE_UA } });
-      if (r.ok) { const b = await r.text(); urls = urls.concat(b.match(/https?:\/\/(?:www\.)?fool\.com\/earnings\/call-transcripts\/20\d{2}\/\d{2}\/\d{2}\/[a-z0-9-]+/gi) || []); }
-    } catch (e) {}
-  }
+    const r = await fetch('https://query1.finance.yahoo.com/v1/finance/search?q=' + encodeURIComponent(ticker) + '&quotesCount=1&newsCount=0', { headers: { 'User-Agent': SCRAPE_UA } });
+    if (!r.ok) return null;
+    const j = await r.json();
+    const quotes = (j && j.quotes) || [];
+    const q = quotes.find(function (x) { return (x.symbol || '').toUpperCase() === ticker; }) || quotes[0];
+    let name = q ? (q.longname || q.shortname || '') : '';
+    name = name.replace(/,?\s+(Inc|Incorporated|Corp|Corporation|Ltd|Limited|Company|Co|Holdings|Group|PLC|S\.?A\.?|N\.?V\.?|AG)\.?$/i, '').trim();
+    return name || null;
+  } catch (e) { return null; }
+}
+
+async function ddgFoolUrls(query) {
+  try {
+    const r = await fetch('https://html.duckduckgo.com/html/?q=' + encodeURIComponent(query), { headers: { 'User-Agent': SCRAPE_UA } });
+    if (!r.ok) return [];
+    const b = await r.text();
+    const out = []; let m; const re = /uddg=([^&"]+)/g;
+    while ((m = re.exec(b)) !== null) { try { out.push(decodeURIComponent(m[1])); } catch (e) {} }
+    return out;
+  } catch (e) { return []; }
+}
+
+function pickNewestFoolUrl(urls, tl) {
   const seen = {};
   let best = null;
   for (let i = 0; i < urls.length; i++) {
@@ -1442,6 +1456,23 @@ async function findFoolTranscriptUrl(ticker) {
     if (!best || date > best.date) best = { date: date, url: u, dm: dm };
   }
   return best;
+}
+
+async function findFoolTranscriptUrl(ticker) {
+  const tl = ticker.toLowerCase();
+  const name = await resolveCompanyName(ticker);
+  // Best-disambiguated query first; the extra variants double as retries against
+  // transient search rate-limiting. Stop the moment a ticker-matching URL lands.
+  const queries = [];
+  if (name) queries.push(name + ' ' + ticker + ' earnings call transcript site:fool.com');
+  queries.push(ticker + ' earnings call transcript site:fool.com');
+  if (name) queries.push(name + ' earnings call transcript site:fool.com');
+  let urls = [];
+  for (let i = 0; i < queries.length; i++) {
+    urls = urls.concat(await ddgFoolUrls(queries[i]));
+    if (pickNewestFoolUrl(urls, tl)) break;
+  }
+  return pickNewestFoolUrl(urls, tl);
 }
 
 function extractTranscriptText(html) {
