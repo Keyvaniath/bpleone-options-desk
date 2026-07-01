@@ -244,6 +244,7 @@
       advice,
       snapshot: snap,
       healthScore,
+      localUntrained: untrained,   // true = worker-authoritative (empty local model); UI must NOT show the capped-35 local score as if it were system health
       alertCount,
       warnCount,
       totalChecks: diagnosis.length

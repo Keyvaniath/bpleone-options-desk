@@ -40,7 +40,7 @@
   // module (e.g. data-mode-banner.js still rendered the old "every tick is current"
   // banner long after the fix deployed). Found via LIVE browser verify, not static
   // review. Deriving from self means it can never drift again.
-  let CACHE_BUST = 'v208';
+  let CACHE_BUST = 'v209';
   try {
     const me = document.currentScript;
     const src = me ? me.src : ([...document.querySelectorAll('script[src]')].map(s => s.src).find(u => /\/app\.js(\?|$)/.test(u)) || '');
@@ -702,10 +702,18 @@ function initBrainStatusBar() {
       dot.style.animation = 'bpleonePulse 1.5s ease-in-out infinite';
       document.getElementById('bsb-headline').textContent = s.headline;
       document.getElementById('bsb-headline').style.color = s.headlineColor;
-      let metrics = 'Health ' + s.healthScore + '/100';
-      if (s.snapshot.bss != null) metrics += ' · BSS ' + (s.snapshot.bss >= 0 ? '+' : '') + s.snapshot.bss.toFixed(2);
-      if (s.snapshot.sharpe != null) metrics += ' · Sharpe ' + s.snapshot.sharpe.toFixed(2);
-      if (s.alertCount > 0) metrics += ' · ⚠ ' + s.alertCount + ' alerts';
+      // When the local model is untrained (worker-authoritative), s.healthScore is the
+      // capped-35 LOCAL value — printing "Health 35/100" misrepresents the healthy 24/7
+      // worker brain. Show the worker-authoritative note instead of a scary number.
+      let metrics;
+      if (s.localUntrained) {
+        metrics = 'Live 24/7 worker brain · graded record on Proof';
+      } else {
+        metrics = 'Health ' + s.healthScore + '/100';
+        if (s.snapshot.bss != null) metrics += ' · BSS ' + (s.snapshot.bss >= 0 ? '+' : '') + s.snapshot.bss.toFixed(2);
+        if (s.snapshot.sharpe != null) metrics += ' · Sharpe ' + s.snapshot.sharpe.toFixed(2);
+        if (s.alertCount > 0) metrics += ' · ⚠ ' + s.alertCount + ' alerts';
+      }
       document.getElementById('bsb-metrics').textContent = metrics;
     } catch (e) {}
   }
