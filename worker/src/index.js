@@ -38,7 +38,7 @@
 // Pass 200: version stamp so brain-proof.html + worker-setup.html can detect
 // when the deployed worker is behind the repo source. Bump on every meaningful
 // behavior change. Read via /brain/health → worker_version field.
-const WORKER_VERSION = 'pass-293';
+const WORKER_VERSION = 'pass-294';
 
 const UNIVERSE = [
   'SPY','QQQ','IWM','DIA','AAPL','NVDA','TSLA','MSFT','META','AMZN','GOOGL','AMD',
@@ -1404,6 +1404,76 @@ function json(body, status) {
   });
 }
 
+// ============================================================
+// Pass 294: earnings-call transcript scrape (Motley Fool, free)
+// Browsers can't fetch Fool/search engines (no CORS); the worker can.
+// Discovery: DuckDuckGo HTML search, then Bing as a fallback (hedges a
+// datacenter-IP block on either), filtered to this ticker's slug and picking
+// the NEWEST call by the date in the URL. Returns the latest AVAILABLE call
+// with its date - Fool lags fresh prints by days, so the caller stays honest
+// about which quarter it actually got.
+// ============================================================
+const SCRAPE_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Safari/537.36';
+
+async function findFoolTranscriptUrl(ticker) {
+  const tl = ticker.toLowerCase();
+  const q = ticker + ' earnings call transcript';
+  let urls = [];
+  try {
+    const r = await fetch('https://html.duckduckgo.com/html/?q=' + encodeURIComponent(q + ' site:fool.com'), { headers: { 'User-Agent': SCRAPE_UA } });
+    if (r.ok) { const b = await r.text(); let m; const re = /uddg=([^&"]+)/g; while ((m = re.exec(b)) !== null) { try { urls.push(decodeURIComponent(m[1])); } catch (e) {} } }
+  } catch (e) {}
+  if (!urls.some(function (u) { return /fool\.com\/earnings\/call-transcripts/i.test(u); })) {
+    try {
+      const r = await fetch('https://www.bing.com/search?q=' + encodeURIComponent(q + ' fool.com'), { headers: { 'User-Agent': SCRAPE_UA } });
+      if (r.ok) { const b = await r.text(); urls = urls.concat(b.match(/https?:\/\/(?:www\.)?fool\.com\/earnings\/call-transcripts\/20\d{2}\/\d{2}\/\d{2}\/[a-z0-9-]+/gi) || []); }
+    } catch (e) {}
+  }
+  const seen = {};
+  let best = null;
+  for (let i = 0; i < urls.length; i++) {
+    const u = urls[i];
+    if (!/fool\.com\/earnings\/call-transcripts\/20\d{2}\/\d{2}\/\d{2}\//i.test(u)) continue;
+    if (u.toLowerCase().indexOf('-' + tl + '-') < 0) continue; // must reference this ticker
+    if (seen[u]) continue;
+    seen[u] = 1;
+    const dm = u.match(/\/(20\d{2})\/(\d{2})\/(\d{2})\//);
+    const date = dm ? (dm[1] + dm[2] + dm[3]) : '0';
+    if (!best || date > best.date) best = { date: date, url: u, dm: dm };
+  }
+  return best;
+}
+
+function extractTranscriptText(html) {
+  let start = html.search(/(Prepared Remarks|Good (morning|afternoon|day|evening)|Operator\s*[:\[])/i);
+  let body = start > 0 ? html.slice(start) : html;
+  return body
+    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&#?[a-z0-9]+;/gi, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+async function fetchFoolTranscript(ticker) {
+  const found = await findFoolTranscriptUrl(ticker);
+  if (!found) return { ok: false, error: 'No Motley Fool transcript found for ' + ticker + ' (they may not have published a recent call yet).' };
+  let html;
+  try {
+    const r = await fetch(found.url, { headers: { 'User-Agent': SCRAPE_UA } });
+    if (!r.ok) return { ok: false, error: 'Motley Fool returned HTTP ' + r.status + '.' };
+    html = await r.text();
+  } catch (e) { return { ok: false, error: 'Could not fetch the transcript page.' }; }
+  const text = extractTranscriptText(html);
+  if (!text || text.length < 500) return { ok: false, error: 'Could not extract transcript text from the page.' };
+  const dm = found.dm;
+  const date = dm ? (dm[1] + '-' + dm[2] + '-' + dm[3]) : '';
+  const tm = html.match(/<title[^>]*>([^<]+)</i);
+  const title = tm ? tm[1].replace(/\s*[|\-]\s*The Motley Fool[\s\S]*/i, '').trim() : (ticker + ' Earnings Call Transcript');
+  return { ok: true, ticker: ticker, date: date, title: title, source: found.url, transcript: text };
+}
+
 async function handleRequest(request, env, ctx) {
   if (request.method === 'OPTIONS') {
     return new Response(null, { status: 204, headers: CORS_HEADERS });
@@ -1716,7 +1786,11 @@ async function handleRequest(request, env, ctx) {
     let req = reqRaw ? reqRaw.split(',').map(s => s.trim()).filter(Boolean) : UNIVERSE.slice();
     // Allow ANY plausible ticker (sanity-checked + capped), so pages can request
     // real quotes for symbols outside the brain universe (e.g. sector ETF holdings).
-    req = [...new Set(req)].filter(s => /^[A-Z][A-Z0-9.\-]{0,6}$/.test(s)).slice(0, 60);
+    // Cap must exceed the full universe (75) — a 60-cap silently dropped the last 15
+    // symbols (AVGO/MU/JPM/BAC/GS + the entire XLF..XLRE sector-ETF complex) BEFORE
+    // the cache lookup, so those rows could never render (blank sectors on rotation /
+    // heatmap pages). The real cost governor is the 24-fetch-per-request cap below.
+    req = [...new Set(req)].filter(s => /^[A-Z][A-Z0-9.\-]{0,6}$/.test(s)).slice(0, 128);
     const CACHE_KEY = 'live_quotes_cache_v1';
     let cache = {};
     try { const raw = await env.BRAIN_KV.get(CACHE_KEY); if (raw) cache = JSON.parse(raw) || {}; } catch (e) {}
@@ -1916,6 +1990,25 @@ async function handleRequest(request, env, ctx) {
   }
 
   // ===== Pass 248: REAL news feed (Finnhub via worker key — free for all) =====
+  // ===== Pass 294: earnings-call transcript scrape (Motley Fool, free) =====
+  if (path === '/brain/transcript') {
+    const sym = (url.searchParams.get('sym') || url.searchParams.get('symbol') || '').toUpperCase().trim();
+    if (!sym || !/^[A-Z.]{1,6}$/.test(sym)) return json({ ok: false, error: 'pass a valid ?sym= ticker' }, 400);
+    const cache = caches.default;
+    const cacheKey = new Request(url.toString(), { method: 'GET' });
+    const hit = await cache.match(cacheKey);
+    if (hit) return hit;
+    let result;
+    try { result = await fetchFoolTranscript(sym); }
+    catch (e) { result = { ok: false, error: 'transcript fetch failed: ' + ((e && e.message) || e) }; }
+    const resp = json(result, result.ok ? 200 : 502);
+    if (result.ok) {
+      resp.headers.set('Cache-Control', 'public, max-age=21600'); // transcripts are immutable once published - cache 6h
+      ctx.waitUntil(cache.put(cacheKey, resp.clone()));
+    }
+    return resp;
+  }
+
   if (path === '/brain/news') {
     const cache = caches.default;
     const cacheKey = new Request(url.toString(), { method: 'GET' });

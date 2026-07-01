@@ -95,18 +95,32 @@
     if (typeof QUOTES === 'undefined') return;
     const syms = Object.keys(QUOTES);
     if (!syms.length) return;
-    const url = workerUrl() + '/brain/quotes?syms=' + encodeURIComponent(syms.join(','));
-    let j;
-    try {
-      const ctrl = new AbortController();
-      const to = setTimeout(() => ctrl.abort(), 9000);
-      const r = await fetch(url, { cache: 'no-store', signal: ctrl.signal });
-      clearTimeout(to);
-      if (!r.ok) return;
-      j = await r.json();
-    } catch (e) { return; }
-    const qm = (j && j.quotes) ? j.quotes : null;
-    if (!qm) return;
+    // Batch into <=50-symbol chunks. The worker caps a single /brain/quotes
+    // request, so a full-universe poll (75+ symbols) sent as ONE request
+    // silently dropped the trailing symbols (the whole XLF..XLRE sector-ETF
+    // complex + AVGO/MU/JPM/BAC/GS), leaving them stuck on stale SEED prices
+    // site-wide. Chunking keeps every request under the cap so ALL symbols get
+    // real delayed prices - and it's robust even if QUOTES grows.
+    const CHUNK = 50;
+    const batches = [];
+    for (let i = 0; i < syms.length; i += CHUNK) batches.push(syms.slice(i, i + CHUNK));
+    async function fetchChunk(list) {
+      const url = workerUrl() + '/brain/quotes?syms=' + encodeURIComponent(list.join(','));
+      try {
+        const ctrl = new AbortController();
+        const to = setTimeout(() => ctrl.abort(), 9000);
+        const r = await fetch(url, { cache: 'no-store', signal: ctrl.signal });
+        clearTimeout(to);
+        if (!r.ok) return null;
+        const j = await r.json();
+        return (j && j.quotes) ? j.quotes : null;
+      } catch (e) { return null; }
+    }
+    const parts = await Promise.all(batches.map(fetchChunk));
+    const qm = {};
+    let anyOk = false;
+    for (const part of parts) { if (part) { anyOk = true; Object.assign(qm, part); } }
+    if (!anyOk) return;
     let applied = 0;
     for (const sym in qm) {
       const v = qm[sym];
