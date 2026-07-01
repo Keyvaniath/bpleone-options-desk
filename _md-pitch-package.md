@@ -69,14 +69,14 @@ found and fixed.** Pick one to make it real:
   complex from the live feed — half my sector board was showing month-old prices. I
   caught it, fixed it two ways, and wrote it up."*
 
-**5) `options-flow.html` — the next experiment (30 sec)**
-- "The insider signal is one 'different-data' win. Here's the next hypothesis under
-  test: free CBOE options-flow — daily call/put dollar-flow direction, **self-grading
-  against the same drift null**."
-- "It's still accruing — no verdict yet, and I say 'accruing,' not 'edge.' If it
-  doesn't beat drift over a real sample, the site will say that too, in the same amber/red
-  language you just saw kill my own model."
-Say: *"I'd rather run an honest experiment for six weeks than claim an edge I can't defend to you — and when one does pay off, like the insiders, I credit the data, not the story."*
+**5) `options-flow.html` — the experiment that *didn't* work (30 sec — the symmetry)**
+- "I ran a second 'different-data' hypothesis: free CBOE options-flow — daily call/put
+  dollar-flow direction, self-graded against the same drift null. The flow data itself is
+  real and live (real $-flow, unusual-volume counts)."
+- "The verdict came back **NO EDGE** — 45% directional, unprofitable, n=22 — and the page
+  says exactly that, in the same red language that killed my own model. Two experiments,
+  one hit (insiders), one miss (flow). The machine reports both the same way."
+Say: *"That's the tell that the honesty is real, not marketing — I let it print NO EDGE on a feature I built and hoped would work."*
 
 ---
 
@@ -175,9 +175,10 @@ to be doing. I'd value your read on where this kind of rigor is most useful."*
    documented anomaly), measured honestly — the model adds nothing, and that
    *attribution discipline* is the impressive part. If you claim your ML found alpha,
    you've become the thing the rest of the pitch mocks.
-3. **Don't oversell the options-flow experiment.** It's an *open* test, still accruing,
-   honest prior that free 15-min flow probably won't beat drift. "Running an
-   experiment," never "I found an edge." Credibility comes from not needing it to succeed.
+3. **Don't over-conclude the options-flow NO-EDGE either.** It's an early read (n=22) —
+   "no edge so far, honestly reported," not "definitively dead." The point is the machine
+   prints NO EDGE on a feature you built and hoped would work — that's the honesty tell,
+   not a hard statistical verdict. Same discipline in both directions.
 
 ---
 
