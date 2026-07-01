@@ -1,5 +1,7 @@
 # MD Demo Script — bpleone / trade
 
+> ⚠️ **SUPERSEDED — primary doc is now `_md-pitch-package.md`** (current numbers, hardened Q&A, click-path). Keep this only for the Options Play Lab beat (§5) and the pre-flight checklist. **Correction:** the broadcast picks are **no longer net-negative** — as of 2026-07-01 they're drift-consistent / slightly positive (Pick of Day +0.68%/call·17 graded; Alpha +0.11%/call·136 graded), labeled on-page "explained by drift, not edge." The "−1.0%/call, net-negative" figures below are stale; the *framing* (own it, no demonstrated edge) still holds.
+>
 > Private prep doc (underscore-prefixed, not deployed). The on-screen narrative is `start-here.html`; this is what YOU say while walking through it. ~3 minutes. Numbers move daily — the live pages are authoritative; glance before you present.
 
 ## The one-sentence thesis

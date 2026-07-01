@@ -134,7 +134,8 @@
       </div>
 
       <div id="results" style="display:none;">
-        <div class="flex" style="justify-content:flex-end;margin-bottom:10px;">
+        <div class="flex gap-8" style="justify-content:flex-end;margin-bottom:10px;">
+          <button id="printBtn" class="btn btn-ghost" style="padding:6px 12px;font-size:12px;">&#128424; Print note (PDF)</button>
           <button id="copyBtn" class="btn btn-ghost" style="padding:6px 12px;font-size:12px;">&#128203; Copy read (markdown)</button>
         </div>
         <div class="card">
@@ -623,6 +624,51 @@ function fallbackCopy(text) {
   try { var ta = document.createElement('textarea'); ta.value = text; document.body.appendChild(ta); ta.select(); document.execCommand('copy'); document.body.removeChild(ta); } catch (e) {}
 }
 $('copyBtn').addEventListener('click', copyRead);
+
+// ---- print a clean equity-research note (white, serif; Save-as-PDF from the print dialog) ----
+function printRead() {
+  if (!currentRead) return;
+  var r = currentRead;
+  var tk = ($('tkr').value || '').toUpperCase(), qt = ($('qtr').value || '');
+  var rc = r.rating === 'Overweight' ? '#0a7d3c' : (r.rating === 'Underweight' ? '#b91c1c' : '#a16207');
+  var now = new Date().toLocaleString();
+  var li = function (arr) {
+    return (arr || []).map(function (b) { return '<li><b>' + esc(b.point) + '</b>' + (b.quote ? ' <span class="q">&ldquo;' + esc(b.quote) + '&rdquo;</span>' : '') + '</li>'; }).join('');
+  };
+  var mets = (r.key_metrics || []).map(function (m) { return '<tr><td><b>' + esc(m.metric) + '</b></td><td>' + esc(m.value) + '</td><td>' + esc(m.read) + '</td></tr>'; }).join('');
+  var risks = (r.risks || []).map(function (x) { return '<li>' + esc(x) + '</li>'; }).join('');
+  var css = 'body{font-family:Georgia,"Times New Roman",serif;color:#111;max-width:760px;margin:34px auto;padding:0 26px;line-height:1.5;} '
+    + '.hdr{border-bottom:2px solid #111;padding-bottom:8px;margin-bottom:12px;display:flex;justify-content:space-between;align-items:baseline;} '
+    + '.firm{font-weight:700;letter-spacing:0.5px;font-size:13px;text-transform:uppercase;} .dt{font-size:11px;color:#555;} '
+    + 'h1{font-size:19px;margin:6px 0 3px;} .sub{color:#333;font-size:12px;margin-bottom:10px;} '
+    + '.rate{display:inline-block;padding:3px 10px;border:1.5px solid ' + rc + ';color:' + rc + ';font-weight:700;font-size:12px;text-transform:uppercase;border-radius:3px;} '
+    + '.lead{font-size:15px;font-weight:700;margin:12px 0 6px;} '
+    + 'h2{font-size:12px;text-transform:uppercase;letter-spacing:0.6px;border-bottom:1px solid #ccc;padding-bottom:3px;margin:16px 0 7px;color:#333;} '
+    + 'ul{margin:6px 0;padding-left:20px;} li{margin-bottom:5px;font-size:13px;} .q{color:#555;font-style:italic;} '
+    + 'table{width:100%;border-collapse:collapse;font-size:12px;} td{padding:4px 6px;border-bottom:1px solid #eee;vertical-align:top;} '
+    + 'p{font-size:13px;margin:6px 0;} .foot{margin-top:24px;border-top:1px solid #ccc;padding-top:8px;font-size:10px;color:#777;line-height:1.4;}';
+  var html = '<!DOCTYPE html><html><head><meta charset="utf-8"><title>' + esc(tk + ' ' + qt) + ' Earnings Note</title><style>' + css + '</style></head><body>'
+    + '<div class="hdr"><span class="firm">bpleone &middot; Earnings Call Desk</span><span class="dt">' + esc(now) + '</span></div>'
+    + '<h1>' + esc(tk || 'Company') + ' ' + esc(qt) + ' &mdash; Earnings Call Note</h1>'
+    + '<div class="sub"><span class="rate">' + esc(r.rating || '') + '</span> &nbsp; Stance: ' + esc(r.stance || '') + ' (score ' + (r.score > 0 ? '+' : '') + r.score + ') &middot; Conviction: ' + esc(r.conviction || '') + '</div>'
+    + (r.headline ? '<div class="lead">' + esc(r.headline) + '</div>' : '')
+    + (r.summary ? '<p>' + esc(r.summary) + '</p>' : '')
+    + '<h2>Guidance vs Expectations</h2><p><b>' + esc(r.guidance_vs_expectations || '-') + '</b>' + (r.guidance_detail ? ' &mdash; ' + esc(r.guidance_detail) : '') + '</p>'
+    + (r.tone_shift ? '<h2>Management Tone vs Prior Quarter</h2><p>' + esc(r.tone_shift) + '</p>' : '')
+    + '<h2>Bull Case</h2><ul>' + (li(r.bull_points) || '<li>None flagged.</li>') + '</ul>'
+    + '<h2>Bear Case</h2><ul>' + (li(r.bear_points) || '<li>None flagged.</li>') + '</ul>'
+    + (mets ? '<h2>Key Metrics</h2><table>' + mets + '</table>' : '')
+    + (risks ? '<h2>Risks</h2><ul>' + risks + '</ul>' : '')
+    + '<h2>Trade Implication</h2><p>' + esc(r.trade_implication || '-') + '</p>'
+    + (r.confidence_caveats ? '<p style="font-style:italic;color:#555;">Caveats: ' + esc(r.confidence_caveats) + '</p>' : '')
+    + '<div class="foot">Prepared by the bpleone Earnings Call desk on ' + esc(now) + '. Generated with ' + esc(r._model || 'claude-opus-4-8') + ' from the earnings-call transcript. Internal analysis only &mdash; not investment advice, not a recommendation, and not a substitute for the company\'s official disclosures.</div>'
+    + '</body></html>';
+  var w = window.open('', '_blank');
+  if (!w) { $('aStatus').innerHTML = '<span style="color:var(--yellow);">Allow pop-ups to print the note.</span>'; return; }
+  w.document.open(); w.document.write(html); w.document.close(); w.focus();
+  setTimeout(function () { try { w.print(); } catch (e) {} }, 350);
+}
+$('printBtn').addEventListener('click', printRead);
 
 // ---- save feedback ----
 $('saveFbBtn').addEventListener('click', function () {

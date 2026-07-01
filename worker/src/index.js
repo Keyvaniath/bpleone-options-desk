@@ -2496,34 +2496,52 @@ async function handleRequest(request, env, ctx) {
       };
     } else {
       const cHit = confluenceLeg.hit_rate, bHit = (brainLeg.n >= 10) ? brainLeg.hit_rate : null;
+      const iHit = (insiderLeg && insiderLeg.n >= 10) ? insiderLeg.hit_rate : null;
       const beatsDrift = !!confluenceLeg.beats_drift_95;
       const profitable = !!confluenceLeg.profitable;
       const beatsBrain = (bHit != null) ? (cHit > bHit) : null;   // confluence stronger than brain-only?
-      // Pass 286: "worth paying for flow data" requires the honest trifecta -
-      // beat MARKET DRIFT (not a coin flip), be PROFITABLE on average (a high
-      // hit rate with negative returns is not edge), and beat brain-only.
-      const worthIt = beatsDrift && profitable && beatsBrain === true;
+      // Pass 295 (honest attribution): the old test only compared confluence to
+      // BRAIN-ONLY, so it credited "fusing signals" even when the edge was
+      // entirely the insider leg (brain adds nothing, confluence just rides the
+      // insider signal). Compare to the BEST single component (insider) too:
+      // fusing only genuinely "adds edge" if it beats insider-alone by a real
+      // margin. If it doesn't, the edge is the INSIDER data and we say exactly
+      // that, rather than taking credit for a fusion that isn't doing the work.
+      const insiderEdge = !!(insiderLeg && insiderLeg.beats_drift_95 && insiderLeg.profitable && insiderLeg.n >= 20);
+      const fusionBeatsInsider = (iHit != null) ? (cHit > iHit + 0.01) : null;  // needs a real margin, not noise
+      const worthIt = beatsDrift && profitable && beatsBrain === true && fusionBeatsInsider !== false;
       const driftPct = vpct(confluenceLeg.drift_null_rate);
       const retStr = (confluenceLeg.avg_directional_ret_pct >= 0 ? '+' : '') + confluenceLeg.avg_directional_ret_pct + '%';
+      const iPct = vpct(iHit);
+      const iRet = (insiderLeg && insiderLeg.avg_directional_ret_pct != null) ? ((insiderLeg.avg_directional_ret_pct >= 0 ? '+' : '') + insiderLeg.avg_directional_ret_pct + '%') : 'n/a';
+      let headline;
+      if (worthIt) {
+        headline = 'YES — fusing genuinely adds edge. Confluence (brain + insiders agree) hits ' + vpct(cHit) + ' over ' + confluenceLeg.n + ' graded, beats the drift base (' + driftPct + ') at 95%, is profitable (avg ' + retStr + '/call), and beats BOTH brain-only (' + vpct(bHit) + ')' + (iHit != null ? ' and insider-only (' + iPct + ')' : '') + '. The combination carries real, incremental edge.';
+      } else if (beatsDrift && profitable && insiderEdge && fusionBeatsInsider === false) {
+        headline = 'REAL EDGE — but it is the INSIDER signal, not the model. Insider open-market buy-clusters call 5-day direction right ' + iPct + ' over ' + insiderLeg.n + ' graded (beats the selection-adjusted drift base at 95%, avg ' + iRet + '/call) — consistent with the long-documented insider-buying anomaly. The TA brain alone shows NO edge (' + vpct(bHit) + ', explained by drift). Requiring the brain to also agree (confluence, ' + vpct(cHit) + ') does NOT improve on insiders alone — so credit the insider data, not the fusion. Actionable, but honestly attributed.';
+      } else if (!profitable) {
+        headline = 'NOT YET — confluence calls are directionally right ' + vpct(cHit) + ' of the time (n=' + confluenceLeg.n + '), but average return is ' + retStr + ' per call: directionally right is not the same as profitable (small wins, big losses on the misses). On this evidence, paying for flow data is not justified.';
+      } else if (!beatsDrift) {
+        headline = 'NOT YET — confluence hits ' + vpct(cHit) + ' (n=' + confluenceLeg.n + '), but that does not clear the market-drift base rate (' + driftPct + ') at 95%: the hit rate is explained by drift, not timing edge. Paying for flow data is not justified.';
+      } else {
+        headline = 'PARTIAL — confluence beats drift and is profitable, but does not clearly beat its best single component (insider-only ' + iPct + '), so fusing adds little on its own. The edge, if any, is in one signal — not the combination.';
+      }
       verdict = {
         ready: true,
         n: confluenceLeg.n,
         confluence_hit_rate: cHit,
         brain_hit_rate: bHit,
+        insider_hit_rate: iHit,
         drift_base_rate: confluenceLeg.drift_null_rate,
         avg_return_pct: confluenceLeg.avg_directional_ret_pct,
         confluence_profitable: profitable,
         confluence_beats_drift_95: beatsDrift,
         confluence_beats_coin_flip_95: !!confluenceLeg.beats_coin_flip_95,  // back-compat (weak bar)
         confluence_beats_brain_only: beatsBrain,
+        insider_edge_found: insiderEdge,
+        fusion_beats_insider: fusionBeatsInsider,
         fusing_worth_it: worthIt,
-        headline: worthIt
-          ? 'YES — fusing signals adds edge. Confluence (brain + insiders agree) hits ' + vpct(cHit) + ' over ' + confluenceLeg.n + ' graded calls, beats the market-drift base rate (' + driftPct + ') at 95%, is profitable (avg ' + retStr + ' per call), AND beats brain-only (' + vpct(bHit) + '). Paying for richer flow data is justified by this evidence.'
-          : (!profitable
-            ? 'NOT YET — confluence calls are directionally right ' + vpct(cHit) + ' of the time (n=' + confluenceLeg.n + '), but average return is ' + retStr + ' per call: directionally right is not the same as profitable (small wins, big losses on the misses). On this evidence, paying for flow data is not justified.'
-            : (!beatsDrift
-              ? 'NOT YET — confluence hits ' + vpct(cHit) + ' (n=' + confluenceLeg.n + '), but that does not clear the market-drift base rate (' + driftPct + ') at 95%: the hit rate is explained by drift, not timing edge. Paying for flow data is not justified.'
-              : 'PARTIAL — confluence beats drift and is profitable, but does not yet clearly beat brain-only (' + vpct(bHit) + '), so fusing adds little on its own. Not yet a reason to pay for flow data.'))
+        headline: headline
       };
     }
     return json({

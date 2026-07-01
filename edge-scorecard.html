@@ -167,6 +167,22 @@ async function loadForward() {
   const vb = document.getElementById('verdict-banner');
   if (vb && s.verdict) {
     const v = s.verdict;
+    // Pass 295 (client safety-net, honest attribution): until the worker redeploys,
+    // correct any banner that credits "fusing signals" when the edge is really the
+    // INSIDER leg alone (brain adds nothing; confluence just rides the insider signal
+    // and does NOT beat insider-alone). The per-leg cards already show this — keep the
+    // headline honest too. No-op once the worker ships the same logic (fusing_worth_it=false).
+    (function(){
+      const ins = s.insider || {}, conf = s.confluence || {}, br = s.brain || {};
+      const insiderEdge = ins.beats_drift_95 && ins.profitable && (ins.n || 0) >= 20;
+      const fusionBeatsInsider = (ins.hit_rate != null && conf.hit_rate != null) ? (conf.hit_rate > ins.hit_rate + 0.01) : null;
+      if (v.fusing_worth_it && insiderEdge && fusionBeatsInsider === false) {
+        v.fusing_worth_it = false;
+        const p = x => (x != null ? (x * 100).toFixed(1) + '%' : '—');
+        const r = (x) => (x != null ? (x >= 0 ? '+' : '') + x + '%' : 'n/a');
+        v.headline = 'REAL EDGE — but it is the INSIDER signal, not the model. Insider open-market buy-clusters hit ' + p(ins.hit_rate) + ' over ' + ins.n + ' graded (beats the selection-adjusted drift base at 95%, avg ' + r(ins.avg_directional_ret_pct) + '/call) — the long-documented insider-buying anomaly. The TA brain alone shows NO edge (' + p(br.hit_rate) + ', explained by drift). Requiring the brain to also agree (confluence, ' + p(conf.hit_rate) + ') does NOT improve on insiders alone — so credit the insider data, not the fusion. Actionable, but honestly attributed.';
+      }
+    })();
     let bg = 'var(--bg-elevated)', bd = 'var(--border)', col = 'var(--text-secondary)';
     if (v.ready) {
       // Pass 286: amber = beats drift AND profitable but not yet beating brain-only;
