@@ -58,6 +58,7 @@ This is the strongest beat. Three side-by-side cards, one live forward-test:
 - **🏛 Insiders alone: 67.4%** (n=230) — ✓ Beats drift & profitable (95%), **+3.5%/call**, z vs drift **+2.94**. *"A completely different dataset — SEC open-market insider buy-clusters — DOES show a real, significant edge. This is the well-documented insider-buying anomaly, and it's showing up live in my own forward-test, not a backtest."*
 - **🐳 Confluence (both agree): 67.1%** (n=164) — *"Here's the discipline. When I require my model to ALSO agree, it doesn't beat insiders alone — it slightly dilutes it. So the edge is the insider data; my model adds nothing. The banner says exactly that, and it's **amber, not green** — I coded it to refuse credit for a 'fusion' that isn't doing the work."*
 Say: *"That's the whole pitch in one screen — I found real signal in the right place, and I won't let my own model take credit for it."*
+*Optional drill-down (if they want to see the raw signal):* click **`insider-live.html`** — real SEC Form-4 open-market buy-clusters, the actual filings behind that 67%. *"This is the raw data doing the work; the edge is these clusters, not my model."*
 
 **4) `audit-log.html` — the rigor (40 sec)**
 Scroll the top entries. Point at the counters: **331 audit passes, 44 critical bugs
