@@ -6,7 +6,7 @@
 <title>Earnings Call LLM - bpleone / trade</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="css/style.css?v=v208">
+<link rel="stylesheet" href="css/style.css?v=v209">
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
 <style>
@@ -17,6 +17,7 @@
 .ell-in { background:var(--bg-elevated); border:1px solid var(--border); color:var(--text-primary); padding:9px 12px; border-radius:8px; font-family:inherit; font-size:13px; }
 .ell-in:focus { outline:none; border-color:var(--accent); }
 .ell-stance { font-size:30px; font-weight:800; letter-spacing:-0.5px; }
+.ell-rating { display:inline-block; padding:5px 13px; border-radius:6px; font-size:12px; font-weight:800; letter-spacing:0.6px; text-transform:uppercase; white-space:nowrap; }
 .ell-gauge { position:relative; height:14px; border-radius:999px; background:linear-gradient(90deg, var(--red), var(--yellow) 50%, var(--green)); margin:10px 0 4px; }
 .ell-gauge .mark { position:absolute; top:-4px; width:4px; height:22px; background:var(--text-primary); border-radius:2px; box-shadow:0 0 0 2px var(--bg-secondary); transform:translateX(-2px); }
 .ell-gauge-scale { display:flex; justify-content:space-between; font-size:10px; color:var(--text-muted); font-family:var(--font-mono); }
@@ -137,10 +138,14 @@
           <button id="copyBtn" class="btn btn-ghost" style="padding:6px 12px;font-size:12px;">&#128203; Copy read (markdown)</button>
         </div>
         <div class="card">
+          <div id="rHeadline" style="font-size:17px;font-weight:700;line-height:1.42;color:var(--text-primary);margin-bottom:14px;"></div>
           <div class="flex" style="justify-content:space-between;align-items:flex-start;">
-            <div>
-              <div class="ell-stance" id="stanceText">&mdash;</div>
-              <div style="font-size:12px;color:var(--text-muted);margin-top:2px;" id="stanceSub">&mdash;</div>
+            <div class="flex" style="align-items:center;gap:12px;">
+              <span id="rRating" class="ell-rating">&mdash;</span>
+              <div>
+                <div class="ell-stance" id="stanceText">&mdash;</div>
+                <div style="font-size:12px;color:var(--text-muted);margin-top:2px;" id="stanceSub">&mdash;</div>
+              </div>
             </div>
             <div style="text-align:right;">
               <div style="font-size:34px;font-weight:800;font-family:var(--font-mono);" id="scoreText">0</div>
@@ -245,13 +250,13 @@
 
 <div id="site-footer"></div>
 
-<script src="js/data-provider.js?v=v208"></script>
+<script src="js/data-provider.js?v=v209"></script>
 <script src="js/ai-client.js?v=ell2"></script>
-<script src="js/app.js?v=v208"></script>
-<script src="js/notify.js?v=v208"></script>
-<script src="js/live.js?v=v208"></script>
-<script src="js/earnings-awareness.js?v=v208"></script>
-<script src="js/earnings-llm.js?v=ell6"></script>
+<script src="js/app.js?v=v209"></script>
+<script src="js/notify.js?v=v209"></script>
+<script src="js/live.js?v=v209"></script>
+<script src="js/earnings-awareness.js?v=v209"></script>
+<script src="js/earnings-llm.js?v=ell7"></script>
 <script>
 buildNav('earnings-llm');
 
@@ -478,6 +483,13 @@ function renderRead(r) {
   $('empty').style.display = 'none';
   $('results').style.display = 'block';
   var color = EarningsLLM.scoreColor(r.score);
+  $('rHeadline').textContent = r.headline || r.summary || '';
+  (function () {
+    var rat = r.rating || 'Neutral', el = $('rRating');
+    el.textContent = rat;
+    var c = rat === 'Overweight' ? 'var(--green)' : (rat === 'Underweight' ? 'var(--red)' : 'var(--yellow)');
+    el.style.background = 'rgba(125,125,125,0.12)'; el.style.color = c; el.style.border = '1px solid ' + c;
+  })();
   $('stanceText').textContent = r.stance || EarningsLLM.stanceForScore(r.score);
   $('stanceText').style.color = color;
   $('stanceSub').textContent = ($('tkr').value || '') + '  ' + ($('qtr').value || '') + '  -  conviction: ' + (r.conviction || 'Medium');
@@ -571,13 +583,16 @@ function copyRead() {
   if (!currentRead) return;
   var r = currentRead;
   var L = [];
-  L.push('# ' + (($('tkr').value || '').toUpperCase()) + ' ' + ($('qtr').value || '') + ' - earnings read');
+  var tk = ($('tkr').value || '').toUpperCase();
+  var qt = ($('qtr').value || '');
+  L.push('# ' + (tk || 'Company') + ' ' + qt + ' - Earnings Call Read');
+  if (r.headline) { L.push(''); L.push('**' + r.headline + '**'); }
   L.push('');
-  L.push('**' + (r.stance || '') + '**  (score ' + (r.score > 0 ? '+' : '') + r.score + ', conviction ' + (r.conviction || '') + ')');
+  L.push('**Rating:** ' + (r.rating || '-') + '  |  **Stance:** ' + (r.stance || '') + ' (score ' + (r.score > 0 ? '+' : '') + r.score + ')  |  **Conviction:** ' + (r.conviction || '-'));
   L.push('');
   if (r.summary) { L.push(r.summary); L.push(''); }
   L.push('**Guidance vs expectations:** ' + (r.guidance_vs_expectations || '-') + (r.guidance_detail ? ' - ' + r.guidance_detail : ''));
-  if (r.tone_shift) L.push('**Tone shift:** ' + r.tone_shift);
+  if (r.tone_shift) L.push('**Management tone vs prior quarter:** ' + r.tone_shift);
   L.push('');
   L.push('**Bull case**');
   (r.bull_points || []).forEach(function (b) { L.push('- ' + b.point + (b.quote ? '  _"' + b.quote + '"_' : '')); });
@@ -596,7 +611,8 @@ function copyRead() {
   L.push('**Trade implication:** ' + (r.trade_implication || '-'));
   if (r.confidence_caveats) { L.push(''); L.push('_Caveats: ' + r.confidence_caveats + '_'); }
   L.push('');
-  L.push('_Generated by Earnings Call LLM (' + (r._model || 'claude-opus-4-8') + ')_');
+  L.push('---');
+  L.push('_Prepared by the bpleone Earnings Call desk. Model ' + (r._model || 'claude-opus-4-8') + '. Analysis only, not investment advice._');
   var text = L.join('\n');
   var done = function () { flash($('copyBtn'), '✓ Copied'); };
   if (navigator.clipboard && navigator.clipboard.writeText) {

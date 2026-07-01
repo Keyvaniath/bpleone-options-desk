@@ -67,6 +67,8 @@
       stance: { type: 'string', enum: ['Bullish', 'Lean Bullish', 'Neutral', 'Lean Bearish', 'Bearish'] },
       score: { type: 'integer', enum: [-5, -4, -3, -2, -1, 0, 1, 2, 3, 4, 5] },
       conviction: { type: 'string', enum: ['Low', 'Medium', 'High'] },
+      headline: { type: 'string' },
+      rating: { type: 'string', enum: ['Overweight', 'Neutral', 'Underweight'] },
       summary: { type: 'string' },
       bull_points: {
         type: 'array',
@@ -102,7 +104,7 @@
       trade_implication: { type: 'string' },
       confidence_caveats: { type: 'string' }
     },
-    required: ['stance', 'score', 'conviction', 'summary', 'bull_points', 'bear_points',
+    required: ['stance', 'score', 'conviction', 'headline', 'rating', 'summary', 'bull_points', 'bear_points',
       'guidance_vs_expectations', 'guidance_detail', 'tone_shift', 'key_metrics',
       'risks', 'trade_implication', 'confidence_caveats']
   };
@@ -114,6 +116,8 @@
     '  "stance": "Bullish|Lean Bullish|Neutral|Lean Bearish|Bearish",',
     '  "score": integer from -5 to 5,',
     '  "conviction": "Low|Medium|High",',
+    '  "headline": "one-line thesis an MD reads first",',
+    '  "rating": "Overweight|Neutral|Underweight (call-driven read-through on the stock)",',
     '  "summary": "2-4 sentence overall read",',
     '  "bull_points": [ { "point": "...", "quote": "verbatim from transcript" } ],',
     '  "bear_points": [ { "point": "...", "quote": "verbatim from transcript" } ],',
@@ -244,24 +248,31 @@
   function buildSystemPrompt(ticker, quarter) {
     var calibration = buildCalibrationProfile(ticker);
     return [
-      'You are a senior equity analyst reading an earnings-call transcript and deciding, plainly: bullish or bearish, and how strongly.',
-      'You are reading it for Brandon, a sharp, high-beta tech / AI / quantum momentum trader. He thinks in terms of "be in the sector, not the company," wants asymmetric upside, and trades the 1-5 day post-call reaction with options - so IV crush around the print matters to him.',
+      'You are a senior sell-side equity research analyst writing a post-print note-flash on an earnings call for an institutional audience - portfolio managers and the trading desk. Your read must be sharp, numbers-first, and defensible: the standard of a Goldman Sachs or Morgan Stanley analyst note. No filler, no hedging, no generic boilerplate, no restating the obvious.',
+      'The end reader, Brandon, runs high-beta tech / AI / semis / quantum exposure and trades the 1-5 day post-call reaction with options, so guidance-versus-consensus and the IV-crush setup are what matter most to him.',
       '',
-      'HOW TO SCORE (score is an integer -5 to +5):',
-      '  +5/+4 strongly bullish, +3/+2 bullish, +1 lean bullish, 0 neutral/mixed, -1 lean bearish, -2/-3 bearish, -4/-5 strongly bearish.',
-      '  The single biggest driver of the post-earnings move is GUIDANCE vs expectations, then the management TONE shift vs the prior quarter, then demand/backlog commentary, then margins. Weight them in that order.',
-      '  For AI / semis / hardware names, weight data-center and AI-capex commentary heavily.',
+      'DELIVERABLES - fill every field to that standard:',
+      '  headline: ONE punchy sentence an MD reads first - the thesis of this print. E.g. "Guidance blows past the Street on AI DRAM; gross-margin trough the only debate - stay constructive into the next print."',
+      '  rating: your read-through stance on the STOCK from THIS call - Overweight, Neutral, or Underweight. This is a call-driven near-term view, not a 12-month price-target rating; keep it honest to that scope.',
+      '  score (-5..+5) and stance: the quantitative version of the same view. +5/+4 strongly bullish, +3/+2 bullish, +1 lean, 0 mixed, down to -4/-5 strongly bearish. Keep rating, stance and score directionally consistent.',
       '',
-      'RULES:',
-      '  - Quote VERBATIM from the transcript for every bull and bear point. Never invent a quote.',
-      '  - Never fabricate a number that is not in the transcript. If a figure is missing, say so rather than guessing.',
-      '  - If the transcript looks partial, truncated, or is just prepared remarks with no Q&A, lower your conviction and say why in confidence_caveats.',
-      '  - trade_implication: one or two sentences tuned to Brandon - the likely direction/magnitude of the near-term move, and the options angle (e.g. IV-crush risk, whether to be long premium or wait).',
-      '  - Be honest and specific. No hedging filler.',
+      'ANALYTICAL PRIORITY - weight in this order, because it is what actually moves the stock:',
+      '  1. GUIDANCE vs consensus/expectations - the single biggest driver. Quantify the beat / miss / raise wherever the transcript gives you the figures.',
+      '  2. Management TONE and credibility shift vs the prior quarter - confidence, hedging, changed language, what they stopped saying.',
+      '  3. Demand / backlog / bookings commentary. For AI / semis / hardware names, weight data-center and AI-capex signals heavily.',
+      '  4. Margins and mix; capital allocation (discount buyback hype - judge the real signal, not the optics).',
+      '  5. Sector read-through: what this print implies for peers and the group - Brandon trades the sector, not just the name.',
+      '',
+      'RIGOR - non-negotiable, this is what makes the note credible:',
+      '  - Quote VERBATIM from the transcript for every bull and bear point. Never invent or paraphrase a quote.',
+      '  - Never state a number that is not in the transcript. If consensus is not provided, reason qualitatively and say so - do NOT fabricate a Street estimate.',
+      '  - key_metrics: pull the figures management actually cited (revenue, growth, margin, segment, the guide) each with a one-line beat / miss / neutral read.',
+      '  - trade_implication: likely direction and rough magnitude of the near-term move, plus the options angle - IV-crush risk, long premium vs spreads vs waiting for the dust to settle.',
+      '  - If the transcript is partial, prepared-remarks-only, or missing Q&A, lower conviction and say exactly why in confidence_caveats.',
       '',
       calibration,
       '',
-      'Context: ticker ' + (ticker || 'n/a') + ', period ' + (quarter || 'n/a') + '. Return the structured fields only.'
+      'Context: ' + (ticker || 'n/a') + ' ' + (quarter || 'n/a') + '. Return only the structured fields - this is a note, not an essay.'
     ].join('\n');
   }
 
@@ -333,6 +344,8 @@
     obj.key_metrics = Array.isArray(obj.key_metrics) ? obj.key_metrics : [];
     obj.risks = Array.isArray(obj.risks) ? obj.risks : [];
     obj.conviction = obj.conviction || 'Medium';
+    obj.rating = obj.rating || (obj.score > 0 ? 'Overweight' : (obj.score < 0 ? 'Underweight' : 'Neutral'));
+    obj.headline = obj.headline || obj.summary || '';
     return obj;
   }
 
