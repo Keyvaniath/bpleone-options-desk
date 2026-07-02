@@ -368,6 +368,25 @@ function updateCount() {
   $('cnt').textContent = n.toLocaleString() + ' chars  ·  ~' + tok.toLocaleString() + ' tokens' + (n > 0 ? '  ·  ~$' + est.toFixed(2) : '');
 }
 $('txt').addEventListener('input', updateCount);
+// Persist the transcript draft so an accidental reload/navigation doesn't lose a long paste.
+var DRAFT_KEY = 'bpleone_earnings_draft_v1';
+var _draftTimer = null;
+function saveDraft() {
+  try { localStorage.setItem(DRAFT_KEY, JSON.stringify({ txt: $('txt').value, tkr: $('tkr').value, qtr: $('qtr').value, ts: new Date().toISOString() })); } catch (e) {}
+}
+function clearDraft() { try { localStorage.removeItem(DRAFT_KEY); } catch (e) {} }
+function restoreDraft() {
+  try {
+    if (($('txt').value || '').length > 0) return;
+    var d = JSON.parse(localStorage.getItem(DRAFT_KEY) || 'null');
+    if (!d || !d.txt || d.txt.length < 50) return;
+    $('txt').value = d.txt; updateCount();
+    if (d.tkr && !$('tkr').value) { $('tkr').value = d.tkr; $('tkr').dispatchEvent(new Event('input')); }
+    if (d.qtr) $('qtr').value = d.qtr;
+    $('aStatus').innerHTML = '<span style="color:var(--text-muted);">Restored your unsaved transcript draft.</span>';
+  } catch (e) {}
+}
+$('txt').addEventListener('input', function () { clearTimeout(_draftTimer); _draftTimer = setTimeout(saveDraft, 600); });
 // Cmd/Ctrl+Enter in the transcript box runs the analysis
 $('txt').addEventListener('keydown', function (e) {
   if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') { e.preventDefault(); if (!$('goBtn').disabled) $('goBtn').click(); }
@@ -474,6 +493,7 @@ $('goBtn').addEventListener('click', function () {
         model: read._model || 'claude-opus-4-8'
       };
       EarningsLLM.saveRecord(rec);
+      clearDraft(); // analysis captured and journaled; drop the transcript draft
       currentId = rec.id;
       renderRead(read);
       renderScoreboard(); renderHistory();
@@ -654,7 +674,7 @@ function printRead() {
   var html = '<!DOCTYPE html><html><head><meta charset="utf-8"><title>' + esc(tk + ' ' + qt) + ' Earnings Note</title><style>' + css + '</style></head><body>'
     + '<div class="hdr"><span class="firm">bpleone &middot; Earnings Call Desk</span><span class="dt">' + esc(now) + '</span></div>'
     + '<h1>' + esc(tk || 'Company') + ' ' + esc(qt) + ' &mdash; Earnings Call Note</h1>'
-    + '<div class="sub"><span class="rate">' + esc(r.rating || '') + '</span> &nbsp; Stance: ' + esc(r.stance || '') + ' (score ' + (r.score > 0 ? '+' : '') + r.score + ') &middot; Conviction: ' + esc(r.conviction || '') + '</div>'
+    + '<div class="sub"><span class="rate">' + esc(r.rating || 'Neutral') + '</span> &nbsp; Stance: ' + esc(r.stance || '') + ' (score ' + (r.score > 0 ? '+' : '') + r.score + ') &middot; Conviction: ' + esc(r.conviction || '') + '</div>'
     + (r.headline ? '<div class="lead">' + esc(r.headline) + '</div>' : '')
     + (r.summary ? '<p>' + esc(r.summary) + '</p>' : '')
     + '<h2>Guidance vs Expectations</h2><p><b>' + esc(r.guidance_vs_expectations || '-') + '</b>' + (r.guidance_detail ? ' &mdash; ' + esc(r.guidance_detail) : '') + '</p>'
@@ -862,6 +882,7 @@ loadRules();
 renderScoreboard();
 renderHistory();
 updateCount();
+restoreDraft();
 </script>
 </body>
 </html>
