@@ -273,6 +273,7 @@ function esc(s) {
 }
 var currentRead = null;
 var currentId = null;
+var _pendingSource = null; // {url,date} of an auto-fetched transcript until it is analyzed or the box is edited
 
 // One-click sample so the pipeline can be exercised without hunting for a
 // transcript. Fictional company - clearly not real market data.
@@ -386,7 +387,7 @@ function restoreDraft() {
     $('aStatus').innerHTML = '<span style="color:var(--text-muted);">Restored your unsaved transcript draft.</span>';
   } catch (e) {}
 }
-$('txt').addEventListener('input', function () { clearTimeout(_draftTimer); _draftTimer = setTimeout(saveDraft, 600); });
+$('txt').addEventListener('input', function () { _pendingSource = null; clearTimeout(_draftTimer); _draftTimer = setTimeout(saveDraft, 600); });
 // Cmd/Ctrl+Enter in the transcript box runs the analysis
 $('txt').addEventListener('keydown', function (e) {
   if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') { e.preventDefault(); if (!$('goBtn').disabled) $('goBtn').click(); }
@@ -481,6 +482,10 @@ $('goBtn').addEventListener('click', function () {
     .then(function (read) {
       clearInterval(timer); $('aStatus').textContent = ''; $('goBtn').disabled = false;
       currentRead = read;
+      // provenance: if this transcript was auto-fetched, tag the read with its real source + date
+      read._source = _pendingSource ? _pendingSource.url : '';
+      read._sourceDate = _pendingSource ? _pendingSource.date : '';
+      _pendingSource = null;
       // journal the read immediately (label/outcome filled in later)
       var rec = {
         id: EarningsLLM.newId(),
@@ -517,7 +522,12 @@ function renderRead(r) {
   })();
   $('stanceText').textContent = r.stance || EarningsLLM.stanceForScore(r.score);
   $('stanceText').style.color = color;
-  $('stanceSub').textContent = ($('tkr').value || '') + '  ' + ($('qtr').value || '') + '  -  conviction: ' + (r.conviction || 'Medium');
+  var sub = esc($('tkr').value || '') + '  ' + esc($('qtr').value || '') + '  &middot;  conviction: ' + esc(r.conviction || 'Medium');
+  if (r._sourceDate || r._source) {
+    sub += '  &middot;  <span style="color:var(--yellow);" title="Actual date of the fetched transcript - check it matches the quarter you meant">transcript dated ' + esc(r._sourceDate || 'n/a') + '</span>';
+    if (r._source) sub += ' <a href="' + esc(r._source) + '" target="_blank" rel="noopener" style="color:var(--accent);">source</a>';
+  }
+  $('stanceSub').innerHTML = sub;
   $('scoreText').textContent = (r.score > 0 ? '+' : '') + r.score;
   $('scoreText').style.color = color;
   $('gMark').style.left = (((r.score + 5) / 10) * 100) + '%';
@@ -685,7 +695,7 @@ function printRead() {
     + (risks ? '<h2>Risks</h2><ul>' + risks + '</ul>' : '')
     + '<h2>Trade Implication</h2><p>' + esc(r.trade_implication || '-') + '</p>'
     + (r.confidence_caveats ? '<p style="font-style:italic;color:#555;">Caveats: ' + esc(r.confidence_caveats) + '</p>' : '')
-    + '<div class="foot">Prepared by the bpleone Earnings Call desk on ' + esc(now) + '. Generated with ' + esc(r._model || 'claude-opus-4-8') + ' from the earnings-call transcript. Internal analysis only &mdash; not investment advice, not a recommendation, and not a substitute for the company\'s official disclosures.</div>'
+    + '<div class="foot">Prepared by the bpleone Earnings Call desk on ' + esc(now) + '. Generated with ' + esc(r._model || 'claude-opus-4-8') + ' from the earnings-call transcript' + (r._source ? ' (source: ' + esc(r._source) + (r._sourceDate ? ', dated ' + esc(r._sourceDate) : '') + ')' : '') + '. Internal analysis only &mdash; not investment advice, not a recommendation, and not a substitute for the company\'s official disclosures.</div>'
     + '</body></html>';
   var w = window.open('', '_blank');
   if (!w) { $('aStatus').innerHTML = '<span style="color:var(--yellow);">Allow pop-ups to print the note.</span>'; return; }
@@ -864,6 +874,7 @@ $('fetchBtn').addEventListener('click', function () {
   EarningsLLM.fetchTranscript(ticker).then(function (res) {
     $('fetchBtn').disabled = false;
     $('txt').value = res.text; updateCount();
+    _pendingSource = { url: res.source || '', date: res.date || '' };
     var ready = (typeof AIClient !== 'undefined') && AIClient.isReady && AIClient.isReady();
     if (ready) {
       $('aStatus').textContent = 'Fetched ' + ticker + (res.date ? ' (' + res.date + ')' : '') + ' - analyzing...';
