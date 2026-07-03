@@ -300,7 +300,7 @@
       transcript + '\n=== TRANSCRIPT END ===';
 
     function callOnce(useStructured) {
-      var opts = { system: system, model: MODEL, maxTokens: 6000 };
+      var opts = { system: system, model: MODEL, maxTokens: 8000 };
       if (useStructured) {
         opts.output_config = { format: { type: 'json_schema', schema: SCHEMA } };
       } else {
