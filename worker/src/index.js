@@ -38,7 +38,7 @@
 // Pass 200: version stamp so brain-proof.html + worker-setup.html can detect
 // when the deployed worker is behind the repo source. Bump on every meaningful
 // behavior change. Read via /brain/health → worker_version field.
-const WORKER_VERSION = 'pass-295';
+const WORKER_VERSION = 'pass-296';
 
 const UNIVERSE = [
   'SPY','QQQ','IWM','DIA','AAPL','NVDA','TSLA','MSFT','META','AMZN','GOOGL','AMD',
@@ -399,9 +399,17 @@ function etHour() {
 // ============================================================
 // KV helpers
 // ============================================================
-async function kvGet(env, key, fallback) {
+async function kvGet(env, key, fallback, cacheTtlSec) {
   try {
-    const raw = await env.BRAIN_KV.get(key);
+    // Pass 296 (scale): optional per-colo KV read cache. Hot read-only endpoints
+    // (/brain/signals, /brain/picks, /brain/health, /brain/quotes cache) are polled
+    // by EVERY visitor every ~30s - with thousands of clients that is millions of
+    // KV reads/day against values the cron only rewrites ~once a minute. cacheTtl
+    // makes all requests in the same Cloudflare colo share one cached read for
+    // cacheTtlSec (min 30 per CF), cutting KV read volume by orders of magnitude.
+    // Never pass it for read-modify-write paths (journal, model training, auth).
+    const opts = (typeof cacheTtlSec === 'number' && cacheTtlSec >= 30) ? { cacheTtl: cacheTtlSec } : undefined;
+    const raw = await env.BRAIN_KV.get(key, opts);
     if (!raw) return fallback;
     return JSON.parse(raw);
   } catch (e) { return fallback; }
@@ -435,19 +443,33 @@ function capDays(o, n) {
 }
 async function recordTrack(env, b) {
   try {
+    const ev0 = String(b.event || 'pageview').slice(0, 40);
+    // Pass 296 (scale, CRITICAL): analytics is a read-modify-write on ONE KV key.
+    // KV hard-caps ~1 write/sec/key and daily write quotas are finite - at
+    // thousands of clients, unsampled pageview writes would (a) race and lose
+    // counts anyway, and (b) exhaust the KV write budget that the BRAIN's own
+    // cron tick needs for model/journal writes. So pageviews are SAMPLED
+    // 1-in-5 at write time with counts pre-multiplied x5 (statistically
+    // equivalent at volume; the analytics page discloses it). Rare, high-value
+    // events (feedback, signup, everything non-pageview) are always recorded.
+    const SAMPLE_N = 5;
+    const isPageview = ev0 === 'pageview';
+    if (isPageview && Math.floor(Math.random() * SAMPLE_N) !== 0) return;  // drop 4-in-5 pageviews
+    const w = isPageview ? SAMPLE_N : 1;                                    // weight the kept ones
     const a = (await kvGet(env, KV_KEYS.ANALYTICS, null)) ||
       { total: 0, pageviews: 0, new_users: 0, pages: {}, events: {}, days: {}, refs: {}, uniq: {}, recent: [], since: Date.now() };
-    a.total = (a.total || 0) + 1;
-    const ev = String(b.event || 'pageview').slice(0, 40);
-    if (ev === 'pageview') a.pageviews = (a.pageviews || 0) + 1;
-    a.events[ev] = (a.events[ev] || 0) + 1;
+    a.sampling = { pageview_sample_n: SAMPLE_N, note: 'pageview counts are sampled 1-in-' + SAMPLE_N + ' at write time and pre-multiplied - accurate at volume, approximate at low traffic. Non-pageview events are exact.' };
+    a.total = (a.total || 0) + w;
+    const ev = ev0;
+    if (ev === 'pageview') a.pageviews = (a.pageviews || 0) + w;
+    a.events[ev] = (a.events[ev] || 0) + w;
     const page = String(b.page || '/').slice(0, 80);
-    a.pages[page] = (a.pages[page] || 0) + 1;
-    if (b.ref) { const r = String(b.ref).slice(0, 60); a.refs[r] = (a.refs[r] || 0) + 1; }
+    a.pages[page] = (a.pages[page] || 0) + w;
+    if (b.ref) { const r = String(b.ref).slice(0, 60); a.refs[r] = (a.refs[r] || 0) + w; }
     const day = new Date(b.ts || Date.now()).toISOString().slice(0, 10);
-    a.days[day] = (a.days[day] || 0) + 1;
+    a.days[day] = (a.days[day] || 0) + w;
     if (b.anon) { if (!a.uniq) a.uniq = {}; a.uniq[String(b.anon).slice(0, 40)] = b.ts || Date.now(); }
-    if (b.nu) a.new_users = (a.new_users || 0) + 1;
+    if (b.nu) a.new_users = (a.new_users || 0) + w;  // pass 296: rides on sampled pageviews - weight it
     if (ev === 'feedback' && b.props) {
       a.feedback = a.feedback || [];
       a.feedback.push({ r: String(b.props.rating || '').slice(0, 8), t: String(b.props.text || '').slice(0, 500), em: String(b.props.email || '').slice(0, 120), p: page, ts: b.ts || Date.now() });
@@ -1397,11 +1419,12 @@ const CORS_HEADERS = {
   'Access-Control-Allow-Headers': 'Content-Type, Authorization',
   'Access-Control-Max-Age': '86400'
 };
-function json(body, status) {
-  return new Response(JSON.stringify(body), {
-    status: status || 200,
-    headers: { 'Content-Type': 'application/json', ...CORS_HEADERS }
-  });
+function json(body, status, cacheSec) {
+  // Pass 296 (scale): optional short public cache on hot read-only responses so
+  // browsers / any fronting cache can reuse them across the polling herd.
+  const headers = { 'Content-Type': 'application/json', ...CORS_HEADERS };
+  if (typeof cacheSec === 'number' && cacheSec > 0) headers['Cache-Control'] = 'public, max-age=' + cacheSec;
+  return new Response(JSON.stringify(body), { status: status || 200, headers });
 }
 
 // ============================================================
@@ -1602,12 +1625,14 @@ async function handleRequest(request, env, ctx) {
   }
 
   if (path === '/brain/health' || path === '/healthz') {
+    // Pass 296 (scale): per-colo cached reads (30s). The cron rewrites these ~1/min,
+    // and the freshness thresholds below are 300s/2400s, so 30s of read lag is noise.
     const [lt, autoTs, model, platt, sigSnap] = await Promise.all([
-      kvGet(env, KV_KEYS.LAST_TICK, { ts: 0 }),
-      kvGet(env, KV_KEYS.AUTO_BOOTSTRAP_TS, 0),   // pass 229: autonomous bootstrap observability
-      kvGet(env, KV_KEYS.MODEL, null),            // pass 233: expose trained count for liveness UI
-      kvGet(env, KV_KEYS.PLATT, null),            // pass 258: calibration self-audit
-      kvGet(env, KV_KEYS.SIGNALS, { updatedAt: 0, signals: {} }) // pass 258: scanner freshness self-audit
+      kvGet(env, KV_KEYS.LAST_TICK, { ts: 0 }, 30),
+      kvGet(env, KV_KEYS.AUTO_BOOTSTRAP_TS, 0, 30),   // pass 229: autonomous bootstrap observability
+      kvGet(env, KV_KEYS.MODEL, null, 30),            // pass 233: expose trained count for liveness UI
+      kvGet(env, KV_KEYS.PLATT, null, 30),            // pass 258: calibration self-audit
+      kvGet(env, KV_KEYS.SIGNALS, { updatedAt: 0, signals: {} }, 30) // pass 258: scanner freshness self-audit
     ]);
     const ageS = lt.ts ? Math.floor((Date.now() - lt.ts) / 1000) : null;
     const marketOpen = isMarketLikelyOpen();
@@ -1655,21 +1680,24 @@ async function handleRequest(request, env, ctx) {
       journal_total: typeof lt.journalTotal === 'number' ? lt.journalTotal : null,
       market_open: marketOpen,
       data_source: 'yahoo-live (~15m delayed)'
-    });
+    }, 200, 20);
   }
 
   if (path === '/brain/state') {
+    // Pass 296 (scale): per-colo cached reads (30s) - the cron rewrites these ~1/min,
+    // and this is the heaviest read-only payload (journal slice); the polling herd
+    // must share reads, not each hit KV.
     const [journal, model, lastTick] = await Promise.all([
-      kvGet(env, KV_KEYS.JOURNAL, []),
-      kvGet(env, KV_KEYS.MODEL, newModel()),
-      kvGet(env, KV_KEYS.LAST_TICK, {})
+      kvGet(env, KV_KEYS.JOURNAL, [], 30),
+      kvGet(env, KV_KEYS.MODEL, newModel(), 30),
+      kvGet(env, KV_KEYS.LAST_TICK, {}, 30)
     ]);
     return json({
       journal: journal.slice(-500),  // last 500 entries (full would be too big per request)
       journalTotal: journal.length,
       model: { n_trained: model.n_trained, version: model.version, weights: model.weights, bias: model.bias },
       lastTick
-    });
+    }, 200, 30);
   }
 
   if (path === '/brain/journal') {
@@ -1754,7 +1782,10 @@ async function handleRequest(request, env, ctx) {
     // absolute P(up) per row AND an overall regime read, so it stays honest:
     // a relative "BUY" in a bearish tape is the STRONGEST name, not a promise
     // it rises — the regime banner tells you whether to favor longs or cash.
-    const snap = await kvGet(env, KV_KEYS.SIGNALS, { updatedAt: 0, signals: {} });
+    // Pass 296 (scale): this is the single hottest endpoint (every visitor polls it
+    // every ~30s via worker-quotes.js). Per-colo cached read - cron rewrites SIGNALS
+    // every ~3 min, so 30s of read lag is invisible.
+    const snap = await kvGet(env, KV_KEYS.SIGNALS, { updatedAt: 0, signals: {} }, 30);
     let arr = Object.values(snap.signals || {})
       .filter(s => s && (Date.now() - (s.ts || 0)) < 4 * 24 * 60 * 60 * 1000);  // ~4d retention
 
@@ -1803,7 +1834,7 @@ async function handleRequest(request, env, ctx) {
       universe_mean_prob: +universeMean.toFixed(4),    // avg 5d P(up) across the scanned universe
       note: 'Cross-sectional relative strength: each name ranked vs the current universe (regime-robust). Absolute P(up 5d) shown per row. Unusual VOLUME + brain conviction; free-data TA proxy, NOT options-flow whale prints.',
       signals: arr
-    });
+    }, 200, 20);
   }
 
   // ===== Pass 280: REAL quotes for the FULL displayed universe =====
@@ -1824,13 +1855,25 @@ async function handleRequest(request, env, ctx) {
     req = [...new Set(req)].filter(s => /^[A-Z][A-Z0-9.\-]{0,6}$/.test(s)).slice(0, 128);
     const CACHE_KEY = 'live_quotes_cache_v1';
     let cache = {};
-    try { const raw = await env.BRAIN_KV.get(CACHE_KEY); if (raw) cache = JSON.parse(raw) || {}; } catch (e) {}
+    // Pass 296 (scale): per-colo cached read (30s) so the polling herd shares one KV read.
+    try { const raw = await env.BRAIN_KV.get(CACHE_KEY, { cacheTtl: 30 }); if (raw) cache = JSON.parse(raw) || {}; } catch (e) {}
     const now = Date.now();
     const q = (cache && cache.quotes) ? cache.quotes : {};
-    const fresh = cache.updatedAt && (now - cache.updatedAt < 60000);
-    // Fetch the requested symbols that are missing (or, if the cache is stale, all
-    // of them) — capped at 24/request to stay under the free-tier subrequest limit.
-    const need = (fresh ? req.filter(s => !q[s]) : req).slice(0, 24);
+    const ageMs = cache.updatedAt ? (now - cache.updatedAt) : Infinity;
+    const fresh = ageMs < 60000;
+    // Pass 296 (scale) - stale-while-revalidate + herd suppression. Before, the
+    // moment the 60s cache expired EVERY concurrent request refetched Yahoo (24
+    // subrequests each) and raced to rewrite the cache (KV = ~1 write/sec/key) -
+    // a thundering herd that grows linearly with traffic. Now a stale-but-recent
+    // cache (<15 min) is served immediately and only ~1 in 4 requests takes the
+    // refresh; a very old / empty cache still refreshes synchronously so the
+    // first visitor after a quiet period gets correct data. Quotes are ~15-min
+    // delayed anyway, so briefly-stale-served is honest.
+    const veryStale = ageMs > 15 * 60000;
+    const shouldRefresh = fresh ? false : (veryStale ? true : Math.random() < 0.25);
+    // Fetch the requested symbols that are missing (or, when we hold the refresh,
+    // all of them) — capped at 24/request to stay under the subrequest limit.
+    const need = (fresh ? req.filter(s => !q[s]) : (shouldRefresh ? req : [])).slice(0, 24);
     if (need.length) {
       const fetched = await Promise.all(need.map(s => fetchYahooQuote(s).catch(() => null)));
       fetched.forEach((r, i) => {
@@ -1842,7 +1885,7 @@ async function handleRequest(request, env, ctx) {
     }
     const out = {};
     req.forEach(s => { if (q[s]) out[s] = q[s]; });
-    return json({ updatedAt: (cache.updatedAt || now), count: Object.keys(out).length, quotes: out });
+    return json({ updatedAt: (cache.updatedAt || now), count: Object.keys(out).length, quotes: out }, 200, 15);
   }
 
   // ===== Pass 282: REAL daily OHLC bars (for sector RS, breadth, TA, pivots) =====
@@ -2572,8 +2615,9 @@ async function handleRequest(request, env, ctx) {
   // the brain's 5-day P(up) is from a coin flip). This is the public face; the
   // full universe stays in the background. =====
   if (path === '/brain/picks') {
+    // Pass 296 (scale): per-colo cached read (30s); cron rewrites SIGNALS ~1/3min.
     const [snap, constraints] = await Promise.all([
-      kvGet(env, KV_KEYS.SIGNALS, { updatedAt: 0, signals: {} }),
+      kvGet(env, KV_KEYS.SIGNALS, { updatedAt: 0, signals: {} }, 30),
       loadConstraints(env)
     ]);
     const allSigs = Object.values(snap.signals || {})
@@ -2621,7 +2665,7 @@ async function handleRequest(request, env, ctx) {
       best_long,
       alpha,
       note: 'Pick of the Day = the brain’s single highest-conviction 5-day call among names that pass your constraints (can be UP or DOWN). Best Long = the single most bullish passing name (weak=true means no real long edge today). Alpha = top passing leans. Constraints are editable at /brain/constraints; the brain still trains on the FULL universe — constraints only govern what gets broadcast. Records are in /brain/confluence-score; which conditions actually carry edge is in /brain/segments.'
-    });
+    }, 200, 30);
   }
 
   if (path === '/brain/constraints') {

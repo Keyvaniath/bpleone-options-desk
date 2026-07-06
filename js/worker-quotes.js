@@ -157,11 +157,27 @@
     }
   }
 
-  function start() {
-    if (timer) return;
+  // Pass 296 (scale): the fleet of open tabs is the worker's whole load profile.
+  // Two fixes so thousands of clients don't melt the free/paid Workers budget:
+  // 1. VISIBILITY GATING - a hidden/background tab contributes nothing to the
+  //    user but kept polling forever (background tabs dominate total request
+  //    volume at scale). Skip polls while hidden; refresh immediately on return.
+  // 2. JITTER - every client on a fixed 25s timer synchronizes into request
+  //    herds that all miss the worker's 60s quote cache together. A per-client
+  //    random cadence (30-45s) spreads the load flat.
+  const JITTERED_POLL_MS = 30000 + Math.floor(Math.random() * 15000);
+  function pollCycle() {
+    if (typeof document !== 'undefined' && document.hidden) return;  // hidden tab: skip (catch up on visibilitychange)
     pollOnce();
     pollQuotes();
-    timer = setInterval(() => { pollOnce(); pollQuotes(); }, POLL_MS);
+  }
+  function start() {
+    if (timer) return;
+    pollCycle();
+    timer = setInterval(pollCycle, JITTERED_POLL_MS);
+    if (typeof document !== 'undefined') {
+      document.addEventListener('visibilitychange', () => { if (!document.hidden) pollCycle(); });
+    }
   }
 
   function status() { return { lastOk, polling: !!timer, source: workerUrl() + '/brain/signals + /brain/quotes' }; }
