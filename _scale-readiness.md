@@ -33,15 +33,13 @@
 - **CDN edge caching is already there.** Static site → GitHub Pages (Fastly CDN). Worker → Cloudflare edge (275+ colos). Responses carry `Cache-Control`; KV reads are colo-cached.
 - **No single origin server to overload.** Both tiers are edge-distributed; there is no VM/container to run out of CPU/RAM.
 
-## The ONE owner-action for hostile-scale (distributed/botnet)
-The in-app limiter is **per-isolate** (in-memory) + a **global KV cap on register (20/IP/day)**. That stops single-source and small-source abuse. For a **distributed** flood (thousands of IPs), the correct tool is Cloudflare's native edge rate-limiting, which runs *before* the Worker and no app code can match:
+## Owner-actions — corrected to the ACTUAL infra (verified 2026-07-08)
 
-**Cloudflare dashboard → Security → WAF → Rate limiting rules → Create:**
-- Match: `http.request.uri.path contains "/brain/"` (and a second rule for `/auth/register`)
-- Rate: e.g. 240 requests / 1 min / IP → Action: Block (or Managed Challenge) for 60s
-- (Free plan includes one rate-limit rule; Pro/Biz allow more.)
+Verified: the **site** is GitHub Pages behind Fastly (`Server: GitHub.com`) — NOT a Cloudflare zone. The **worker** is `workers_dev = true` (no custom domain) — it runs on `*.workers.dev`, which is **Cloudflare's shared zone, not one Brandon controls.** Two consequences:
 
-Also confirm the Workers **Paid plan** is enabled before a large public launch (the free tier's 100k/day is fine for early traffic but a spike of many always-visible tabs would exceed it).
+**1. A Cloudflare WAF rate-limit rule is NOT available as a toggle here** (my earlier note was wrong). WAF/rate-limiting rules can only attach to a zone you own. To get edge rate-limiting you'd have to: put `bpleone.com`'s DNS on Cloudflare **and** bind the worker to a custom domain (e.g. `api.bpleone.com`) on that zone. That's an infra migration, not a switch — worth it only if a *distributed* (many-IP) billing-attack becomes a real concern. **On the current setup the defense layer is the in-app limiter** (per-isolate 120/10s + global KV register cap 20/IP/day + cheap cached 429s), which is adequate for single-source and small-source abuse.
+
+**2. Workers Paid plan ($5/mo)** is the one real billing decision. Free tier hard-caps at **100k requests/day** — fine for early/realistic traffic (see math above), but a sustained many-always-visible-tabs load would hit it. **Crucially, hitting that cap is NOT an outage:** the free tier stops serving the worker, and the site is built to **degrade gracefully** — every page wraps worker fetches in try/catch, `worker-quotes.js` keeps last-known quotes on any non-200, and error states read "worker unreachable / catching up," never a broken page. So the free-tier ceiling acts as a crude billing circuit-breaker (stale data for the rest of the day, self-heals), not a crash. Enable Paid before a large public launch to avoid the stale-data window; it is not required for correctness or safety.
 
 ## Bottom line
-Measured: sub-250ms p99, zero server errors under concurrent load, limiter proven to fire. Architecture is edge-distributed with no DB/origin bottleneck, and cost scales with *attention* not open tabs. Ready for thousands of realistic clients today; enable the WAF rule + Paid plan before an adversarial-scale public launch.
+Measured: sub-250ms p99, zero server errors under concurrent load, limiter proven to fire, and graceful degradation verified (worker-down → stale-but-labeled data, not a broken site). Architecture is edge-distributed with no DB/origin bottleneck; cost scales with *attention*, not open tabs. **Everything code-controllable is done, deployed, and load-verified.** The only remaining items are business decisions, not defects: (a) Workers Paid plan before sustained high traffic, and (b) — only if adversarial distributed-flood protection is ever needed — migrating the worker to a custom domain on a Cloudflare zone to unlock edge WAF. Neither blocks serving thousands of realistic clients today.
