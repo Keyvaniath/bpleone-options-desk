@@ -39,11 +39,15 @@
   </div>
 
   <div class="grid grid-4 mb-24">
-    <div class="tile" style="background:rgba(16,185,129,0.06);"><div class="lbl">Audit passes</div><div class="val" style="color:var(--green);">334</div></div>
-    <div class="tile" style="background:rgba(16,185,129,0.06);"><div class="lbl">Bugs fixed</div><div class="val" style="color:var(--green);">259+</div></div>
+    <div class="tile" style="background:rgba(16,185,129,0.06);"><div class="lbl">Audit passes</div><div class="val" style="color:var(--green);">335</div></div>
+    <div class="tile" style="background:rgba(16,185,129,0.06);"><div class="lbl">Bugs fixed</div><div class="val" style="color:var(--green);">260+</div></div>
     <div class="tile" style="background:rgba(220,38,38,0.06);"><div class="lbl">CRITICAL bugs</div><div class="val" style="color:var(--red);">46</div></div>
-    <div class="tile"><div class="lbl">Total commits</div><div class="val">288+</div></div>
+    <div class="tile"><div class="lbl">Total commits</div><div class="val">290+</div></div>
   </div>
+
+  <div style="padding:14px 18px;border-radius:10px;background:rgba(16,185,129,0.10);border-left:4px solid var(--green);margin-bottom:14px;font-size:13px;color:var(--text-secondary);line-height:1.6;">
+    <strong>Batch CE (pass 298, scale) — completed the read-endpoint cache rollout the pass-296 sweep missed: 8 more polled endpoints were still hitting KV on every request.</strong>
+    A live header audit (curl every <code>/brain/*</code> endpoint the site polls, check for <code>Cache-Control</code>) caught that pass 296 only cached the 5 hottest (health/state/signals/picks/quotes) — but <code>metrics</code>, <code>symbols</code>, <code>journal</code>, <code>model</code>, <code>learning</code>, <code>confluence-score</code>, <code>flow-score</code> and <code>constraints</code> (GET) had NO caching. Several are polled by the Proof + Edge-Scorecard demo pages, so at thousands of clients each was a full KV read per visitor per load. Added per-colo <code>kvGet</code> read caching (<code>cacheTtl</code> 30–60s, matched to how slowly each key changes — model/champions/metrics on the ~minute cron, constraints only on admin edit) plus a matching response <code>Cache-Control</code> to every one. All read-only; the write paths (cron, bootstrap, auth, POST constraints) are untouched. Worker linted valid ESM, pass-298. <b>Net: the ENTIRE polled read surface is now colo-cached — a thousand concurrent tabs collapse to a handful of KV reads per key per colo per cache-window, instead of thousands.</b></div>
 
   <div style="padding:14px 18px;border-radius:10px;background:rgba(16,185,129,0.10);border-left:4px solid var(--green);margin-bottom:14px;font-size:13px;color:var(--text-secondary);line-height:1.6;">
     <strong>Batch CD (pass 297, scale/abuse) — worker-native per-IP rate limiting, closing the last "thousands of clients includes bad actors" gap.</strong>

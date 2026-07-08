@@ -38,7 +38,7 @@
 // Pass 200: version stamp so brain-proof.html + worker-setup.html can detect
 // when the deployed worker is behind the repo source. Bump on every meaningful
 // behavior change. Read via /brain/health → worker_version field.
-const WORKER_VERSION = 'pass-297';
+const WORKER_VERSION = 'pass-298';
 
 const UNIVERSE = [
   'SPY','QQQ','IWM','DIA','AAPL','NVDA','TSLA','MSFT','META','AMZN','GOOGL','AMD',
@@ -1740,20 +1740,20 @@ async function handleRequest(request, env, ctx) {
     // Coerce to a sane positive int between 1 and 2000.
     const nRaw = parseInt(url.searchParams.get('n') || '200', 10);
     const n = Math.min(2000, Math.max(1, Number.isFinite(nRaw) ? nRaw : 200));
-    const journal = await kvGet(env, KV_KEYS.JOURNAL, []);
-    return json({ journal: journal.slice(-n), total: journal.length });
+    const journal = await kvGet(env, KV_KEYS.JOURNAL, [], 30);   // pass 298 (scale): per-colo cached read
+    return json({ journal: journal.slice(-n), total: journal.length }, 200, 30);
   }
 
   if (path === '/brain/model') {
-    const model = await kvGet(env, KV_KEYS.MODEL, newModel());
-    return json(model);
+    const model = await kvGet(env, KV_KEYS.MODEL, newModel(), 30);  // pass 298 (scale)
+    return json(model, 200, 30);
   }
 
   if (path === '/brain/champions') {
     // Pass 222: champion/challenger leaderboard from the last bootstrap.
-    const champs = await kvGet(env, KV_KEYS.CHAMPIONS, null);
+    const champs = await kvGet(env, KV_KEYS.CHAMPIONS, null, 60);  // pass 298 (scale): only changes on bootstrap
     if (!champs) return json({ error: 'no champion data yet — run /brain/bootstrap', leaderboard: [] });
-    return json(champs);
+    return json(champs, 200, 60);
   }
 
   if (path === '/brain/learning') {
@@ -1765,10 +1765,10 @@ async function handleRequest(request, env, ctx) {
     // This reports both, plus a 1-DAY "early read" (short-horizon directional
     // accuracy) as a leading indicator so you get feedback in ~1 day instead
     // of waiting the full 7 for the first 5-day resolution.
-    const [model, journal, champs] = await Promise.all([
-      kvGet(env, KV_KEYS.MODEL, newModel()),
-      kvGet(env, KV_KEYS.JOURNAL, []),
-      kvGet(env, KV_KEYS.CHAMPIONS, null)
+    const [model, journal, champs] = await Promise.all([   // pass 298 (scale): per-colo cached reads (60s)
+      kvGet(env, KV_KEYS.MODEL, newModel(), 60),
+      kvGet(env, KV_KEYS.JOURNAL, [], 60),
+      kvGet(env, KV_KEYS.CHAMPIONS, null, 60)
     ]);
     const now = Date.now();
     const clean = journal.filter(e => typeof e.dayKey === 'number');  // post-pass-226 captures
@@ -1802,7 +1802,7 @@ async function handleRequest(request, env, ctx) {
       // Signal pipeline explainer
       how_it_signals: 'model weights -> predProb per symbol -> cross-sectional rank -> BUY/SELL/WATCH on /brain/signals',
       worker_version: WORKER_VERSION
-    });
+    }, 200, 60);
   }
 
   if (path === '/brain/signals') {
@@ -2385,7 +2385,7 @@ async function handleRequest(request, env, ctx) {
   // confluence scorer: hit-rate vs the per-direction drift null, profitability,
   // 95% bound. ready=false until >= 20 graded calls (accrues over weeks). =====
   if (path === '/brain/flow-score') {
-    const log = await kvGet(env, 'flow_log_v1', []);
+    const log = await kvGet(env, 'flow_log_v1', [], 60);   // pass 298 (scale): per-colo cached read
     const resolved = log.filter(e => e && e.resolved && typeof e.ret === 'number');
     const driftUp = resolved.length ? resolved.filter(e => e.ret > 0).length / resolved.length : 0.5;
     function score(entries, dirFn) {
@@ -2435,7 +2435,7 @@ async function handleRequest(request, env, ctx) {
     return json({
       ok: true, signal: 'free-cboe-options-flow', leg, verdict,
       note: 'Forward-test of the FREE daily options-flow signal: each weekday the worker captures the $-flow direction per liquid name, grades the realized 5-day move, and checks whether following the flow beats the market-drift base rate at 95%. Honest null = drift; a high hit-rate that merely rides drift is not edge.'
-    });
+    }, 200, 60);   // pass 298 (scale): response cache
   }
 
   // ===== Pass 248: aggregated market-wide insider feed (one cached call) =====
@@ -2496,7 +2496,7 @@ async function handleRequest(request, env, ctx) {
 
   // ===== Pass 252: live edge scorecard — the receipt =====
   if (path === '/brain/confluence-score') {
-    const log = await kvGet(env, 'confluence_log_v1', []);
+    const log = await kvGet(env, 'confluence_log_v1', [], 60);   // pass 298 (scale): per-colo cached read
     const resolved = log.filter(e => e && e.resolved && typeof e.ret === 'number');
     // Grade a leg: dirFn(e) -> +1 (bullish call) / -1 (bearish call) / 0 (no call).
     // A call is a HIT if the realized 5-day move went the called direction.
@@ -2641,7 +2641,7 @@ async function handleRequest(request, env, ctx) {
         conf: (e.brainDir !== 0 && e.insDir !== 0 && Math.sign(e.brainDir) === Math.sign(e.insDir))
       })),
       note: 'Live FORWARD test: each daily directional call graded against the real 5-trading-day move. Hit = direction correct. beats_coin_flip_95 = one-sided z>1.64. Small N early — this fills out over weeks. The brain’s BACKtested edge is in /brain/metrics.'
-    });
+    }, 200, 60);   // pass 298 (scale): response cache
   }
 
   // ===== Pass 254: today's broadcast picks — the single Pick of the Day + the
@@ -2726,7 +2726,7 @@ async function handleRequest(request, env, ctx) {
       return json({ ok: true, constraints: next });
     }
     const c = await loadConstraints(env);
-    return json({ ok: true, constraints: c, defaults: defaultConstraints(), universe: UNIVERSE, note: 'Edit these at constraints.html. They govern what becomes a Pick of the Day / Alpha / Best Long. The brain trains on the full universe regardless; this is purely noise control on what gets surfaced.' });
+    return json({ ok: true, constraints: c, defaults: defaultConstraints(), universe: UNIVERSE, note: 'Edit these at constraints.html. They govern what becomes a Pick of the Day / Alpha / Best Long. The brain trains on the full universe regardless; this is purely noise control on what gets surfaced.' }, 200, 60);  // pass 298 (scale): read-only, changes only on admin POST
   }
 
   if (path === '/brain/segments') {
@@ -2817,8 +2817,8 @@ async function handleRequest(request, env, ctx) {
     // Also adds Wilson-interval-style CI on accuracy and exposes `stable`
     // flag (n >= MIN_N_STABLE) so the UI can filter out noise rows.
     const MIN_N_STABLE = 10;  // below this, per-sym stats are noise
-    const heldoutRaw = await kvGet(env, KV_KEYS.HELDOUT, []);
-    const journal = await kvGet(env, KV_KEYS.JOURNAL, []);
+    const heldoutRaw = await kvGet(env, KV_KEYS.HELDOUT, [], 60);   // pass 298 (scale): per-colo cached reads
+    const journal = await kvGet(env, KV_KEYS.JOURNAL, [], 60);
     let pairs;
     if (Array.isArray(heldoutRaw)) {
       pairs = heldoutRaw;
@@ -2889,14 +2889,14 @@ async function handleRequest(request, env, ctx) {
       stable_count: stableCount,
       min_n_stable: MIN_N_STABLE,
       note: 'BSS is noise-dominated for symbols with n < ' + MIN_N_STABLE + '. UI should sort/filter by `stable` flag.'
-    });
+    }, 200, 60);
   }
 
   if (path === '/brain/metrics') {
     // Pass 191-192: real signal-vs-noise metrics from BOTH random-split
     // held-out (stationary upper bound) AND walk-forward (honest trading test).
-    const heldoutRaw = await kvGet(env, KV_KEYS.HELDOUT, []);
-    const journal = await kvGet(env, KV_KEYS.JOURNAL, []);
+    const heldoutRaw = await kvGet(env, KV_KEYS.HELDOUT, [], 60);   // pass 298 (scale): per-colo cached reads
+    const journal = await kvGet(env, KV_KEYS.JOURNAL, [], 60);
     // Backwards-compat: pass 191 stored a flat array; pass 192 stores
     // { random_split, walk_forward }.
     const heldout = Array.isArray(heldoutRaw) ? heldoutRaw : (heldoutRaw.random_split || []);
@@ -3002,7 +3002,7 @@ async function handleRequest(request, env, ctx) {
       live_resolved: liveMetrics,
       total_captures: journal.length,
       timestamp: Date.now()
-    });
+    }, 200, 60);   // pass 298 (scale): response cache
   }
 
   if (path === '/brain/debug/fetch') {
