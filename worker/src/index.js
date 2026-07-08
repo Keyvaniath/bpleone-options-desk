@@ -38,7 +38,7 @@
 // Pass 200: version stamp so brain-proof.html + worker-setup.html can detect
 // when the deployed worker is behind the repo source. Bump on every meaningful
 // behavior change. Read via /brain/health → worker_version field.
-const WORKER_VERSION = 'pass-299';
+const WORKER_VERSION = 'pass-300';
 
 const UNIVERSE = [
   'SPY','QQQ','IWM','DIA','AAPL','NVDA','TSLA','MSFT','META','AMZN','GOOGL','AMD',
@@ -1581,6 +1581,19 @@ async function handleRequest(request, env, ctx) {
     const password = String((body && body.password) || '');
     if (!validEmail(email)) return json({ error: 'invalid email' }, 400);
     if (password.length < 8) return json({ error: 'password must be at least 8 characters' }, 400);
+    // Pass 300 (scale/abuse): GLOBAL per-IP daily signup cap. The in-memory RL_HITS
+    // limiter is per-ISOLATE, so a burst spread across Cloudflare isolates can slip
+    // through; register CREATES a user:* key + a session key, so an un-global-capped
+    // random-email flood could grow keys / exhaust the KV write budget the brain's
+    // cron needs. A KV counter keyed on IP (24h TTL) hard-bounds real account creation
+    // to REG_CAP/IP/day across every isolate. Register is rare (a real user signs up
+    // once), so the one extra KV read is negligible; we only WRITE the counter on a
+    // successful create, so failed/abusive attempts add no write load beyond the read.
+    const REG_CAP = 20;
+    const regIp = request.headers.get('CF-Connecting-IP') || request.headers.get('X-Forwarded-For') || 'unknown';
+    const regKey = 'reg_ip_v1:' + regIp;
+    const regN = (await kvGet(env, regKey, 0)) || 0;
+    if (regN >= REG_CAP) return json({ error: 'too many signups from this network today — try again tomorrow' }, 429, 60);
     const existing = await kvGet(env, 'user:' + email, null);
     if (existing) return json({ error: 'account already exists — try logging in' }, 409);
     const salt = randomHex(16);
@@ -1589,6 +1602,7 @@ async function handleRequest(request, env, ctx) {
     await kvPut(env, 'user:' + email, user);
     const token = randomHex(32);
     await kvPutTTL(env, 'session:' + token, { email, createdAt: Date.now() }, SESSION_TTL_SEC);
+    await kvPutTTL(env, regKey, regN + 1, 86400);  // count only successful creates
     return json({ ok: true, token, email });
   }
 
