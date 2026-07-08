@@ -121,22 +121,18 @@ wrangler secret put ADMIN_TOKEN
     </div>
     <!-- Pass 200: worker version vs expected -->
     <div id="w-version-banner" style="display:none;padding:12px 14px;border-radius:8px;margin-bottom:10px;font-size:12px;line-height:1.6;"></div>
-    <div style="font-size:11px;color:var(--text-muted);">Auto-refreshes every 15 seconds. Expected worker version: <code id="w-expected-ver">pass-296</code>.</div>
+    <div style="font-size:11px;color:var(--text-muted);">Auto-refreshes every 15 seconds. Expected worker version: <code id="w-expected-ver">pass-297</code>.</div>
   </div>
 
-  <!-- Scale / abuse protection (pass 296) -->
-  <div class="card mb-24" style="background:rgba(245,158,11,0.06);border:1px solid rgba(245,158,11,0.3);">
-    <div class="card-header"><div class="card-title">🛡️ Before opening to thousands of users — one Cloudflare dashboard step</div></div>
+  <!-- Scale / abuse protection (pass 296-297) -->
+  <div class="card mb-24" style="background:rgba(16,185,129,0.06);border:1px solid rgba(16,185,129,0.3);">
+    <div class="card-header"><div class="card-title">🛡️ Scale + abuse protection — built in (pass 296–297)</div></div>
     <div style="font-size:13px;color:var(--text-secondary);line-height:1.7;">
-      The worker code is scale-hardened (pass 296): per-colo KV read caching, stale-while-revalidate quotes, sampled analytics writes, short response caches. The browser also gates polling to visible tabs on a jittered cadence. That handles <strong>legitimate</strong> load — thousands of real tabs behave like dozens.
+      <strong>Legitimate load</strong> (pass 296): per-colo KV read caching, stale-while-revalidate quotes, sampled analytics writes, short response caches; the browser gates polling to visible tabs on a jittered 30–45s cadence. Thousands of real tabs behave like dozens — cost scales with attention, not open tabs.
       <br><br>
-      What worker code can <em>not</em> do cheaply is stop a <strong>malicious</strong> client hammering the read endpoints (per-request KV write counters would defeat the caching that keeps you in budget). Add that at the edge instead — it's free and takes 2 minutes:
-      <ul style="margin:8px 0 8px 22px;line-height:1.7;">
-        <li>Cloudflare dashboard → your zone → <strong>Security → WAF → Rate limiting rules</strong>.</li>
-        <li>Rule: path contains <code>/brain/</code>, <strong>more than ~60 requests / 10s per IP</strong> → <em>Block</em> (or Managed Challenge) for 1 min.</li>
-        <li>Legit clients poll ~2×/min; this only ever trips bots.</li>
-      </ul>
-      Also confirm the Worker is on the <strong>Paid plan ($5/mo)</strong> before a real traffic spike — the free tier's 100k requests/day is fine for a soft launch but a worst-case fully-visible fleet can exceed it.
+      <strong>Malicious load</strong> (pass 297): a per-IP rate limit is built into the worker itself — <code>GET /brain/*</code> is capped at ~12 req/s per IP (in-memory sliding window, zero KV writes, so it doesn't undo the caching above). This is the right layer because the brain is served from <code>*.workers.dev</code>, which is <em>not</em> behind the zone WAF — a dashboard rate-limit rule wouldn't even apply. Isolates are per-colo, so a single abusive IP is stopped cold; a distributed botnet is handled by Cloudflare's always-on L3/L4 DDoS protection underneath. <strong>Nothing to configure.</strong>
+      <br><br>
+      Only remaining checklist item: confirm the Worker is on the <strong>Paid plan ($5/mo)</strong> before a large traffic spike — the free tier's 100k requests/day is fine for a soft launch but a worst-case fully-visible fleet can exceed it.
     </div>
   </div>
 
@@ -162,7 +158,7 @@ buildNav('worker-setup');
 // Pass 200: bump this when worker/src/index.js's WORKER_VERSION changes.
 // The page compares against the live worker's reported version and shows
 // a "redeploy" banner if Brandon's deployed worker is behind.
-const EXPECTED_WORKER_VERSION = 'pass-296';
+const EXPECTED_WORKER_VERSION = 'pass-297';
 // Keep the displayed "expected version" in sync with the constant so it never goes stale.
 (function(){ var el = document.getElementById('w-expected-ver'); if (el) el.textContent = EXPECTED_WORKER_VERSION; })();
 

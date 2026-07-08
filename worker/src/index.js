@@ -38,7 +38,7 @@
 // Pass 200: version stamp so brain-proof.html + worker-setup.html can detect
 // when the deployed worker is behind the repo source. Bump on every meaningful
 // behavior change. Read via /brain/health → worker_version field.
-const WORKER_VERSION = 'pass-296';
+const WORKER_VERSION = 'pass-297';
 
 const UNIVERSE = [
   'SPY','QQQ','IWM','DIA','AAPL','NVDA','TSLA','MSFT','META','AMZN','GOOGL','AMD',
@@ -1428,6 +1428,32 @@ function json(body, status, cacheSec) {
 }
 
 // ============================================================
+// Pass 297 (scale / abuse): worker-native per-IP rate limit. The brain is served
+// from *.workers.dev, which is NOT fronted by the zone WAF, so Cloudflare
+// dashboard rate-limiting rules do NOT apply to it - this IS the guard. It's an
+// in-memory sliding window per isolate with ZERO KV writes (KV write-per-request
+// would defeat the pass-296 caching that keeps us in budget). Honest limits:
+// isolates are per-colo + ephemeral, so a distributed botnet isn't fully stopped
+// (Cloudflare's automatic L3/L4 DDoS protection covers that layer) - but this
+// reliably stops the common case: one abusive IP hammering an endpoint from one
+// colo, which is the realistic cost/availability threat (Yahoo IP-blocking the
+// worker, CPU burn). Legit clients poll ~2x/min; the limit only ever trips bots.
+const RL_WINDOW_MS = 10000;   // 10s sliding window
+const RL_MAX = 120;           // >120 req / 10s / IP / isolate = 12/s sustained (no human/shared-NAT reaches this; bots do)
+const RL_HITS = new Map();    // ip -> number[] of recent request ms (module scope = survives across requests in an isolate)
+function rateLimited(request) {
+  const ip = request.headers.get('CF-Connecting-IP') || request.headers.get('X-Forwarded-For') || 'unknown';
+  const now = Date.now();
+  let arr = RL_HITS.get(ip);
+  if (!arr) { arr = []; RL_HITS.set(ip, arr); }
+  while (arr.length && (now - arr[0]) > RL_WINDOW_MS) arr.shift();  // drop stale
+  arr.push(now);
+  // Bound total memory: a spray of distinct IPs can't grow the map unbounded.
+  if (RL_HITS.size > 6000) { let drop = RL_HITS.size - 4000; for (const k of RL_HITS.keys()) { RL_HITS.delete(k); if (--drop <= 0) break; } }
+  return arr.length > RL_MAX;
+}
+
+// ============================================================
 // Pass 294: earnings-call transcript scrape (Motley Fool, free)
 // Browsers can't fetch Fool/search engines (no CORS); the worker can.
 // Discovery: DuckDuckGo HTML search, then Bing as a fallback (hedges a
@@ -1534,6 +1560,14 @@ async function handleRequest(request, env, ctx) {
   }
   const url = new URL(request.url);
   const path = url.pathname;
+
+  // Pass 297 (scale/abuse): rate-limit the public read surface. Only GET /brain/*
+  // (the endpoints a browser fleet polls + a bot would hammer). Auth POSTs keep
+  // their own per-email brute-force throttle; the cron /tick is admin-token gated.
+  // 429 carries a tiny cache so even the rejection is cheap under a flood.
+  if (request.method === 'GET' && path.startsWith('/brain/') && rateLimited(request)) {
+    return json({ error: 'rate limited', detail: 'too many requests from this IP — slow down (limit ~12/s)', retryAfterSec: 10 }, 429, 5);
+  }
 
   // ===== Pass 240: customer auth routes =====
   if (path === '/auth/register' && request.method === 'POST') {

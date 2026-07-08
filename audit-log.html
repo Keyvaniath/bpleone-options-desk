@@ -39,11 +39,15 @@
   </div>
 
   <div class="grid grid-4 mb-24">
-    <div class="tile" style="background:rgba(16,185,129,0.06);"><div class="lbl">Audit passes</div><div class="val" style="color:var(--green);">333</div></div>
-    <div class="tile" style="background:rgba(16,185,129,0.06);"><div class="lbl">Bugs fixed</div><div class="val" style="color:var(--green);">258+</div></div>
+    <div class="tile" style="background:rgba(16,185,129,0.06);"><div class="lbl">Audit passes</div><div class="val" style="color:var(--green);">334</div></div>
+    <div class="tile" style="background:rgba(16,185,129,0.06);"><div class="lbl">Bugs fixed</div><div class="val" style="color:var(--green);">259+</div></div>
     <div class="tile" style="background:rgba(220,38,38,0.06);"><div class="lbl">CRITICAL bugs</div><div class="val" style="color:var(--red);">46</div></div>
-    <div class="tile"><div class="lbl">Total commits</div><div class="val">286+</div></div>
+    <div class="tile"><div class="lbl">Total commits</div><div class="val">288+</div></div>
   </div>
+
+  <div style="padding:14px 18px;border-radius:10px;background:rgba(16,185,129,0.10);border-left:4px solid var(--green);margin-bottom:14px;font-size:13px;color:var(--text-secondary);line-height:1.6;">
+    <strong>Batch CD (pass 297, scale/abuse) — worker-native per-IP rate limiting, closing the last "thousands of clients includes bad actors" gap.</strong>
+    Pass 296 hardened <em>legitimate</em> load; this closes <em>malicious</em> load. Initially I documented a Cloudflare-dashboard WAF rate-limit rule as a Brandon action — then caught that <b>it wouldn't even work</b>: the brain is served from <code>*.workers.dev</code>, which is NOT fronted by the zone WAF, so dashboard rate-limiting rules don't apply to it. The correct layer is the worker itself. Added an <b>in-memory sliding-window per-IP limiter</b> (module-scope <code>Map</code>, survives across requests in an isolate): <code>GET /brain/*</code> is capped at <b>~12 req/s per IP</b> (120 / 10s window) and returns <code>429</code> (with a 5s cache so even the rejection is cheap under a flood). <b>Zero KV writes</b> — a per-request KV counter would have defeated the pass-296 read-caching that keeps the worker in budget, so this is memory-only. Honest scope, stated in-code and on worker-setup: isolates are per-colo + ephemeral, so this stops the realistic threat cold (one abusive IP hammering an endpoint from one colo → Yahoo IP-blocking the worker, CPU burn) while a distributed botnet is left to Cloudflare's always-on L3/L4 DDoS protection underneath. Legit clients poll ~2×/min, ~0.03 req/s — the limit only ever trips bots; even a 50-user corporate NAT (~1.6 req/s aggregate) is far under it. Auth POSTs keep their own per-email brute-force throttle; the cron tick is admin-token gated. Worker linted valid ESM, bumped to pass-297; <code>worker-setup.html</code> abuse card rewritten (rate-limiting is now built-in, nothing to configure — only the Paid-plan check remains). <b>Net: the read surface can no longer be driven into a cost/availability failure by a single abusive client, without spending a single KV write.</b></div>
 
   <div style="padding:14px 18px;border-radius:10px;background:rgba(220,38,38,0.10);border-left:4px solid var(--red);margin-bottom:14px;font-size:13px;color:var(--text-secondary);line-height:1.6;">
     <strong>Batch CC (pass 296, CRITICAL — scale) — production-hardened the desk for thousands of concurrent clients: killed three load amplifiers that would have melted the Workers/KV budget (one of which could have killed the brain itself).</strong>
