@@ -38,7 +38,7 @@
 // Pass 200: version stamp so brain-proof.html + worker-setup.html can detect
 // when the deployed worker is behind the repo source. Bump on every meaningful
 // behavior change. Read via /brain/health → worker_version field.
-const WORKER_VERSION = 'pass-298';
+const WORKER_VERSION = 'pass-299';
 
 const UNIVERSE = [
   'SPY','QQQ','IWM','DIA','AAPL','NVDA','TSLA','MSFT','META','AMZN','GOOGL','AMD',
@@ -1561,11 +1561,16 @@ async function handleRequest(request, env, ctx) {
   const url = new URL(request.url);
   const path = url.pathname;
 
-  // Pass 297 (scale/abuse): rate-limit the public read surface. Only GET /brain/*
-  // (the endpoints a browser fleet polls + a bot would hammer). Auth POSTs keep
-  // their own per-email brute-force throttle; the cron /tick is admin-token gated.
-  // 429 carries a tiny cache so even the rejection is cheap under a flood.
-  if (request.method === 'GET' && path.startsWith('/brain/') && rateLimited(request)) {
+  // Pass 297/299 (scale/abuse): per-IP rate limit. Covers (a) the public read
+  // surface GET /brain/* that a browser fleet polls + a bot would hammer, AND
+  // (b) pass 299 — the UNAUTHENTICATED write-heavy POSTs (/auth/register, /track,
+  // /auth/login) which each do KV writes; without this an unmetered register/track
+  // flood could exhaust the finite KV write budget the brain's cron depends on and
+  // grow user:* keys unbounded (login also keeps its own per-email brute-force
+  // throttle). The cron /tick + admin routes stay admin-token gated.
+  const rlGuarded = (request.method === 'GET' && path.startsWith('/brain/')) ||
+    (request.method === 'POST' && (path === '/auth/register' || path === '/auth/login' || path === '/track'));
+  if (rlGuarded && rateLimited(request)) {
     return json({ error: 'rate limited', detail: 'too many requests from this IP — slow down (limit ~12/s)', retryAfterSec: 10 }, 429, 5);
   }
 
@@ -1910,12 +1915,19 @@ async function handleRequest(request, env, ctx) {
     const need = (fresh ? req.filter(s => !q[s]) : (shouldRefresh ? req : [])).slice(0, 24);
     if (need.length) {
       const fetched = await Promise.all(need.map(s => fetchYahooQuote(s).catch(() => null)));
+      // Pass 299 (scale): only WRITE KV if we actually stored a new quote. Before,
+      // any request that took the refresh branch wrote the cache unconditionally —
+      // so a permanently-unresolvable symbol (e.g. a ticker Yahoo rejects) whose
+      // fetch always returns null would still force a KV write on EVERY refreshing
+      // request, defeating the pass-296 herd suppression and burning the write budget.
+      let dirty = false;
       fetched.forEach((r, i) => {
         if (r && typeof r.last === 'number' && r.last > 0) {
           q[need[i]] = { last: r.last, prevClose: r.prevClose, changePct: r.changePct, volume: r.volume, dayHigh: r.dayHigh, dayLow: r.dayLow, ts: r.ts };
+          dirty = true;
         }
       });
-      try { await env.BRAIN_KV.put(CACHE_KEY, JSON.stringify({ updatedAt: now, quotes: q }), { expirationTtl: 900 }); } catch (e) {}
+      if (dirty) { try { await env.BRAIN_KV.put(CACHE_KEY, JSON.stringify({ updatedAt: now, quotes: q }), { expirationTtl: 900 }); } catch (e) {} }
     }
     const out = {};
     req.forEach(s => { if (q[s]) out[s] = q[s]; });
@@ -1931,7 +1943,7 @@ async function handleRequest(request, env, ctx) {
     let reqB = reqRaw ? reqRaw.split(',').map(s => s.trim()).filter(Boolean) : UNIVERSE.slice();
     reqB = [...new Set(reqB)];
     const daysB = Math.min(40, Math.max(2, parseInt(url.searchParams.get('days') || '40', 10) || 40));
-    const barsHistory = await kvGet(env, KV_KEYS.BARS_HISTORY, {});
+    const barsHistory = await kvGet(env, KV_KEYS.BARS_HISTORY, {}, 30);   // pass 299 (scale): per-colo cached read of the large bars blob
     const outB = {};
     for (const sym of reqB) {
       const h = barsHistory[sym];
@@ -1939,7 +1951,7 @@ async function handleRequest(request, env, ctx) {
         outB[sym] = h.slice(-daysB).map(b => ({ ts: b.ts, o: b.open, h: b.high, l: b.low, c: b.close, v: b.volume }));
       }
     }
-    return json({ count: Object.keys(outB).length, days: daysB, bars: outB });
+    return json({ count: Object.keys(outB).length, days: daysB, bars: outB }, 200, 30);
   }
 
   // ===== Pass 284: extended-hours quotes (pre/post-market) =====
@@ -2708,7 +2720,7 @@ async function handleRequest(request, env, ctx) {
     // filters are in force (transparency). POST requires the admin token.
     if (request.method === 'POST') {
       const auth = request.headers.get('Authorization') || '';
-      if (auth !== 'Bearer ' + env.ADMIN_TOKEN) return json({ error: 'unauthorized' }, 401);
+      if ((!env.ADMIN_TOKEN || !timingSafeEqualHex(auth, 'Bearer ' + env.ADMIN_TOKEN))) return json({ error: 'unauthorized' }, 401);
       let patch;
       try { patch = await request.json(); } catch (e) { return json({ error: 'invalid JSON body' }, 400); }
       if (url.searchParams.get('reset') === '1') {
@@ -2753,7 +2765,7 @@ async function handleRequest(request, env, ctx) {
     // webhook RIGHT NOW (bypasses the morning/once-a-day gates). Lets Brandon
     // confirm his webhook works without waiting until 9am. Admin-token gated.
     const auth = request.headers.get('Authorization') || '';
-    if (auth !== 'Bearer ' + env.ADMIN_TOKEN) return json({ error: 'unauthorized' }, 401);
+    if ((!env.ADMIN_TOKEN || !timingSafeEqualHex(auth, 'Bearer ' + env.ADMIN_TOKEN))) return json({ error: 'unauthorized' }, 401);
     const webhook = (env.DISCORD_WEBHOOK_URL || '').trim();
     if (!isDiscordWebhook(webhook)) {
       return json({ ok: false, error: 'DISCORD_WEBHOOK_URL secret not set or invalid. Run: cd worker && npx wrangler secret put DISCORD_WEBHOOK_URL --config wrangler.toml' }, 400);
@@ -3047,7 +3059,7 @@ async function handleRequest(request, env, ctx) {
   if (path === '/brain/bootstrap' && request.method === 'POST') {
     // Auth check
     const auth = request.headers.get('Authorization') || '';
-    if (auth !== 'Bearer ' + env.ADMIN_TOKEN) {
+    if ((!env.ADMIN_TOKEN || !timingSafeEqualHex(auth, 'Bearer ' + env.ADMIN_TOKEN))) {
       return json({ error: 'unauthorized' }, 401);
     }
     // Pass 218n: optional ?clear=1 wipes the JOURNAL before bootstrap. Useful
@@ -3080,7 +3092,7 @@ async function handleRequest(request, env, ctx) {
 
   if (path === '/brain/tick' && request.method === 'POST') {
     const auth = request.headers.get('Authorization') || '';
-    if (auth !== 'Bearer ' + env.ADMIN_TOKEN) {
+    if ((!env.ADMIN_TOKEN || !timingSafeEqualHex(auth, 'Bearer ' + env.ADMIN_TOKEN))) {
       return json({ error: 'unauthorized' }, 401);
     }
     const r = await tick(env);

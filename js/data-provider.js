@@ -768,6 +768,9 @@ const DataProvider = (function() {
   }
 
   async function stooqPollOnce() {
+    // Client visibility gating: skip the network poll while the tab is hidden.
+    // The visibilitychange listener in startStooqFallback catches up on return.
+    if (typeof document !== 'undefined' && document.hidden) return;
     if (typeof QUOTES === 'undefined') return;
     const ourSyms = Object.keys(QUOTES);
     const stooqSyms = ourSyms.map(s => STOOQ_MAP[s]).filter(Boolean);
@@ -852,6 +855,13 @@ const DataProvider = (function() {
     // ~5 requests/sec is a polite ceiling. 12s × 3-4 chunks = ~3 req/poll cycle.
     stooqPollOnce();
     stooqPollTimer = setInterval(stooqPollOnce, 12000);
+    // Catch up immediately when the tab becomes visible again — the interval poll
+    // skips itself while document.hidden, so refresh on return to avoid stale prices.
+    if (typeof document !== 'undefined') {
+      document.addEventListener('visibilitychange', function() {
+        if (!document.hidden) stooqPollOnce();
+      });
+    }
     // Also start Coinbase realtime crypto feed — free, CORS, no key.
     startCoinbaseCrypto();
     // Belt-and-suspenders: Coinbase REST poll as fallback if WS drops.
@@ -973,6 +983,9 @@ const DataProvider = (function() {
   const COINBASE_PAIRS = { BTC: 'BTC-USD', ETH: 'ETH-USD' };
 
   async function _coinbasePollOnce() {
+    // Client visibility gating: skip the network poll while the tab is hidden.
+    // The visibilitychange listener in startCoinbaseRestPoll catches up on return.
+    if (typeof document !== 'undefined' && document.hidden) return;
     if (typeof QUOTES === 'undefined') return;
     for (const [sym, pair] of Object.entries(COINBASE_PAIRS)) {
       if (!QUOTES[sym]) continue;
@@ -1030,6 +1043,13 @@ const DataProvider = (function() {
     if (coinbasePollTimer) return;
     _coinbasePollOnce();
     coinbasePollTimer = setInterval(_coinbasePollOnce, 30000);
+    // Catch up immediately when the tab becomes visible again — the interval poll
+    // skips itself while document.hidden, so refresh on return to avoid stale prices.
+    if (typeof document !== 'undefined') {
+      document.addEventListener('visibilitychange', function() {
+        if (!document.hidden) _coinbasePollOnce();
+      });
+    }
   }
 
   // ---------- Init ----------

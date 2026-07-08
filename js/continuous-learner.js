@@ -808,10 +808,17 @@
     document.addEventListener('DOMContentLoaded', () => {
       // First cycle after 5s (was 15s — faster perceived load)
       setTimeout(runCycle, 5000);
-      // Then every 30 seconds (was 60s — more visible ticking)
-      setInterval(runCycle, 30000);
-      // Also fire a lightweight 'heartbeat' every 3s for live indicators
+      // Then every 30 seconds (was 60s — more visible ticking).
+      // Skip the cycle body while the tab is hidden so a background tab
+      // doesn't run captures/dispatch events forever; resumes when visible.
       setInterval(() => {
+        if (document.hidden) return;
+        runCycle();
+      }, 30000);
+      // Also fire a lightweight 'heartbeat' every 3s for live indicators.
+      // No-op while hidden to avoid forced style-recalc in background tabs.
+      setInterval(() => {
+        if (document.hidden) return;
         try {
           window.dispatchEvent(new CustomEvent('bpleone:heartbeat', {
             detail: { ts: Date.now() }

@@ -139,11 +139,16 @@
               try { window.dispatchEvent(new CustomEvent('bpleone:worker-sync', { detail: r })); } catch (e) {}
             }
           });
-          // Re-sync every 60s while page is open
+          // Re-sync every 60s while page is open — but skip the tick while the
+          // tab is hidden (no point polling the worker in a backgrounded tab),
+          // and catch up immediately on return (mirror worker-quotes.js).
           if (!window._workerBridgeSync) {
-            window._workerBridgeSync = setInterval(() => {
+            const pollSync = () => {
+              if (typeof document !== 'undefined' && document.hidden) return;  // hidden tab: skip (catch up on visibilitychange)
               syncFromWorker().catch(() => {});
-            }, 60000);
+            };
+            window._workerBridgeSync = setInterval(pollSync, 60000);
+            document.addEventListener('visibilitychange', () => { if (!document.hidden) pollSync(); });
           }
         }
       };
