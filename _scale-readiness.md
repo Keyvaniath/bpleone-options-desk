@@ -53,5 +53,19 @@ Verified: the **site** is GitHub Pages behind Fastly (`Server: GitHub.com`) — 
 
 **Monitoring already wired:** `/brain/health` structured self-audit (5 vital checks every minute) + GitHub uptime monitor + a weekly `/schedule` edge-verdict check. Brandon sees a red banner on `worker-setup.html` if the deployed version drifts or vitals fail.
 
+## Pass 303 — CDN read-offload (LIVE): the Paid-plan dependency is now dissolved for reads
+A scheduled Action publishes the two universal hot endpoints (`/brain/signals`, `/brain/quotes`)
+as static JSON under `/data/snap/`, served by the site's **free Fastly CDN**. The browser
+pollers (`worker-quotes.js`) read those FIRST and fall back to the live worker only when a
+snapshot is missing or >30 min stale. **Verified live 2026-07-08:** publisher ran green;
+`/data/snap/signals.json` serves 200 from Fastly (75 rows, ~3 min fresh); clients populate
+QUOTES from the snapshot with **zero worker hits and zero console errors**; `[skip ci]`
+snapshot commits still trigger the Pages deploy. **Effect:** ~all steady-state browser READ
+traffic (the entire scale driver) now costs **$0 against the Workers request budget** — it's
+served by the CDN. The worker only handles the cron, writes (auth/track/constraints), and the
+occasional fallback, which stay far under the free tier's 100k/day. **So the free tier now
+serves thousands of concurrent READ clients without the paid plan.** Paid ($5/mo) is now only
+relevant if write/cron volume itself ever approached the free cap (it won't at this scale).
+
 ## Bottom line
 Measured: sub-250ms p99, zero server errors under concurrent load, limiter proven to fire, and graceful degradation verified (worker-down → stale-but-labeled data, not a broken site). Architecture is edge-distributed with no DB/origin bottleneck; cost scales with *attention*, not open tabs. **Everything code-controllable is done, deployed, and load-verified.** The only remaining items are business decisions, not defects: (a) Workers Paid plan before sustained high traffic, and (b) — only if adversarial distributed-flood protection is ever needed — migrating the worker to a custom domain on a Cloudflare zone to unlock edge WAF. Neither blocks serving thousands of realistic clients today.
