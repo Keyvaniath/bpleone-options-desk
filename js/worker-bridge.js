@@ -139,15 +139,18 @@
               try { window.dispatchEvent(new CustomEvent('bpleone:worker-sync', { detail: r })); } catch (e) {}
             }
           });
-          // Re-sync every 60s while page is open — but skip the tick while the
-          // tab is hidden (no point polling the worker in a backgrounded tab),
-          // and catch up immediately on return (mirror worker-quotes.js).
+          // Re-sync the brain-state mirror while page is open — skip the tick
+          // while the tab is hidden (no point polling in a backgrounded tab) and
+          // catch up immediately on return (mirror worker-quotes.js).
+          // Pass 302 (scale): 60s -> 180s. This is a viewer mirror of brain state
+          // that the cron only changes ~1/min; 3-min re-sync loses nothing
+          // meaningful and cuts this poller's worker load 3x for free.
           if (!window._workerBridgeSync) {
             const pollSync = () => {
               if (typeof document !== 'undefined' && document.hidden) return;  // hidden tab: skip (catch up on visibilitychange)
               syncFromWorker().catch(() => {});
             };
-            window._workerBridgeSync = setInterval(pollSync, 60000);
+            window._workerBridgeSync = setInterval(pollSync, 180000);
             document.addEventListener('visibilitychange', () => { if (!document.hidden) pollSync(); });
           }
         }

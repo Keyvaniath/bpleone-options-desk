@@ -162,10 +162,15 @@
   // 1. VISIBILITY GATING - a hidden/background tab contributes nothing to the
   //    user but kept polling forever (background tabs dominate total request
   //    volume at scale). Skip polls while hidden; refresh immediately on return.
-  // 2. JITTER - every client on a fixed 25s timer synchronizes into request
-  //    herds that all miss the worker's 60s quote cache together. A per-client
-  //    random cadence (30-45s) spreads the load flat.
-  const JITTERED_POLL_MS = 30000 + Math.floor(Math.random() * 15000);
+  // 2. JITTER - every client on a fixed timer synchronizes into request herds
+  //    that all miss the worker's quote cache together. A per-client random
+  //    cadence spreads the load flat.
+  // Pass 302 (scale): widened 30-45s -> 55-85s. The underlying data is ~15-min
+  //    delayed, so a ~70s refresh loses ZERO freshness but cuts per-client worker
+  //    requests ~47%, roughly DOUBLING how many concurrent clients the free tier
+  //    (100k req/day) serves before the paid plan is needed. Cost scales with
+  //    attention; this makes each attention-minute ~half as expensive.
+  const JITTERED_POLL_MS = 55000 + Math.floor(Math.random() * 30000);
   function pollCycle() {
     if (typeof document !== 'undefined' && document.hidden) return;  // hidden tab: skip (catch up on visibilitychange)
     pollOnce();
