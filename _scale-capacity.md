@@ -21,12 +21,15 @@ Every open tab is **visibility-gated** (hidden tabs send 0) and polls on a **jit
 
 Cost scales with **attention**, not open tabs — the whole point of the pass-296 visibility gate + jitter.
 
-## The one real constraint: Cloudflare KV budget → **Workers Paid ($5/mo) is required at scale**
-Per-colo read caching (`cacheTtl` 30–60s, pass 296–299) makes each hot key read from KV **~once per cache-window per colo, independent of client count**. So KV load is bounded by colos×keys, not clients.
-- **KV reads:** ~10–30 active colos × ~8 hot keys × (1 read / 30–60s) ≈ **230k–690k reads/day**. Free tier = 100k/day (exceeded at scale). **Workers Paid = 10M reads/day included** → 15–40× headroom.
-- **KV writes:** the cron alone writes ~model/journal/signals every market-minute ≈ **~1–1.5k writes/day** — already at/over the free-tier 1k/day. Plus sampled analytics (1-in-5, single key) + register (capped 20/IP/day). **Workers Paid = 1M writes/day included** → enormous headroom.
+## Cloudflare KV budget → now fits the FREE tier at scale (pass 301 removed the read dependency)
+Two layers keep KV load client-count-independent:
+- **In-isolate memory cache (pass 301):** repeat reads to a hot key within its TTL are served from isolate memory and cost **ZERO KV operations**. On top of that, `cacheTtl` (pass 296–299) colo-caches misses. So a client poll only causes a *billed* KV read on a cache MISS (~1 per key per TTL per isolate), never per request.
+- **Reads (billed):** bounded by isolates×keys×(1/TTL), NOT clients — realistically low-hundreds-of-k/day worst case, and the memory layer typically holds it far below that. This no longer forces Paid.
+- **Writes:** entirely **cron-driven and client-independent** — LAST_TICK/SIGNALS/JOURNAL on the market-minute tick (off-hours throttled, pass 244) ≈ **~670 writes/day**, under the free-tier **1,000/day** limit. Client actions add only sampled analytics (1-in-5, single key) + register (capped 20/IP/day) — negligible. So thousands of clients do **not** grow the write budget.
 
-**→ Action (Brandon): confirm the worker is on the Cloudflare Workers _Paid_ plan ($5/mo).** The design already needs it for the cron's own writes; it also unlocks the read volume + unmetered requests for thousands of clients. This is the single infra prerequisite. Everything else is code, and it's done.
+**→ Net: the free tier can serve thousands of concurrent clients** — reads are memory-collapsed, writes are cron-bound (~670/day < 1k). **No billing action is required to scale.**
+
+**Recommended (optional) headroom:** Workers Paid ($5/mo) gives 10M reads + 1M writes/day and unmetered requests — cheap insurance/margin if traffic or the cron cadence grows, but it is *not* a prerequisite. This is a business judgment call, not an engineering blocker.
 
 ## Abuse / DDoS posture (layered)
 1. **Cloudflare network-layer (L3/4) DDoS protection is automatic + free on ALL plans, incl. workers.dev** — volumetric floods are absorbed at the edge before reaching the worker. This is the primary botnet defense and requires no action.

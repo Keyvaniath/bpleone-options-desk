@@ -38,7 +38,7 @@
 // Pass 200: version stamp so brain-proof.html + worker-setup.html can detect
 // when the deployed worker is behind the repo source. Bump on every meaningful
 // behavior change. Read via /brain/health → worker_version field.
-const WORKER_VERSION = 'pass-300';
+const WORKER_VERSION = 'pass-301';
 
 const UNIVERSE = [
   'SPY','QQQ','IWM','DIA','AAPL','NVDA','TSLA','MSFT','META','AMZN','GOOGL','AMD',
@@ -399,17 +399,33 @@ function etHour() {
 // ============================================================
 // KV helpers
 // ============================================================
+// Pass 301 (scale): in-ISOLATE memory cache of the raw KV string. cacheTtl caches
+// at the colo, but a cache-hit can still count as a billed KV read op — so at
+// thousands of clients each poll is a read op even when nothing changed. This Map
+// serves repeat reads to the same key from isolate memory for cacheTtlSec, so within
+// that window they cost ZERO KV operations regardless of client count. We cache the
+// raw STRING (not the parsed object) and JSON.parse fresh on every call, so each
+// caller gets its own mutable object — safe even for handlers that mutate the result
+// (e.g. /brain/signals). Only used when cacheTtlSec is passed (read-only hot GETs);
+// read-modify-write paths (cron, analytics, auth) pass no ttl and always hit KV fresh.
+const MEM_KV = new Map();  // key -> { raw: string|null, exp: ms }
 async function kvGet(env, key, fallback, cacheTtlSec) {
   try {
-    // Pass 296 (scale): optional per-colo KV read cache. Hot read-only endpoints
-    // (/brain/signals, /brain/picks, /brain/health, /brain/quotes cache) are polled
-    // by EVERY visitor every ~30s - with thousands of clients that is millions of
-    // KV reads/day against values the cron only rewrites ~once a minute. cacheTtl
-    // makes all requests in the same Cloudflare colo share one cached read for
-    // cacheTtlSec (min 30 per CF), cutting KV read volume by orders of magnitude.
-    // Never pass it for read-modify-write paths (journal, model training, auth).
-    const opts = (typeof cacheTtlSec === 'number' && cacheTtlSec >= 30) ? { cacheTtl: cacheTtlSec } : undefined;
-    const raw = await env.BRAIN_KV.get(key, opts);
+    if (typeof cacheTtlSec === 'number' && cacheTtlSec >= 30) {
+      const now = Date.now();
+      const hit = MEM_KV.get(key);
+      let raw;
+      if (hit && hit.exp > now) {
+        raw = hit.raw;                                       // isolate-memory hit: 0 KV ops
+      } else {
+        raw = await env.BRAIN_KV.get(key, { cacheTtl: cacheTtlSec });  // miss: 1 KV read (colo-cached too)
+        MEM_KV.set(key, { raw, exp: now + cacheTtlSec * 1000 });
+        if (MEM_KV.size > 400) { let drop = MEM_KV.size - 250; for (const k of MEM_KV.keys()) { MEM_KV.delete(k); if (--drop <= 0) break; } }
+      }
+      if (!raw) return fallback;
+      return JSON.parse(raw);   // fresh parse -> fresh mutable object per caller
+    }
+    const raw = await env.BRAIN_KV.get(key);   // no ttl = read-modify-write path, always fresh
     if (!raw) return fallback;
     return JSON.parse(raw);
   } catch (e) { return fallback; }
