@@ -36,18 +36,46 @@
     return DEFAULT_WORKER;
   }
 
-  async function pollOnce() {
-    if (typeof QUOTES === 'undefined') return;
-    const url = workerUrl() + '/brain/signals';
-    let j;
+  // Pass 303 (scale): CDN read-offload. A scheduled Action publishes the hot
+  // read snapshots to /data/snap/*.json on the site, served by the free Fastly
+  // CDN — NOT metered against the Cloudflare Workers request budget. Prefer the
+  // snapshot for steady-state polling (so thousands of clients cost ~$0 and the
+  // free tier scales effectively without limit), and fall back to the live worker
+  // whenever the snapshot is missing, unparseable, or stale (> SNAP_MAX_AGE_MS) —
+  // so nothing breaks and fresh data still flows if the publisher ever lags.
+  // The data is ~15-min delayed and the snapshot refreshes ~every 15 min, so a
+  // 30-min freshness gate serves current-enough data from the CDN in steady state.
+  const SNAP_MAX_AGE_MS = 30 * 60 * 1000;
+  async function loadSnapshot(file) {
     try {
       const ctrl = new AbortController();
-      const to = setTimeout(() => ctrl.abort(), 9000);
-      const r = await fetch(url, { cache: 'no-store', signal: ctrl.signal });
+      const to = setTimeout(() => ctrl.abort(), 6000);
+      // coarse 5-min cache-bucket keeps it CDN-cacheable (unmetered) yet current
+      const bucket = Math.floor(Date.now() / 300000);
+      const r = await fetch('/data/snap/' + file + '?b=' + bucket, { signal: ctrl.signal });
       clearTimeout(to);
-      if (!r.ok) return;
-      j = await r.json();
-    } catch (e) { return; }
+      if (!r.ok) return null;
+      const j = await r.json();
+      const upd = j && (j.updatedAt || (j.lastTick && j.lastTick.ts) || 0);
+      if (!upd || (Date.now() - upd) > SNAP_MAX_AGE_MS) return null;  // too stale -> use worker
+      return j;
+    } catch (e) { return null; }
+  }
+
+  async function pollOnce() {
+    if (typeof QUOTES === 'undefined') return;
+    let j = await loadSnapshot('signals.json');   // pass 303: CDN-first (unmetered)
+    if (!j) {                                      // snapshot missing/stale -> live worker fallback
+      const url = workerUrl() + '/brain/signals';
+      try {
+        const ctrl = new AbortController();
+        const to = setTimeout(() => ctrl.abort(), 9000);
+        const r = await fetch(url, { cache: 'no-store', signal: ctrl.signal });
+        clearTimeout(to);
+        if (!r.ok) return;
+        j = await r.json();
+      } catch (e) { return; }
+    }
     const sigs = (j && Array.isArray(j.signals)) ? j.signals : [];
     if (sigs.length === 0) return;
     let applied = 0;
@@ -101,26 +129,35 @@
     // complex + AVGO/MU/JPM/BAC/GS), leaving them stuck on stale SEED prices
     // site-wide. Chunking keeps every request under the cap so ALL symbols get
     // real delayed prices - and it's robust even if QUOTES grows.
-    const CHUNK = 50;
-    const batches = [];
-    for (let i = 0; i < syms.length; i += CHUNK) batches.push(syms.slice(i, i + CHUNK));
-    async function fetchChunk(list) {
-      const url = workerUrl() + '/brain/quotes?syms=' + encodeURIComponent(list.join(','));
-      try {
-        const ctrl = new AbortController();
-        const to = setTimeout(() => ctrl.abort(), 9000);
-        const r = await fetch(url, { cache: 'no-store', signal: ctrl.signal });
-        clearTimeout(to);
-        if (!r.ok) return null;
-        const j = await r.json();
-        return (j && j.quotes) ? j.quotes : null;
-      } catch (e) { return null; }
+    // Pass 303 (scale): CDN-first. The published snapshot carries the full
+    // universe in one file, so use it when fresh (unmetered Fastly read) and skip
+    // the worker entirely. Fall back to the chunked worker fetch when the snapshot
+    // is missing/stale, so nothing breaks and off-universe growth stays covered.
+    let qm = null;
+    const snap = await loadSnapshot('quotes.json');
+    if (snap && snap.quotes && Object.keys(snap.quotes).length) qm = snap.quotes;
+    if (!qm) {
+      const CHUNK = 50;
+      const batches = [];
+      for (let i = 0; i < syms.length; i += CHUNK) batches.push(syms.slice(i, i + CHUNK));
+      async function fetchChunk(list) {
+        const url = workerUrl() + '/brain/quotes?syms=' + encodeURIComponent(list.join(','));
+        try {
+          const ctrl = new AbortController();
+          const to = setTimeout(() => ctrl.abort(), 9000);
+          const r = await fetch(url, { cache: 'no-store', signal: ctrl.signal });
+          clearTimeout(to);
+          if (!r.ok) return null;
+          const j = await r.json();
+          return (j && j.quotes) ? j.quotes : null;
+        } catch (e) { return null; }
+      }
+      const parts = await Promise.all(batches.map(fetchChunk));
+      qm = {};
+      let anyOk = false;
+      for (const part of parts) { if (part) { anyOk = true; Object.assign(qm, part); } }
+      if (!anyOk) return;
     }
-    const parts = await Promise.all(batches.map(fetchChunk));
-    const qm = {};
-    let anyOk = false;
-    for (const part of parts) { if (part) { anyOk = true; Object.assign(qm, part); } }
-    if (!anyOk) return;
     let applied = 0;
     for (const sym in qm) {
       const v = qm[sym];

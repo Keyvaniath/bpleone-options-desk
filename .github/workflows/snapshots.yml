@@ -1,0 +1,70 @@
+name: Publish read snapshots (CDN offload)
+
+# Pass 303 (scale): publish the two hot, universal read endpoints as static JSON
+# under /data/snap/, served by the site's free Fastly CDN. The browser pollers
+# (js/worker-quotes.js) prefer these over the metered Cloudflare Workers endpoints
+# and fall back to the live worker only when a snapshot is missing or >30 min stale.
+# Effect: ~all steady-state browser read traffic leaves the Workers request budget,
+# so the free tier serves effectively unlimited read clients (cost scales with
+# writes/cron, not readers). Data is ~15-min delayed and this refreshes ~every
+# 15 min, so the CDN copy is current-enough; the worker remains the fresh fallback.
+
+on:
+  schedule:
+    - cron: '*/15 13-21 * * 1-5'   # ~every 15 min during US market hours (UTC), weekdays
+    - cron: '0 * * * *'            # hourly otherwise, so snapshots never go far stale
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+concurrency:
+  group: read-snapshots
+  cancel-in-progress: false
+
+jobs:
+  snapshots:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch worker read endpoints + write snapshots
+        run: |
+          W="https://bpleone-brain-worker.brandonpleone.workers.dev"
+          UNI="SPY,QQQ,IWM,DIA,AAPL,NVDA,TSLA,MSFT,META,AMZN,GOOGL,AMD,VIX,GLD,TLT,USO,SMCI,PLTR,COIN,MARA,RIVN,XLE,BABA,SHOP,CRM,UBER,SLV,UNG,DBA,FXI,MCHI,EWJ,EWG,EWU,INDA,EWZ,EWY,EWT,EEM,EFA,VEA,VWO,UUP,FXE,FXY,FXB,FXC,FXA,FXF,SHY,IEF,TBT,HYG,LQD,TIP,VXX,UVXY,VNQ,NFLX,ORCL,AVGO,MU,JPM,BAC,GS,XLF,XLK,XLV,XLY,XLP,XLI,XLU,XLC,XLB,XLRE"
+          mkdir -p data/snap
+          # Warm the worker quote cache (24 fresh fetches/request) so the snapshot
+          # carries the whole 75-name universe, not just the currently-cached slice.
+          for i in 1 2 3 4 5; do curl -fsS --max-time 25 "$W/brain/quotes?syms=$UNI&warm=$i" >/dev/null || true; sleep 2; done
+          curl -fsS --max-time 25 "$W/brain/signals" -o /tmp/signals.json || true
+          curl -fsS --max-time 25 "$W/brain/quotes?syms=$UNI" -o /tmp/quotes.json || true
+          node -e '
+            const fs = require("fs");
+            // Strip request-time fields so a commit fires only when the underlying
+            // data actually changed (keeps updatedAt as the freshness marker).
+            const publish = (src, dst, volatile) => {
+              try {
+                const d = JSON.parse(fs.readFileSync(src, "utf8"));
+                if (!d || typeof d !== "object") { console.log("skip " + dst + ": not an object"); return; }
+                (volatile || []).forEach(k => { delete d[k]; });
+                // sanity: only publish a non-empty, plausible payload
+                const ok = (dst.indexOf("signals") >= 0) ? (Array.isArray(d.signals) && d.signals.length > 0)
+                         : (d.quotes && Object.keys(d.quotes).length > 0);
+                if (!ok) { console.log("skip " + dst + ": empty/implausible payload"); return; }
+                fs.writeFileSync(dst, JSON.stringify(d));
+                console.log("wrote " + dst);
+              } catch (e) { console.log("skip " + dst + ": " + e.message); }
+            };
+            publish("/tmp/signals.json", "data/snap/signals.json", ["ageSec"]);
+            publish("/tmp/quotes.json",  "data/snap/quotes.json",  []);
+          '
+      - name: Commit if data changed
+        run: |
+          git config user.name "snapshot-bot"
+          git config user.email "noreply@bpleone.com"
+          git add data/snap/*.json
+          if git diff --cached --quiet; then
+            echo "no data change — nothing to commit"
+          else
+            git commit -m "data: read snapshots [skip ci]"
+            git push
+          fi
