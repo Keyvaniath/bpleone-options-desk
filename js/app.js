@@ -40,7 +40,7 @@
   // module (e.g. data-mode-banner.js still rendered the old "every tick is current"
   // banner long after the fix deployed). Found via LIVE browser verify, not static
   // review. Deriving from self means it can never drift again.
-  let CACHE_BUST = 'v215';
+  let CACHE_BUST = 'v218';
   try {
     const me = document.currentScript;
     const src = me ? me.src : ([...document.querySelectorAll('script[src]')].map(s => s.src).find(u => /\/app\.js(\?|$)/.test(u)) || '');
@@ -245,9 +245,11 @@ function buildNav(activePage) {
   }, 100);
 
   const navHtml = ''
+    // Pass 310 (a11y, WCAG 2.4.1): keyboard/AT users can bypass the nav + ticker.
+    + '<a href="#main-content" class="skip-link">Skip to main content</a>'
     + demoBanner
-    + '<div class="ticker-tape"><div class="ticker-content" id="ticker-content"></div></div>'
-    + '<nav class="navbar"><div class="nav-container">'
+    + '<div class="ticker-tape" aria-hidden="true"><div class="ticker-content" id="ticker-content"></div></div>'
+    + '<nav class="navbar" aria-label="Primary"><div class="nav-container">'
     + '<a href="index.html" class="logo"><div class="logo-mark">BP</div>'
     + '<span>bpleone <span style="color:var(--accent);font-weight:400">/ trade</span></span></a>'
     + '<a href="https://bpleone.com" target="_blank" rel="noopener" style="display:inline-flex;align-items:center;gap:6px;padding:6px 12px;margin-left:14px;background:var(--bg-elevated);border:1px solid var(--border);border-radius:14px;color:var(--text-secondary);font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;text-decoration:none;transition:all 0.15s;" onmouseover="this.style.borderColor=\'var(--accent)\';this.style.color=\'var(--accent)\';" onmouseout="this.style.borderColor=\'var(--border)\';this.style.color=\'var(--text-secondary)\';" title="Back to the bpleone.com hub">← Hub</a>'
@@ -312,17 +314,26 @@ function buildNav(activePage) {
     + '</div></li>'
     + '</ul>'
     + '<div class="nav-actions">'
-    + '<a id="dataStatusPill" href="settings.html" title="Data feed status — click to configure" class="data-pill data-pill-mock"><span class="data-pill-dot"></span><span class="data-pill-label">MOCK</span></a>'
-    + '<form id="navSearchForm" class="nav-search" style="display:flex;align-items:center;gap:4px;background:var(--bg-elevated);border:1px solid var(--border);border-radius:8px;padding:3px 4px 3px 10px;"><span style="font-size:12px;color:var(--text-muted);">🔍</span><input id="navSearch" placeholder="Search symbol or page…" autocomplete="off" style="background:transparent;border:none;outline:none;color:var(--text-primary);font-size:12px;width:160px;font-family:inherit;text-transform:uppercase;"></form>'
-    + '<button id="cmdkBtn" title="Search & navigate (⌘K)" class="btn btn-ghost" style="padding:6px 10px;font-size:11px;font-family:var(--font-mono);">⌘K</button>'
-    + '<button id="refreshDataBtn" title="Refresh all market data" class="btn btn-ghost" style="padding:6px 10px;color:var(--accent);">🔄</button>'
-    + '<button id="themeBtn" title="Toggle theme" class="btn btn-ghost" style="padding:6px 10px;">🌓</button>'
-    + '<button id="notifyBtn" title="Enable signal alerts" class="btn btn-ghost" style="padding:6px 10px;">🔔</button>'
+    + '<a id="dataStatusPill" href="settings.html" title="Data feed status — click to configure" aria-label="Data feed status — click to configure" class="data-pill data-pill-mock"><span class="data-pill-dot"></span><span class="data-pill-label">MOCK</span></a>'
+    + '<form id="navSearchForm" class="nav-search" role="search" style="display:flex;align-items:center;gap:4px;background:var(--bg-elevated);border:1px solid var(--border);border-radius:8px;padding:3px 4px 3px 10px;"><span aria-hidden="true" style="font-size:12px;color:var(--text-muted);">🔍</span><input id="navSearch" aria-label="Search symbol or page" placeholder="Search symbol or page…" autocomplete="off" style="background:transparent;border:none;outline:none;color:var(--text-primary);font-size:12px;width:160px;font-family:inherit;text-transform:uppercase;"></form>'
+    + '<button id="cmdkBtn" title="Search & navigate (⌘K)" aria-label="Open search and navigation palette" class="btn btn-ghost" style="padding:6px 10px;font-size:11px;font-family:var(--font-mono);">⌘K</button>'
+    + '<button id="refreshDataBtn" title="Refresh all market data" aria-label="Refresh all market data" class="btn btn-ghost" style="padding:6px 10px;color:var(--accent);">🔄</button>'
+    + '<button id="themeBtn" title="Toggle theme" aria-label="Toggle light or dark theme" class="btn btn-ghost" style="padding:6px 10px;">🌓</button>'
+    + '<button id="notifyBtn" title="Enable signal alerts" aria-label="Enable signal alert notifications" class="btn btn-ghost" style="padding:6px 10px;">🔔</button>'
     + '<span class="feat-badge feat-new" style="font-size:10px;padding:3px 10px;">🎉 FREE BETA</span>'
     + '<a href="about.html#subscribe" class="btn btn-primary" style="font-size:11px;padding:6px 12px;">Subscribe (free)</a>'
     + '</div></div></nav>';
   const slot = document.getElementById('site-nav');
   if (slot) slot.innerHTML = navHtml;
+  // Pass 310 (a11y): give the skip-link a target — the first real content block
+  // on the page — without editing all 419 HTML files. tabindex=-1 lets it receive
+  // programmatic focus so screen-reader/keyboard focus actually lands in content.
+  try {
+    if (!document.getElementById('main-content')) {
+      const main = document.querySelector('main, .container');
+      if (main) { main.id = main.id || 'main-content'; main.setAttribute('tabindex', '-1'); }
+    }
+  } catch (e) {}
   buildTicker();
   buildMobileTabs(activePage);
   wireDataPill();

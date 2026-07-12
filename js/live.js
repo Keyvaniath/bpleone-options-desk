@@ -418,7 +418,7 @@ document.addEventListener('DOMContentLoaded', () => {
       // bug: a hardcoded 'v188' froze data-mode-banner.js at an old cached copy,
       // keeping the dishonest "every tick is current" banner live long after the
       // fix deployed. Found via live browser verify.)
-      let LV = 'v215';
+      let LV = 'v218';
       try {
         const _me = [...document.querySelectorAll('script[src]')].map(s => s.src).find(u => /\/live\.js(\?|$)/.test(u)) || '';
         const _m = _me.match(/[?&]v=([^&]+)/);
@@ -1081,7 +1081,7 @@ document.addEventListener('DOMContentLoaded', () => {
   // hardcoded ?v= that never busts, so deployed fixes to those files never reach
   // the browser — it's why live-price and login-pill fixes silently didn't land).
   // Now it tracks live.js's version so every cache-bump refreshes these two too.
-  let _lvEager = 'v215';
+  let _lvEager = 'v218';
   try {
     const _me = [...document.querySelectorAll('script[src]')].map(s => s.src).find(u => /\/live\.js(\?|$)/.test(u)) || '';
     const _m = _me.match(/[?&]v=([^&]+)/);
