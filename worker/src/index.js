@@ -2001,7 +2001,9 @@ async function handleRequest(request, env, ctx) {
     const bars = await fetchYahooHistorical(sym, 365);
     if (!bars || !bars.length) {
       if (cached && Array.isArray(cached.closes) && cached.closes.length) return json(cached, 200, 600);  // serve stale on fetch fail
-      return json({ error: 'no history for ' + sym, sym }, 502);
+      // 404, not 502: an unknown/uncovered symbol is a client-side miss, not an
+      // upstream failure - a 5xx here would false-alarm uptime monitors.
+      return json({ error: 'no history for ' + sym, sym }, 404);
     }
     const closes = bars.map(b => ({ t: b.ts, c: b.close })).filter(x => x.c > 0);
     const out = { ok: true, sym, at: Date.now(), n: closes.length, closes };
