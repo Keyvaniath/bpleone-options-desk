@@ -75,6 +75,7 @@
 <script src="js/notify.js?v=v215"></script>
 <script src="js/live.js?v=v215"></script>
 <script src="js/model.js?v=v215"></script>
+<script src="js/live-hydrate.js?v=v217"></script>
 <script>
 buildNav('positions-live');
 
@@ -90,7 +91,10 @@ function fmt(ts) {
   return Math.floor(diff/86400000) + 'd';
 }
 
-function getQ(sym) { return (typeof QUOTES !== 'undefined' && QUOTES[sym]) ? QUOTES[sym] : null; }
+// Pass 308: real-print guard (q.last > 0), matching every other refactored page —
+// a stale-seed or zeroed entry must not mark P&L. Position symbols are hydrated
+// from /brain/quotes below so off-universe names get real prices where possible.
+function getQ(sym) { const q = (typeof QUOTES !== 'undefined') ? QUOTES[sym] : null; return (q && q.last > 0) ? q : null; }
 
 function commentate(p, q) {
   if (!q) return 'No live quote — open Settings to wire data feed.';
@@ -109,10 +113,10 @@ function render() {
   const pos = loadPos();
   document.getElementById('emptyState').style.display = pos.length === 0 ? 'block' : 'none';
 
-  let totalExp = 0, unrealized = 0, day = 0;
+  let totalExp = 0, unrealized = 0, day = 0, unpriced = 0;
   pos.forEach(p => {
     const q = getQ(p.sym);
-    if (!q) return;
+    if (!q) { unpriced++; return; }
     const cur = q.last;
     const pnl = p.side === 'long' ? (cur - p.entry) * p.qty : (p.entry - cur) * p.qty;
     totalExp += cur * p.qty;
@@ -120,8 +124,10 @@ function render() {
     if (q.changePct) day += (cur * p.qty) * (q.changePct / 100) * (p.side === 'long' ? 1 : -1);
   });
 
-  document.getElementById('kOpen').textContent = pos.length;
-  document.getElementById('kExp').textContent = '$' + totalExp.toFixed(0);
+  // Pass 308 (honesty): positions without a live quote are silently absent from
+  // the exposure/P&L sums - say so instead of presenting a partial total as whole.
+  document.getElementById('kOpen').textContent = pos.length + (unpriced ? ' (' + unpriced + ' unpriced)' : '');
+  document.getElementById('kExp').textContent = '$' + totalExp.toFixed(0) + (unpriced ? '*' : '');
   document.getElementById('kPnl').textContent = (unrealized >= 0 ? '+' : '') + '$' + Math.abs(unrealized).toFixed(0);
   document.getElementById('kPnl').style.color = unrealized > 0 ? 'var(--green)' : unrealized < 0 ? 'var(--red)' : 'var(--text-primary)';
   document.getElementById('kDay').textContent = (day >= 0 ? '+' : '') + '$' + Math.abs(day).toFixed(0);
@@ -142,7 +148,11 @@ function render() {
         + '<br>Stop $' + p.stop.toFixed(2) + ' · Target $' + p.target.toFixed(2)
       + '</div><div class="commentary">' + commentate(p, q) + '</div></div>'
       + '<div style="font-family:var(--font-mono);font-size:14px;">' + (q ? '$' + cur.toFixed(2) : '—') + '<br><span style="font-size:11px;color:' + (q && q.changePct >= 0 ? 'var(--green)' : 'var(--red)') + ';">' + (q ? (q.changePct >= 0 ? '+' : '') + q.changePct.toFixed(2) + '%' : '') + '</span></div>'
-      + '<div class="pnl-big" style="color:' + (pnl > 0 ? 'var(--green)' : 'var(--red)') + ';">' + (pnl >= 0 ? '+' : '-') + '$' + Math.abs(pnl).toFixed(0) + '<br><span style="font-size:11px;">' + (pnlPct >= 0 ? '+' : '') + (pnlPct*100).toFixed(2) + '%</span></div>'
+      // Pass 308 (honesty): no real quote -> P&L renders em-dash, never a fabricated
+      // "+$0 / +0.00%" computed off the entry-price fallback.
+      + (q
+        ? '<div class="pnl-big" style="color:' + (pnl > 0 ? 'var(--green)' : 'var(--red)') + ';">' + (pnl >= 0 ? '+' : '-') + '$' + Math.abs(pnl).toFixed(0) + '<br><span style="font-size:11px;">' + (pnlPct >= 0 ? '+' : '') + (pnlPct*100).toFixed(2) + '%</span></div>'
+        : '<div class="pnl-big" style="color:var(--text-muted);">—<br><span style="font-size:11px;">no live quote</span></div>')
       + '<div style="text-align:right;font-family:var(--font-mono);font-size:11px;color:var(--text-muted);">'
         + 'R: ' + (Number.isFinite(pnl / (Math.abs(p.entry - p.stop) * p.qty)) ? (pnl / (Math.abs(p.entry - p.stop) * p.qty)).toFixed(2) : '—') + '<br>'
         + 'Risk: $' + (Math.abs(p.entry - p.stop) * p.qty).toFixed(0)
@@ -155,12 +165,19 @@ function render() {
   }).join('');
 
   wrap.querySelectorAll('.close-btn').forEach(b => b.addEventListener('click', () => {
-    if (!confirm('Close this position?')) return;
     const pid = b.dataset.pid;
     const list = loadPos();
     const p = list.find(x => x.id === pid);
     if (!p) return;
     const q = getQ(p.sym);
+    // Pass 308 (journal integrity): never SILENTLY book a fabricated flat close.
+    // Without a real print the only honest exit is the entry (P&L 0) - make the
+    // user opt into that explicitly so the journal is never corrupted unawares.
+    if (!q) {
+      if (!confirm('No live quote for ' + p.sym + ' - the exit price is unknown.\n\nClose FLAT at your entry ($' + p.entry.toFixed(2) + ', P&L $0)? This is what gets written to your trade journal.')) return;
+    } else {
+      if (!confirm('Close this position?')) return;
+    }
     const exit = q ? q.last : p.entry;
     const pnl = p.side === 'long' ? (exit - p.entry) * p.qty : (p.entry - exit) * p.qty;
     // Log to journal
@@ -211,6 +228,19 @@ document.getElementById('exportBtn').addEventListener('click', () => {
 
 render();
 setInterval(render, 2000);
+// Pass 308: hydrate REAL prices for every open position's symbol (incl.
+// off-universe names the seed feed never priced) and re-hydrate when a new
+// position is opened, so marks and closes use real prints wherever possible.
+function hydratePositions() {
+  try {
+    if (typeof hydrateQuotes !== 'function') return;
+    const syms = [...new Set(loadPos().map(p => p.sym))];
+    if (syms.length) hydrateQuotes(syms, { onDone: render });
+  } catch (e) {}
+}
+hydratePositions();
+document.getElementById('openBtn').addEventListener('click', hydratePositions);
+window.addEventListener('bpleone:quotes', render);
 </script>
 </body>
 </html>

@@ -78,6 +78,7 @@
 <script src="js/app.js?v=v215"></script>
 <script src="js/notify.js?v=v215"></script>
 <script src="js/live.js?v=v215"></script>
+<script src="js/live-hydrate.js?v=v217"></script>
 <script>
 buildNav('paper-portfolio');
 
@@ -101,7 +102,11 @@ function paint() {
   let totalOpenPnl = 0;
   state.open.forEach((p, i) => {
     const q = getQ(p.sym);
-    const now = (q && q.last > 0) ? q.last : p.entry;   // no real print -> mark at entry (0 P&L), never $100
+    const hasQ = !!(q && q.last > 0);
+    // Pass 308 (honesty): the mark uses the real print when there is one; without
+    // one the NOW / P&L cells render em-dash - never the entry price presented as
+    // if it were the current price.
+    const now = hasQ ? q.last : p.entry;   // entry fallback only for the P&L SUM (0 contribution), never displayed as NOW
     const sideMul = p.side === 'LONG' ? 1 : -1;
     const pnl = (now - p.entry) * p.shares * sideMul;
     const pnlPct = ((now - p.entry) / p.entry) * 100 * sideMul;
@@ -114,9 +119,11 @@ function paint() {
       + '<div style="color:' + (p.side === 'LONG' ? 'var(--green)' : 'var(--red)') + ';font-weight:700;">' + p.side + '</div>'
       + '<div>' + p.shares + '</div>'
       + '<div>$' + p.entry.toFixed(2) + '</div>'
-      + '<div>$' + now.toFixed(2) + '</div>'
-      + '<div style="color:' + col + ';font-weight:700;">' + (pnl >= 0 ? '+$' : '−$') + Math.abs(pnl).toFixed(2) + '</div>'
-      + '<div style="color:' + col + ';">' + (pnlPct >= 0 ? '+' : '') + pnlPct.toFixed(2) + '%</div>'
+      + '<div>' + (hasQ ? '$' + now.toFixed(2) : '<span style="color:var(--text-muted);">—</span>') + '</div>'
+      + (hasQ
+        ? '<div style="color:' + col + ';font-weight:700;">' + (pnl >= 0 ? '+$' : '−$') + Math.abs(pnl).toFixed(2) + '</div>'
+          + '<div style="color:' + col + ';">' + (pnlPct >= 0 ? '+' : '') + pnlPct.toFixed(2) + '%</div>'
+        : '<div style="color:var(--text-muted);">—</div><div style="color:var(--text-muted);">no live quote</div>')
       + '<div><button class="btn btn-ghost close-btn" data-i="' + i + '" style="padding:4px 10px;font-size:10px;">Close</button></div>';
     body.appendChild(row);
   });
@@ -158,7 +165,12 @@ function paint() {
     const i = +b.dataset.i;
     const p = state.open[i];
     const q = getQ(p.sym);
-    const exit = (q && q.last > 0) ? q.last : p.entry;   // no real print -> close flat at entry, never $100
+    // Pass 308 (ledger integrity): mirror the open-path guard - never SILENTLY
+    // book a fabricated flat exit into Realized / Win Rate.
+    if (!(q && q.last > 0)) {
+      if (!confirm('No live quote for ' + p.sym + ' - the exit price is unknown.\n\nClose FLAT at your entry ($' + p.entry.toFixed(2) + ', P&L $0)? This is what gets recorded in Realized / Win Rate.')) return;
+    }
+    const exit = (q && q.last > 0) ? q.last : p.entry;   // flat-at-entry only after explicit user confirm above
     const sideMul = p.side === 'LONG' ? 1 : -1;
     const pnl = (exit - p.entry) * p.shares * sideMul;
     const pnlPct = ((exit - p.entry) / p.entry) * 100 * sideMul;
@@ -227,6 +239,18 @@ document.getElementById('resetBtn').addEventListener('click', () => {
 });
 
 setInterval(paint, 5000);
+// Pass 308: hydrate REAL prices for open-position symbols (incl. off-universe
+// names the seed feed never priced) on load and after opening a position.
+function hydrateOpen() {
+  try {
+    if (typeof hydrateQuotes !== 'function') return;
+    const syms = [...new Set(state.open.map(p => p.sym))];
+    if (syms.length) hydrateQuotes(syms, { onDone: paint });
+  } catch (e) {}
+}
+hydrateOpen();
+document.getElementById('addBtn').addEventListener('click', hydrateOpen);
+window.addEventListener('bpleone:quotes', paint);
 </script>
 </body>
 </html>

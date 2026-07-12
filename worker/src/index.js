@@ -38,7 +38,7 @@
 // Pass 200: version stamp so brain-proof.html + worker-setup.html can detect
 // when the deployed worker is behind the repo source. Bump on every meaningful
 // behavior change. Read via /brain/health → worker_version field.
-const WORKER_VERSION = 'pass-304';
+const WORKER_VERSION = 'pass-305';
 
 const UNIVERSE = [
   'SPY','QQQ','IWM','DIA','AAPL','NVDA','TSLA','MSFT','META','AMZN','GOOGL','AMD',
@@ -1942,7 +1942,12 @@ async function handleRequest(request, env, ctx) {
     const shouldRefresh = fresh ? false : (veryStale ? true : Math.random() < 0.25);
     // Fetch the requested symbols that are missing (or, when we hold the refresh,
     // all of them) — capped at 24/request to stay under the subrequest limit.
-    const need = (fresh ? req.filter(s => !q[s]) : (shouldRefresh ? req : [])).slice(0, 24);
+    // Pass 305: refresh STALEST-FIRST. Taking the first 24 of the request order
+    // meant symbols past position 24 were never refreshed by this path (their ts
+    // froze for hours while updatedAt kept stamping the whole cache "current").
+    // Each stored quote carries its own ts, so rotation is free.
+    const pick = fresh ? req.filter(s => !q[s]) : (shouldRefresh ? req.slice().sort((a, b) => ((q[a] && q[a].ts) || 0) - ((q[b] && q[b].ts) || 0)) : []);
+    const need = pick.slice(0, 24);
     if (need.length) {
       const fetched = await Promise.all(need.map(s => fetchYahooQuote(s).catch(() => null)));
       // Pass 299 (scale): only WRITE KV if we actually stored a new quote. Before,
@@ -1994,6 +1999,12 @@ async function handleRequest(request, env, ctx) {
     const sym = raw.replace(/[^A-Z0-9.\-]/g, '').slice(0, 8);
     if (!/^[A-Z][A-Z0-9.\-]{0,7}$/.test(sym)) return json({ error: 'bad symbol' }, 400);
     const KEY = 'hist_v1:' + sym;
+    // Pass 305 (write-budget guard): KV writes are the scarce resource (~1/sec) and
+    // this is a public GET - an attacker cycling regex-valid symbols must NOT be able
+    // to mint a KV write each. Only symbols the desk actually serves get persisted;
+    // off-list symbols are still served live from Yahoo but cached only via the
+    // Cache-Control header + the per-isolate MEM_KV (both free).
+    const persistable = UNIVERSE.includes(sym);
     const cached = await kvGet(env, KEY, null, 300);   // per-colo 5-min read cache
     if (cached && Array.isArray(cached.closes) && cached.closes.length && (Date.now() - (cached.at || 0) < 6 * 3600 * 1000)) {
       return json(cached, 200, 3600);
@@ -2007,7 +2018,15 @@ async function handleRequest(request, env, ctx) {
     }
     const closes = bars.map(b => ({ t: b.ts, c: b.close })).filter(x => x.c > 0);
     const out = { ok: true, sym, at: Date.now(), n: closes.length, closes };
-    try { await env.BRAIN_KV.put(KEY, JSON.stringify(out), { expirationTtl: 6 * 3600 }); } catch (e) {}
+    const rawOut = JSON.stringify(out);
+    if (persistable) {
+      // expirationTtl (72h) deliberately outlives the 6h freshness window so the
+      // >6h-old copy genuinely backs the serve-stale branch during Yahoo outages.
+      try { await env.BRAIN_KV.put(KEY, rawOut, { expirationTtl: 72 * 3600 }); } catch (e) {}
+    }
+    // Prime the isolate read-cache either way so repeat requests in the next 5 min
+    // are free (and, for persistable keys, don't re-read the value just written).
+    try { MEM_KV.set(KEY, { raw: rawOut, exp: Date.now() + 300 * 1000 }); } catch (e) {}
     return json(out, 200, 3600);
   }
 

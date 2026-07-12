@@ -111,13 +111,17 @@ async function run(){
   posture.textContent = 'Loading ' + sym + '…';
 
   // Fetch: 1y history (trend/momentum), the 5-day model call, and the live quote.
-  let hist=null, pred=null, quote=null;
-  try { const r = await fetch(WORKER + '/brain/history?sym=' + encodeURIComponent(sym), { cache:'no-store' }); if (r.ok) hist = await r.json(); } catch(e){}
+  // Pass 308: track whether the history request REACHED the worker, so an outage
+  // reads as "worker unreachable" instead of misdiagnosing as "no history".
+  let hist=null, pred=null, quote=null, histReached=false;
+  try { const r = await fetch(WORKER + '/brain/history?sym=' + encodeURIComponent(sym), { cache:'no-store' }); histReached = true; if (r.ok) hist = await r.json(); } catch(e){}
   try { const r = await fetch(WORKER + '/brain/predict?sym=' + encodeURIComponent(sym), { cache:'no-store' }); if (r.ok) pred = await r.json(); } catch(e){}
   try { const r = await fetch(WORKER + '/brain/quotes?syms=' + encodeURIComponent(sym), { cache:'no-store' }); if (r.ok){ const j = await r.json(); quote = j.quotes && j.quotes[sym]; } } catch(e){}
 
   if (!hist || !hist.ok || !Array.isArray(hist.closes) || hist.closes.length < 30) {
-    cards.innerHTML = '<div style="grid-column:1/-1;padding:24px;color:var(--yellow);">No long history available for <strong>' + esc(sym) + '</strong> (try a large-cap US ticker or ETF). The worker returns 1y of daily closes for real names; if this persists the symbol may be off-coverage.</div>';
+    cards.innerHTML = histReached
+      ? '<div style="grid-column:1/-1;padding:24px;color:var(--yellow);">No long history available for <strong>' + esc(sym) + '</strong> (try a large-cap US ticker or ETF). The worker returns 1y of daily closes for real names; if this persists the symbol may be off-coverage.</div>'
+      : '<div style="grid-column:1/-1;padding:24px;color:var(--yellow);">Could not reach the desk worker — check your connection and try again in a minute. Nothing is rendered from placeholder data.</div>';
     posture.textContent = '—';
     return;
   }
@@ -135,6 +139,10 @@ async function run(){
 
   // Trend helpers: price vs a moving average (long-term trend filter).
   const aboveMA = n => { const m = sma(px, n); return m==null ? 0 : (last > m ? 1 : -1); };
+  // Pass 308 (honesty): three-state MA wording. aboveMA()===0 means the symbol has
+  // FEWER closes than the window (sma==null) - saying "below Nd MA" there fabricated
+  // a bearish claim for short-history names (recent IPOs etc.).
+  const maClause = (maSign, n) => maSign === 0 ? (n + 'd MA n/a (short history)') : ((maSign > 0 ? 'above' : 'below') + ' ' + n + 'd MA');
 
   // A trend lean = blend of momentum sign over the lookback + MA-trend confirmation.
   function trendLean(nLook, maN, deadband){
@@ -162,12 +170,12 @@ async function run(){
   // Few weeks — ~15 trading days
   (function(){ const t = trendLean(15, 20, 0.01); if(t) H.push({ tf:'Few weeks', sub:'~2–4 weeks', badge:'trend', dir:t.dir, strength:t.strength, metric:'~3wk momentum ' + pct(t.mom), basis:'~3-week momentum, checked against the 20-day trend.' }); })();
   // One month — ~21 trading days + 50d MA
-  (function(){ const t = trendLean(21, 50, 0.015); if(t) H.push({ tf:'One month', sub:'~21 trading days', badge:'trend', dir:t.dir, strength:t.strength, metric:'1mo momentum ' + pct(t.mom) + ' · ' + (t.ma>0?'above':'below') + ' 50d MA', basis:'1-month momentum + the 50-day moving-average trend.' }); })();
+  (function(){ const t = trendLean(21, 50, 0.015); if(t) H.push({ tf:'One month', sub:'~21 trading days', badge:'trend', dir:t.dir, strength:t.strength, metric:'1mo momentum ' + pct(t.mom) + ' · ' + maClause(t.ma, 50), basis:'1-month momentum + the 50-day moving-average trend.' }); })();
   // Few months — ~63 trading days + 100d MA
-  (function(){ const t = trendLean(63, 100, 0.03); if(t) H.push({ tf:'Few months', sub:'~2–4 months', badge:'trend', dir:t.dir, strength:t.strength, metric:'3mo momentum ' + pct(t.mom) + ' · ' + (t.ma>0?'above':'below') + ' 100d MA', basis:'Quarter-length momentum + the 100-day trend.' }); })();
+  (function(){ const t = trendLean(63, 100, 0.03); if(t) H.push({ tf:'Few months', sub:'~2–4 months', badge:'trend', dir:t.dir, strength:t.strength, metric:'3mo momentum ' + pct(t.mom) + ' · ' + maClause(t.ma, 100), basis:'Quarter-length momentum + the 100-day trend.' }); })();
   // Within a year — ~126–200 trading days + 200d MA (the classic long-term trend filter)
   (function(){ const n = px.length>200?200:Math.max(120,px.length-5); const t = trendLean(n, 200, 0.04); const m6 = mom(px,126);
-    if(t) H.push({ tf:'Within a year', sub:'~6–12 months', badge:'trend', dir:t.dir, strength:t.strength, metric:(m6!=null?'6mo momentum ' + pct(m6):'') + ' · ' + (aboveMA(200)>0?'above':'below') + ' 200d MA', basis:'Long-term trend: 6–12mo momentum + the 200-day moving average (the classic bull/bear filter).' }); })();
+    if(t) H.push({ tf:'Within a year', sub:'~6–12 months', badge:'trend', dir:t.dir, strength:t.strength, metric:(m6!=null?'6mo momentum ' + pct(m6):'long-horizon trend') + ' · ' + maClause(aboveMA(200), 200), basis:'Long-term trend: 6–12mo momentum + the 200-day moving average (the classic bull/bear filter).' }); })();
 
   cards.innerHTML = H.map(h => {
     const dc = dirClass(h.dir);

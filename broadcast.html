@@ -73,8 +73,20 @@ const SITE = 'https://options.bpleone.com';
 
 function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 function pct(x, d){ return (x>=0?'+':'') + Number(x).toFixed(d==null?1:d) + '%'; }
-// X counts every URL as 23 chars (t.co). Count that way so we don't over-report length.
-function tweetLen(t){ return String(t).replace(/https?:\/\/\S+/g, 'x'.repeat(23)).length; }
+// X's weighted length: every URL counts as 23 chars (t.co), and characters
+// outside the CJK-exempt "weight-1" Unicode ranges count as TWO (that includes
+// the direction arrows this composer uses). Pass 308: without the weighting,
+// an over-280 draft displayed as OK and X rejected it at post time.
+function tweetLen(t){
+  const s = String(t).replace(/https?:\/\/\S+/g, 'x'.repeat(23));
+  let len = 0;
+  for (const ch of s) {
+    const c = ch.codePointAt(0);
+    const w1 = (c <= 0x10FF) || (c >= 0x2000 && c <= 0x200D) || (c >= 0x2010 && c <= 0x201F) || (c >= 0x2032 && c <= 0x2037);
+    len += w1 ? 1 : 2;
+  }
+  return len;
+}
 async function jget(path){ try { const r = await fetch(WORKER + path, { cache:'no-store' }); if (r.ok) return await r.json(); } catch(e){} return null; }
 
 function ageStr(ms){
@@ -86,8 +98,17 @@ function ageStr(ms){
   return Math.floor(h/24) + 'd ago';
 }
 
-// Build one composer card. spec = { tag, desc, text }
-function cardHtml(id, tag, desc, text){
+// Build one composer card. spec = { tag, desc, text, disabled }
+// Pass 308: a disabled card states WHY there is no draft (worker down /
+// constraints filtered everything) instead of vanishing or offering an empty
+// Post button.
+function cardHtml(id, tag, desc, text, disabled){
+  if (disabled) {
+    return '<div class="bc-card" style="opacity:0.75;">' +
+      '<div class="bc-tag">' + esc(tag) + '</div>' +
+      '<div class="bc-desc">' + desc + '</div>' +
+    '</div>';
+  }
   return '<div class="bc-card">' +
     '<div class="bc-tag">' + esc(tag) + '</div>' +
     '<div class="bc-desc">' + desc + '</div>' +
@@ -123,33 +144,62 @@ async function build(){
   const [picks, conf] = await Promise.all([ jget('/brain/picks'), jget('/brain/confluence-score') ]);
 
   // Update the honest edge verdict line from the LIVE forward-test.
+  // Pass 308 (CRITICAL honesty — the pass-295 attribution rule): claims about
+  // "our model" must use brain_hit_rate. confluence_hit_rate measures the
+  // brain+insider FUSION — crediting it to the model is exactly the
+  // misattribution the worker-side verdict was fixed for.
   try {
     const v = conf && (conf.verdict || conf);
-    if (v && typeof v.confluence_hit_rate === 'number') {
-      const beats = v.confluence_beats_drift_95;
-      document.getElementById('edgeVerdict').textContent = beats
-        ? ('it is beating market drift (' + (v.confluence_hit_rate*100).toFixed(1) + '% vs ' + (v.drift_base_rate*100).toFixed(1) + '% base, n=' + v.n + ')')
-        : ('it does NOT clear the market-drift base rate (' + (v.confluence_hit_rate*100).toFixed(1) + '% vs ' + (v.drift_base_rate*100).toFixed(1) + '% drift, n=' + v.n + ') — the hits are explained by drift, not timing edge');
+    if (v && typeof v.brain_hit_rate === 'number' && typeof v.drift_base_rate === 'number') {
+      const brainBeats = v.brain_hit_rate > v.drift_base_rate;
+      let line = 'the model hits ' + (v.brain_hit_rate*100).toFixed(1) + '% vs a ' + (v.drift_base_rate*100).toFixed(1) + '% drift base' + (v.n ? ' (n=' + v.n + ')' : '') +
+        (brainBeats ? ' — above drift but not proven skill' : ' — it does NOT beat market drift');
+      if (v.insider_edge_found) {
+        line += v.fusion_beats_insider === false
+          ? '; the one real edge in the data is the INSIDER signal, not the model'
+          : '; the insider leg separately beats drift';
+      }
+      document.getElementById('edgeVerdict').textContent = line;
     }
   } catch(e){}
 
   const fresh = document.getElementById('freshness');
   const cards = document.getElementById('cards');
 
-  if (!picks || !picks.ok) {
-    fresh.innerHTML = '<span style="color:var(--yellow);">Could not reach the desk worker — drafts below use neutral placeholders. Edit before posting.</span>';
+  // Pass 308: honest ET-clock staleness. A >1h-old read is only "prior session"
+  // if we are actually OUTSIDE regular hours — during market hours it means the
+  // desk feed is delayed, which the drafts must say instead.
+  function etMarketOpen(){
+    try {
+      const parts = new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', hour12: false, weekday: 'short', hour: 'numeric', minute: 'numeric' }).formatToParts(new Date());
+      const get = t => (parts.find(p => p.type === t) || {}).value;
+      const wd = get('weekday'); const mins = parseInt(get('hour'), 10) * 60 + parseInt(get('minute'), 10);
+      return !['Sat','Sun'].includes(wd) && mins >= 570 && mins < 960;   // 9:30-16:00 ET
+    } catch(e){ return false; }
+  }
+  const workerDown = !picks || !picks.ok;
+  const stale = !workerDown && picks.ageSec != null && picks.ageSec > 3600;
+  const staleDuringHours = stale && etMarketOpen();
+  if (workerDown) {
+    fresh.innerHTML = '<span style="color:var(--yellow);">Could not reach the desk worker — the pick-based drafts below are disabled rather than filled with made-up leans. The multi-horizon and transparency cards still work.</span>';
   } else {
-    const stale = picks.ageSec != null && picks.ageSec > 3600;
     fresh.innerHTML = 'Live desk read: <strong>' + picks.universe_scored + '</strong> names scored · updated ' + esc(ageStr(picks.updatedAt)) +
-      (stale ? ' <span style="color:var(--yellow);">(outside market hours — this is the prior session’s read; drafts note it)</span>' : '');
+      (staleDuringHours ? ' <span style="color:var(--yellow);">(desk read is over an hour old DURING market hours — the feed may be delayed; verify before posting)</span>'
+        : stale ? ' <span style="color:var(--yellow);">(outside market hours — this is the prior session’s read; drafts note it)</span>' : '');
   }
 
   const pod = (picks && picks.pick_of_day) || null;
   const bl = (picks && picks.best_long) || null;
   const alpha = (picks && Array.isArray(picks.alpha)) ? picks.alpha : [];
-  const staleNote = (picks && picks.ageSec != null && picks.ageSec > 3600) ? ' (prior session)' : '';
+  const staleNote = staleDuringHours ? ' (desk read >1h old — verify)' : (stale ? ' (prior session)' : '');
 
   const specs = [];
+  // Pass 308: cards never vanish silently. Each pick-based card renders either a
+  // real draft or an explicit disabled reason, so an outage or a
+  // constraints-filtered-everything day is visible, not confusing.
+  function disabledSpec(id, tag, why){
+    specs.push({ id, tag, desc:'<span style="color:var(--yellow);">' + why + '</span>', text:'', disabled:true });
+  }
 
   // 1) Daily lean — Pick of the Day
   if (pod && pod.sym) {
@@ -158,14 +208,24 @@ async function build(){
     const t = '📅 Daily 5-day lean' + staleNote + ': $' + pod.sym + ' ' + dir + ' (our model’s conviction ' + conv + '%). ' +
       'A directional lean we grade live vs market drift — not a proven edge, not advice. Scorecard: ' + SITE + '/edge-scorecard.html';
     specs.push({ id:'daily', tag:'📅 Daily lean', desc:'Your featured short-term (5-day) directional lean, from the desk’s Pick of the Day. Model call — graded vs drift.', text:t });
+  } else {
+    disabledSpec('daily', '📅 Daily lean', workerDown
+      ? 'Unavailable — the desk worker is unreachable. No draft is fabricated in its place.'
+      : 'No pick cleared your signal constraints today (that discipline is the point). Adjust on <a href="constraints.html" style="color:var(--accent);">constraints</a> if intended.');
   }
 
-  // 2) Multi-week watch — Best Long
-  if (bl && bl.sym) {
-    const dir = bl.dir === 'UP' ? 'higher' : bl.dir === 'DOWN' ? 'lower' : 'sideways';
-    const t = '🗓️ Multi-week watch' + staleNote + ': $' + bl.sym + '. The desk’s longer read leans ' + dir + '. ' +
-      'Trend-following, graded openly, no guaranteed edge — not advice. Timeframes: ' + SITE + '/horizons.html';
-    specs.push({ id:'week', tag:'🗓️ Multi-week', desc:'Your longer-horizon watch (best long idea). Trend read — clearly not a guarantee.', text:t });
+  // 2) Multi-week watch — Best Long. Pass 308: this is the MOST BULLISH 5-DAY
+  // model lean, not a genuine multi-week signal — say so, and skip it entirely
+  // when the worker flags it weak or it isn't actually bullish.
+  if (bl && bl.sym && bl.weak !== true && typeof bl.predProb === 'number' && bl.predProb >= 0.5) {
+    const t = '🗓️ Long watch' + staleNote + ': $' + bl.sym + ' — the desk’s most bullish 5-day model lean today (graded vs drift). For the true longer-term trend read see every timeframe: ' + SITE + '/horizons.html?sym=' + bl.sym;
+    specs.push({ id:'week', tag:'🗓️ Long watch', desc:'The most bullish 5-day model lean, honestly labeled (the model only predicts 5 days). The link shows the real multi-week/month/year trend for the name.', text:t });
+  } else if (!workerDown) {
+    disabledSpec('week', '🗓️ Long watch', (bl && bl.weak)
+      ? 'Skipped — today’s best long is flagged WEAK by the desk (below the conviction bar). Posting it would be noise.'
+      : 'No bullish lean clears the bar today.');
+  } else {
+    disabledSpec('week', '🗓️ Long watch', 'Unavailable — the desk worker is unreachable.');
   }
 
   // 3) Watchlist — top alpha leans
@@ -174,28 +234,40 @@ async function build(){
     const t = '👀 Today’s model leans' + staleNote + ': ' + top + '. ' +
       'These are 5-day directional leans from our brain — graded live vs drift, not calls to buy. Full board: ' + SITE + '/pick-of-day.html';
     specs.push({ id:'watch', tag:'👀 Watchlist', desc:'Top model leans as a compact watchlist. Direction arrows, honest framing, no price targets.', text:t });
+  } else {
+    disabledSpec('watch', '👀 Watchlist', workerDown
+      ? 'Unavailable — the desk worker is unreachable.'
+      : 'No leans cleared your constraints today.');
   }
 
   // 4) Multi-horizon spotlight — computed from real bars + the 5-day model call
   specs.push({ id:'horizon', tag:'📆 Multi-horizon', desc:'One name across every timeframe (daily→year). Enter a symbol and Generate — pulls real momentum + the 5-day model call.', text:'', horizon:true });
 
-  // 5) Transparency note — the honest brand tweet
+  // 5) Transparency note — the honest brand tweet.
+  // Pass 308 (CRITICAL attribution): "our model's hit rate" = brain_hit_rate,
+  // never the confluence number; if the insider leg is the thing beating drift,
+  // the tweet SAYS it's the data, not the model (the pass-295 rule).
   {
-    let hr = null, dr = null, n = null, beats = null;
-    try { const v = conf && (conf.verdict || conf); if (v){ hr=v.confluence_hit_rate; dr=v.drift_base_rate; n=v.n; beats=v.confluence_beats_drift_95; } } catch(e){}
+    let v = null;
+    try { v = conf && (conf.verdict || conf); } catch(e){}
     let t;
-    if (hr != null) {
-      t = beats
-        ? 'We grade every directional call live vs market drift. Current forward-test: ' + (hr*100).toFixed(1) + '% vs ' + (dr*100).toFixed(1) + '% drift base (n=' + n + ') — a real, if small, edge. We show the receipts: ' + SITE + '/edge-scorecard.html'
-        : 'We publish our model’s leans and grade every one live vs market drift. Right now, honestly, our hit rate (' + (hr*100).toFixed(1) + '%) doesn’t clear the drift base (' + (dr*100).toFixed(1) + '%, n=' + n + '). We show that openly — that’s the point: ' + SITE + '/edge-scorecard.html';
+    if (v && typeof v.brain_hit_rate === 'number' && typeof v.drift_base_rate === 'number') {
+      const bh = (v.brain_hit_rate*100).toFixed(1), dr = (v.drift_base_rate*100).toFixed(1), n = v.n || '';
+      if (v.insider_edge_found && v.fusion_beats_insider === false) {
+        t = 'Honest scorecard update: our MODEL hits ' + bh + '% vs a ' + dr + '% drift base (n=' + n + ') — no proven skill. The one signal beating drift is INSIDER buy-clusters — the data, not our model. Receipts: ' + SITE + '/edge-scorecard.html';
+      } else if (v.brain_hit_rate <= v.drift_base_rate) {
+        t = 'We publish our model’s leans and grade every one live vs market drift. Right now, honestly, the model’s hit rate (' + bh + '%) doesn’t beat the drift base (' + dr + '%, n=' + n + '). We show that openly — that’s the point: ' + SITE + '/edge-scorecard.html';
+      } else {
+        t = 'Honest scorecard: the model hits ' + bh + '% vs a ' + dr + '% drift base (n=' + n + ') — above the bar but we do NOT call that proven skill until it clears significance. Live grading, wins and misses in public: ' + SITE + '/edge-scorecard.html';
+      }
     } else {
       t = 'We publish our model’s directional leans and grade every single one live vs market drift — wins and misses in public. No fake win-rates here. See the scorecard: ' + SITE + '/edge-scorecard.html';
     }
-    specs.push({ id:'transparency', tag:'🧾 Transparency', desc:'The honest brand tweet — auto-filled from the LIVE forward-test verdict. This is what separates the desk from hype accounts.', text:t });
+    specs.push({ id:'transparency', tag:'🧾 Transparency', desc:'The honest brand tweet — auto-filled from the LIVE forward-test verdict, with edge credited to whichever component actually earns it.', text:t });
   }
 
-  cards.innerHTML = specs.map(s => cardHtml(s.id, s.tag, s.desc, s.text)).join('');
-  specs.forEach(s => recount(s.id));
+  cards.innerHTML = specs.map(s => cardHtml(s.id, s.tag, s.desc, s.text, s.disabled)).join('');
+  specs.forEach(s => { if (!s.disabled) recount(s.id); });
 
   // Wire the multi-horizon generator
   wireHorizon();
@@ -221,7 +293,12 @@ async function genHorizon(){
   const ta = document.getElementById('ta_horizon');
   ta.value = 'Building ' + sym + ' across timeframes…'; recount('horizon');
   const [hist, pred] = await Promise.all([ jget('/brain/history?sym=' + encodeURIComponent(sym)), jget('/brain/predict?sym=' + encodeURIComponent(sym)) ]);
-  if (!hist || !hist.ok || !Array.isArray(hist.closes) || hist.closes.length < 30) {
+  // Pass 308: distinguish a worker OUTAGE (fetch failed -> jget null) from a
+  // genuinely uncovered symbol, instead of misdiagnosing both as "no history".
+  if (!hist) {
+    ta.value = 'Desk worker unreachable — try again in a minute (no draft is fabricated).'; recount('horizon'); return;
+  }
+  if (!hist.ok || !Array.isArray(hist.closes) || hist.closes.length < 30) {
     ta.value = 'No long history for $' + sym + ' — try a large-cap US ticker/ETF.'; recount('horizon'); return;
   }
   const px = hist.closes.map(x => x.c);
@@ -231,10 +308,13 @@ async function genHorizon(){
   const arrow = m => m==null ? '·' : (m>0.003?'▲':m<-0.003?'▼':'▬');
   const d1 = mom(1), w = (pred && typeof pred.predProb==='number') ? pred.predProb : null;
   const m1 = mom(21), m3 = mom(63), m6 = mom(126);
-  const above200 = (sma(200)!=null && last>sma(200));
+  // Pass 308 (honesty): three-state 200d clause — a short-history name gets NO
+  // claim rather than a fabricated "(below 200d)" baked into a ready-to-post tweet.
+  const ma200 = sma(200);
+  const maClause = ma200 == null ? '' : (last > ma200 ? ' (above 200d)' : ' (below 200d)');
   const wk = w!=null ? ('Weekly ' + (w>=0.52?'▲':w<=0.48?'▼':'▬') + ' (model ' + Math.round(w*100) + '%)') : 'Weekly ·';
   const t = '📆 $' + sym + ' across timeframes — Daily ' + arrow(d1) + ' / ' + wk + ' / 1mo ' + arrow(m1) + ' / 3mo ' + arrow(m3) + ' / 1yr ' + arrow(m6) +
-    (above200 ? ' (above 200d)' : ' (below 200d)') + '. Only the 5-day is a graded model call; the rest are trend reads, not advice. ' + SITE + '/horizons.html';
+    maClause + '. Only the 5-day is a graded model call; the rest are trend reads, not advice. ' + SITE + '/horizons.html';
   ta.value = t;
   recount('horizon');
 }

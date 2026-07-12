@@ -67,7 +67,7 @@
 <script src="js/notify.js?v=v215"></script>
 <script src="js/live.js?v=v215"></script>
 <script src="js/model.js?v=v215"></script>
-<script src="js/live-hydrate.js?v=v216"></script>
+<script src="js/live-hydrate.js?v=v217"></script>
 <script>
 buildNav('trade-coach');
 
@@ -256,17 +256,26 @@ function generatePlan(sym) {
 // the plan, so entry/stop/targets are computed from a real quote — never a $100
 // placeholder. Renders immediately (shows the honest "no live price" card if the
 // quote hasn't landed) then re-renders once the real price arrives.
+let lastSym = null;
 function showPlan(s) {
+  lastSym = s;
   const out = document.getElementById('planOutput');
   out.innerHTML = generatePlan(s);
   if (typeof hydrateQuotes === 'function') {
-    hydrateQuotes([s], { onDone: () => { out.innerHTML = generatePlan(s); } });
+    hydrateQuotes([s], { onDone: () => { if (lastSym === s) out.innerHTML = generatePlan(s); } });
   }
 }
 document.getElementById('goBtn').addEventListener('click', () => {
-  const s = document.getElementById('symInput').value.toUpperCase().trim();
+  // Pass 308 (XSS): strict-sanitize like horizons.html - the symbol flows from
+  // the URL/input into innerHTML (no-quote card + plan hero), so it must never
+  // carry markup. Uppercasing alone does not neutralize tags or attributes.
+  const s = document.getElementById('symInput').value.toUpperCase().replace(/[^A-Z0-9.\-]/g, '').trim().slice(0, 8);
+  document.getElementById('symInput').value = s;
   if (s) showPlan(s);
 });
+// Pass 308: re-render when REAL prices land, so a plan generated from a stale
+// seed (or the no-quote card) updates the moment the feed prints.
+window.addEventListener('bpleone:quotes', () => { if (lastSym) document.getElementById('planOutput').innerHTML = generatePlan(lastSym); });
 document.getElementById('symInput').addEventListener('keypress', e => {
   if (e.key === 'Enter') document.getElementById('goBtn').click();
 });
