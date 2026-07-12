@@ -70,14 +70,21 @@
 <script src="js/app.js?v=v215"></script>
 <script src="js/notify.js?v=v215"></script>
 <script src="js/live.js?v=v215"></script>
+<script src="js/live-hydrate.js?v=v215"></script>
 <script>
 buildNav('smart-rotation');
 
-function getQ(s) { return (typeof QUOTES !== 'undefined' && QUOTES[s]) ? QUOTES[s] : { last: 100, changePct: 0 }; }
-function pct(s) { return getQ(s).changePct || 0; }
+// Pass 305 (honesty): null for a symbol with no REAL quote — the rotation matrix
+// renders '—' and the regime/lean logic waits for live data instead of computing
+// a permanently-flat signal from fabricated 0% legs (IVW/IVE/IVV/IJR were
+// off-universe, so both legs read +0.00% and every "lean" was inert noise).
+function getQ(s) { const q = (typeof QUOTES !== 'undefined') ? QUOTES[s] : null; return (q && q.last > 0) ? q : null; }
+function pct(s) { const q = getQ(s); return (q && typeof q.changePct === 'number') ? q.changePct : null; }
 
 function classifyRegime() {
   const spy = pct('SPY'), vxx = pct('VXX'), tlt = pct('TLT'), uup = pct('UUP'), gld = pct('GLD'), hyg = pct('HYG');
+  // Honest gate: the regime needs real prints on all six legs.
+  if ([spy, vxx, tlt, uup, gld, hyg].some(v => v == null)) return null;
   const score = spy*5 + hyg*6 - vxx*4 - uup*3 - gld*2 + tlt;
   // Reflation: growth+inflation. Goldilocks: growth-inflation. Stagflation: -growth+inflation. Recession: -growth-inflation
   const growthBias = spy + hyg - vxx; // proxy
@@ -92,6 +99,7 @@ function classifyRegime() {
 
 function compareETFs(a, b) {
   const ca = pct(a), cb = pct(b);
+  if (ca == null || cb == null) return null;   // pass 305: no lean off missing legs
   const leader = ca > cb ? a : b;
   const diff = +(ca - cb).toFixed(2);
   return { leader, diff, ca, cb };
@@ -101,12 +109,19 @@ function paintCompare(blockId, pairs) {
   const wrap = document.getElementById(blockId);
   wrap.innerHTML = '';
   pairs.forEach(([sym, lbl]) => {
-    const q = getQ(sym);
-    const chg = q.changePct || 0;
-    const col = chg > 0 ? 'var(--green)' : chg < 0 ? 'var(--red)' : 'var(--text-muted)';
-    const bg = chg > 0 ? 'rgba(16,185,129,0.08)' : chg < 0 ? 'rgba(239,68,68,0.08)' : 'rgba(100,116,139,0.06)';
+    const chg = pct(sym);
     const cell = document.createElement('div');
     cell.className = 'matrix-cell';
+    if (chg == null) {
+      cell.style.background = 'rgba(100,116,139,0.06)';
+      cell.innerHTML = '<div class="l">' + lbl + '</div>'
+        + '<div class="v">' + sym + '</div>'
+        + '<div class="s" style="color:var(--text-muted);">—</div>';
+      wrap.appendChild(cell);
+      return;
+    }
+    const col = chg > 0 ? 'var(--green)' : chg < 0 ? 'var(--red)' : 'var(--text-muted)';
+    const bg = chg > 0 ? 'rgba(16,185,129,0.08)' : chg < 0 ? 'rgba(239,68,68,0.08)' : 'rgba(100,116,139,0.06)';
     cell.style.background = bg;
     cell.innerHTML = '<div class="l">' + lbl + '</div>'
       + '<div class="v">' + sym + '</div>'
@@ -117,11 +132,17 @@ function paintCompare(blockId, pairs) {
 
 function paint() {
   const r = classifyRegime();
-  document.getElementById('regimeBlock').innerHTML = `
+  document.getElementById('regimeBlock').innerHTML = r ? `
     <div style="background:rgba(0,0,0,0.2);border-left:4px solid ${r.col};padding:18px;border-radius:10px;">
       <div style="font-size:11px;color:var(--text-muted);font-weight:700;letter-spacing:0.5px;">CURRENT REGIME</div>
       <div style="font-family:var(--font-mono);font-size:32px;font-weight:800;color:${r.col};margin-top:4px;">${r.label}</div>
       <div style="font-size:13px;color:var(--text-secondary);line-height:1.6;margin-top:8px;">${r.body}</div>
+    </div>
+  ` : `
+    <div style="background:rgba(0,0,0,0.2);border-left:4px solid var(--text-muted);padding:18px;border-radius:10px;">
+      <div style="font-size:11px;color:var(--text-muted);font-weight:700;letter-spacing:0.5px;">CURRENT REGIME</div>
+      <div style="font-family:var(--font-mono);font-size:32px;font-weight:800;color:var(--text-muted);margin-top:4px;">—</div>
+      <div style="font-size:13px;color:var(--text-secondary);line-height:1.6;margin-top:8px;">Awaiting live prices on all six regime legs (SPY/VXX/TLT/UUP/GLD/HYG) — no regime is published from placeholder data.</div>
     </div>
   `;
 
@@ -130,16 +151,17 @@ function paint() {
   paintCompare('usintBlock', [['SPY','US'], ['EFA','Intl Dev']]);
   paintCompare('cdBlock', [['XLY','Cyclicals'], ['XLP','Defensives']]);
 
-  // Lean cards
+  // Lean cards — pass 305: a pair with a missing leg renders an honest waiting
+  // card instead of a fabricated "leader by 0.00%" lean.
   const leans = [];
-  const gv = compareETFs('IVW', 'IVE');
-  leans.push({ t: gv.leader === 'IVW' ? 'Lean GROWTH' : 'Lean VALUE', body: gv.leader + ' outperforming by ' + Math.abs(gv.diff).toFixed(2) + '% today. ' + (gv.leader === 'IVW' ? 'Long QQQ, XLK, mega-cap tech.' : 'Long XLE, XLF, dividend stocks.'), col: gv.leader === 'IVW' ? 'var(--accent)' : 'var(--green)' });
-  const ls = compareETFs('IVV', 'IJR');
-  leans.push({ t: ls.leader === 'IVV' ? 'Lean LARGE-CAP' : 'Lean SMALL-CAP', body: ls.leader + ' ahead by ' + Math.abs(ls.diff).toFixed(2) + '%. ' + (ls.leader === 'IVV' ? 'Risk-off undertone. Stay in mega-caps.' : 'Risk-on undertone. IWM, small-caps bidding.'), col: ls.leader === 'IVV' ? 'var(--accent)' : 'var(--green)' });
-  const ui = compareETFs('SPY', 'EFA');
-  leans.push({ t: ui.leader === 'SPY' ? 'Lean US' : 'Lean INTL', body: ui.leader + ' leading by ' + Math.abs(ui.diff).toFixed(2) + '%. ' + (ui.leader === 'SPY' ? 'US leadership intact. Avoid EM, prefer domestic.' : 'Intl outperforming — weaker USD + global rotation. Consider EFA, FXI.'), col: ui.leader === 'SPY' ? 'var(--accent)' : 'var(--yellow)' });
-  const cd = compareETFs('XLY', 'XLP');
-  leans.push({ t: cd.leader === 'XLY' ? 'Lean CYCLICAL' : 'Lean DEFENSIVE', body: cd.leader + ' ahead by ' + Math.abs(cd.diff).toFixed(2) + '%. ' + (cd.leader === 'XLY' ? 'Risk-on confirmed. Lean retail, autos, leisure.' : 'Risk-off undertone. Staples, utilities, healthcare bid.'), col: cd.leader === 'XLY' ? 'var(--green)' : 'var(--red)' });
+  function pushLean(cmp, mk, waitLabel) {
+    if (cmp) leans.push(mk(cmp));
+    else leans.push({ t: waitLabel, body: 'No live quotes for one or both legs of this pair yet — no lean is published from placeholder data.', col: 'var(--text-muted)' });
+  }
+  pushLean(compareETFs('IVW', 'IVE'), gv => ({ t: gv.leader === 'IVW' ? 'Lean GROWTH' : 'Lean VALUE', body: gv.leader + ' outperforming by ' + Math.abs(gv.diff).toFixed(2) + '% today. ' + (gv.leader === 'IVW' ? 'Long QQQ, XLK, mega-cap tech.' : 'Long XLE, XLF, dividend stocks.'), col: gv.leader === 'IVW' ? 'var(--accent)' : 'var(--green)' }), 'Growth vs Value — awaiting data');
+  pushLean(compareETFs('IVV', 'IJR'), ls => ({ t: ls.leader === 'IVV' ? 'Lean LARGE-CAP' : 'Lean SMALL-CAP', body: ls.leader + ' ahead by ' + Math.abs(ls.diff).toFixed(2) + '%. ' + (ls.leader === 'IVV' ? 'Risk-off undertone. Stay in mega-caps.' : 'Risk-on undertone. IWM, small-caps bidding.'), col: ls.leader === 'IVV' ? 'var(--accent)' : 'var(--green)' }), 'Large vs Small — awaiting data');
+  pushLean(compareETFs('SPY', 'EFA'), ui => ({ t: ui.leader === 'SPY' ? 'Lean US' : 'Lean INTL', body: ui.leader + ' leading by ' + Math.abs(ui.diff).toFixed(2) + '%. ' + (ui.leader === 'SPY' ? 'US leadership intact. Avoid EM, prefer domestic.' : 'Intl outperforming — weaker USD + global rotation. Consider EFA, FXI.'), col: ui.leader === 'SPY' ? 'var(--accent)' : 'var(--yellow)' }), 'US vs Intl — awaiting data');
+  pushLean(compareETFs('XLY', 'XLP'), cd => ({ t: cd.leader === 'XLY' ? 'Lean CYCLICAL' : 'Lean DEFENSIVE', body: cd.leader + ' ahead by ' + Math.abs(cd.diff).toFixed(2) + '%. ' + (cd.leader === 'XLY' ? 'Risk-on confirmed. Lean retail, autos, leisure.' : 'Risk-off undertone. Staples, utilities, healthcare bid.'), col: cd.leader === 'XLY' ? 'var(--green)' : 'var(--red)' }), 'Cyclical vs Defensive — awaiting data');
 
   const leanEl = document.getElementById('leanBlock');
   leanEl.innerHTML = '';
@@ -153,6 +175,12 @@ function paint() {
 paint();
 document.getElementById('refreshBtn').addEventListener('click', paint);
 setInterval(paint, 60000);
+// Pass 305: hydrate REAL prices for the rotation pairs (IVW/IVE/IVV/IJR are
+// off-universe) + regime legs from /brain/quotes, then repaint on quote events.
+if (typeof hydrateQuotes === 'function') {
+  hydrateQuotes(['IVW','IVE','IVV','IJR','SPY','EFA','XLY','XLP','VXX','TLT','UUP','GLD','HYG'], { onDone: paint });
+}
+window.addEventListener('bpleone:quotes', paint);
 </script>
 </body>
 </html>

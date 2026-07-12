@@ -61,11 +61,15 @@ buildNav('correlations-live');
 
 const SYMS = ['SPY','QQQ','IWM','NVDA','TSLA','AAPL','TLT','GLD','BTC','VXX','UUP','HYG'];
 
-function getQ(s) { return (typeof QUOTES !== 'undefined' && QUOTES[s]) ? QUOTES[s] : { changePct: 0 }; }
+// Pass 305 (honesty): null for a symbol with no REAL quote — cells render '—'
+// and the risk read waits for live prints instead of publishing a score off
+// undefined seed changePct (which silently read as 0 across the whole matrix).
+function getQ(s) { const q = (typeof QUOTES !== 'undefined') ? QUOTES[s] : null; return (q && q.last > 0) ? q : null; }
+function pctOf(s) { const q = getQ(s); return (q && typeof q.changePct === 'number') ? q.changePct : null; }
 function corrSign(a, b) {
   // Compute pseudo-correlation from co-direction
-  const ax = getQ(a).changePct || 0;
-  const bx = getQ(b).changePct || 0;
+  const ax = pctOf(a), bx = pctOf(b);
+  if (ax == null || bx == null) return null;
   if (Math.abs(ax) < 0.05 && Math.abs(bx) < 0.05) return 0;
   return Math.max(-1, Math.min(1, (ax * bx) / Math.max(0.5, Math.abs(ax) + Math.abs(bx)) * 2));
 }
@@ -79,6 +83,10 @@ function paint() {
     html += '<div class="corr-cell label"><strong>' + a + '</strong></div>';
     SYMS.forEach((b, j) => {
       const c = i === j ? 1 : corrSign(a, b);
+      if (c == null) {   // pass 305: no real print on one leg -> honest gray dash
+        html += '<div class="corr-cell" style="background:rgba(100,116,139,0.08);color:var(--text-muted);">—</div>';
+        return;
+      }
       const intensity = Math.abs(c);
       const r = c > 0 ? Math.round(16 + (255 - 16) * intensity) : 239;
       const g = c > 0 ? Math.round(185 + 0 * intensity) : Math.round(68 + (255 - 68) * (1 - intensity));
@@ -93,9 +101,9 @@ function paint() {
   // Clusters by sign
   const riskOn = ['SPY','QQQ','IWM','NVDA','TSLA','AAPL','BTC','HYG'];
   const riskOff = ['TLT','GLD','VXX','UUP'];
-  const upRiskOn = riskOn.filter(s => (getQ(s).changePct || 0) > 0.1);
-  const dnRiskOn = riskOn.filter(s => (getQ(s).changePct || 0) < -0.1);
-  const upRiskOff = riskOff.filter(s => (getQ(s).changePct || 0) > 0.1);
+  const upRiskOn = riskOn.filter(s => (pctOf(s) || 0) > 0.1);
+  const dnRiskOn = riskOn.filter(s => (pctOf(s) || 0) < -0.1);
+  const upRiskOff = riskOff.filter(s => (pctOf(s) || 0) > 0.1);
 
   const cls = [];
   if (upRiskOn.length >= 3) cls.push({ t: 'Risk-on cluster up', body: upRiskOn.join(', ') + ' all green together. Beta-led tape.', col: 'var(--green)' });
@@ -113,25 +121,28 @@ function paint() {
     cEl.appendChild(card);
   });
 
-  // Risk-on/off read
-  const spySign = (getQ('SPY').changePct || 0) > 0;
-  const vxxSign = (getQ('VXX').changePct || 0) < 0;
-  const tltSign = (getQ('TLT').changePct || 0) < 0;
-  const hygSign = (getQ('HYG').changePct || 0) > 0;
-  let riskOnScore = 0;
-  if (spySign) riskOnScore++;
-  if (vxxSign) riskOnScore++;
-  if (tltSign) riskOnScore++;
-  if (hygSign) riskOnScore++;
+  // Risk-on/off read — pass 305: needs REAL prints on all four legs.
+  const legs = [pctOf('SPY'), pctOf('VXX'), pctOf('TLT'), pctOf('HYG')];
   let read;
-  if (riskOnScore >= 3) read = '<strong style="color:var(--green);">RISK-ON</strong> · Equities + credit firming, vol and rates softening. Lean long high-beta. Score ' + riskOnScore + '/4.';
-  else if (riskOnScore >= 2) read = '<strong style="color:var(--accent);">NEUTRAL</strong> · Mixed signals across risk-asset complex. Wait for confirmation. Score ' + riskOnScore + '/4.';
-  else read = '<strong style="color:var(--red);">RISK-OFF</strong> · Safe-havens bid, equities and credit soft. Hedge longs, watch for vol expansion. Score ' + riskOnScore + '/4.';
+  if (legs.some(v => v == null)) {
+    read = '<strong style="color:var(--text-muted);">—</strong> · Awaiting live prices on SPY/VXX/TLT/HYG — no risk read is published from placeholder data.';
+  } else {
+    let riskOnScore = 0;
+    if (legs[0] > 0) riskOnScore++;   // SPY up
+    if (legs[1] < 0) riskOnScore++;   // VXX down
+    if (legs[2] < 0) riskOnScore++;   // TLT down
+    if (legs[3] > 0) riskOnScore++;   // HYG up
+    if (riskOnScore >= 3) read = '<strong style="color:var(--green);">RISK-ON</strong> · Equities + credit firming, vol and rates softening. Lean long high-beta. Score ' + riskOnScore + '/4.';
+    else if (riskOnScore >= 2) read = '<strong style="color:var(--accent);">NEUTRAL</strong> · Mixed signals across risk-asset complex. Wait for confirmation. Score ' + riskOnScore + '/4.';
+    else read = '<strong style="color:var(--red);">RISK-OFF</strong> · Safe-havens bid, equities and credit soft. Hedge longs, watch for vol expansion. Score ' + riskOnScore + '/4.';
+  }
   document.getElementById('riskOnRead').innerHTML = read;
 }
 paint();
 document.getElementById('refreshBtn').addEventListener('click', paint);
 setInterval(paint, 30000);
+// Pass 305: repaint the moment REAL prices land (first paint runs before the feed).
+window.addEventListener('bpleone:quotes', paint);
 </script>
 </body>
 </html>

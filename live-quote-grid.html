@@ -65,6 +65,7 @@
 <script src="js/app.js?v=v215"></script>
 <script src="js/notify.js?v=v215"></script>
 <script src="js/live.js?v=v215"></script>
+<script src="js/live-hydrate.js?v=v215"></script>
 <script>
 buildNav('live-quote-grid');
 
@@ -76,7 +77,10 @@ const GROUPS = {
   'crypto': ['BTC','ETH','COIN','MSTR','MARA','RIOT','HUT']
 };
 
-function getQ(s) { return (typeof QUOTES !== 'undefined' && QUOTES[s]) ? QUOTES[s] : { last: 0, changePct: 0 }; }
+// Pass 305 (honesty): return null for a symbol with no REAL quote instead of a
+// fabricated { last: 0 } placeholder — the tile shows '—'. Off-universe names
+// (MSTR/HOOD/RIOT/etc.) are hydrated with real prices from /brain/quotes on load.
+function getQ(s) { const q = (typeof QUOTES !== 'undefined') ? QUOTES[s] : null; return (q && q.last > 0) ? q : null; }
 function loadFindings() { try { return JSON.parse(localStorage.getItem('bpleone_brain_findings_v1') || '{"items":[]}').items; } catch (e) { return []; } }
 
 let lastPrices = {};
@@ -106,17 +110,27 @@ function paint() {
     const tile = grid.querySelector('[data-sym="' + sym + '"]');
     if (!tile) return;
     const q = getQ(sym);
+    const score = findingsBySym[sym] || 0;
+    if (score > 0) brainActive++;
+    const badge = score > 0 ? '<div class="badge">🧠 ' + score + '</div>' : '';
+    // Pass 305 (honesty): no REAL quote -> '—' tile, never a fabricated $0.00 / +0.00%.
+    if (!q) {
+      tile.className = 'qg-tile';
+      tile.innerHTML = badge
+        + '<div class="sym">' + sym + '</div>'
+        + '<div class="px" style="color:var(--text-muted);">—</div>'
+        + '<div class="chg" style="color:var(--text-muted);">no live quote</div>';
+      delete lastPrices[sym];
+      return;
+    }
     const chg = q.changePct || 0;
     if (chg > 0) greens++;
     if (chg < 0) reds++;
-    const score = findingsBySym[sym] || 0;
-    if (score > 0) brainActive++;
     const col = chg > 0 ? 'var(--green)' : chg < 0 ? 'var(--red)' : 'var(--text-muted)';
-    const badge = score > 0 ? '<div class="badge">🧠 ' + score + '</div>' : '';
     tile.className = 'qg-tile ' + (chg > 0 ? 'up' : chg < 0 ? 'dn' : '');
     tile.innerHTML = badge
       + '<div class="sym">' + sym + '</div>'
-      + '<div class="px">$' + (q.last || 0).toFixed(2) + '</div>'
+      + '<div class="px">$' + q.last.toFixed(2) + '</div>'
       + '<div class="chg" style="color:' + col + ';">' + (chg >= 0 ? '+' : '') + chg.toFixed(2) + '%</div>';
     // Flash on price change
     if (lastPrices[sym] != null && q.last !== lastPrices[sym]) {
@@ -137,6 +151,13 @@ function paint() {
 paint();
 document.getElementById('grpSel').addEventListener('change', e => { currentGroup = e.target.value; paint(); });
 setInterval(paint, 2000);
+// Pass 305: hydrate REAL prices for every group's symbols (incl. off-universe
+// names like MSTR/RIOT/HOOD the seed feed never priced) from /brain/quotes.
+if (typeof hydrateQuotes === 'function') {
+  const all = [...new Set(Object.values(GROUPS).flat())];
+  hydrateQuotes(all, { onDone: paint });
+}
+window.addEventListener('bpleone:quotes', paint);
 </script>
 </body>
 </html>

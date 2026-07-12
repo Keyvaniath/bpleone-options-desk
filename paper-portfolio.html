@@ -87,7 +87,10 @@ function load() {
   try { return JSON.parse(localStorage.getItem(KEY) || '{"open":[],"closed":[],"realized":0,"equity":50000}'); } catch (e) { return { open: [], closed: [], realized: 0, equity: 50000 }; }
 }
 function save(d) { try { localStorage.setItem(KEY, JSON.stringify(d)); } catch (e) {} }
-function getQ(s) { return (typeof QUOTES !== 'undefined' && QUOTES[s]) ? QUOTES[s] : { last: 100 }; }
+// Pass 305 (honesty): null for a symbol with no REAL quote. Open positions mark
+// at their entry (0 P&L) until a real print lands — never at a fabricated $100 —
+// and a new position can't be opened without a real price or an explicit price.
+function getQ(s) { const q = (typeof QUOTES !== 'undefined') ? QUOTES[s] : null; return (q && q.last > 0) ? q : null; }
 function loadFindings() { try { return JSON.parse(localStorage.getItem('bpleone_brain_findings_v1') || '{"items":[]}').items; } catch (e) { return []; } }
 
 let state = load();
@@ -98,7 +101,7 @@ function paint() {
   let totalOpenPnl = 0;
   state.open.forEach((p, i) => {
     const q = getQ(p.sym);
-    const now = q.last || p.entry;
+    const now = (q && q.last > 0) ? q.last : p.entry;   // no real print -> mark at entry (0 P&L), never $100
     const sideMul = p.side === 'LONG' ? 1 : -1;
     const pnl = (now - p.entry) * p.shares * sideMul;
     const pnlPct = ((now - p.entry) / p.entry) * 100 * sideMul;
@@ -155,7 +158,7 @@ function paint() {
     const i = +b.dataset.i;
     const p = state.open[i];
     const q = getQ(p.sym);
-    const exit = q.last || p.entry;
+    const exit = (q && q.last > 0) ? q.last : p.entry;   // no real print -> close flat at entry, never $100
     const sideMul = p.side === 'LONG' ? 1 : -1;
     const pnl = (exit - p.entry) * p.shares * sideMul;
     const pnlPct = ((exit - p.entry) / p.entry) * 100 * sideMul;
@@ -175,7 +178,11 @@ document.getElementById('addBtn').addEventListener('click', () => {
   const side = document.getElementById('addSide').value;
   const shares = +document.getElementById('addShares').value || 100;
   const q = getQ(sym);
-  const entry = +document.getElementById('addPx').value || q.last;
+  const entry = +document.getElementById('addPx').value || (q && q.last) || 0;
+  if (!(entry > 0)) {
+    alert('No live price for ' + sym + ' yet — enter an explicit entry price, or wait a few seconds for the feed. A paper trade is never opened at a placeholder price.');
+    return;
+  }
   const stop = +document.getElementById('addStop').value;
   const target = +document.getElementById('addTarget').value;
   state.open.push({ sym, side, shares, entry, stop, target, openedTs: Date.now() });
@@ -195,6 +202,10 @@ document.getElementById('brainSuggestBtn').addEventListener('click', () => {
   const sym = top.meta.sym;
   const bias = top.meta.bias || 'bull';
   const q = getQ(sym);
+  if (!q) {
+    alert('No live price for ' + sym + ' yet — cannot pre-fill a paper trade from a placeholder. Wait a few seconds for the feed and try again.');
+    return;
+  }
   const side = bias === 'bear' ? 'SHORT' : 'LONG';
   const entry = q.last;
   const atr = entry * 0.025;

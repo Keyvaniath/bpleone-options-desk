@@ -109,10 +109,13 @@
 <script src="js/notify.js?v=v215"></script>
 <script src="js/live.js?v=v215"></script>
 <script src="js/model.js?v=v215"></script>
+<script src="js/live-hydrate.js?v=v215"></script>
 <script>
 buildNav('day-trader-pro');
 
-function getQ(s) { return (typeof QUOTES !== 'undefined' && QUOTES[s]) ? QUOTES[s] : { last: 100, changePct: 0 }; }
+// Pass 305 (honesty): null for a symbol with no REAL quote — header cells and the
+// key-levels panel render '—' instead of values derived from a $100 placeholder.
+function getQ(s) { const q = (typeof QUOTES !== 'undefined') ? QUOTES[s] : null; return (q && q.last > 0) ? q : null; }
 function loadFindings() { try { return JSON.parse(localStorage.getItem('bpleone_brain_findings_v1') || '{"items":[]}').items; } catch (e) { return []; } }
 
 let currentSym = 'SPY';
@@ -120,7 +123,13 @@ let currentSym = 'SPY';
 function paintHeader() {
   const set = (sym, pxId, chgId) => {
     const q = getQ(sym);
-    document.getElementById(pxId).textContent = '$' + (q.last || 0).toFixed(2);
+    if (!q) {
+      document.getElementById(pxId).textContent = '—';
+      document.getElementById(chgId).textContent = '—';
+      document.getElementById(chgId).style.color = 'var(--text-muted)';
+      return;
+    }
+    document.getElementById(pxId).textContent = '$' + q.last.toFixed(2);
     const c = q.changePct || 0;
     const col = c > 0 ? 'var(--green)' : c < 0 ? 'var(--red)' : 'var(--text-muted)';
     document.getElementById(chgId).textContent = (c >= 0 ? '+' : '') + c.toFixed(2) + '%';
@@ -131,11 +140,16 @@ function paintHeader() {
   set('IWM','iwmPx','iwmChg');
   set('VXX','vxxPx','vxxChg');
   set('BTC','btcPx','btcChg');
-  // Regime
-  const spy = getQ('SPY').changePct || 0;
-  const vxx = getQ('VXX').changePct || 0;
-  const r = 50 + spy*5 - vxx*4;
+  // Regime — pass 305: needs REAL prints on both legs; no regime off placeholders.
+  const spyQ = getQ('SPY'), vxxQ = getQ('VXX');
   const rEl = document.getElementById('regime'); const rb = document.getElementById('regimeBody');
+  if (!spyQ || !vxxQ) {
+    rEl.textContent = '—'; rEl.style.color = 'var(--text-muted)'; rb.textContent = 'Awaiting live data';
+    return;
+  }
+  const spy = spyQ.changePct || 0;
+  const vxx = vxxQ.changePct || 0;
+  const r = 50 + spy*5 - vxx*4;
   if (r >= 65) { rEl.textContent = 'RISK-ON'; rEl.style.color = 'var(--green)'; rb.textContent = 'Lean long beta'; }
   else if (r >= 45) { rEl.textContent = 'NEUTRAL'; rEl.style.color = 'var(--accent)'; rb.textContent = 'Mixed signals'; }
   else { rEl.textContent = 'RISK-OFF'; rEl.style.color = 'var(--red)'; rb.textContent = 'Hedge / cut size'; }
@@ -144,7 +158,13 @@ function paintHeader() {
 function paintLevels() {
   document.getElementById('levelSym').textContent = currentSym;
   const q = getQ(currentSym);
-  const px = q.last || 100;
+  // Pass 305: no real quote -> honest empty state, never levels off a $100 placeholder.
+  if (!q) {
+    document.getElementById('levelsBody').innerHTML =
+      '<div style="padding:24px;text-align:center;color:var(--text-muted);font-size:11px;line-height:1.6;">No live quote for <strong>' + currentSym + '</strong> yet — key levels need a real price. They will appear as soon as the delayed feed prints one.</div>';
+    return;
+  }
+  const px = q.last;
   const atr = px * 0.012;
   const levels = [
     { l: 'Day High (R2)', v: +(px * 1.008).toFixed(2), c: 'var(--green)' },
@@ -230,10 +250,16 @@ loadAll();
 setInterval(appendTape, 350);
 setInterval(paintHeader, 5000);
 setInterval(paintSignals, 30000);
+// Pass 305: the key-levels panel was only painted at init, so it froze on the
+// stale-seed price forever. Re-derive it whenever REAL prices land, and hydrate
+// any user-picked off-universe symbol from /brain/quotes.
+window.addEventListener('bpleone:quotes', () => { paintHeader(); paintLevels(); });
+if (typeof hydrateQuotes === 'function') hydrateQuotes(['SPY','QQQ','IWM','VXX','BTC'], { onDone: () => { paintHeader(); paintLevels(); } });
 
 document.getElementById('loadBtn').addEventListener('click', () => {
   currentSym = document.getElementById('symPick').value.toUpperCase() || 'SPY';
   loadAll();
+  if (typeof hydrateQuotes === 'function') hydrateQuotes([currentSym], { onDone: paintLevels });
 });
 </script>
 </body>

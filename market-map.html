@@ -62,6 +62,7 @@
 <script src="js/app.js?v=v215"></script>
 <script src="js/notify.js?v=v215"></script>
 <script src="js/live.js?v=v215"></script>
+<script src="js/live-hydrate.js?v=v215"></script>
 <script>
 buildNav('market-map');
 
@@ -84,12 +85,14 @@ const STOCKS = [
   { sym: 'BA', sec: 'Industrials', cap: 130 }, { sym: 'CAT', sec: 'Industrials', cap: 180 }, { sym: 'GE', sec: 'Industrials', cap: 220 }
 ];
 
-function getQ(s) { return (typeof QUOTES !== 'undefined' && QUOTES[s]) ? QUOTES[s] : { last: 100, changePct: 0 }; }
+// Pass 305 (honesty): null for a symbol with no REAL quote — its tile renders a
+// neutral gray '—' and it is EXCLUDED from the weighted market %, breadth, and
+// sector averages, instead of a fabricated 0% diluting them. Off-map names
+// (HD/WMT/LLY/etc.) are hydrated from /brain/quotes below where possible.
+function getQ(s) { const q = (typeof QUOTES !== 'undefined') ? QUOTES[s] : null; return (q && q.last > 0) ? q : null; }
 function chgPct(s) {
   const q = getQ(s);
-  // No fabricated heat for missing quotes - render the tile neutral (0%) so a
-  // symbol without a live quote is not colored as if it moved.
-  return q.changePct != null ? q.changePct : 0;
+  return (q && typeof q.changePct === 'number') ? q.changePct : null;
 }
 
 // Squarified treemap layout
@@ -188,20 +191,32 @@ function paint() {
       tile.className = 'map-tile';
       const size = Math.min(s.w, s.h);
       const fontSize = Math.max(9, Math.min(28, size / 4));
-      tile.style.cssText = 'position:absolute;left:' + s.x + 'px;top:' + s.y + 'px;width:' + s.w + 'px;height:' + s.h + 'px;background:' + colorFor(s.chg) + ';';
-      tile.innerHTML = '<div class="sym" style="font-size:' + fontSize + 'px;color:#fff;">' + s.sym + '</div>'
-        + '<div class="chg" style="font-size:' + Math.max(9, fontSize * 0.45) + 'px;color:rgba(255,255,255,0.85);">' + (s.chg >= 0 ? '+' : '') + s.chg.toFixed(2) + '%</div>';
+      // Pass 305: no real quote -> neutral gray tile labeled '—', never a colored 0%.
+      const noQ = s.chg == null;
+      const bg = noQ ? 'rgb(55,60,70)' : colorFor(s.chg);
+      const chgTxt = noQ ? '—' : (s.chg >= 0 ? '+' : '') + s.chg.toFixed(2) + '%';
+      tile.style.cssText = 'position:absolute;left:' + s.x + 'px;top:' + s.y + 'px;width:' + s.w + 'px;height:' + s.h + 'px;background:' + bg + ';';
+      tile.innerHTML = '<div class="sym" style="font-size:' + fontSize + 'px;color:#fff;' + (noQ ? 'opacity:0.55;' : '') + '">' + s.sym + '</div>'
+        + '<div class="chg" style="font-size:' + Math.max(9, fontSize * 0.45) + 'px;color:rgba(255,255,255,' + (noQ ? '0.45' : '0.85') + ');">' + chgTxt + '</div>';
       tile.onclick = () => { window.location.href = 'trade-coach.html?sym=' + s.sym; };
-      tile.title = s.sym + ' · ' + s.sec + ' · $' + s.cap + 'B · ' + (s.chg >= 0 ? '+' : '') + s.chg.toFixed(2) + '%';
+      tile.title = s.sym + ' · ' + s.sec + ' · $' + s.cap + 'B · ' + (noQ ? 'no live quote' : chgTxt);
       sb.appendChild(tile);
     });
   });
 
-  // KPIs
-  const allChg = STOCKS.map(s => ({ s: s.sym, chg: chgPct(s.sym), sec: s.sec, cap: s.cap }));
-  const weightedAvg = allChg.reduce((s, x) => s + x.chg * x.cap, 0) / allChg.reduce((s, x) => s + x.cap, 0);
-  document.getElementById('kpiMkt').textContent = (weightedAvg >= 0 ? '+' : '') + weightedAvg.toFixed(2) + '%';
-  document.getElementById('kpiMkt').style.color = weightedAvg > 0 ? 'var(--green)' : 'var(--red)';
+  // KPIs — pass 305: only REAL quotes count. A hardcoded-zero placeholder in the
+  // weighted average diluted the "Market % Change" toward 0 and inflated breadth's
+  // denominator; now names without a live quote are excluded from every aggregate.
+  const allChg = STOCKS.map(s => ({ s: s.sym, chg: chgPct(s.sym), sec: s.sec, cap: s.cap }))
+    .filter(x => x.chg != null);
+  if (allChg.length > 0) {
+    const weightedAvg = allChg.reduce((s, x) => s + x.chg * x.cap, 0) / allChg.reduce((s, x) => s + x.cap, 0);
+    document.getElementById('kpiMkt').textContent = (weightedAvg >= 0 ? '+' : '') + weightedAvg.toFixed(2) + '%';
+    document.getElementById('kpiMkt').style.color = weightedAvg > 0 ? 'var(--green)' : 'var(--red)';
+  } else {
+    document.getElementById('kpiMkt').textContent = '—';
+    document.getElementById('kpiMkt').style.color = 'var(--text-muted)';
+  }
   // Audit pass 66: was `const bySec = {}` — duplicate declaration with line
   // 164 in same function scope, causing SyntaxError when paint() ran.
   // Renamed to bySecForKpis so both declarations are valid.
@@ -209,12 +224,19 @@ function paint() {
   allChg.forEach(s => { if (!bySecForKpis[s.sec]) bySecForKpis[s.sec] = []; bySecForKpis[s.sec].push(s); });
   const secAvgs = Object.entries(bySecForKpis).map(([sec, items]) => ({ sec, avg: items.reduce((s, i) => s + i.chg, 0) / items.length }));
   secAvgs.sort((a, b) => b.avg - a.avg);
-  document.getElementById('kpiStrong').textContent = secAvgs[0].sec;
-  document.getElementById('kpiStrongBody').textContent = '+' + secAvgs[0].avg.toFixed(2) + '%';
-  document.getElementById('kpiWeak').textContent = secAvgs[secAvgs.length - 1].sec;
-  document.getElementById('kpiWeakBody').textContent = secAvgs[secAvgs.length - 1].avg.toFixed(2) + '%';
+  if (secAvgs.length > 0) {
+    document.getElementById('kpiStrong').textContent = secAvgs[0].sec;
+    document.getElementById('kpiStrongBody').textContent = (secAvgs[0].avg >= 0 ? '+' : '') + secAvgs[0].avg.toFixed(2) + '%';
+    document.getElementById('kpiWeak').textContent = secAvgs[secAvgs.length - 1].sec;
+    document.getElementById('kpiWeakBody').textContent = secAvgs[secAvgs.length - 1].avg.toFixed(2) + '%';
+  } else {
+    document.getElementById('kpiStrong').textContent = '—';
+    document.getElementById('kpiStrongBody').textContent = 'awaiting live quotes';
+    document.getElementById('kpiWeak').textContent = '—';
+    document.getElementById('kpiWeakBody').textContent = 'awaiting live quotes';
+  }
   const green = allChg.filter(s => s.chg > 0).length;
-  document.getElementById('kpiBreadth').textContent = Math.round((green / allChg.length) * 100) + '%';
+  document.getElementById('kpiBreadth').textContent = allChg.length > 0 ? Math.round((green / allChg.length) * 100) + '%' : '—';
 
   // Sector breakdown
   const sb = document.getElementById('sectors');
@@ -231,6 +253,10 @@ paint();
 window.addEventListener('resize', paint);
 document.getElementById('refreshBtn').addEventListener('click', paint);
 setInterval(paint, 30000);
+// Pass 305: hydrate REAL prices for the ~24 off-universe map names (HD, WMT, LLY,
+// KO, XOM, ...) from /brain/quotes, then repaint on any real-quote event.
+if (typeof hydrateQuotes === 'function') hydrateQuotes(STOCKS.map(s => s.sym), { onDone: paint });
+window.addEventListener('bpleone:quotes', paint);
 </script>
 </body>
 </html>

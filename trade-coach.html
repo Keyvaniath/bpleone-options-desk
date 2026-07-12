@@ -67,10 +67,14 @@
 <script src="js/notify.js?v=v215"></script>
 <script src="js/live.js?v=v215"></script>
 <script src="js/model.js?v=v215"></script>
+<script src="js/live-hydrate.js?v=v215"></script>
 <script>
 buildNav('trade-coach');
 
-function getQ(s) { return (typeof QUOTES !== 'undefined' && QUOTES[s]) ? QUOTES[s] : { last: 100, changePct: 0 }; }
+// Pass 305 (honesty): never build a plan off a fabricated price. Return null for
+// a symbol with no REAL quote; generatePlan then shows an honest "no live price"
+// card instead of entry/stop/target dollar levels computed from a $100 placeholder.
+function getQ(s) { const q = (typeof QUOTES !== 'undefined') ? QUOTES[s] : null; return (q && q.last > 0) ? q : null; }
 function loadFindings() {
   try { return JSON.parse(localStorage.getItem('bpleone_brain_findings_v1') || '{"items":[]}').items; } catch (e) { return []; }
 }
@@ -80,8 +84,8 @@ function loadLearn() {
 
 function generatePlan(sym) {
   const q = getQ(sym);
-  if (!q.last) {
-    return '<div class="card" style="padding:30px;text-align:center;color:var(--text-muted);">Symbol <strong>' + sym + '</strong> not in universe. Try a major US listing.</div>';
+  if (!q || !(q.last > 0)) {
+    return '<div class="card" style="padding:30px;text-align:center;color:var(--text-muted);">No live price available for <strong>' + sym + '</strong> yet. A plan needs a real quote — the feed may still be loading, or this symbol isn\'t covered by the delayed data feed. Try a major US listing (SPY, NVDA, AAPL, TSLA…).</div>';
   }
   const last = q.last;
   const chg = q.changePct || 0;
@@ -248,9 +252,20 @@ function generatePlan(sym) {
   `;
 }
 
+// Pass 305: hydrate the symbol's REAL price from /brain/quotes before (re)rendering
+// the plan, so entry/stop/targets are computed from a real quote — never a $100
+// placeholder. Renders immediately (shows the honest "no live price" card if the
+// quote hasn't landed) then re-renders once the real price arrives.
+function showPlan(s) {
+  const out = document.getElementById('planOutput');
+  out.innerHTML = generatePlan(s);
+  if (typeof hydrateQuotes === 'function') {
+    hydrateQuotes([s], { onDone: () => { out.innerHTML = generatePlan(s); } });
+  }
+}
 document.getElementById('goBtn').addEventListener('click', () => {
   const s = document.getElementById('symInput').value.toUpperCase().trim();
-  if (s) document.getElementById('planOutput').innerHTML = generatePlan(s);
+  if (s) showPlan(s);
 });
 document.getElementById('symInput').addEventListener('keypress', e => {
   if (e.key === 'Enter') document.getElementById('goBtn').click();

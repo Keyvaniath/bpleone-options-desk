@@ -73,6 +73,7 @@
 <script src="js/notify.js?v=v215"></script>
 <script src="js/live.js?v=v215"></script>
 <script src="js/model.js?v=v215"></script>
+<script src="js/live-hydrate.js?v=v215"></script>
 <script>
 buildNav('watchlist-pro');
 
@@ -92,7 +93,10 @@ function loadLists() {
   return DEFAULT_LISTS;
 }
 function saveLists(l) { try { localStorage.setItem(KEY, JSON.stringify(l)); } catch (e) {} }
-function getQ(s) { return (typeof QUOTES !== 'undefined' && QUOTES[s]) ? QUOTES[s] : { last: 100, changePct: 0 }; }
+// Pass 305 (honesty): return null for a symbol with no REAL quote instead of a
+// fabricated { last: 100 } placeholder — the render shows '—'. Off-universe names
+// (MSTR/HOOD/etc.) are hydrated with real prices from /brain/quotes on load.
+function getQ(s) { const q = (typeof QUOTES !== 'undefined') ? QUOTES[s] : null; return (q && q.last > 0) ? q : null; }
 function loadFindings() { try { return JSON.parse(localStorage.getItem('bpleone_brain_findings_v1') || '{"items":[]}').items; } catch (e) { return []; } }
 function loadLearn() { try { return JSON.parse(localStorage.getItem('bpleone_learn_v1') || '{}'); } catch (e) { return {}; } }
 
@@ -119,11 +123,12 @@ function renderRows() {
   const findings = loadFindings().filter(f => (Date.now() - f.ts) < 8 * 60 * 60 * 1000);
   const learn = loadLearn();
 
-  let totalChg = 0, totalSig = 0, totalHigh = 0;
+  let totalChg = 0, totalSig = 0, totalHigh = 0, realCount = 0;
   list.syms.forEach((sym, i) => {
     const q = getQ(sym);
-    const chg = q.changePct || 0;
-    totalChg += chg;
+    const hasQ = !!(q && q.last > 0);
+    const chg = (q && typeof q.changePct === 'number') ? q.changePct : null;
+    if (chg !== null) { totalChg += chg; realCount++; }
     const symFindings = findings.filter(f => f.meta && f.meta.sym === sym);
     totalSig += symFindings.length;
     const w = (learn.symbols && learn.symbols[sym] && learn.symbols[sym].w) || 1.0;
@@ -146,8 +151,8 @@ function renderRows() {
     row.className = 'wl-row ' + cls;
     row.innerHTML = '<div>' + (i + 1) + '</div>'
       + '<div><strong>' + sym + '</strong></div>'
-      + '<div>$' + (q.last || 0).toFixed(2) + '</div>'
-      + '<div style="color:' + chgCol + ';">' + (chg >= 0 ? '+' : '') + chg.toFixed(2) + '%</div>'
+      + '<div>' + (hasQ ? '$' + q.last.toFixed(2) : '<span style="color:var(--text-muted);">—</span>') + '</div>'
+      + '<div style="color:' + chgCol + ';">' + (chg === null ? '—' : (chg >= 0 ? '+' : '') + chg.toFixed(2) + '%') + '</div>'
       + '<div style="color:' + mlCol + ';font-weight:700;">' + (mlProb == null ? '—' : '🧬 ' + (mlProb * 100).toFixed(0) + '%') + '</div>'
       + '<div><span class="score-badge" style="background:rgba(0,212,255,0.12);color:var(--accent);">' + symFindings.length + ' sig</span></div>'
       + '<div style="font-weight:700;color:' + scoreCol + ';font-size:14px;">' + score + '</div>'
@@ -157,7 +162,7 @@ function renderRows() {
   });
 
   document.getElementById('kpiSize').textContent = list.syms.length;
-  document.getElementById('kpiNet').textContent = (list.syms.length > 0 ? (totalChg / list.syms.length).toFixed(2) : '0.00') + '%';
+  document.getElementById('kpiNet').textContent = (realCount > 0 ? (totalChg / realCount).toFixed(2) : '0.00') + '%';
   document.getElementById('kpiNet').style.color = totalChg > 0 ? 'var(--green)' : totalChg < 0 ? 'var(--red)' : 'var(--text-primary)';
   document.getElementById('kpiSig').textContent = totalSig;
   document.getElementById('kpiHigh').textContent = totalHigh;
@@ -174,6 +179,19 @@ function renderRows() {
 
 function renderAll() { renderTabs(); renderRows(); }
 renderAll();
+
+// Pass 305: hydrate REAL prices for every symbol across all lists (incl.
+// off-universe names like MSTR/HOOD that the seed feed never priced) from
+// /brain/quotes, then re-render. Also re-render when the worker feed publishes.
+function hydrateAll() {
+  try {
+    if (typeof hydrateQuotes !== 'function') return;
+    const all = [...new Set(lists.reduce((a, l) => a.concat(l.syms), []))];
+    hydrateQuotes(all, { onDone: renderRows });
+  } catch (e) {}
+}
+hydrateAll();
+window.addEventListener('bpleone:quotes', renderRows);
 
 document.getElementById('newListBtn').addEventListener('click', () => {
   const n = prompt('New list name?');
@@ -192,6 +210,7 @@ document.getElementById('addSymBtn').addEventListener('click', () => {
       lists[activeIdx].syms.push(sym);
       saveLists(lists);
       renderAll();
+      hydrateAll();
     }
   }
 });

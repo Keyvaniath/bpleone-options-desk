@@ -149,27 +149,41 @@
 <script src="js/model.js?v=v215"></script>
 <script src="js/brain-loop.js?v=v215"></script>
 <script src="js/charts.js?v=v215"></script>
+<script src="js/live-hydrate.js?v=v215"></script>
 <script>
 buildNav('morning-brief');
 
-function getQ(sym) { return (typeof QUOTES !== 'undefined' && QUOTES[sym]) ? QUOTES[sym] : { last: 0, changePct: 0 }; }
+// Pass 305 (honesty): null for a symbol with no REAL quote — the regime hero waits
+// for live prints instead of publishing a score derived from months-old seed moves.
+function getQ(sym) { const q = (typeof QUOTES !== 'undefined') ? QUOTES[sym] : null; return (q && q.last > 0) ? q : null; }
 
 // --- Regime
 function computeRegime() {
-  const spy = getQ('SPY').changePct || 0;
-  const vxx = getQ('VXX').changePct || 0;
-  const tlt = getQ('TLT').changePct || 0;
-  const hyg = getQ('HYG').changePct || 0;
-  const uup = getQ('UUP').changePct || 0;
-  const gld = getQ('GLD').changePct || 0;
+  const legs = ['SPY','VXX','TLT','HYG','UUP','GLD'].map(s => { const q = getQ(s); return q ? (q.changePct || 0) : null; });
+  if (legs.some(v => v == null)) return null;   // needs real prints on all six legs
+  const [spy, vxx, tlt, hyg, uup, gld] = legs;
   return Math.max(0, Math.min(100, 50 + spy*5 + hyg*6 - vxx*4 - uup*3 - gld*2 + tlt));
 }
-const r = computeRegime();
-const regimeLabel = r >= 65 ? 'RISK-ON' : r >= 45 ? 'NEUTRAL' : r >= 30 ? 'CAUTION' : 'RISK-OFF';
-const regimeCol = r >= 65 ? 'var(--green)' : r >= 45 ? 'var(--accent)' : r >= 30 ? 'var(--yellow)' : 'var(--red)';
-document.getElementById('heroRegime').textContent = regimeLabel;
-document.getElementById('heroRegime').style.color = regimeCol;
-document.getElementById('heroRegimeBody').textContent = 'Score ' + r.toFixed(0) + '/100';
+// Pass 305: the regime hero used to be computed ONCE at parse time (from seed
+// data) and never re-run — unlike the pulse/levels widgets, which repaint on
+// quote events. Now it re-derives whenever real prices land.
+function paintRegimeHero() {
+  const r = computeRegime();
+  const el = document.getElementById('heroRegime');
+  const body = document.getElementById('heroRegimeBody');
+  if (r == null) {
+    el.textContent = '—'; el.style.color = 'var(--text-muted)';
+    body.textContent = 'awaiting live data';
+    return;
+  }
+  const regimeLabel = r >= 65 ? 'RISK-ON' : r >= 45 ? 'NEUTRAL' : r >= 30 ? 'CAUTION' : 'RISK-OFF';
+  const regimeCol = r >= 65 ? 'var(--green)' : r >= 45 ? 'var(--accent)' : r >= 30 ? 'var(--yellow)' : 'var(--red)';
+  el.textContent = regimeLabel;
+  el.style.color = regimeCol;
+  body.textContent = 'Score ' + r.toFixed(0) + '/100';
+}
+paintRegimeHero();
+window.addEventListener('bpleone:quotes', paintRegimeHero);
 
 // --- Brain hit rate
 try {
@@ -261,22 +275,8 @@ const checklist = [
 ];
 document.getElementById('checklist').innerHTML = checklist.map(c => '<div class="checkbox">' + c + '</div>').join('');
 
-// --- SPY levels
-const spy = getQ('SPY');
-const spyLast = spy.last || 540;
-const yh = +(spyLast * 1.005).toFixed(2);
-const yl = +(spyLast * 0.995).toFixed(2);
-const wh = +(spyLast * 1.015).toFixed(2);
-const wl = +(spyLast * 0.985).toFixed(2);
-const pivot = +(spyLast * 1.001).toFixed(2);
-document.getElementById('spyLevels').innerHTML = `
-  <div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border);"><span style="color:var(--text-muted);">Week High (R2)</span><span class="mono" style="color:var(--green);font-weight:700;">$${wh}</span></div>
-  <div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border);"><span style="color:var(--text-muted);">Yesterday High (R1)</span><span class="mono">${yh}</span></div>
-  <div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border);background:rgba(0,212,255,0.04);"><span style="color:var(--accent);font-weight:700;">Pivot</span><span class="mono" style="color:var(--accent);font-weight:700;">${pivot}</span></div>
-  <div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border);"><span style="color:var(--text-muted);">Last Close</span><span class="mono">${spyLast.toFixed(2)}</span></div>
-  <div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border);"><span style="color:var(--text-muted);">Yesterday Low (S1)</span><span class="mono">${yl}</span></div>
-  <div style="display:flex;justify-content:space-between;padding:6px 0;"><span style="color:var(--text-muted);">Week Low (S2)</span><span class="mono" style="color:var(--red);font-weight:700;">$${wl}</span></div>
-`;
+// --- SPY levels: rendered by renderLiveWidgets() below (pass 305 removed the
+// duplicate parse-time render that computed levels off a fabricated $540 SPY).
 
 // --- Overnight findings
 const overnight = findings.filter(f => (now - f.ts) < 12 * 60 * 60 * 1000).slice(0, 8);
@@ -299,11 +299,26 @@ const PULSE_KEYS = [['SPY','S&P'],['QQQ','Nas'],['VXX','VIX'],['TLT','30Y'],['GL
 // worker-yahoo prices — without this, the page kept the seed values it painted
 // at parse time. Re-runs SPY levels + the mini pulse with live numbers.
 function renderLiveWidgets() {
-  const sp = getQ('SPY'); const last = sp.last || 540;
+  const sp = getQ('SPY');
+  const lvl = document.getElementById('spyLevels');
+  // Pass 305: no real SPY print -> honest waiting state, never levels off a
+  // fabricated $540 placeholder.
+  if (!sp) {
+    if (lvl) lvl.innerHTML = '<div style="padding:16px;text-align:center;color:var(--text-muted);font-size:12px;">Awaiting a live SPY print — levels are only computed from real prices.</div>';
+    const mpWait = document.getElementById('miniPulse');
+    if (mpWait) mpWait.innerHTML = PULSE_KEYS.map(([s, n]) => {
+      const q = getQ(s);
+      if (!q) return '<div class="brief-stat"><div class="l">' + n + ' · ' + s + '</div><div class="v" style="color:var(--text-muted);">—</div><div class="s" style="color:var(--text-muted);">—</div></div>';
+      const c = (q.changePct || 0);
+      const col = c > 0 ? 'var(--green)' : c < 0 ? 'var(--red)' : 'var(--text-muted)';
+      return '<div class="brief-stat"><div class="l">' + n + ' · ' + s + '</div><div class="v">' + q.last.toFixed(2) + '</div><div class="s" style="color:' + col + ';">' + (c >= 0 ? '+' : '') + c.toFixed(2) + '%</div></div>';
+    }).join('');
+    return;
+  }
+  const last = sp.last;
   const _yh = +(last * 1.005).toFixed(2), _yl = +(last * 0.995).toFixed(2);
   const _wh = +(last * 1.015).toFixed(2), _wl = +(last * 0.985).toFixed(2);
   const _pv = +(last * 1.001).toFixed(2);
-  const lvl = document.getElementById('spyLevels');
   if (lvl) lvl.innerHTML = `
     <div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border);"><span style="color:var(--text-muted);">Week High (R2)</span><span class="mono" style="color:var(--green);font-weight:700;">$${_wh}</span></div>
     <div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border);"><span style="color:var(--text-muted);">Yesterday High (R1)</span><span class="mono">${_yh}</span></div>
@@ -313,14 +328,18 @@ function renderLiveWidgets() {
     <div style="display:flex;justify-content:space-between;padding:6px 0;"><span style="color:var(--text-muted);">Week Low (S2)</span><span class="mono" style="color:var(--red);font-weight:700;">$${_wl}</span></div>`;
   const mp = document.getElementById('miniPulse');
   if (mp) mp.innerHTML = PULSE_KEYS.map(([s, n]) => {
-    const q = getQ(s); const c = (q.changePct || 0);
+    const q = getQ(s);
+    if (!q) return '<div class="brief-stat"><div class="l">' + n + ' · ' + s + '</div><div class="v" style="color:var(--text-muted);">—</div><div class="s" style="color:var(--text-muted);">—</div></div>';
+    const c = (q.changePct || 0);
     const col = c > 0 ? 'var(--green)' : c < 0 ? 'var(--red)' : 'var(--text-muted)';
-    return '<div class="brief-stat"><div class="l">' + n + ' · ' + s + '</div><div class="v">' + (q.last || 0).toFixed(2) + '</div><div class="s" style="color:' + col + ';">' + (c >= 0 ? '+' : '') + c.toFixed(2) + '%</div></div>';
+    return '<div class="brief-stat"><div class="l">' + n + ' · ' + s + '</div><div class="v">' + q.last.toFixed(2) + '</div><div class="s" style="color:' + col + ';">' + (c >= 0 ? '+' : '') + c.toFixed(2) + '%</div></div>';
   }).join('');
 }
 renderLiveWidgets();
 window.addEventListener('bpleone:quotes', renderLiveWidgets);
 try { if (typeof Feed !== 'undefined') Feed.subscribe('*', renderLiveWidgets); } catch (e) {}
+// Pass 305: hydrate the regime + pulse basket so all legs get real prices fast.
+if (typeof hydrateQuotes === 'function') hydrateQuotes(['SPY','QQQ','VXX','TLT','HYG','UUP','GLD','BTC'], { onDone: () => { renderLiveWidgets(); paintRegimeHero(); } });
 
 // --- Catalysts (synthesized)
 const today = new Date();

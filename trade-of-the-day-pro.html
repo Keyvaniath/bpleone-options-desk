@@ -58,6 +58,7 @@
 <script src="js/notify.js?v=v215"></script>
 <script src="js/live.js?v=v215"></script>
 <script src="js/model.js?v=v215"></script>
+<script src="js/live-hydrate.js?v=v215"></script>
 <script>
 buildNav('trade-of-the-day-pro');
 
@@ -112,13 +113,20 @@ function paint() {
   const sym = (top.meta && top.meta.sym) || '—';
   const setup = (top.meta && top.meta.setup) || top.type;
   const w = (learn.symbols && learn.symbols[sym] && learn.symbols[sym].w) || 1.0;
-  const q = (typeof window.QUOTES !== 'undefined' && window.QUOTES[sym]) ? window.QUOTES[sym] : { last: 100, changePct: 0 };
-  const direction = top.modelProb >= 0.5 ? 'LONG' : 'SHORT';
-  const dirCol = direction === 'LONG' ? 'var(--green)' : 'var(--red)';
-  const atr = (q.last || 100) * 0.025;
-  const entry = q.last;
-  const stop = direction === 'LONG' ? entry - atr : entry + atr;
-  const target = direction === 'LONG' ? entry + atr * 3 : entry - atr * 3;
+  // Pass 305 (honesty): never compute entry/stop/target from a fabricated $100
+  // placeholder — hasQ gates the dollar levels; without a real quote they show '—'.
+  // prob is null-guarded so a finding without modelProb renders '—', not 'NaN%'.
+  const _q = (typeof window.QUOTES !== 'undefined') ? window.QUOTES[sym] : null;
+  const hasQ = !!(_q && _q.last > 0);
+  const q = hasQ ? _q : { last: null, changePct: null };
+  const prob = (typeof top.modelProb === 'number' && isFinite(top.modelProb)) ? top.modelProb : null;
+  const direction = prob == null ? 'REVIEW' : prob >= 0.5 ? 'LONG' : 'SHORT';
+  const dirCol = direction === 'LONG' ? 'var(--green)' : direction === 'SHORT' ? 'var(--red)' : 'var(--text-muted)';
+  const atr = hasQ ? q.last * 0.025 : null;
+  const entry = hasQ ? q.last : null;
+  const stop = hasQ ? (direction === 'SHORT' ? entry + atr : entry - atr) : null;
+  const target = hasQ ? (direction === 'SHORT' ? entry - atr * 3 : entry + atr * 3) : null;
+  const fmt$ = v => (v == null ? '—' : '$' + v.toFixed(2));
 
   hero.innerHTML = '<div class="totd-hero">'
     + '<div style="display:flex;justify-content:space-between;align-items:start;flex-wrap:wrap;gap:24px;">'
@@ -126,19 +134,19 @@ function paint() {
     + '<div style="font-size:11px;color:#a78bfa;font-weight:700;letter-spacing:1.5px;">🧬 ML SELECTED · TRADE OF THE DAY</div>'
     + '<div class="sym" style="color:var(--accent);margin-top:8px;">' + sym + '</div>'
     + '<div style="font-size:14px;color:var(--text-muted);margin-top:4px;">' + setup + '</div>'
-    + '<div style="margin-top:14px;display:inline-block;padding:6px 16px;background:rgba(' + (direction === 'LONG' ? '16,185,129' : '239,68,68') + ',0.18);color:' + dirCol + ';font-weight:800;border-radius:6px;font-size:13px;letter-spacing:0.5px;">' + direction + '</div>'
+    + '<div style="margin-top:14px;display:inline-block;padding:6px 16px;background:rgba(' + (direction === 'LONG' ? '16,185,129' : direction === 'SHORT' ? '239,68,68' : '148,163,184') + ',0.18);color:' + dirCol + ';font-weight:800;border-radius:6px;font-size:13px;letter-spacing:0.5px;">' + direction + '</div>'
     + '</div>'
     + '<div style="text-align:right;">'
     + '<div style="font-size:11px;color:var(--text-muted);font-weight:700;">MODEL CONFIDENCE</div>'
-    + '<div class="conf" style="color:' + (top.modelProb >= 0.7 ? 'var(--green)' : 'var(--accent)') + ';">' + (top.modelProb * 100).toFixed(0) + '%</div>'
+    + '<div class="conf" style="color:' + (prob != null && prob >= 0.7 ? 'var(--green)' : 'var(--accent)') + ';">' + (prob == null ? '—' : (prob * 100).toFixed(0) + '%') + '</div>'
     + '<div style="font-size:12px;color:var(--text-muted);">' + '⭐'.repeat(top.severity === 'high' ? 3 : top.severity === 'medium' ? 2 : (top.severity || 1)) + ' · brain w=' + w.toFixed(2) + '×</div>'
     + '</div>'
     + '</div>'
     + '<div style="margin-top:24px;padding-top:20px;border-top:1px solid rgba(255,255,255,0.08);">'
-    + '<div class="spec-row"><div class="label">Last Price</div><div class="value">$' + (q.last || 100).toFixed(2) + ' · ' + ((q.changePct || 0) >= 0 ? '+' : '') + (q.changePct || 0).toFixed(2) + '%</div></div>'
-    + '<div class="spec-row"><div class="label">Entry</div><div class="value" style="color:var(--accent);">$' + entry.toFixed(2) + '</div></div>'
-    + '<div class="spec-row"><div class="label">Stop (1 ATR)</div><div class="value" style="color:var(--red);">$' + stop.toFixed(2) + '</div></div>'
-    + '<div class="spec-row"><div class="label">Target (3R)</div><div class="value" style="color:var(--green);">$' + target.toFixed(2) + '</div></div>'
+    + '<div class="spec-row"><div class="label">Last Price</div><div class="value">' + (hasQ ? '$' + q.last.toFixed(2) + ' · ' + ((q.changePct || 0) >= 0 ? '+' : '') + (q.changePct || 0).toFixed(2) + '%' : '— (no live quote yet)') + '</div></div>'
+    + '<div class="spec-row"><div class="label">Entry</div><div class="value" style="color:var(--accent);">' + fmt$(entry) + '</div></div>'
+    + '<div class="spec-row"><div class="label">Stop (1 ATR)</div><div class="value" style="color:var(--red);">' + fmt$(stop) + '</div></div>'
+    + '<div class="spec-row"><div class="label">Target (3R)</div><div class="value" style="color:var(--green);">' + fmt$(target) + '</div></div>'
     + '<div class="spec-row"><div class="label">Thesis</div><div class="value" style="font-family:Inter;font-weight:400;font-size:12px;color:var(--text-secondary);text-align:right;max-width:500px;">' + (top.title || top.body || '') + '</div></div>'
     + '</div>'
     + '<div style="margin-top:20px;display:flex;gap:10px;flex-wrap:wrap;">'
@@ -154,11 +162,13 @@ function paint() {
   bp.innerHTML = '';
   candidates.slice(1, 5).forEach(f => {
     const sym2 = (f.meta && f.meta.sym) || '—';
-    const col = f.modelProb >= 0.70 ? 'var(--green)' : 'var(--accent)';
+    // Pass 305: null-guard modelProb so a finding without it renders '—', not 'NaN%'.
+    const p2 = (typeof f.modelProb === 'number' && isFinite(f.modelProb)) ? f.modelProb : null;
+    const col = p2 != null && p2 >= 0.70 ? 'var(--green)' : 'var(--accent)';
     const card = document.createElement('div');
     card.style.cssText = 'padding:14px;background:var(--bg-elevated);border:1px solid var(--border);border-radius:10px;cursor:pointer;border-left:3px solid ' + col + ';';
     card.onclick = () => { window.location.href = 'trade-coach.html?sym=' + sym2; };
-    card.innerHTML = '<div style="display:flex;justify-content:space-between;align-items:center;"><strong style="font-size:14px;">' + sym2 + '</strong><span class="mono" style="color:' + col + ';font-weight:800;font-size:18px;">' + (f.modelProb * 100).toFixed(0) + '%</span></div>'
+    card.innerHTML = '<div style="display:flex;justify-content:space-between;align-items:center;"><strong style="font-size:14px;">' + sym2 + '</strong><span class="mono" style="color:' + col + ';font-weight:800;font-size:18px;">' + (p2 == null ? '—' : (p2 * 100).toFixed(0) + '%') + '</span></div>'
       + '<div style="font-size:11px;color:var(--text-muted);margin-top:4px;">' + ((f.meta && f.meta.setup) || f.type) + '</div>';
     bp.appendChild(card);
   });
@@ -171,6 +181,9 @@ document.getElementById('refreshBtn').addEventListener('click', paint);
 paint();
 window.addEventListener('bpleone:brain-finding', paint);
 window.addEventListener('bpleone:model-trained', paint);
+// Pass 305: also re-render when REAL prices land, so entry/stop/target are
+// recomputed from the live quote instead of freezing on a stale-seed price.
+window.addEventListener('bpleone:quotes', paint);
 setInterval(paint, 5 * 60 * 1000);
 </script>
 </body>

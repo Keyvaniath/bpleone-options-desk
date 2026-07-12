@@ -39,18 +39,31 @@
 <script src="js/app.js?v=v215"></script>
 <script src="js/notify.js?v=v215"></script>
 <script src="js/live.js?v=v215"></script>
+<script src="js/live-hydrate.js?v=v215"></script>
 <script>
 buildNav('ai-narrative');
 
-function getQ(s) { return (typeof QUOTES !== 'undefined' && QUOTES[s]) ? QUOTES[s] : { last: 0, changePct: 0 }; }
+// Pass 305 (honesty): null for a symbol with no REAL quote — the narrative waits
+// for live prints instead of narrating months-old seed moves as today's tape.
+function getQ(s) { const q = (typeof QUOTES !== 'undefined') ? QUOTES[s] : null; return (q && q.last > 0) ? q : null; }
 function loadFindings() { try { return JSON.parse(localStorage.getItem('bpleone_brain_findings_v1') || '{"items":[]}').items; } catch (e) { return []; } }
 function loadState() { try { return JSON.parse(localStorage.getItem('bpleone_brain_loop_state_v1') || '{}'); } catch (e) { return {}; } }
 function loadLearn() { try { return JSON.parse(localStorage.getItem('bpleone_learn_v1') || '{}'); } catch (e) { return {}; } }
 
 function paint() {
   const spy = getQ('SPY'), qqq = getQ('QQQ'), iwm = getQ('IWM'), vxx = getQ('VXX'), tlt = getQ('TLT'), btc = getQ('BTC'), gld = getQ('GLD');
+  // Pass 305: the narrative needs REAL prints on its core legs — never narrate
+  // placeholder/seed moves as today's tape. Waits honestly until they land.
+  if (!spy || !qqq || !vxx || !tlt) {
+    document.getElementById('narrative').innerHTML = '<div class="narrative-block" style="text-align:center;color:var(--text-muted);padding:30px;">'
+      + 'Awaiting live cross-asset prices (SPY / QQQ / VXX / TLT)… the narrative is only generated from real data. It will appear within a few seconds of the feed printing.'
+      + '</div>';
+    return;
+  }
   const spyChg = spy.changePct || 0;
-  const qqqChg = qqq.changePg || qqq.changePct || 0;
+  // (pass 305: fixed a typo — was `qqq.changePg`, a nonexistent field, so QQQ's
+  // real move could be silently replaced by 0 in the narrative.)
+  const qqqChg = qqq.changePct || 0;
   const vxxChg = vxx.changePct || 0;
   const tltChg = tlt.changePct || 0;
 
@@ -98,11 +111,15 @@ function paint() {
   if (topPicks.length === 0) brainLine = `Brain has logged ${recent.length} findings in the last 6 hours but no symbol is dominating — keep watch as the day develops.`;
   else brainLine = `Brain's top focus over the last 6 hours: ${topPicks.map(([s, sc]) => `<strong>${s}</strong> (score ${sc})`).join(', ')}. ${high.length} of those carry 2-star severity or higher.`;
 
-  // Crypto narrative
-  const btcChg = btc.changePct || 0;
+  // Crypto narrative — pass 305: BTC may lack a live print; omit rather than fabricate.
   let cryptoLine;
-  if (Math.abs(btcChg) > 2) cryptoLine = `Crypto on the move — BTC ${btcChg >= 0 ? '+' : ''}${btcChg.toFixed(2)}%. ${btcChg > 0 ? 'Risk-asset confirmation for the equity tape.' : 'Equity-crypto correlation visible on the downside.'}`;
-  else cryptoLine = `Crypto quiet (BTC ${btcChg >= 0 ? '+' : ''}${btcChg.toFixed(2)}%) — no spillover signal into equities today.`;
+  if (!btc) {
+    cryptoLine = `Crypto: no live BTC print yet — omitted rather than narrated from a placeholder.`;
+  } else {
+    const btcChg = btc.changePct || 0;
+    if (Math.abs(btcChg) > 2) cryptoLine = `Crypto on the move — BTC ${btcChg >= 0 ? '+' : ''}${btcChg.toFixed(2)}%. ${btcChg > 0 ? 'Risk-asset confirmation for the equity tape.' : 'Equity-crypto correlation visible on the downside.'}`;
+    else cryptoLine = `Crypto quiet (BTC ${btcChg >= 0 ? '+' : ''}${btcChg.toFixed(2)}%) — no spillover signal into equities today.`;
+  }
 
   // ML feedback narrative
   const state = loadState();
@@ -147,6 +164,10 @@ function paint() {
 paint();
 document.getElementById('refreshBtn').addEventListener('click', paint);
 setInterval(paint, 5 * 60 * 1000);
+// Pass 305: re-generate the narrative the moment REAL prices land (it painted
+// once from seed data and only refreshed every 5 min), and hydrate the basket.
+window.addEventListener('bpleone:quotes', paint);
+if (typeof hydrateQuotes === 'function') hydrateQuotes(['SPY','QQQ','IWM','VXX','TLT','BTC','GLD'], { onDone: paint });
 </script>
 </body>
 </html>
