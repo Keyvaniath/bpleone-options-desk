@@ -215,7 +215,17 @@
   }
   function start() {
     if (timer) return;
-    pollCycle();
+    // Pass 305 (live-data fix): the INITIAL load must NOT be visibility-gated.
+    // pollCycle() returns early when document.hidden, so a page opened in a
+    // background tab (cmd/ctrl-click, a restored session, browser prerender, or
+    // any moment the tab isn't foregrounded at load) NEVER fetched and sat on the
+    // stale SEED prices with "MODE: MOCK / No live feed" until the user focused
+    // it. That read as broken live data. Fix: the first paint ALWAYS fetches real
+    // prices; only the RECURRING interval skips while hidden (that's the pass-296
+    // scale win, preserved below). Cost stays bounded — one fetch per tab, and it
+    // hits the unmetered CDN snapshot first, so this does not reopen the scale hole.
+    pollOnce();
+    pollQuotes();
     timer = setInterval(pollCycle, JITTERED_POLL_MS);
     if (typeof document !== 'undefined') {
       document.addEventListener('visibilitychange', () => { if (!document.hidden) pollCycle(); });

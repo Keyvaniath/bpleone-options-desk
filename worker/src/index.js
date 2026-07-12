@@ -38,7 +38,7 @@
 // Pass 200: version stamp so brain-proof.html + worker-setup.html can detect
 // when the deployed worker is behind the repo source. Bump on every meaningful
 // behavior change. Read via /brain/health → worker_version field.
-const WORKER_VERSION = 'pass-301';
+const WORKER_VERSION = 'pass-304';
 
 const UNIVERSE = [
   'SPY','QQQ','IWM','DIA','AAPL','NVDA','TSLA','MSFT','META','AMZN','GOOGL','AMD',
@@ -1982,6 +1982,31 @@ async function handleRequest(request, env, ctx) {
       }
     }
     return json({ count: Object.keys(outB).length, days: daysB, bars: outB }, 200, 30);
+  }
+
+  // ===== Pass 304: LONG-horizon daily closes (for the multi-timeframe "Horizons"
+  // view: months-to-year momentum + 50/100/200-day trend). BARS_HISTORY only keeps
+  // ~40 days; this serves ~1y of real Yahoo closes, heavily cached (6h KV TTL +
+  // per-colo read cache + 1h response cache) since long history moves slowly. One
+  // Yahoo subrequest only on a cold 6h cache-miss, so it's cheap even at scale.
+  if (path === '/brain/history') {
+    const raw = (url.searchParams.get('sym') || 'SPY').toUpperCase();
+    const sym = raw.replace(/[^A-Z0-9.\-]/g, '').slice(0, 8);
+    if (!/^[A-Z][A-Z0-9.\-]{0,7}$/.test(sym)) return json({ error: 'bad symbol' }, 400);
+    const KEY = 'hist_v1:' + sym;
+    const cached = await kvGet(env, KEY, null, 300);   // per-colo 5-min read cache
+    if (cached && Array.isArray(cached.closes) && cached.closes.length && (Date.now() - (cached.at || 0) < 6 * 3600 * 1000)) {
+      return json(cached, 200, 3600);
+    }
+    const bars = await fetchYahooHistorical(sym, 365);
+    if (!bars || !bars.length) {
+      if (cached && Array.isArray(cached.closes) && cached.closes.length) return json(cached, 200, 600);  // serve stale on fetch fail
+      return json({ error: 'no history for ' + sym, sym }, 502);
+    }
+    const closes = bars.map(b => ({ t: b.ts, c: b.close })).filter(x => x.c > 0);
+    const out = { ok: true, sym, at: Date.now(), n: closes.length, closes };
+    try { await env.BRAIN_KV.put(KEY, JSON.stringify(out), { expirationTtl: 6 * 3600 }); } catch (e) {}
+    return json(out, 200, 3600);
   }
 
   // ===== Pass 284: extended-hours quotes (pre/post-market) =====

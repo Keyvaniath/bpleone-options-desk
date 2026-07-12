@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Broadcast — honest tweet composer — bpleone / trade</title>
+<meta name="description" content="Draft ready-to-post tweets for your daily and long-term plays from live data — daily leans, multi-week watches, multi-horizon spotlights, market posture, and a transparency note. Every draft is honest by construction: directional leans graded live vs market drift, never a fabricated win-rate. Posting is your manual action via the X intent link.">
+<meta property="og:title" content="bpleone / trade — Broadcast composer">
+<meta property="og:description" content="Turn the desk's live reads into honest, ready-to-post tweets — short-term and long-term — then post them yourself.">
+<meta property="og:type" content="website">
+<meta property="og:image" content="https://options.bpleone.com/assets/og-card.png">
+<meta property="og:url" content="https://options.bpleone.com/broadcast.html">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:image" content="https://options.bpleone.com/assets/og-card.png">
+<link rel="stylesheet" href="css/style.css?v=v215">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.bc-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(340px,1fr)); gap:16px; }
+.bc-card { background:var(--bg-elevated); border:1px solid var(--border); border-radius:14px; padding:16px; display:flex; flex-direction:column; }
+.bc-tag { font-size:11px; font-weight:800; text-transform:uppercase; letter-spacing:0.5px; color:var(--accent); margin-bottom:4px; }
+.bc-desc { font-size:11px; color:var(--text-muted); margin-bottom:10px; line-height:1.5; }
+.bc-ta { width:100%; min-height:120px; resize:vertical; background:var(--bg); border:1px solid var(--border); border-radius:9px; color:var(--text-primary); font-family:var(--font-sans); font-size:13.5px; line-height:1.5; padding:11px 12px; box-sizing:border-box; }
+.bc-ta:focus { outline:none; border-color:var(--accent); }
+.bc-foot { display:flex; align-items:center; gap:8px; margin-top:10px; }
+.bc-count { font-family:var(--font-mono); font-size:11px; color:var(--text-muted); margin-right:auto; }
+.bc-count.over { color:var(--red); font-weight:700; }
+.bc-btn { padding:8px 14px; border-radius:8px; border:1px solid var(--border); background:transparent; color:var(--text-secondary); cursor:pointer; font-size:12px; font-weight:700; font-family:var(--font-sans); text-decoration:none; display:inline-flex; align-items:center; gap:5px; }
+.bc-btn:hover { border-color:var(--accent); color:var(--accent); }
+.bc-btn.x { background:#000; border-color:#000; color:#fff; }
+.bc-btn.x:hover { background:#111; border-color:var(--accent); color:#fff; }
+.bc-input { padding:9px 12px; background:var(--bg-elevated); border:1px solid var(--border); border-radius:9px; color:var(--text-primary); font-family:var(--font-mono); font-size:14px; text-transform:uppercase; width:110px; letter-spacing:1px; }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">📣 Broadcast <span class="feat-badge feat-live">LIVE</span></div>
+      <div class="page-subtitle">Ready-to-post tweets for your <strong>daily</strong> and <strong>long-term</strong> plays, drafted from live desk data. Every draft is <strong>honest by construction</strong> — directional leans graded live vs market drift, never a fabricated win-rate. <strong>Posting is your manual action:</strong> review, edit, then hit “Post to X.”</div>
+    </div>
+  </div>
+
+  <!-- Honest brand banner -->
+  <div style="margin-bottom:16px;padding:12px 16px;border-radius:10px;background:rgba(0,212,255,0.06);border-left:3px solid var(--accent);font-size:12px;color:var(--text-secondary);line-height:1.6;">
+    <strong>The honesty rule for everything you broadcast.</strong> These drafts never claim a win-rate the data doesn’t support. Our model’s directional call is a <strong>5-day lean</strong> that we grade live on the <a href="edge-scorecard.html" style="color:var(--accent);">Edge Scorecard</a> — and right now, transparently, <span id="edgeVerdict">it does not clear the market-drift base rate</span>. Broadcasting that openly <em>is</em> the brand. Nothing here is investment advice.
+  </div>
+
+  <div style="margin-bottom:14px;font-size:12px;color:var(--text-muted);" id="freshness">Loading live desk data…</div>
+
+  <div class="bc-grid" id="cards"></div>
+
+  <div style="margin-top:20px;padding:14px 18px;border-radius:10px;background:rgba(245,158,11,0.06);border-left:3px solid var(--yellow);font-size:12px;color:var(--text-muted);line-height:1.65;">
+    <strong>How posting works (and why it’s manual).</strong> This tool <strong>drafts</strong> tweets and opens X’s compose window pre-filled — it never posts on its own and never touches your account. You read every word, edit freely, and choose to post. Equities data is delayed ~15 min (last close outside market hours), so a “daily lean” drafted after hours reflects the prior session — the drafts say so. Cashtags ($SYM) and the honest caveat are included; keep them.
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js?v=v215"></script>
+<script src="js/ai-client.js?v=v215"></script>
+<script src="js/app.js?v=v215"></script>
+<script src="js/notify.js?v=v215"></script>
+<script src="js/live.js?v=v215"></script>
+<script src="js/worker-bridge.js?v=v215"></script>
+<script>
+buildNav('broadcast');
+const WORKER = (window.WorkerBridge && WorkerBridge.getUrl && WorkerBridge.getUrl())
+  || 'https://bpleone-brain-worker.brandonpleone.workers.dev';
+const SITE = 'https://options.bpleone.com';
+
+function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function pct(x, d){ return (x>=0?'+':'') + Number(x).toFixed(d==null?1:d) + '%'; }
+// X counts every URL as 23 chars (t.co). Count that way so we don't over-report length.
+function tweetLen(t){ return String(t).replace(/https?:\/\/\S+/g, 'x'.repeat(23)).length; }
+async function jget(path){ try { const r = await fetch(WORKER + path, { cache:'no-store' }); if (r.ok) return await r.json(); } catch(e){} return null; }
+
+function ageStr(ms){
+  if (!ms) return '';
+  const s = Math.max(0, Math.floor((Date.now() - ms)/1000));
+  if (s < 90) return 'just now';
+  const m = Math.floor(s/60); if (m < 90) return m + ' min ago';
+  const h = Math.floor(m/60); if (h < 48) return h + 'h ago';
+  return Math.floor(h/24) + 'd ago';
+}
+
+// Build one composer card. spec = { tag, desc, text }
+function cardHtml(id, tag, desc, text){
+  return '<div class="bc-card">' +
+    '<div class="bc-tag">' + esc(tag) + '</div>' +
+    '<div class="bc-desc">' + desc + '</div>' +
+    '<textarea class="bc-ta" id="ta_' + id + '" oninput="recount(\'' + id + '\')">' + esc(text) + '</textarea>' +
+    '<div class="bc-foot">' +
+      '<span class="bc-count" id="ct_' + id + '"></span>' +
+      '<button class="bc-btn" onclick="copyTweet(\'' + id + '\')">⧉ Copy</button>' +
+      '<a class="bc-btn x" id="x_' + id + '" target="_blank" rel="noopener">𝕏 Post to X</a>' +
+    '</div>' +
+  '</div>';
+}
+
+function recount(id){
+  const ta = document.getElementById('ta_' + id); if (!ta) return;
+  const len = tweetLen(ta.value);
+  const ct = document.getElementById('ct_' + id);
+  ct.textContent = len + ' / 280' + (len > 280 ? ' — trim ' + (len-280) : '');
+  ct.classList.toggle('over', len > 280);
+  const x = document.getElementById('x_' + id);
+  if (x) x.href = 'https://x.com/intent/tweet?text=' + encodeURIComponent(ta.value);
+}
+
+function copyTweet(id){
+  const ta = document.getElementById('ta_' + id); if (!ta) return;
+  navigator.clipboard.writeText(ta.value).then(() => {
+    const btn = event.target; const old = btn.textContent; btn.textContent = '✓ Copied';
+    setTimeout(() => { btn.textContent = old; }, 1400);
+  }).catch(() => { ta.select(); document.execCommand('copy'); });
+}
+
+// ---- Compose from live data ----
+async function build(){
+  const [picks, conf] = await Promise.all([ jget('/brain/picks'), jget('/brain/confluence-score') ]);
+
+  // Update the honest edge verdict line from the LIVE forward-test.
+  try {
+    const v = conf && (conf.verdict || conf);
+    if (v && typeof v.confluence_hit_rate === 'number') {
+      const beats = v.confluence_beats_drift_95;
+      document.getElementById('edgeVerdict').textContent = beats
+        ? ('it is beating market drift (' + (v.confluence_hit_rate*100).toFixed(1) + '% vs ' + (v.drift_base_rate*100).toFixed(1) + '% base, n=' + v.n + ')')
+        : ('it does NOT clear the market-drift base rate (' + (v.confluence_hit_rate*100).toFixed(1) + '% vs ' + (v.drift_base_rate*100).toFixed(1) + '% drift, n=' + v.n + ') — the hits are explained by drift, not timing edge');
+    }
+  } catch(e){}
+
+  const fresh = document.getElementById('freshness');
+  const cards = document.getElementById('cards');
+
+  if (!picks || !picks.ok) {
+    fresh.innerHTML = '<span style="color:var(--yellow);">Could not reach the desk worker — drafts below use neutral placeholders. Edit before posting.</span>';
+  } else {
+    const stale = picks.ageSec != null && picks.ageSec > 3600;
+    fresh.innerHTML = 'Live desk read: <strong>' + picks.universe_scored + '</strong> names scored · updated ' + esc(ageStr(picks.updatedAt)) +
+      (stale ? ' <span style="color:var(--yellow);">(outside market hours — this is the prior session’s read; drafts note it)</span>' : '');
+  }
+
+  const pod = (picks && picks.pick_of_day) || null;
+  const bl = (picks && picks.best_long) || null;
+  const alpha = (picks && Array.isArray(picks.alpha)) ? picks.alpha : [];
+  const staleNote = (picks && picks.ageSec != null && picks.ageSec > 3600) ? ' (prior session)' : '';
+
+  const specs = [];
+
+  // 1) Daily lean — Pick of the Day
+  if (pod && pod.sym) {
+    const conv = Math.round((pod.conviction != null ? pod.conviction : Math.abs(pod.predProb-0.5)*2) * 100);
+    const dir = pod.dir === 'UP' ? 'UP' : pod.dir === 'DOWN' ? 'DOWN' : 'NEUTRAL';
+    const t = '📅 Daily 5-day lean' + staleNote + ': $' + pod.sym + ' ' + dir + ' (our model’s conviction ' + conv + '%). ' +
+      'A directional lean we grade live vs market drift — not a proven edge, not advice. Scorecard: ' + SITE + '/edge-scorecard.html';
+    specs.push({ id:'daily', tag:'📅 Daily lean', desc:'Your featured short-term (5-day) directional lean, from the desk’s Pick of the Day. Model call — graded vs drift.', text:t });
+  }
+
+  // 2) Multi-week watch — Best Long
+  if (bl && bl.sym) {
+    const dir = bl.dir === 'UP' ? 'higher' : bl.dir === 'DOWN' ? 'lower' : 'sideways';
+    const t = '🗓️ Multi-week watch' + staleNote + ': $' + bl.sym + '. The desk’s longer read leans ' + dir + '. ' +
+      'Trend-following, graded openly, no guaranteed edge — not advice. Timeframes: ' + SITE + '/horizons.html';
+    specs.push({ id:'week', tag:'🗓️ Multi-week', desc:'Your longer-horizon watch (best long idea). Trend read — clearly not a guarantee.', text:t });
+  }
+
+  // 3) Watchlist — top alpha leans
+  if (alpha.length) {
+    const top = alpha.slice(0, 4).map(a => '$' + a.sym + (a.dir==='DOWN'?'▼':'▲')).join(' ');
+    const t = '👀 Today’s model leans' + staleNote + ': ' + top + '. ' +
+      'These are 5-day directional leans from our brain — graded live vs drift, not calls to buy. Full board: ' + SITE + '/pick-of-day.html';
+    specs.push({ id:'watch', tag:'👀 Watchlist', desc:'Top model leans as a compact watchlist. Direction arrows, honest framing, no price targets.', text:t });
+  }
+
+  // 4) Multi-horizon spotlight — computed from real bars + the 5-day model call
+  specs.push({ id:'horizon', tag:'📆 Multi-horizon', desc:'One name across every timeframe (daily→year). Enter a symbol and Generate — pulls real momentum + the 5-day model call.', text:'', horizon:true });
+
+  // 5) Transparency note — the honest brand tweet
+  {
+    let hr = null, dr = null, n = null, beats = null;
+    try { const v = conf && (conf.verdict || conf); if (v){ hr=v.confluence_hit_rate; dr=v.drift_base_rate; n=v.n; beats=v.confluence_beats_drift_95; } } catch(e){}
+    let t;
+    if (hr != null) {
+      t = beats
+        ? 'We grade every directional call live vs market drift. Current forward-test: ' + (hr*100).toFixed(1) + '% vs ' + (dr*100).toFixed(1) + '% drift base (n=' + n + ') — a real, if small, edge. We show the receipts: ' + SITE + '/edge-scorecard.html'
+        : 'We publish our model’s leans and grade every one live vs market drift. Right now, honestly, our hit rate (' + (hr*100).toFixed(1) + '%) doesn’t clear the drift base (' + (dr*100).toFixed(1) + '%, n=' + n + '). We show that openly — that’s the point: ' + SITE + '/edge-scorecard.html';
+    } else {
+      t = 'We publish our model’s directional leans and grade every single one live vs market drift — wins and misses in public. No fake win-rates here. See the scorecard: ' + SITE + '/edge-scorecard.html';
+    }
+    specs.push({ id:'transparency', tag:'🧾 Transparency', desc:'The honest brand tweet — auto-filled from the LIVE forward-test verdict. This is what separates the desk from hype accounts.', text:t });
+  }
+
+  cards.innerHTML = specs.map(s => cardHtml(s.id, s.tag, s.desc, s.text)).join('');
+  specs.forEach(s => recount(s.id));
+
+  // Wire the multi-horizon generator
+  wireHorizon();
+}
+
+function wireHorizon(){
+  const card = document.getElementById('ta_horizon');
+  if (!card) return;
+  const foot = card.closest('.bc-card').querySelector('.bc-foot');
+  const wrap = document.createElement('div');
+  wrap.style.cssText = 'display:flex;gap:8px;align-items:center;margin-bottom:8px;';
+  wrap.innerHTML = '<input class="bc-input" id="hzSym" value="SPY" maxlength="8" placeholder="SYMBOL">' +
+    '<button class="bc-btn" id="hzGen">⟳ Generate</button>';
+  card.parentNode.insertBefore(wrap, card);
+  document.getElementById('hzGen').addEventListener('click', genHorizon);
+  genHorizon();
+}
+
+async function genHorizon(){
+  const symEl = document.getElementById('hzSym');
+  const sym = (symEl.value || 'SPY').toUpperCase().replace(/[^A-Z0-9.\-]/g,'').slice(0,8);
+  symEl.value = sym;
+  const ta = document.getElementById('ta_horizon');
+  ta.value = 'Building ' + sym + ' across timeframes…'; recount('horizon');
+  const [hist, pred] = await Promise.all([ jget('/brain/history?sym=' + encodeURIComponent(sym)), jget('/brain/predict?sym=' + encodeURIComponent(sym)) ]);
+  if (!hist || !hist.ok || !Array.isArray(hist.closes) || hist.closes.length < 30) {
+    ta.value = 'No long history for $' + sym + ' — try a large-cap US ticker/ETF.'; recount('horizon'); return;
+  }
+  const px = hist.closes.map(x => x.c);
+  const mom = n => px.length>n ? (px[px.length-1]/px[px.length-1-n]-1) : null;
+  const sma = n => { if (px.length<n) return null; let s=0; for(let i=px.length-n;i<px.length;i++) s+=px[i]; return s/n; };
+  const last = px[px.length-1];
+  const arrow = m => m==null ? '·' : (m>0.003?'▲':m<-0.003?'▼':'▬');
+  const d1 = mom(1), w = (pred && typeof pred.predProb==='number') ? pred.predProb : null;
+  const m1 = mom(21), m3 = mom(63), m6 = mom(126);
+  const above200 = (sma(200)!=null && last>sma(200));
+  const wk = w!=null ? ('Weekly ' + (w>=0.52?'▲':w<=0.48?'▼':'▬') + ' (model ' + Math.round(w*100) + '%)') : 'Weekly ·';
+  const t = '📆 $' + sym + ' across timeframes — Daily ' + arrow(d1) + ' / ' + wk + ' / 1mo ' + arrow(m1) + ' / 3mo ' + arrow(m3) + ' / 1yr ' + arrow(m6) +
+    (above200 ? ' (above 200d)' : ' (below 200d)') + '. Only the 5-day is a graded model call; the rest are trend reads, not advice. ' + SITE + '/horizons.html';
+  ta.value = t;
+  recount('horizon');
+}
+
+document.addEventListener('DOMContentLoaded', build);
+</script>
+</body>
+</html>

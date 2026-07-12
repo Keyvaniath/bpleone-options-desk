@@ -418,7 +418,7 @@ document.addEventListener('DOMContentLoaded', () => {
       // bug: a hardcoded 'v188' froze data-mode-banner.js at an old cached copy,
       // keeping the dishonest "every tick is current" banner live long after the
       // fix deployed. Found via live browser verify.)
-      let LV = 'v214';
+      let LV = 'v215';
       try {
         const _me = [...document.querySelectorAll('script[src]')].map(s => s.src).find(u => /\/live\.js(\?|$)/.test(u)) || '';
         const _m = _me.match(/[?&]v=([^&]+)/);
@@ -1073,9 +1073,23 @@ document.addEventListener('DOMContentLoaded', () => {
   // now gets real prices into QUOTES within ~1s; worker-quotes re-publishes
   // Feed + a 'bpleone:quotes' event so pages can re-render. (The lazy block's
   // existence-guard makes its later attempt a no-op.)
+  // Pass 305 (cache-bust fix): derive the version from live.js's OWN ?v= instead
+  // of a hardcoded '?v=v182'. This EAGER loader wins the existence-guard race
+  // against the lazy block above, so the hardcoded stale version was the one that
+  // actually loaded worker-quotes.js + auth.js — freezing them at a months-old
+  // cached copy for every returning user. That's the exact pass-270 bug class (a
+  // hardcoded ?v= that never busts, so deployed fixes to those files never reach
+  // the browser — it's why live-price and login-pill fixes silently didn't land).
+  // Now it tracks live.js's version so every cache-bump refreshes these two too.
+  let _lvEager = 'v215';
+  try {
+    const _me = [...document.querySelectorAll('script[src]')].map(s => s.src).find(u => /\/live\.js(\?|$)/.test(u)) || '';
+    const _m = _me.match(/[?&]v=([^&]+)/);
+    if (_m && _m[1]) _lvEager = _m[1];
+  } catch (e) {}
   ['js/worker-quotes.js', 'js/auth.js'].forEach(src => {
     if (!document.querySelector('script[src*="' + src + '"]')) {
-      const s = document.createElement('script'); s.src = src + '?v=v182'; s.async = true;
+      const s = document.createElement('script'); s.src = src + '?v=' + _lvEager; s.async = true;
       document.head.appendChild(s);
     }
   });

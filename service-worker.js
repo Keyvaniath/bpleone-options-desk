@@ -15,7 +15,7 @@
 // WHOLE origin including localStorage = the brain journal/model). The bump
 // clears the old caches on activate, and putPruned() below keeps exactly one
 // cached copy per asset path going forward.
-const VERSION = 'v1.3';
+const VERSION = 'v1.4';
 const CACHE_SHELL = 'bpleone-shell-' + VERSION;
 const CACHE_RUNTIME = 'bpleone-runtime-' + VERSION;
 
