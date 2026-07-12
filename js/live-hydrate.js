@@ -76,6 +76,22 @@
     }
 
     await Promise.all(batches.map(fetchChunk));
+
+    // Bounded retry: the worker's Yahoo fetch for a COLD off-universe symbol is
+    // intermittent (upstream rate limits). One re-attempt for just the symbols
+    // that didn't hydrate, after a short delay, roughly doubles the real-price
+    // hit rate without hammering anything. Never loops - a symbol that fails
+    // twice stays absent and the caller renders an honest em dash.
+    if (opts.retry !== false) {
+      const missing = syms.filter(s => { const q = QUOTES[s]; return !(q && q.fresh && q.last > 0); });
+      if (missing.length) {
+        await new Promise(res => setTimeout(res, 2500));
+        const retryBatches = [];
+        for (let i = 0; i < missing.length; i += CHUNK) retryBatches.push(missing.slice(i, i + CHUNK));
+        await Promise.all(retryBatches.map(fetchChunk));
+      }
+    }
+
     if (applied > 0) {
       try { if (typeof Feed !== 'undefined') Feed.publish('*', QUOTES); } catch (e) {}
       try { if (typeof setDataMode === 'function') setDataMode('live'); } catch (e) {}
