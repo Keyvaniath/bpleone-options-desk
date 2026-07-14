@@ -51,6 +51,18 @@
 
   <div style="margin-bottom:14px;font-size:12px;color:var(--text-muted);" id="freshness">Loading live desk data…</div>
 
+  <!-- Pass 314: Thread composer. Numbered X threads dramatically out-reach single
+       tweets; this assembles the day's honest drafts into a reply-chain you post
+       manually (X's compose intent can only open one tweet at a time). -->
+  <div id="threadPanel" style="margin-bottom:18px;padding:14px 16px;border-radius:12px;background:rgba(124,58,237,0.06);border:1px solid rgba(124,58,237,0.25);">
+    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+      <strong style="font-size:13px;">🧵 Daily thread</strong>
+      <span style="font-size:11px;color:var(--text-muted);">Assemble today's leans into one numbered X thread — threads out-reach single tweets. You post it manually as a reply chain.</span>
+      <button class="bc-btn" id="buildThreadBtn" style="margin-left:auto;">🧵 Build thread</button>
+    </div>
+    <div id="threadOut" style="margin-top:12px;display:none;"></div>
+  </div>
+
   <div class="bc-grid" id="cards"></div>
 
   <div style="margin-top:20px;padding:14px 18px;border-radius:10px;background:rgba(245,158,11,0.06);border-left:3px solid var(--yellow);font-size:12px;color:var(--text-muted);line-height:1.65;">
@@ -320,7 +332,57 @@ async function genHorizon(){
   recount('horizon');
 }
 
-document.addEventListener('DOMContentLoaded', build);
+// ---- Thread composer (pass 314) ----
+// Assemble the day's LIVE draft textareas (so user edits are respected) into a
+// numbered X thread. X's compose intent only opens one tweet, so the flow is:
+// "Start thread" opens tweet 1, then copy each reply in order. Honest copy is
+// carried straight from the individual drafts — no new claims are invented here.
+let _thread = [];
+function copyThreadTweet(i, btn) {
+  const t = _thread[i]; if (t == null) return;
+  navigator.clipboard.writeText(t).then(() => { const o = btn.textContent; btn.textContent = '✓ Copied'; setTimeout(() => { btn.textContent = o; }, 1300); })
+    .catch(() => {});
+}
+function copyWholeThread(btn) {
+  const all = _thread.map((t, i) => '(' + (i+1) + '/' + _thread.length + ')\n' + t).join('\n\n———\n\n');
+  navigator.clipboard.writeText(all).then(() => { const o = btn.textContent; btn.textContent = '✓ Copied all'; setTimeout(() => { btn.textContent = o; }, 1300); }).catch(() => {});
+}
+function buildThread() {
+  // Narrative order: daily lean (hook) → watchlist → multi-horizon spotlight →
+  // transparency (the honest closer). Skip any that's disabled/empty.
+  const order = ['daily', 'watch', 'horizon', 'transparency'];
+  const parts = [];
+  order.forEach(id => { const ta = document.getElementById('ta_' + id); if (ta && ta.value.trim()) parts.push(ta.value.trim()); });
+  const out = document.getElementById('threadOut');
+  out.style.display = 'block';
+  if (parts.length < 2) {
+    out.innerHTML = '<div style="font-size:12px;color:var(--yellow);">Need at least 2 live drafts to make a thread — generate the multi-horizon card, or wait for the desk read to load.</div>';
+    return;
+  }
+  const N = parts.length;
+  _thread = parts.map((txt, i) => (i === 0 ? '🧵 ' : '') + (i + 1) + '/' + N + ' ' + txt);
+  out.innerHTML =
+    '<div style="font-size:11px;color:var(--text-muted);margin-bottom:10px;">Post tweet 1 (“Start thread”), then reply with each of the rest in order — an X thread is a reply chain. Every tweet below is under 280 and carries the same honest framing as the cards.</div>' +
+    _thread.map((t, i) => {
+      const len = tweetLen(t); const over = len > 280;
+      const action = i === 0
+        ? '<a class="bc-btn x" style="margin-left:auto;padding:4px 10px;" target="_blank" rel="noopener" href="https://x.com/intent/tweet?text=' + encodeURIComponent(t) + '">𝕏 Start thread</a>'
+        : '<button class="bc-btn" style="margin-left:auto;padding:4px 10px;" onclick="copyThreadTweet(' + i + ', this)">⧉ Copy reply ' + (i + 1) + '</button>';
+      return '<div style="margin-bottom:10px;padding:10px 12px;border-radius:9px;background:var(--bg);border:1px solid var(--border);">' +
+        '<div style="display:flex;gap:8px;align-items:center;margin-bottom:6px;">' +
+          '<span style="font-size:10px;font-weight:800;color:var(--accent);">TWEET ' + (i + 1) + '/' + N + '</span>' +
+          '<span class="bc-count' + (over ? ' over' : '') + '" style="font-size:10px;">' + len + ' / 280</span>' + action +
+        '</div>' +
+        '<div style="font-size:13px;line-height:1.5;white-space:pre-wrap;">' + esc(t) + '</div>' +
+      '</div>';
+    }).join('') +
+    '<button class="bc-btn" style="margin-top:4px;" onclick="copyWholeThread(this)">⧉ Copy whole thread</button>';
+}
+document.addEventListener('DOMContentLoaded', () => {
+  build();
+  const b = document.getElementById('buildThreadBtn');
+  if (b) b.addEventListener('click', buildThread);
+});
 </script>
 </body>
 </html>
