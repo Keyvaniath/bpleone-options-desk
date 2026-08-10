@@ -84,6 +84,7 @@
     <div id="verdict-banner" style="padding:14px 16px;border-radius:10px;margin-bottom:16px;font-size:13px;line-height:1.6;border:1px solid var(--border);background:var(--bg-elevated);"><strong>Verdict:</strong> loading…</div>
     <div id="ft-accruing" style="display:none;padding:14px 16px;border-radius:10px;background:rgba(0,212,255,0.06);border:1px solid rgba(0,212,255,0.2);font-size:13px;color:var(--text-secondary);margin-bottom:16px;"></div>
     <div class="sc-grid" id="ft-cards"></div>
+    <div id="ft-overlap-note" style="margin-top:14px;padding:13px 16px;border-radius:10px;background:rgba(245,158,11,0.06);border-left:3px solid var(--yellow);font-size:12px;color:var(--text-secondary);line-height:1.65;"></div>
   </div>
 
   <div class="card" style="margin-bottom:18px;">
@@ -229,12 +230,22 @@ async function loadForward() {
       + '<div class="sc-big" style="color:' + hrColor + ';">' + hr + '</div>'
       + '<div style="font-size:11px;color:var(--text-muted);margin:2px 0 8px;">' + L.desc + '</div>'
       + '<div class="sc-row"><span>graded calls</span><span>' + (d.n || 0) + '</span></div>'
+      // Pass 306 (statistics honesty): show the INDEPENDENT sample size. Calls are
+      // logged daily on overlapping 5-day windows, so raw n overstates evidence;
+      // effective_n counts non-overlapping (symbol, direction) observations and
+      // the z below is scaled by sqrt(n_eff/n). This correction is what exposed
+      // the earlier z=+2.94 insider print as a false positive.
+      + (d.effective_n != null ? '<div class="sc-row"><span>independent obs</span><span>' + d.effective_n + '</span></div>' : '')
       + '<div class="sc-row"><span>drift base rate</span><span>' + (d.drift_null_rate != null ? (d.drift_null_rate * 100).toFixed(1) + '%' : '—') + '</span></div>'
       + '<div class="sc-row"><span>avg return / call</span><span style="color:' + ((d.avg_directional_ret_pct || 0) >= 0 ? 'var(--green)' : 'var(--red)') + ';">' + (d.avg_directional_ret_pct != null ? (d.avg_directional_ret_pct >= 0 ? '+' : '') + d.avg_directional_ret_pct + '%' : '—') + '</span></div>'
-      + '<div class="sc-row"><span>z vs drift</span><span>' + (zd != null ? zd : '—') + '</span></div>'
+      + '<div class="sc-row"><span>z vs drift' + (d.z_score_vs_drift_raw != null && d.z_score_vs_drift != null && d.z_score_vs_drift_raw !== d.z_score_vs_drift ? ' (overlap-corrected)' : '') + '</span><span>' + (zd != null ? zd : '—') + '</span></div>'
       + pill
       + '</div>';
   }).join('');
+  // Pass 306: the overlap-correction disclosure — the site's own audit caught its
+  // own false positive; saying so IS the product.
+  const note = document.getElementById('ft-overlap-note');
+  if (note) note.innerHTML = '<strong>Methodology note (correction, Aug 2026):</strong> calls are logged daily on overlapping 5-day windows, so consecutive same-direction calls on one symbol are largely the <em>same bet</em>. Our earlier significance test counted them as independent — which made the insider leg look significant (z=+2.94 at "n=230") when its independent sample was ~25–45 observations. Our own audit caught it; the z-scores above are now overlap-corrected (scaled by √(n<sub>eff</sub>/n)) and significance requires ≥5 independent observations. We publish this correction for the same reason we publish the misses.';
 }
 
 async function loadFlowTest() {

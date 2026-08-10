@@ -15,7 +15,36 @@
 
 ---
 
-## THE ONE-LINE FRAME (say this before you open the laptop)
+> 🔴 **2026-08-10 UPDATE — THE STORY CHANGED AGAIN, AND IT'S STRONGER (supersedes the frame below).**
+> A 15-agent deep audit (pass 316) found the real explanation for the "regression": the
+> significance test **counted overlapping 5-day windows as independent observations.**
+> Calls were logged per symbol per day on 5-trading-day windows — consecutive same-direction
+> calls on one symbol are largely the *same bet*, counted ~5×. The famous "n=230, z=+2.94"
+> was really **~25–45 independent observations**; cluster-correct the z (×√(n_eff/n)) and the
+> significance vanishes. **The insider edge was never there — it was pseudo-replication.**
+> The scorer is fixed (worker pass-306: `effective_n` + corrected z, disclosed on the live
+> Edge Scorecard with a public methodology-correction note), and the live corrected read as
+> of 8/10 is: brain z≈+0.7, confluence z≈+0.1, insiders z≈**−0.5** — all inside the null.
+>
+> **USE THIS ONE-LINE FRAME INSTEAD:**
+> *"I built an institutional-grade research system and pointed it at one honest question:
+> where's the edge? My TA model — the thing everyone hypes — is market drift, and the site
+> says so out loud. One signal, SEC insider buy-clusters, looked genuinely significant in my
+> live forward-test: z≈2.9. Then I audited my own scorer and found the significance was
+> pseudo-replication — overlapping windows counted as independent samples. My best result
+> was a false positive, my own audit caught it, and the correction is published on the live
+> scorecard next to the misses. That loop — measure, distrust your best number, audit it
+> hardest, publish the correction — is the actual product, and it's the discipline I'd bring
+> to your desk."*
+>
+> Why this is a BETTER pitch than "the edge decayed": decay implies the measurement was fine
+> and the world changed. A caught false positive demonstrates the rarer skill — hostile
+> auditing of your own favorite result and publishing the retraction. Every research MD has
+> watched careers built on the first mistake; almost nobody demonstrates the second habit.
+> **Always pull `/brain/confluence-score` live before presenting** — quote `effective_n` and
+> the corrected z, never the raw n.
+
+## THE ONE-LINE FRAME (⚠️ superseded 2026-08-10 — see the update block above; kept for history)
 
 **"I built an institutional-grade market-research system end-to-end and pointed it at one
 honest question: where is there an edge, and where isn't there? My TA model — the thing
