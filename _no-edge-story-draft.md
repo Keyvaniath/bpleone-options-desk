@@ -1,80 +1,76 @@
 # THE NO-EDGE STORY — flagship draft (Substack + HN + r/algotrading)
 
-**Private (underscore = never deployed). Written 2026-08-10, every number pulled from the live scorecard that day. Publishing is Brandon's manual action. Before posting: re-pull `/brain/metrics` + `/brain/confluence-score` — the numbers move daily. Voice check: publisher, not adviser — this is a story about measurement, never a solicitation.**
+**Private (underscore = never deployed). Rewritten 2026-08-10 in human voice; every number pulled from the live scorecard that day. Publishing is Brandon's manual action. Before posting: re-pull `/brain/metrics` + `/brain/confluence-score` — the numbers move daily. Voice check: publisher, not adviser — this is a story about measurement, never a solicitation.**
 
 > ⚠️ One personal claim to confirm before publishing anywhere: about.html says "former equity research analyst." Only you know if that's accurate as worded. The story below avoids biographical claims entirely, so it's safe either way.
 
 ---
 
-## A. SUBSTACK FLAGSHIP (~1,400 words)
+## A. SUBSTACK FLAGSHIP (~1,200 words)
 
-**Title options (pick one):**
-1. *I built an AI trading brain. It graded itself: no edge.*
-2. *My trading model's honest verdict on itself: "I'm just market drift."*
-3. *The edge that never existed: how my own audit caught my best result being a statistics bug.*
+**Title:** I built an AI trading brain. It graded itself: no edge.
 
-**Subtitle:** Eighteen months, 26,000 training examples, 1,721 live graded predictions — and the most valuable thing it produced was the number zero.
+**Alt title:** My trading model's best discovery was a bug in my own math.
+
+**Subtitle:** 1,721 live graded predictions. 26,000 training examples. A year of work. The most valuable number it ever produced was zero.
 
 ---
 
-I spent months building a self-learning trading brain.
+I spent the better part of a year building a self-learning trading system.
 
-Logistic regression with an Adam optimizer, 22 engineered features, Platt calibration, walk-forward validation, a Cloudflare worker grading its own predictions every minute of every trading day. It captures a directional call on ~75 liquid names, waits five trading days, checks what actually happened, and trains on the result. No backtest cherry-picking — live, timestamped, irreversible calls.
+Logistic regression with an Adam optimizer. Twenty-two engineered features. Platt calibration, walk-forward validation, a Cloudflare worker grading its own predictions every minute the market is open. It makes a directional call on about 75 liquid names, waits five trading days, checks what actually happened, and trains on the result. No backtest cherry-picking. Live calls, timestamped, graded in public, no take-backs.
 
-As of this week it has graded **1,721 live five-day predictions**.
+As of this week it has 1,721 graded predictions. Accuracy: 56.9%.
 
-Its accuracy: **56.9%.**
+That number would look great in a Discord ad. Here's what's wrong with it. Over the exact same window, the market's unconditional five-day up-rate — the score you'd get by predicting "up" every time and going to the beach — was also 56.9%.
 
-Sounds decent, right? Most "AI trading" accounts would screenshot that and start selling a Discord.
+Skill over doing nothing: +0.0 percentage points.
 
-Here's the number they wouldn't show you: over the exact same window, the market's unconditional five-day up-rate — the score you'd get by predicting "up" every time and taking a nap — was **also 56.9%.**
+I built a machine that says "stocks usually go up," with extra steps.
 
-Skill above just-holding-the-market: **+0.0 percentage points.**
+### The baseline nobody uses
 
-My model's honest verdict on itself is that it's an expensive way to say "stocks usually go up."
+Every "my algo hits 60%" screenshot you've ever seen is being graded against a coin flip. That's the wrong test. Stocks drift up. On a five-day horizon, "up" is the right answer somewhere between 52% and 57% of the time depending on the window, before any skill enters the picture. The coin is rigged in everyone's favor, so beating the coin means nothing.
 
-### The bar almost nobody uses
+The only bar I let my system claim is this one: beat the drift base rate, at 95% confidence.
 
-The dirty secret of every "my algo hits 60%!" post is the baseline. Stocks drift upward. On a five-day horizon, "up" is the right answer ~52–57% of the time depending on the window, before any skill enters the picture. Beating a coin flip is worthless — the coin is rigged in everyone's favor.
+Under that bar, everything I built is indistinguishable from drift. Not just the main model. I tested every free signal I could get my hands on, because I badly wanted something to work. Analyst-revision momentum: nothing, it's priced in before you see it. Price momentum: nothing. Options flow from the free delayed feed: nothing. Each one graded live or on held-out data. Null, null, null.
 
-So the only bar I let my system claim is: **does it beat the drift base rate, at 95% statistical confidence?**
+### The one that "worked"
 
-Under that bar, my brain — the ensembles, the calibrators, the kNN recall, the meta-stacker, all of it — is indistinguishable from drift. I tested the other free-data signals too, because I wanted *something* to work: analyst-revision momentum (no edge, priced in), price momentum (no edge), options-flow from the free CBOE feed (no edge). Each one graded live or on held-out data, each one a null result.
+One signal did clear the bar, for a while. SEC Form 4 insider buy-clusters — multiple insiders buying their own stock in the open market. This is a documented anomaly with decades of academic paper behind it, so when my live forward test showed it hitting 67% on 230 graded calls, z-score +2.94 against a drift-adjusted null, I believed it. Statistically significant, in free data, measured honestly. I was insufferable about it for about a month. I rebuilt my whole pitch around it.
 
-### The one signal that "worked" — and the bug that unmade it
+Then it started fading. 67% became 60%. The z-score slid from 2.9 to 1.7. I wrote that up too, told myself it was regression to the mean, and honestly the write-up was pretty good: "watch a real edge decay in real time." Very mature. Very scientific.
 
-One signal did clear the bar, for a while: SEC Form-4 **insider open-market buy clusters** — the documented Lakonishok–Lee anomaly. Multiple insiders buying their own stock in the open market, followed by positive drift-adjusted returns. My live forward test showed it hitting 67% on n=230 graded calls, z = +2.94 against a selection-adjusted drift null. Statistically significant. A real edge, in free data, measured honestly. I built the pitch around it.
+It wasn't regression to the mean.
 
-Then it started fading. 67% became 60%. z = +2.9 became +1.7. I wrote that up too — "watch the edge decay in real time" — and told myself it was regression to the mean.
+Last week I ran a deep audit of my own scoring code and found the real answer. My significance test was counting overlapping windows as independent observations. The scorer logged one call per symbol per day, and each call was graded on a five-day forward window. So consecutive calls on the same symbol in the same direction shared four-fifths of their window. They weren't 230 independent bets. They were the same bet, counted five times over. Correct for the overlap and the effective sample was maybe 25 to 45 observations. Rerun the z-score with that correction and the significance is just gone.
 
-Last week, a deep audit of my own scoring code found the actual answer, and it's more embarrassing and more interesting than mean reversion:
+The edge didn't decay. It was never there. What I'd been narrating as "regression to the mean" was a small noisy sample wandering back to its true value, which was the null the whole time.
 
-**My significance test was counting overlapping windows as independent observations.**
+The same audit found my scanner had been inventing "unusual volume" every morning before the open — the data vendor reports the prior day's total volume until the session starts, and my time-of-day projection was amplifying it about tenfold. Both bugs are fixed. Both are written up in the site's public audit log, which is now 349 entries long, because apparently that's who I am now.
 
-The scorer logged a call per symbol per day, each graded on a five-trading-day forward window. Consecutive calls on the same symbol in the same direction share four-fifths of their window — they are substantially *the same bet*, counted five times. My "n=230" was really something like **25–45 effective observations**. Recompute the z-statistic with a cluster correction (scale by √(n_eff/n)) and the significance evaporates. The edge didn't fade. **It was never there.** The decay I'd been narrating as regression to the mean was a small sample wandering back toward its true value: the null.
+### So what do I actually have?
 
-The same audit found the scanner had been fabricating "unusual volume" every pre-market — the data vendor reports the prior session's full volume before the open, and my time-of-day projection amplified it ~10×. Both bugs fixed, both disclosed in the site's public audit log, which is now 349 entries long.
+An honest answer, after a year and 26,000 training examples:
 
-### What I actually built
+I have a measurement instrument. The same infrastructure that proves a signal has no edge is exactly what you'd need to validate one that does. Almost nobody selling trading signals has that infrastructure. That fact is not a coincidence. It is the business model.
 
-So what do you have after all that work? Honestly:
+I have a live, un-fakeable record of the null. Every call timestamped and graded against drift, published on the weeks the answer was "nothing worked," which was all of them. You can't counterfeit a public ledger of your own misses.
 
-1. **A measurement instrument, not a money machine.** The infrastructure that *proves* a signal has no edge is the same infrastructure that would validate one that does. Almost nobody selling signals has it, which is precisely why they can sell signals.
-2. **A live, un-fakeable track record of the null.** Every call timestamped, graded against drift, published — including the weeks the answer is "nothing worked." You cannot counterfeit a ledger of your own misses.
-3. **A working education in how easy self-deception is.** I had walk-forward validation, base-rate corrections, calibration guards, champion/challenger promotion rules — real rigor — and *still* shipped a false positive, because pseudo-replication is subtle and motivated reasoning is not. The bug survived until I pointed an adversarial audit at my own favorite result.
+And I got an expensive education in how easy it is to fool yourself. I had walk-forward validation. Base-rate corrections. Calibration guards. Champion-challenger promotion rules. Real rigor, or so I thought — and I still shipped a false positive, because pseudo-replication is subtle and wanting a result is not. The bug survived every check I built until I finally pointed a hostile audit at the one number I most wanted to keep.
 
-The uncomfortable inference: if I nearly fooled myself *with* all that machinery, what's the base rate of self-deception among accounts with none of it?
+Which raises the uncomfortable question. If I nearly fooled myself with all that machinery, what are the odds the guy screenshotting his win rate with none of it isn't fooling himself?
 
-### The takeaway I'd tattoo on FinTwit
+### What I'd want every trader to take from this
 
-- Grade against **drift**, never a coin flip.
-- Overlapping windows are **one observation**, not many. If your n includes the same bet on consecutive days, your significance test is fiction.
-- Your best result deserves your **most hostile** audit, because it's the one you least want to kill.
-- And a null result, honestly measured and published, is worth more than a fake edge. It's the only thing here nobody can take away.
+Grade against drift, never a coin flip. Treat overlapping windows as one observation, because that's what they are. And audit your best result the hardest, precisely because it's the one you don't want to kill.
 
-The whole system is free and live — the scorecard grades itself in public daily, ugly numbers and all: options.bpleone.com/edge-scorecard.html
+A null result, honestly measured and published, turns out to be worth more than a fake edge. It's the only thing on my site nobody can take away.
 
-*Research and education, not investment advice. The desk publishes leans and grades them; it does not manage money or recommend trades.*
+The whole system is free and live. The scorecard grades itself in public every trading day, ugly numbers included: options.bpleone.com/edge-scorecard.html
+
+*Research and education, not investment advice. The desk publishes leans and grades them; it doesn't manage money or recommend trades.*
 
 ---
 
@@ -85,13 +81,13 @@ The whole system is free and live — the scorecard grades itself in public dail
 **URL:** https://options.bpleone.com/edge-scorecard.html
 
 **First comment (post immediately, from you):**
-> Author here. This started as an attempt to build an "AI trading" system and turned into a measurement study of my own self-deception.
+> Author here. This started as an attempt to build an "AI trading" system and turned into a study of my own self-deception.
 >
-> The system: logistic regression + Adam, 22 features, Platt calibration, walk-forward validation, running 24/7 on a Cloudflare worker that grades its own 5-day directional calls live. 1,721 graded predictions so far.
+> The system: logistic regression + Adam, 22 features, Platt calibration, walk-forward validation, running on a Cloudflare worker that grades its own 5-day directional calls live. 1,721 graded predictions so far.
 >
 > The result: 56.9% accuracy — which is exactly the market's drift base rate over the same window. +0.0pp of skill. The site says so on every page, because grading against a 50% coin flip (what most "algo" accounts do) is meaningless when stocks drift up.
 >
-> The part I think HN will enjoy: one signal (SEC insider buy-clusters, the Lakonishok–Lee anomaly) looked genuinely significant for months — z=+2.94, n=230. A deep audit of my own scoring code then found the significance test was counting overlapping 5-day windows as independent observations. Effective n was ~25–45, not 230. The edge was pseudo-replication, not alpha. Fixed, disclosed in the public audit log (349 entries).
+> The part I think HN will enjoy: one signal (SEC insider buy-clusters, a documented anomaly) looked genuinely significant for months — z=+2.94 on n=230. Then a deep audit of my own scoring code found the significance test was counting overlapping 5-day windows as independent observations. Effective n was ~25–45, not 230. The "edge" was pseudo-replication. I'd been publicly narrating its decline as "regression to the mean," which was wrong in an instructive way: it never existed. Fixed and disclosed in the public audit log (349 entries).
 >
 > Everything is free, no signup gates on the data. Happy to answer anything about the stats, the infra (runs on the CF free tier), or what it's like to publish your own null result.
 
@@ -102,7 +98,7 @@ The whole system is free and live — the scorecard grades itself in public dail
 **Title:** After 1,721 live graded predictions, my system's skill over market drift is exactly +0.0pp — and my one "significant" edge turned out to be an overlapping-windows bug
 
 **Body:**
-> Sharing this because the failure modes are more useful than most win-rate screenshots.
+> Sharing this because the failure modes are more useful than another win-rate screenshot.
 >
 > **Setup:** 22-feature logistic model (Adam, L2, Platt calibration, walk-forward CV), predicting 5-day direction on ~75 liquid US names. A worker grades every live call against realized 5-day returns. No backtest-only claims — everything below is the live ledger.
 >
@@ -112,7 +108,7 @@ The whole system is free and live — the scorecard grades itself in public dail
 > - Skill above drift: +0.0pp. Not significant. Nothing.
 > - Also tested live/held-out: analyst-revision momentum (−2.3pp vs base), price momentum (z≈0), free options-flow (null).
 >
-> **The interesting bug:** SEC insider buy-clusters looked real for months — 67% hit rate, n=230, z=+2.94 vs a selection-adjusted drift null. Then it "regressed." An audit of my scorer found why: I logged a call per symbol per day on 5-day forward windows, so consecutive same-direction calls on one symbol overlapped 4/5 — the test treated ~25–45 effective observations as 230 independent ones. Cluster-correct the z (×√(n_eff/n)) and significance vanishes. Classic pseudo-replication; embarrassing; exactly the kind of thing that produces most published "edges."
+> **The interesting bug:** SEC insider buy-clusters looked real for months — 67% hit rate, n=230, z=+2.94 vs a selection-adjusted drift null. Then it "regressed." An audit of my scorer found why: I logged a call per symbol per day on 5-day forward windows, so consecutive same-direction calls on one symbol overlapped 4/5 — the test treated ~25–45 effective observations as 230 independent ones. Cluster-correct the z (×√(n_eff/n)) and significance vanishes. Classic pseudo-replication. Embarrassing, and exactly the mechanism behind a lot of published "edges."
 >
 > **Rules I'd propose from this:** (1) your null is the drift base rate, never 50%; (2) overlapping forward windows are one observation; (3) audit your best result hardest — it's the one you're motivated not to kill.
 >
@@ -125,3 +121,4 @@ The whole system is free and live — the scorecard grades itself in public dail
 - Attach the edge-scorecard screenshot to the Substack piece.
 - All three are ready to paste; refresh the numbers the day you post.
 - These also feed the MD pitch: the artifact narrative is now "our audit caught our own false positive" — stronger than "the edge faded."
+- Local preview: run `python -m http.server 8899` in the repo and open http://localhost:8899/_story-preview.html
