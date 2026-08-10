@@ -38,7 +38,7 @@
 // Pass 200: version stamp so brain-proof.html + worker-setup.html can detect
 // when the deployed worker is behind the repo source. Bump on every meaningful
 // behavior change. Read via /brain/health → worker_version field.
-const WORKER_VERSION = 'pass-306';
+const WORKER_VERSION = 'pass-307';
 
 const UNIVERSE = [
   'SPY','QQQ','IWM','DIA','AAPL','NVDA','TSLA','MSFT','META','AMZN','GOOGL','AMD',
@@ -2798,18 +2798,36 @@ async function handleRequest(request, env, ctx) {
     const sigs = applyConstraints(allSigs, constraints);
     sigs.forEach(s => { s._conv = Math.abs(s.predProb - 0.5); });
     sigs.sort((a, b) => b._conv - a._conv);
-    const fmt = s => ({
-      sym: s.sym,
-      last: s.last,
-      predProb: +s.predProb.toFixed(4),
-      dir: s.predProb >= 0.5 ? 'UP' : 'DOWN',
-      conviction: +(s._conv * 2).toFixed(3),   // 0..1 (0 = coin flip, 1 = certain)
-      pct_up: Math.round(s.predProb * 100),
-      changePct: s.changePct != null ? +(+s.changePct).toFixed(2) : null,
-      rvol: s.rvol != null ? +(+s.rvol).toFixed(2) : null,
-      signal: s.signal || null,
-      reason: s.reason || null
-    });
+    // Pass 307 (honesty): each signal carries its own scan timestamp. The SIGNALS
+    // snapshot survives weekends/overnights (<4d filter), so Monday pre-open the
+    // "picks" are really FRIDAY'S closing scan — but the response's updatedAt is
+    // fresh (cron rewrites the envelope every tick). Expose per-pick `ts` +
+    // `as_of` and a `stale_scan` flag so clients can label "as of Fri close"
+    // instead of implying a live intraday read (e.g. "12.3× normal volume" at
+    // 8:45am Monday is Friday's close volume, not this morning's).
+    const etKeyOf = t => {
+      const et = new Date(new Date(t).toLocaleString('en-US', { timeZone: 'America/New_York' }));
+      return et.getUTCFullYear() * 10000 + (et.getUTCMonth() + 1) * 100 + et.getUTCDate();
+    };
+    const todayKey = etKeyOf(Date.now());
+    const fmt = s => {
+      const sigDay = s.ts ? etKeyOf(s.ts) : null;
+      return {
+        sym: s.sym,
+        last: s.last,
+        predProb: +s.predProb.toFixed(4),
+        dir: s.predProb >= 0.5 ? 'UP' : 'DOWN',
+        conviction: +(s._conv * 2).toFixed(3),   // 0..1 (0 = coin flip, 1 = certain)
+        pct_up: Math.round(s.predProb * 100),
+        changePct: s.changePct != null ? +(+s.changePct).toFixed(2) : null,
+        rvol: s.rvol != null ? +(+s.rvol).toFixed(2) : null,
+        signal: s.signal || null,
+        reason: s.reason || null,
+        ts: s.ts || null,
+        as_of: sigDay ? String(sigDay).replace(/^(\d{4})(\d{2})(\d{2})$/, '$1-$2-$3') : null,
+        stale_scan: sigDay != null && sigDay !== todayKey
+      };
+    };
     const alpha = sigs.filter(s => (s._conv * 2) >= constraints.min_conviction).slice(0, constraints.alpha_max).map(fmt);
     // Pick of the Day = highest-conviction constraint-passing call, but only if it
     // clears potd_min_conviction (so a flat tape doesn't force a junk pick).
