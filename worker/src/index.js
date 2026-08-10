@@ -38,7 +38,7 @@
 // Pass 200: version stamp so brain-proof.html + worker-setup.html can detect
 // when the deployed worker is behind the repo source. Bump on every meaningful
 // behavior change. Read via /brain/health → worker_version field.
-const WORKER_VERSION = 'pass-305';
+const WORKER_VERSION = 'pass-306';
 
 const UNIVERSE = [
   'SPY','QQQ','IWM','DIA','AAPL','NVDA','TSLA','MSFT','META','AMZN','GOOGL','AMD',
@@ -1135,8 +1135,17 @@ function computeSignal(sym, q, history, predProb, dayKey) {
   if (prior.length >= 5) {
     const avgVol = prior.reduce((s, b) => s + (b.volume || 0), 0) / prior.length;
     const curVol = q.volume || 0;
-    if (avgVol > 0 && curVol > 0) {
-      const frac = Math.max(0.1, Math.min(1, (etHour() - 9.5) / 6.5));  // fraction of RTH elapsed
+    // Pass 306 (CRITICAL honesty fix): NO RVOL before the RTH open. The cron runs
+    // from 8:00 ET, but Yahoo's pre-open "volume" is the PRIOR session's full-day
+    // total - projecting it with the 0.1 floor fabricated 5-12x "unusual volume"
+    // (and fabricated BUY/SELL reasons in /brain/picks) on most of the universe
+    // every morning 8:00-9:30 ET. Pre-open, today's session volume simply does
+    // not exist yet: rvol stays null and volume-based signals stay quiet. The
+    // 0.1 floor also over-amplified the opening auction, so require >=30 min of
+    // real session (frac >= 30/390) before projecting.
+    const hNow = etHour();
+    if (avgVol > 0 && curVol > 0 && hNow >= 10) {
+      const frac = Math.max(30 / 390, Math.min(1, (hNow - 9.5) / 6.5));  // fraction of RTH elapsed
       rvol = (curVol / frac) / avgVol;
     }
   }
@@ -1293,8 +1302,16 @@ async function tick(env) {
       if (q.dayHigh && q.dayHigh > lastBar.high) lastBar.high = q.dayHigh;
       if (q.dayLow && q.dayLow < lastBar.low) lastBar.low = q.dayLow;
       lastBar.volume = q.volume || lastBar.volume || 0;
-    } else {
-      // New day — push a new bar; this changes the persistent shape so flush
+    } else if (etHour() >= 9.5) {
+      // New day — push a new bar; this changes the persistent shape so flush.
+      // Pass 306 (data-integrity fix): only AFTER the RTH open. The cron starts
+      // at 8:00 ET, but pre-open Yahoo still reports the PRIOR session's
+      // dayOpen/dayHigh/dayLow — so the first pre-market tick was stamping
+      // yesterday's OHLC onto today's dayKey. open was never corrected and
+      // high/low only ratchet outward, corrupting range/ATR/vol-regime features
+      // on every gap day (in the TRAINING path) and serving wrong bars to the
+      // scanner pages. Pre-open, today's bar simply doesn't exist yet; the
+      // prior-day bars in history remain correctly usable (their dayKey differs).
       history.push({
         ts: Date.now(),
         dayKey,
@@ -1684,12 +1701,21 @@ async function handleRequest(request, env, ctx) {
   if (path === '/track/stats') {
     const a = await kvGet(env, KV_KEYS.ANALYTICS, null);
     if (!a) return json({ ok: true, empty: true, total: 0, unique: 0, new_users: 0, pageviews: 0, pages: {}, events: {}, days: {}, refs: {}, recent: [] });
+    // Pass 306 (privacy fix): feedback entries can carry user-submitted EMAILS and
+    // free-text, and recent events expose per-visitor behavior - neither belongs on
+    // an unauthenticated endpoint. Aggregate counts stay public (they power the
+    // owner dashboard's overview harmlessly); the sensitive arrays require the
+    // admin token, same bearer scheme as the other admin endpoints.
+    const auth = request.headers.get('Authorization') || '';
+    const isAdmin = !!env.ADMIN_TOKEN && timingSafeEqualHex(auth, 'Bearer ' + env.ADMIN_TOKEN);
     return json({
       ok: true, total: a.total || 0, pageviews: a.pageviews || 0,
       unique: a.uniq ? Object.keys(a.uniq).length : 0, new_users: a.new_users || 0,
       pages: a.pages || {}, events: a.events || {}, days: a.days || {}, refs: a.refs || {},
-      feedback: (a.feedback || []).slice(-50),
-      recent: (a.recent || []).slice(-50), since: a.since || null, updatedAt: a.updatedAt || null
+      feedback: isAdmin ? (a.feedback || []).slice(-50) : undefined,
+      recent: isAdmin ? (a.recent || []).slice(-50) : undefined,
+      restricted: isAdmin ? undefined : 'feedback + recent require the admin token',
+      since: a.since || null, updatedAt: a.updatedAt || null
     });
   }
 
@@ -2600,7 +2626,8 @@ async function handleRequest(request, env, ctx) {
     // is not edge.
     const driftUp = resolved.length ? resolved.filter(e => e.ret > 0).length / resolved.length : 0.5;
     function score(entries, dirFn) {
-      const calls = entries.map(e => ({ dir: dirFn(e), ret: e.ret })).filter(c => c.dir !== 0);
+      const calls = entries.map(e => ({ dir: dirFn(e), ret: e.ret, sym: e.sym || '?', ts: e.ts || 0 }))
+        .filter(c => c.dir !== 0);
       const n = calls.length;
       const hits = calls.filter(c => (c.dir > 0 && c.ret > 0) || (c.dir < 0 && c.ret < 0)).length;
       // Directional return: + when the move went our way. Mean across calls.
@@ -2609,18 +2636,38 @@ async function handleRequest(request, env, ctx) {
       let nullHits = 0;
       calls.forEach(c => { nullHits += (c.dir > 0 ? driftUp : (1 - driftUp)); });
       const p0 = n ? nullHits / n : 0.5;
-      const zDrift = (n >= 5 && p0 > 0 && p0 < 1) ? (hits - n * p0) / Math.sqrt(n * p0 * (1 - p0)) : null;
-      const zCoin = n >= 5 ? (hits - n * 0.5) / Math.sqrt(n * 0.25) : null;
+      // Pass 306 (CRITICAL statistics fix): OVERLAP CORRECTION. Calls are logged
+      // daily per symbol on 5-trading-day forward windows, so consecutive calls
+      // on the same (symbol, direction) share ~4/5 of their window - they are
+      // NOT independent observations. Treating them as independent inflated n
+      // (~25-45 effective obs were reported as n=230) and produced the z=+2.94
+      // "significant insider edge" that later round-tripped below its null -
+      // i.e. it was likely a false positive from this exact bug. Correction:
+      // count effective observations by clustering same-(sym,dir) calls within a
+      // 9-calendar-day span (~5 trading days) as ONE observation, then scale the
+      // z statistic by sqrt(n_eff / n) (standard cluster-correction approximation).
+      const lastCounted = {};
+      let nEff = 0;
+      calls.slice().sort((a, b) => a.ts - b.ts).forEach(c => {
+        const key = c.sym + ':' + (c.dir > 0 ? 'U' : 'D');
+        if (!(key in lastCounted) || (c.ts - lastCounted[key]) >= 9 * 86400000) { nEff++; lastCounted[key] = c.ts; }
+      });
+      const shrink = n > 0 ? Math.sqrt(nEff / n) : 1;
+      const zDriftRaw = (n >= 5 && p0 > 0 && p0 < 1) ? (hits - n * p0) / Math.sqrt(n * p0 * (1 - p0)) : null;
+      const zDrift = zDriftRaw != null ? zDriftRaw * shrink : null;    // overlap-corrected
+      const zCoin = n >= 5 ? ((hits - n * 0.5) / Math.sqrt(n * 0.25)) * shrink : null;
       return {
         n, hits,
+        effective_n: nEff,                                             // independent observations after overlap clustering
         hit_rate: n ? +(hits / n).toFixed(4) : null,
         drift_null_rate: +p0.toFixed(4),
         avg_directional_ret_pct: avgDirRet != null ? +avgDirRet.toFixed(3) : null,
         profitable: avgDirRet != null && avgDirRet > 0,
-        z_score: zCoin != null ? +zCoin.toFixed(2) : null,             // back-compat: z vs 50%
-        z_score_vs_drift: zDrift != null ? +zDrift.toFixed(2) : null,
-        beats_coin_flip_95: zCoin != null && zCoin > 1.64,             // back-compat (weak bar)
-        beats_drift_95: zDrift != null && zDrift > 1.64                // the honest bar
+        z_score: zCoin != null ? +zCoin.toFixed(2) : null,             // back-compat: z vs 50% (overlap-corrected)
+        z_score_vs_drift: zDrift != null ? +zDrift.toFixed(2) : null,  // overlap-corrected
+        z_score_vs_drift_raw: zDriftRaw != null ? +zDriftRaw.toFixed(2) : null,  // pre-correction, for transparency
+        beats_coin_flip_95: zCoin != null && nEff >= 5 && zCoin > 1.64,          // back-compat (weak bar)
+        beats_drift_95: zDrift != null && nEff >= 5 && zDrift > 1.64             // the honest bar (corrected)
       };
     }
     const confDir = e => (e.brainDir !== 0 && e.insDir !== 0 && Math.sign(e.brainDir) === Math.sign(e.insDir)) ? e.brainDir : 0;
