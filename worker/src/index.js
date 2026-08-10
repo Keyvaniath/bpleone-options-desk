@@ -38,7 +38,7 @@
 // Pass 200: version stamp so brain-proof.html + worker-setup.html can detect
 // when the deployed worker is behind the repo source. Bump on every meaningful
 // behavior change. Read via /brain/health → worker_version field.
-const WORKER_VERSION = 'pass-307';
+const WORKER_VERSION = 'pass-308';
 
 const UNIVERSE = [
   'SPY','QQQ','IWM','DIA','AAPL','NVDA','TSLA','MSFT','META','AMZN','GOOGL','AMD',
@@ -648,7 +648,11 @@ async function fetchFinnhubEarnings(env, fromStr, toStr) {
       revenueActual: e.revenueActual != null ? e.revenueActual : null,
       quarter: e.quarter != null ? e.quarter : null,
       year: e.year != null ? e.year : null
-    })).filter(e => e.symbol && e.date);
+    })).filter(e => e.symbol && e.date)
+      // Pass 308: Finnhub returns date-DESCENDING and caps the payload at 1500
+      // rows, so consumers led with names 2 weeks out (and a heavy week could
+      // truncate the near-term dates entirely). Sort ascending: today first.
+      .sort((a, b) => a.date < b.date ? -1 : a.date > b.date ? 1 : (a.symbol < b.symbol ? -1 : 1));
   } catch (e) { return null; }
 }
 
@@ -2110,8 +2114,11 @@ async function handleRequest(request, env, ctx) {
     const resp = json({ ok: true, source: 'yahoo-prepost', count: Object.keys(out).length, updatedAt: Date.now(), quotes: out });
     // 120s edge cache: extended-hours moves do not need second-resolution and
     // this caps Yahoo fan-out at ~(syms/120s) regardless of visitor count.
-    resp.headers.set('Cache-Control', 'public, max-age=120');
-    ctx.waitUntil(cache.put(cacheKey, resp.clone()));
+    // Pass 308: never edge-cache a total-outage (0 quotes) response — a
+    // transient Yahoo failure would otherwise blank the page for 120s+.
+    const pmGood = Object.keys(out).length > 0;
+    resp.headers.set('Cache-Control', 'public, max-age=' + (pmGood ? 120 : 60));
+    if (pmGood) ctx.waitUntil(cache.put(cacheKey, resp.clone()));
     return resp;
   }
 
@@ -2162,8 +2169,11 @@ async function handleRequest(request, env, ctx) {
       halts: items || [],
       note: Array.isArray(items) ? undefined : 'halts feed unreachable'
     });
-    resp.headers.set('Cache-Control', 'public, max-age=120');
-    ctx.waitUntil(cache.put(cacheKey, resp.clone()));
+    // Pass 308: don't pin a feed failure in the edge cache (zero halts is a
+    // real state and IS cached; an unreachable feed is not).
+    const haltsGood = Array.isArray(items);
+    resp.headers.set('Cache-Control', 'public, max-age=' + (haltsGood ? 120 : 60));
+    if (haltsGood) ctx.waitUntil(cache.put(cacheKey, resp.clone()));
     return resp;
   }
 
@@ -2206,8 +2216,14 @@ async function handleRequest(request, env, ctx) {
       note: Array.isArray(events) ? undefined : 'calendar feed unreachable'
     });
     // Calendar content changes a few times a day at most - cache 1h.
-    resp.headers.set('Cache-Control', 'public, max-age=3600');
-    ctx.waitUntil(cache.put(cacheKey, resp.clone()));
+    // Pass 308 (the CPI-week bug): cache.put ran unconditionally, so ONE flaky
+    // ForexFactory fetch pinned an empty calendar in the edge cache for a full
+    // hour (observed live 8/10: count:0 at 8:45am, 74 events minutes later,
+    // count:0 again at 12:41). Only cache a response with real events; an
+    // unfiltered empty week is treated as a failure, not a fact.
+    const econGood = Array.isArray(events) && (events.length > 0 || !!(impactFilter || countryFilter));
+    resp.headers.set('Cache-Control', 'public, max-age=' + (econGood ? 3600 : 60));
+    if (econGood) ctx.waitUntil(cache.put(cacheKey, resp.clone()));
     return resp;
   }
 
@@ -2252,8 +2268,10 @@ async function handleRequest(request, env, ctx) {
     });
     // Edge-cache 5 min: news doesn't change every second, and this shields the
     // 60-call/min free limit no matter how many customers hit it.
-    resp.headers.set('Cache-Control', 'public, max-age=300');
-    ctx.waitUntil(cache.put(cacheKey, resp.clone()));
+    // Pass 308: failures (rate-limit / bad key) are not cached.
+    const newsGood = Array.isArray(items);
+    resp.headers.set('Cache-Control', 'public, max-age=' + (newsGood ? 300 : 60));
+    if (newsGood) ctx.waitUntil(cache.put(cacheKey, resp.clone()));
     return resp;
   }
 
@@ -2267,7 +2285,34 @@ async function handleRequest(request, env, ctx) {
     const now = Date.now();
     const fromStr = new Date(now).toISOString().slice(0, 10);
     const toStr = new Date(now + days * 86400000).toISOString().slice(0, 10);
-    const items = await fetchFinnhubEarnings(env, fromStr, toStr);
+    // Pass 308: Finnhub caps each response at 1500 rows (date-descending), so a
+    // busy 14-day window silently truncated the EARLIEST dates - i.e. today's
+    // reporters. Chunk the range into <=7-day windows (a heavy week is ~1300
+    // rows, safely under the cap), merge, and sort ascending. 1-2 upstream
+    // calls per 1h cache miss.
+    const chunks = [];
+    for (let d0 = 0; d0 <= days; d0 += 7) {   // <=: the range is INCLUSIVE of day `days` (matches the single-call from/to)
+      const cFrom = new Date(now + d0 * 86400000).toISOString().slice(0, 10);
+      const cTo = new Date(now + Math.min(days, d0 + 6) * 86400000).toISOString().slice(0, 10);
+      chunks.push([cFrom, cTo]);
+    }
+    const parts = await Promise.all(chunks.map(([f, t]) => fetchFinnhubEarnings(env, f, t)));
+    const anyOk = parts.some(p => Array.isArray(p));
+    const allOk = parts.every(p => Array.isArray(p));
+    let items = null;
+    if (anyOk) {
+      const seen = new Set();
+      items = [];
+      for (const p of parts) {
+        if (!Array.isArray(p)) continue;
+        for (const e of p) {
+          const k = e.symbol + '|' + e.date;
+          if (seen.has(k)) continue;
+          seen.add(k); items.push(e);
+        }
+      }
+      items.sort((a, b) => a.date < b.date ? -1 : a.date > b.date ? 1 : (a.symbol < b.symbol ? -1 : 1));
+    }
     const resp = json({
       ok: Array.isArray(items),
       source: 'finnhub/earnings-calendar',
@@ -2276,11 +2321,17 @@ async function handleRequest(request, env, ctx) {
       days,
       count: Array.isArray(items) ? items.length : 0,
       earnings: items || [],
-      note: Array.isArray(items) ? undefined : 'finnhub returned no earnings data (key missing/invalid or rate-limited)'
+      note: !Array.isArray(items)
+        ? 'finnhub returned no earnings data (key missing/invalid or rate-limited)'
+        : (allOk ? 'Sorted ascending (today first); fetched in <=7-day chunks to stay under the upstream 1500-row cap.'
+                 : 'Sorted ascending (today first). PARTIAL: one or more date-range chunks failed upstream - some dates in this window are missing.')
     });
-    // Earnings dates change rarely intraday - cache 1h.
-    resp.headers.set('Cache-Control', 'public, max-age=3600');
-    ctx.waitUntil(cache.put(cacheKey, resp.clone()));
+    // Earnings dates change rarely intraday - cache 1h. Pass 308: failures,
+    // empty payloads, and PARTIAL merges are not cached (a transient Finnhub
+    // rate-limit would otherwise pin a blank/holey calendar for an hour).
+    const earnGood = allOk && Array.isArray(items) && items.length > 0;
+    resp.headers.set('Cache-Control', 'public, max-age=' + (earnGood ? 3600 : 60));
+    if (earnGood) ctx.waitUntil(cache.put(cacheKey, resp.clone()));
     return resp;
   }
 
@@ -2311,9 +2362,10 @@ async function handleRequest(request, env, ctx) {
         ? 'SEC Form 3/4/5 filings. Open-market P (buy) / S (sell) carry the signal; A/M/G/F are grants, exercises, gifts, tax-withholding.'
         : 'finnhub returned no insider data (key missing/invalid or symbol unsupported)'
     });
-    // Insider filings update slowly (legal lag) — cache 1h.
-    resp.headers.set('Cache-Control', 'public, max-age=3600');
-    ctx.waitUntil(cache.put(cacheKey, resp.clone()));
+    // Insider filings update slowly (legal lag) — cache 1h. Pass 308: failures are not cached.
+    const insGood = Array.isArray(txns);
+    resp.headers.set('Cache-Control', 'public, max-age=' + (insGood ? 3600 : 60));
+    if (insGood) ctx.waitUntil(cache.put(cacheKey, resp.clone()));
     return resp;
   }
 
@@ -2343,9 +2395,10 @@ async function handleRequest(request, env, ctx) {
         ? 'Analyst recommendation trends: monthly counts of strongBuy/buy/hold/sell/strongSell. Price targets are NOT included (Finnhub paid tier).'
         : 'finnhub returned no recommendation data (key missing/invalid or symbol unsupported)'
     });
-    // Recommendation trends refresh ~monthly - cache 6h.
-    resp.headers.set('Cache-Control', 'public, max-age=21600');
-    ctx.waitUntil(cache.put(cacheKey, resp.clone()));
+    // Recommendation trends refresh ~monthly - cache 6h. Pass 308: failures are not cached.
+    const recGood = Array.isArray(recs);
+    resp.headers.set('Cache-Control', 'public, max-age=' + (recGood ? 21600 : 60));
+    if (recGood) ctx.waitUntil(cache.put(cacheKey, resp.clone()));
     return resp;
   }
 
@@ -2366,8 +2419,9 @@ async function handleRequest(request, env, ctx) {
       profile: profile || null,
       note: profile ? 'Company profile from Finnhub.' : 'finnhub returned no profile (key missing/invalid or symbol unsupported)'
     });
-    resp.headers.set('Cache-Control', 'public, max-age=43200');  // profiles change rarely - 12h
-    ctx.waitUntil(cache.put(cacheKey, resp.clone()));
+    // Profiles change rarely - 12h. Pass 308: failures are not cached.
+    resp.headers.set('Cache-Control', 'public, max-age=' + (profile ? 43200 : 60));
+    if (profile) ctx.waitUntil(cache.put(cacheKey, resp.clone()));
     return resp;
   }
 
@@ -2389,8 +2443,9 @@ async function handleRequest(request, env, ctx) {
       metric: metric || null,
       note: metric ? 'Valuation / growth / margin metrics from Finnhub.' : 'finnhub returned no metrics (key missing/invalid or symbol unsupported)'
     });
-    resp.headers.set('Cache-Control', 'public, max-age=21600');  // 6h
-    ctx.waitUntil(cache.put(cacheKey, resp.clone()));
+    // 6h. Pass 308: failures are not cached.
+    resp.headers.set('Cache-Control', 'public, max-age=' + (metric ? 21600 : 60));
+    if (metric) ctx.waitUntil(cache.put(cacheKey, resp.clone()));
     return resp;
   }
 
@@ -2422,8 +2477,9 @@ async function handleRequest(request, env, ctx) {
       note: ok ? 'Real options chain.' : 'No chain returned (key invalid, symbol unsupported, or market closed).'
     });
     // Delayed/EOD-ish data + a fast-moving chain: 5-min edge cache.
-    resp.headers.set('Cache-Control', 'public, max-age=300');
-    ctx.waitUntil(cache.put(cacheKey, resp.clone()));
+    // Pass 308: empty-chain responses are not cached.
+    resp.headers.set('Cache-Control', 'public, max-age=' + (ok ? 300 : 60));
+    if (ok) ctx.waitUntil(cache.put(cacheKey, resp.clone()));
     return resp;
   }
 
@@ -2488,8 +2544,10 @@ async function handleRequest(request, env, ctx) {
       flows,
       note: 'Real daily-aggregate options activity from the free CBOE delayed chain (~15-min delayed): per-name call/put volume, open interest, $-flow, and unusual (volume>OI) counts. NOT real-time sweeps/blocks (that tape needs a paid feed). Experimental directional signal; not yet graded vs market drift.'
     });
-    resp.headers.set('Cache-Control', 'public, max-age=900');
-    ctx.waitUntil(cache.put(cacheKey, resp.clone()));
+    // Pass 308: a zero-symbol response (total CBOE outage) is not cached.
+    const flowGood = flows.length > 0;
+    resp.headers.set('Cache-Control', 'public, max-age=' + (flowGood ? 900 : 60));
+    if (flowGood) ctx.waitUntil(cache.put(cacheKey, resp.clone()));
     return resp;
   }
 
@@ -2603,8 +2661,10 @@ async function handleRequest(request, env, ctx) {
       transactions: all,
       note: 'Real SEC Form 3/4/5 across a liquid basket. Open-market P (buy) / S (sell) carry the signal; A/M/G/F are grants/exercises/gifts/tax.'
     });
-    resp.headers.set('Cache-Control', 'public, max-age=3600');
-    ctx.waitUntil(cache.put(cacheKey, resp.clone()));
+    // Pass 308: an empty feed (Finnhub outage across the whole basket) is not cached.
+    const feedGood = all.length > 0;
+    resp.headers.set('Cache-Control', 'public, max-age=' + (feedGood ? 3600 : 60));
+    if (feedGood) ctx.waitUntil(cache.put(cacheKey, resp.clone()));
     return resp;
   }
 

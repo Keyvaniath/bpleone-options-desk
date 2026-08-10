@@ -41,11 +41,15 @@
   </div>
 
   <div class="grid grid-4 mb-24">
-    <div class="tile" style="background:rgba(16,185,129,0.06);"><div class="lbl">Audit passes</div><div class="val" style="color:var(--green);">350</div></div>
-    <div class="tile" style="background:rgba(16,185,129,0.06);"><div class="lbl">Bugs fixed</div><div class="val" style="color:var(--green);">340+</div></div>
+    <div class="tile" style="background:rgba(16,185,129,0.06);"><div class="lbl">Audit passes</div><div class="val" style="color:var(--green);">351</div></div>
+    <div class="tile" style="background:rgba(16,185,129,0.06);"><div class="lbl">Bugs fixed</div><div class="val" style="color:var(--green);">344+</div></div>
     <div class="tile" style="background:rgba(220,38,38,0.06);"><div class="lbl">CRITICAL bugs</div><div class="val" style="color:var(--red);">52</div></div>
     <div class="tile"><div class="lbl">Total commits</div><div class="val">305+</div></div>
   </div>
+
+  <div style="padding:14px 18px;border-radius:10px;background:rgba(220,38,38,0.10);border-left:4px solid var(--red);margin-bottom:14px;font-size:13px;color:var(--text-secondary);line-height:1.6;">
+    <strong>Pass 318 (worker pass-308) — the failure-caching bug class, caught live on CPI week.</strong>
+    <b>CRITICAL — one flaky upstream fetch blinded a page for a full hour:</b> ten feed endpoints (<code>/brain/econ</code>, earnings, news, halts, premarket, insider, insider-feed, recommendations, profile, fundamentals, options-chain, options-flow) ran <code>cache.put</code> UNCONDITIONALLY, so a transient upstream failure (ForexFactory, Finnhub rate-limit, CBOE outage) was pinned in the edge cache for its full TTL — observed live 8/10: <code>/brain/econ</code> served <b>count:0 during CPI week</b> at 8:45am and again at 12:41pm while the feed itself had 74 events (July CPI Wed 8/12 8:30 ET, impact High) minutes later. Fixed: every handler now caches only verified-good responses; failures get max-age=60 and no edge-cache write (the pattern <code>/brain/transcript</code> already used). <b>HIGH — the earnings feed silently dropped rows and led with names 2 weeks out:</b> Finnhub returns date-DESCENDING and caps each response at 1500 rows, so the 14-day window truncated the EARLIEST dates (today's reporters) and consumers led with 8/24 micro-caps. Fixed: the worker fetches in ≤7-day chunks, merges + dedupes, sorts ascending — live verification recovered <b>44 silently-dropped rows</b> (1500 → 1544, full 8/10→8/24 coverage; SMCI Tue amc / CSCO Wed amc / AMAT Thu amc now first-class). One off-by-one in the chunk loop (dropped the final inclusive day) was itself caught in live verification and fixed before it could ship as "done." <b>Also:</b> the pass-307 <code>stale_scan</code>/<code>as_of</code> flags are now RENDERED — pick-of-day (hero, share text, alpha rows) and proof.html label prior-session scans "scan as of YYYY-MM-DD close," and broadcast.html's stale detection now trusts per-pick <code>stale_scan</code>, not just the envelope's <code>ageSec</code> (which the cron keeps fresh even when every signal is Friday's).</div>
 
   <div style="padding:14px 18px;border-radius:10px;background:rgba(16,185,129,0.10);border-left:4px solid var(--green);margin-bottom:14px;font-size:13px;color:var(--text-secondary);line-height:1.6;">
     <strong>Pass 317 (worker pass-307) — Monday-morning picks no longer wear Friday's timestamp.</strong>

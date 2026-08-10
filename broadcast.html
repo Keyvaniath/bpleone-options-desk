@@ -191,20 +191,29 @@ async function build(){
     } catch(e){ return false; }
   }
   const workerDown = !picks || !picks.ok;
-  const stale = !workerDown && picks.ageSec != null && picks.ageSec > 3600;
+  // Pass 318: the envelope's ageSec reads fresh even when the underlying
+  // signals are the prior session's (the cron rewrites the SIGNALS wrapper
+  // every tick across weekends/pre-open). Trust the per-pick stale_scan flag
+  // (worker pass-307) as well as the envelope age.
+  const sigStale = !workerDown && [picks.pick_of_day, picks.best_long]
+    .concat(Array.isArray(picks.alpha) ? picks.alpha : [])
+    .filter(Boolean).some(p => p.stale_scan);
+  const stale = !workerDown && ((picks.ageSec != null && picks.ageSec > 3600) || sigStale);
   const staleDuringHours = stale && etMarketOpen();
   if (workerDown) {
     fresh.innerHTML = '<span style="color:var(--yellow);">Could not reach the desk worker — the pick-based drafts below are disabled rather than filled with made-up leans. The multi-horizon and transparency cards still work.</span>';
   } else {
     fresh.innerHTML = 'Live desk read: <strong>' + picks.universe_scored + '</strong> names scored · updated ' + esc(ageStr(picks.updatedAt)) +
-      (staleDuringHours ? ' <span style="color:var(--yellow);">(desk read is over an hour old DURING market hours — the feed may be delayed; verify before posting)</span>'
+      (staleDuringHours ? ' <span style="color:var(--yellow);">(the desk scan predates this session — verify before posting)</span>'
         : stale ? ' <span style="color:var(--yellow);">(outside market hours — this is the prior session’s read; drafts note it)</span>' : '');
   }
 
   const pod = (picks && picks.pick_of_day) || null;
   const bl = (picks && picks.best_long) || null;
   const alpha = (picks && Array.isArray(picks.alpha)) ? picks.alpha : [];
-  const staleNote = staleDuringHours ? ' (desk read >1h old — verify)' : (stale ? ' (prior session)' : '');
+  const staleAsOf = (function(){ const s = [pod, bl].concat(alpha).filter(Boolean).find(p => p.stale_scan && p.as_of); return s ? s.as_of : null; })();
+  const staleNote = staleDuringHours ? (staleAsOf ? ' (scan as of ' + staleAsOf + ' close — verify)' : ' (desk read >1h old — verify)')
+    : (stale ? (staleAsOf ? ' (as of ' + staleAsOf + ' close)' : ' (prior session)') : '');
 
   const specs = [];
   // Pass 308: cards never vanish silently. Each pick-based card renders either a
