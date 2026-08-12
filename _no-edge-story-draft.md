@@ -12,7 +12,7 @@
 
 **Alt title:** My trading model's best discovery was a bug in my own math.
 
-**Subtitle:** 1,721 live graded predictions. 26,000 training examples. A year of work. The most valuable number it ever produced was zero.
+**Subtitle:** 1,721 live graded predictions. 29,700 training examples. A year of work. The most valuable number it ever produced was zero.
 
 ---
 
@@ -48,11 +48,11 @@ Last week I ran a deep audit of my own scoring code and found the real answer. M
 
 The edge didn't decay. It was never there. What I'd been narrating as "regression to the mean" was a small noisy sample wandering back to its true value, which was the null the whole time.
 
-The same audit found my scanner had been inventing "unusual volume" every morning before the open — the data vendor reports the prior day's total volume until the session starts, and my time-of-day projection was amplifying it about tenfold. Both bugs are fixed. Both are written up in the site's public audit log, which is now 349 entries long, because apparently that's who I am now.
+The same audit found my scanner had been inventing "unusual volume" every morning before the open — the data vendor reports the prior day's total volume until the session starts, and my time-of-day projection was amplifying it about tenfold. Both bugs are fixed. Both are written up in the site's public audit log, which is now 352 entries long, because apparently that's who I am now.
 
 ### So what do I actually have?
 
-An honest answer, after a year and 26,000 training examples:
+An honest answer, after a year and 29,700 training examples:
 
 I have a measurement instrument. The same infrastructure that proves a signal has no edge is exactly what you'd need to validate one that does. Almost nobody selling trading signals has that infrastructure. That fact is not a coincidence. It is the business model.
 
@@ -87,7 +87,7 @@ The whole system is free and live. The scorecard grades itself in public every t
 >
 > The result: 56.9% accuracy — which is exactly the market's drift base rate over the same window. +0.0pp of skill. The site says so on every page, because grading against a 50% coin flip (what most "algo" accounts do) is meaningless when stocks drift up.
 >
-> The part I think HN will enjoy: one signal (SEC insider buy-clusters, a documented anomaly) looked genuinely significant for months — z=+2.94 on n=230. Then a deep audit of my own scoring code found the significance test was counting overlapping 5-day windows as independent observations. Effective n was ~25–45, not 230. The "edge" was pseudo-replication. I'd been publicly narrating its decline as "regression to the mean," which was wrong in an instructive way: it never existed. Fixed and disclosed in the public audit log (349 entries).
+> The part I think HN will enjoy: one signal (SEC insider buy-clusters, a documented anomaly) looked genuinely significant for months — z=+2.94 on n=230. Then a deep audit of my own scoring code found the significance test was counting overlapping 5-day windows as independent observations. Effective n was ~25–45, not 230. The "edge" was pseudo-replication. I'd been publicly narrating its decline as "regression to the mean," which was wrong in an instructive way: it never existed. Fixed and disclosed in the public audit log (352 entries).
 >
 > Everything is free, no signup gates on the data. Happy to answer anything about the stats, the infra (runs on the CF free tier), or what it's like to publish your own null result.
 

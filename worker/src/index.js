@@ -38,7 +38,7 @@
 // Pass 200: version stamp so brain-proof.html + worker-setup.html can detect
 // when the deployed worker is behind the repo source. Bump on every meaningful
 // behavior change. Read via /brain/health → worker_version field.
-const WORKER_VERSION = 'pass-308';
+const WORKER_VERSION = 'pass-309';
 
 const UNIVERSE = [
   'SPY','QQQ','IWM','DIA','AAPL','NVDA','TSLA','MSFT','META','AMZN','GOOGL','AMD',
@@ -66,6 +66,7 @@ const KV_KEYS = {
   CONSTRAINTS: 'broadcast_constraints_v1', // pass 258: editable noise-control constraints for broadcasts
   RESEARCH: 'research_v1',          // pass 264: what the features CAN predict (volatility / dense direction)
   ANALYTICS: 'analytics_v1',        // pass 268: first-party usage analytics (anon page views + events)
+  ECON_CACHE: 'econ_cache_v1',      // pass 319: last-good ForexFactory calendar (upstream rejects CF egress IPs ~2/3 of the time)
 };
 
 // Pass 218: bumped from 12,000 → 35,000. Live training triggers on the
@@ -2186,34 +2187,60 @@ async function handleRequest(request, env, ctx) {
     const week = url.searchParams.get('week') === 'next' ? 'nextweek' : 'thisweek';
     const impactFilter = (url.searchParams.get('impact') || '').toLowerCase();
     const countryFilter = (url.searchParams.get('country') || '').toUpperCase();
-    let events = null;
-    try {
-      const r = await fetch('https://nfs.faireconomy.media/ff_calendar_' + week + '.json',
-        { headers: { 'User-Agent': 'Mozilla/5.0' } });
-      if (r.ok) {
+    // Pass 319: ForexFactory's CDN intermittently rejects Cloudflare Workers
+    // egress IPs (measured live 8/12: ~2 of 3 fetches fail while the same URL
+    // is 200 from a residential IP). Two mitigations: retry the live fetch
+    // once, and keep a last-good copy in KV to serve — honestly labeled stale —
+    // when both attempts fail. The KV write is gated (only on success AND when
+    // the stored copy is >30 min old), so the GET path stays ~write-free.
+    async function fetchFF() {
+      try {
+        const r = await fetch('https://nfs.faireconomy.media/ff_calendar_' + week + '.json',
+          { headers: { 'User-Agent': 'Mozilla/5.0' } });
+        if (!r.ok) return null;
         const arr = await r.json();
-        if (Array.isArray(arr)) {
-          events = arr.map(e => ({
-            title: e.title || '',
-            country: e.country || '',
-            date: e.date || '',
-            impact: e.impact || '',
-            forecast: e.forecast || '',
-            previous: e.previous || ''
-          }));
-          if (impactFilter) events = events.filter(e => e.impact.toLowerCase() === impactFilter);
-          if (countryFilter) events = events.filter(e => e.country.toUpperCase() === countryFilter);
-        }
+        if (!Array.isArray(arr)) return null;
+        return arr.map(e => ({
+          title: e.title || '',
+          country: e.country || '',
+          date: e.date || '',
+          impact: e.impact || '',
+          forecast: e.forecast || '',
+          previous: e.previous || ''
+        }));
+      } catch (e) { return null; }
+    }
+    let raw = await fetchFF();
+    if (!raw) raw = await fetchFF();   // one retry: lifts success from ~1/3 to ~5/9 per request
+    let staleServed = false, fetchedAt = Date.now();
+    if (raw && week === 'thisweek') {
+      // Refresh the last-good copy at most twice an hour.
+      const stored = await kvGet(env, KV_KEYS.ECON_CACHE, null);
+      if (!stored || (Date.now() - (stored.fetchedAt || 0)) > 30 * 60 * 1000) {
+        ctx.waitUntil(kvPut(env, KV_KEYS.ECON_CACHE, { fetchedAt: Date.now(), events: raw }));
       }
-    } catch (e) { events = null; }
+    } else if (!raw && week === 'thisweek') {
+      const stored = await kvGet(env, KV_KEYS.ECON_CACHE, null);
+      if (stored && Array.isArray(stored.events)) {
+        raw = stored.events; staleServed = true; fetchedAt = stored.fetchedAt || 0;
+      }
+    }
+    let events = raw;
+    if (Array.isArray(events)) {
+      if (impactFilter) events = events.filter(e => e.impact.toLowerCase() === impactFilter);
+      if (countryFilter) events = events.filter(e => e.country.toUpperCase() === countryFilter);
+    }
     const resp = json({
       ok: Array.isArray(events),
       source: 'forexfactory',
       week,
       count: Array.isArray(events) ? events.length : 0,
-      updatedAt: Date.now(),
+      updatedAt: fetchedAt,
+      stale: staleServed || undefined,
       events: events || [],
-      note: Array.isArray(events) ? undefined : 'calendar feed unreachable'
+      note: !Array.isArray(events) ? 'calendar feed unreachable (and no cached copy yet)'
+        : staleServed ? 'Live calendar feed unreachable right now - serving the last good copy (see updatedAt). Event dates/forecasts change rarely intraday.'
+        : undefined
     });
     // Calendar content changes a few times a day at most - cache 1h.
     // Pass 308 (the CPI-week bug): cache.put ran unconditionally, so ONE flaky
