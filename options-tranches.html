@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Strikes &amp; Tranches — live options ladders by horizon — bpleone / trade</title>
+<meta name="description" content="Live options strike ladders for day, week, month, and quarter-plus horizons — real CBOE chain premiums, greeks, IV, breakevens, and ATR-based tranche entry levels. A structuring tool with the honest edge status up front, never a signal service.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" media="print" onload="this.media='all'"><noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap"></noscript>
+<link rel="stylesheet" href="css/style.css?v=v220">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.hz-card { background:var(--bg-elevated); border:1px solid var(--border); border-radius:14px; padding:16px 18px; margin-bottom:16px; }
+.hz-head { display:flex; align-items:baseline; gap:12px; flex-wrap:wrap; margin-bottom:4px; }
+.hz-title { font-size:16px; font-weight:800; }
+.hz-exp { font-family:var(--font-mono); font-size:12px; color:var(--text-muted); }
+.hz-warn { font-size:11px; color:var(--yellow); font-weight:700; }
+.strike-head, .strike-row { display:grid; grid-template-columns: 92px 74px 110px 64px 64px 70px 88px 92px 80px; gap:8px; align-items:center; font-family:var(--font-mono); font-size:12px; }
+.strike-head { padding:8px 10px; font-size:9.5px; text-transform:uppercase; letter-spacing:0.4px; color:var(--text-muted); border-bottom:1px solid var(--border); }
+.strike-row { padding:10px; border-bottom:1px solid rgba(255,255,255,0.05); }
+.strike-row:last-child { border-bottom:none; }
+.strike-row .tier { font-family:var(--font-sans); font-size:10px; font-weight:800; text-transform:uppercase; letter-spacing:0.4px; }
+.tier-itm { color:var(--green); } .tier-atm { color:var(--accent); } .tier-otm { color:var(--yellow); }
+.illiq { color:var(--red); font-size:9.5px; font-weight:800; }
+.tr-row { display:grid; grid-template-columns: 70px 110px 1fr 90px; gap:10px; padding:9px 10px; font-family:var(--font-mono); font-size:12.5px; border-bottom:1px solid rgba(255,255,255,0.05); align-items:center; }
+.tr-row:last-child { border-bottom:none; }
+@media (max-width: 860px){ .strike-head, .strike-row { grid-template-columns: 80px 64px 100px 60px 80px; } .strike-head > :nth-child(n+6), .strike-row > :nth-child(n+6) { display:none; } }
+.dirbtn { padding:9px 16px; border-radius:8px; border:1px solid var(--border); background:transparent; color:var(--text-secondary); cursor:pointer; font-weight:800; font-family:var(--font-mono); }
+.dirbtn.on-call { border-color:var(--green); color:var(--green); background:rgba(16,185,129,0.08); }
+.dirbtn.on-put { border-color:var(--red); color:var(--red); background:rgba(220,38,38,0.08); }
+</style>
+  <link rel="canonical" href="https://options.bpleone.com/options-tranches.html">
+</head>
+<body data-needs="live">
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">🎯 Strikes &amp; Tranches <span class="feat-badge feat-live">LIVE CHAIN</span></div>
+      <div class="page-subtitle">Real options ladders for <strong>day · week · month · quarter+</strong> from the live CBOE chain (~15-min delayed) — premiums, greeks, breakevens, and ATR-based tranche entry levels. A <strong>structuring tool</strong>, not a signal.</div>
+    </div>
+    <div class="flex gap-8" style="align-items:center;flex-wrap:wrap;">
+      <input id="symIn" class="bc-input" style="padding:9px 12px;background:var(--bg-elevated);border:1px solid var(--border);border-radius:9px;color:var(--text-primary);font-family:var(--font-mono);font-size:14px;text-transform:uppercase;width:100px;letter-spacing:1px;" placeholder="SYM">
+      <button class="dirbtn" id="dirBtn">CALLS ▲</button>
+      <button class="btn btn-secondary" id="goBtn">Build ladders</button>
+    </div>
+  </div>
+
+  <!-- The honesty header: direction source + edge status, ALWAYS first -->
+  <div id="edgeBox" style="margin-bottom:16px;padding:12px 16px;border-radius:10px;background:rgba(245,158,11,0.06);border-left:3px solid var(--yellow);font-size:12.5px;color:var(--text-secondary);line-height:1.65;">Loading the honest context…</div>
+
+  <div id="underBox" class="card mb-24" style="display:none;"></div>
+
+  <div id="ladders"><div style="padding:30px;text-align:center;color:var(--text-muted);">Loading the live chain…</div></div>
+
+  <!-- Tranche plan -->
+  <div class="card mb-24" id="trancheCard" style="display:none;">
+    <div class="card-header"><div class="card-title">📶 Tranche entry template (underlying price levels)</div><div class="mono" style="font-size:11px;color:var(--text-muted);">levels from real 14-day ATR</div></div>
+    <div id="trancheBody"></div>
+    <div style="font-size:11.5px;color:var(--text-muted);margin-top:10px;line-height:1.6;" id="trancheNote"></div>
+  </div>
+
+  <div class="card mb-24" style="background:rgba(220,38,38,0.05);border-color:rgba(220,38,38,0.3);">
+    <div style="font-size:12px;color:var(--text-secondary);line-height:1.7;">
+      <strong style="color:var(--red);">Read this before buying any of these.</strong>
+      Long options can go to <strong>zero</strong> — the listed premium is the full amount at risk per contract (×100 shares). The theta column is the <em>daily</em> decay at current pricing; 0-DTE contracts can lose most of their value in hours even when direction is right. High IV after a big move means you may be buying expensive volatility that deflates (IV crush). Quotes are ~15-min delayed CBOE data — confirm live pricing at your broker before any order. This desk's directional lean carries <strong>no proven edge over market drift</strong> (live proof on the <a href="edge-scorecard.html">Edge Scorecard</a>), and nothing on this page is investment advice — it is a transparent way to see how a view could be structured, with every number sourced live.
+    </div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js?v=v220"></script>
+<script src="js/ai-client.js?v=v220"></script>
+<script src="js/app.js?v=v220"></script>
+<script src="js/notify.js?v=v220"></script>
+<script src="js/live.js?v=v220"></script>
+<script>
+buildNav('options-tranches');
+(function () {
+  const WORKER = 'https://bpleone-brain-worker.brandonpleone.workers.dev';
+  const $ = id => document.getElementById(id);
+  const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const cleanSym = s => String(s || '').toUpperCase().replace(/[^A-Z0-9.\-]/g, '').slice(0, 8);
+  const fm = (x, d) => x == null || isNaN(x) ? '—' : Number(x).toFixed(d == null ? 2 : d);
+  const money = x => x == null || isNaN(x) ? '—' : '$' + Number(x).toFixed(2);
+
+  let dir = 'call';   // call | put
+  async function jget(p) { try { const r = await fetch(WORKER + p, { cache: 'no-store' }); if (r.ok) return await r.json(); } catch (e) {} return null; }
+
+  // Horizon targets in DTE. Day = nearest listed expiration (could be 0DTE);
+  // week ~7, month ~30, quarter+ ~90. We pick the LISTED expiration closest to
+  // each target (never invent a date).
+  const HORIZONS = [
+    { key: 'day', label: '⚡ Day', target: 0, blurb: 'nearest expiration — pure gamma, brutal theta', warn: '0–2 DTE: can lose most of its value in hours. Smallest size, if any.' },
+    { key: 'week', label: '📅 Week', target: 7, blurb: 'matches the desk\'s 5-trading-day lean horizon', warn: null },
+    { key: 'month', label: '🗓 Month', target: 30, blurb: 'a month for the thesis to work; slower theta', warn: null },
+    { key: 'quarter', label: '🧭 Quarter+', target: 90, blurb: 'position-trade horizon; mostly delta, least theta', warn: null }
+  ];
+  // Strike tiers by |delta| — the honest way to ladder (moneyness scales with IV and time).
+  const TIERS = [
+    { key: 'ITM', cls: 'tier-itm', target: 0.70, desc: 'conservative — mostly intrinsic, highest cost, least theta risk' },
+    { key: 'ATM', cls: 'tier-atm', target: 0.50, desc: 'base — max gamma, the standard expression' },
+    { key: 'OTM', cls: 'tier-otm', target: 0.30, desc: 'aggressive — cheapest, most leverage, most likely to expire worthless' }
+  ];
+
+  function pickExp(expirations, targetDte) {
+    const now = new Date();
+    let best = null, bestGap = 1e9;
+    for (const e of expirations) {
+      const dte = Math.max(0, Math.round((new Date(e + 'T16:00:00-04:00') - now) / 86400000));
+      const gap = Math.abs(dte - targetDte);
+      if (gap < bestGap) { bestGap = gap; best = { exp: e, dte }; }
+    }
+    return best;
+  }
+  function pickByDelta(contracts, targetAbsDelta) {
+    let best = null, bestGap = 1e9;
+    for (const c of contracts) {
+      if (!(c.bid > 0) || !(c.oi > 0) || c.delta == null) continue;   // no junk strikes
+      const gap = Math.abs(Math.abs(c.delta) - targetAbsDelta);
+      if (gap < bestGap) { bestGap = gap; best = c; }
+    }
+    return best;
+  }
+
+  async function build() {
+    const sym = cleanSym($('symIn').value);
+    if (!sym) return;
+    history.replaceState(null, '', '?sym=' + sym);
+    $('ladders').innerHTML = '<div style="padding:30px;text-align:center;color:var(--text-muted);">Pulling the live ' + esc(sym) + ' chain…</div>';
+
+    let [chain, quotes, bars, conf] = await Promise.all([
+      jget('/brain/options-chain?sym=' + sym),
+      jget('/brain/quotes?syms=' + sym),
+      jget('/brain/bars?syms=' + sym + '&days=20'),
+      jget('/brain/confluence-score')
+    ]);
+    // One retry for transient failures - a flaky quote fetch shouldn't blank
+    // the underlying/tranche cards until the next 2-min refresh.
+    if (!quotes || !chain || !bars) {
+      await new Promise(r => setTimeout(r, 1500));
+      if (!quotes) quotes = await jget('/brain/quotes?syms=' + sym);
+      if (!chain) chain = await jget('/brain/options-chain?sym=' + sym);
+      if (!bars) bars = await jget('/brain/bars?syms=' + sym + '&days=20');
+    }
+
+    // Honesty header — the desk's lean + its live drift-graded record, sourced, never asserted.
+    let edgeHtml = '<strong style="color:var(--yellow);">Transparency first.</strong> ';
+    const brainLeg = conf && conf.brain;
+    if (brainLeg && brainLeg.n) {
+      const hit = (brainLeg.hit_rate * 100).toFixed(1);
+      const base = brainLeg.drift_null_rate != null ? (brainLeg.drift_null_rate * 100).toFixed(1) : null;
+      const nEff = brainLeg.effective_n != null ? brainLeg.effective_n : brainLeg.n;
+      edgeHtml += 'The desk model\'s live 5-day record: <strong>' + hit + '%</strong> hit rate (' + nEff + ' independent obs)'
+        + (base ? ' vs a drift null of <strong>' + base + '%</strong>' : '')
+        + ' — <strong>no proven edge</strong>. ';
+    } else {
+      edgeHtml += 'The desk\'s directional lean has <strong>no proven edge over market drift</strong> (live proof on the <a href="edge-scorecard.html">scorecard</a>). ';
+    }
+    edgeHtml += 'These ladders show how a view — yours, not the machine\'s — could be structured with real, ~15-min-delayed CBOE pricing. Direction toggle is manual: you choose calls or puts.';
+    $('edgeBox').innerHTML = edgeHtml;
+
+    const q = quotes && quotes.quotes && quotes.quotes[sym];
+    const last = q && q.last > 0 ? q.last : null;
+    if (last) {
+      $('underBox').style.display = 'block';
+      $('underBox').innerHTML = '<div style="display:flex;gap:26px;align-items:baseline;flex-wrap:wrap;padding:4px 6px;">'
+        + '<div style="font-family:var(--font-mono);font-size:30px;font-weight:900;">' + esc(sym) + ' ' + money(last) + '</div>'
+        + '<div style="font-family:var(--font-mono);font-size:15px;font-weight:700;color:' + ((q.changePct || 0) >= 0 ? 'var(--green)' : 'var(--red)') + ';">' + (q.changePct >= 0 ? '+' : '') + fm(q.changePct) + '% today</div>'
+        + '<div style="font-size:11px;color:var(--text-muted);">quote ~15-min delayed · chain refreshes every ~5 min</div>'
+        + '</div>';
+    } else { $('underBox').style.display = 'none'; }
+
+    if (!chain || !chain.ok || !Array.isArray(chain.contracts) || !chain.contracts.length) {
+      $('ladders').innerHTML = '<div style="padding:30px;text-align:center;color:var(--text-muted);">No live chain available for ' + esc(sym) + ' right now (unsupported symbol or feed outage) — nothing fabricated in its place.</div>';
+      $('trancheCard').style.display = 'none';
+      return;
+    }
+
+    const side = chain.contracts.filter(c => c.type === dir);
+    const exps = chain.expirations && chain.expirations.length ? chain.expirations : [...new Set(side.map(c => c.expiration))].sort();
+    const usedExp = new Set();
+    const cards = HORIZONS.map(h => {
+      // avoid assigning the same expiration to two horizons
+      const avail = exps.filter(e => !usedExp.has(e));
+      const pick = pickExp(avail.length ? avail : exps, h.target);
+      if (!pick) return '';
+      usedExp.add(pick.exp);
+      const inExp = side.filter(c => c.expiration === pick.exp);
+      const rows = TIERS.map(t => {
+        const c = pickByDelta(inExp, t.target);
+        if (!c) return '<div class="strike-row"><div class="tier ' + t.cls + '">' + t.key + '</div><div colspan="8" style="color:var(--text-muted);">no liquid strike near Δ' + t.target.toFixed(2) + '</div></div>';
+        const be = dir === 'call' ? c.strike + c.mid : c.strike - c.mid;
+        const bePct = last ? ((be - last) / last * 100) : null;
+        const sprPct = c.mid > 0 ? ((c.ask - c.bid) / c.mid * 100) : null;
+        const illiq = (sprPct != null && sprPct > 10) || (c.oi < 100);
+        return '<div class="strike-row">'
+          + '<div class="tier ' + t.cls + '">' + t.key + ' <span style="color:var(--text-muted);font-weight:400;">Δ' + fm(Math.abs(c.delta)) + '</span></div>'
+          + '<div style="font-weight:800;">' + fm(c.strike, c.strike % 1 ? 2 : 0) + '</div>'
+          + '<div>' + fm(c.bid) + ' × ' + fm(c.ask) + (illiq ? ' <span class="illiq">WIDE</span>' : '') + '</div>'
+          + '<div>' + money(c.mid) + '</div>'
+          + '<div>' + fm(c.iv * 100, 0) + '%</div>'
+          + '<div style="color:var(--red);">' + fm(c.theta) + '</div>'
+          + '<div>' + money(be) + (bePct != null ? ' <span style="color:var(--text-muted);">(' + (bePct >= 0 ? '+' : '') + fm(bePct, 1) + '%)</span>' : '') + '</div>'
+          + '<div>' + money(c.mid * 100) + '</div>'
+          + '<div>' + (c.oi || 0).toLocaleString() + '</div>'
+          + '</div>';
+      }).join('');
+      return '<div class="hz-card">'
+        + '<div class="hz-head"><div class="hz-title">' + h.label + '</div>'
+        + '<div class="hz-exp">exp ' + esc(pick.exp) + ' · ' + pick.dte + ' DTE</div>'
+        + '<div style="font-size:11px;color:var(--text-muted);">' + h.blurb + '</div>'
+        + (h.warn && pick.dte <= 2 ? '<div class="hz-warn">⚠ ' + h.warn + '</div>' : '')
+        + '</div>'
+        + '<div class="strike-head"><div>Tier</div><div>Strike</div><div>Bid × Ask</div><div>Mid</div><div>IV</div><div>Θ/day</div><div>Breakeven</div><div>Cost/contract</div><div>OI</div></div>'
+        + rows
+        + '</div>';
+    }).join('');
+    $('ladders').innerHTML = cards;
+
+    // Tranche template off real ATR(14): T1 market, T2 −0.5×ATR pullback, T3 −1×ATR (mirrored for puts).
+    const barArr = bars && bars.bars && bars.bars[sym];
+    if (last && Array.isArray(barArr) && barArr.length >= 15) {
+      const trs = [];
+      for (let i = 1; i < barArr.length; i++) {
+        const b = barArr[i], pc = barArr[i - 1].c;
+        trs.push(Math.max(b.h - b.l, Math.abs(b.h - pc), Math.abs(b.l - pc)));
+      }
+      const atr = trs.slice(-14).reduce((s, x) => s + x, 0) / Math.min(14, trs.length);
+      const sgn = dir === 'call' ? -1 : 1;   // calls: add on pullbacks; puts: add on bounces
+      const lv = [
+        { t: 'T1', lvl: last, note: 'at market — starter', alloc: '40%' },
+        { t: 'T2', lvl: last + sgn * 0.5 * atr, note: (dir === 'call' ? 'pullback' : 'bounce') + ' of 0.5× ATR14 (' + money(atr) + ')', alloc: '30%' },
+        { t: 'T3', lvl: last + sgn * 1.0 * atr, note: (dir === 'call' ? 'pullback' : 'bounce') + ' of 1.0× ATR14', alloc: '30%' }
+      ];
+      $('trancheCard').style.display = 'block';
+      $('trancheBody').innerHTML = '<div class="tr-row" style="font-size:9.5px;text-transform:uppercase;color:var(--text-muted);border-bottom:1px solid var(--border);"><div>Tranche</div><div>Underlying level</div><div>Trigger</div><div>Allocation</div></div>'
+        + lv.map(x => '<div class="tr-row"><div style="font-weight:800;">' + x.t + '</div><div>' + money(x.lvl) + '</div><div style="font-family:var(--font-sans);font-size:12px;color:var(--text-secondary);">' + x.note + '</div><div>' + x.alloc + '</div></div>').join('');
+      $('trancheNote').textContent = 'A scaling template, not advice: it spends allocation gradually so a full position never rides a single entry. Levels are computed from the real 14-day ATR (' + money(atr) + ') — if T2/T3 never fill, the position simply stays smaller. Re-run after big moves; ATR shifts.';
+    } else {
+      $('trancheCard').style.display = 'none';
+    }
+  }
+
+  // Wire-up
+  $('dirBtn').addEventListener('click', function () {
+    dir = dir === 'call' ? 'put' : 'call';
+    this.textContent = dir === 'call' ? 'CALLS ▲' : 'PUTS ▼';
+    this.className = 'dirbtn ' + (dir === 'call' ? 'on-call' : 'on-put');
+    build();
+  });
+  $('goBtn').addEventListener('click', build);
+  $('symIn').addEventListener('keydown', e => { if (e.key === 'Enter') build(); });
+
+  (async function init() {
+    $('dirBtn').className = 'dirbtn on-call';
+    const urlSym = cleanSym(new URLSearchParams(location.search).get('sym'));
+    if (urlSym) { $('symIn').value = urlSym; build(); return; }
+    // Default to the desk's Pick of the Day so the page opens with today's name.
+    const picks = await jget('/brain/picks');
+    const p = picks && picks.pick_of_day;
+    $('symIn').value = p ? p.sym : 'SPY';
+    if (p && p.dir === 'DOWN') { dir = 'put'; $('dirBtn').textContent = 'PUTS ▼'; $('dirBtn').className = 'dirbtn on-put'; }
+    build();
+  })();
+
+  // Visibility-gated refresh every 2 min (server chain cache is 5 min).
+  setInterval(function () { if (!document.hidden) build(); }, 2 * 60 * 1000);
+})();
+</script>
+</body>
+</html>
