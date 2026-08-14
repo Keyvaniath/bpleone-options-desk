@@ -38,7 +38,7 @@
 // Pass 200: version stamp so brain-proof.html + worker-setup.html can detect
 // when the deployed worker is behind the repo source. Bump on every meaningful
 // behavior change. Read via /brain/health → worker_version field.
-const WORKER_VERSION = 'pass-309';
+const WORKER_VERSION = 'pass-310';
 
 const UNIVERSE = [
   'SPY','QQQ','IWM','DIA','AAPL','NVDA','TSLA','MSFT','META','AMZN','GOOGL','AMD',
@@ -2692,6 +2692,87 @@ async function handleRequest(request, env, ctx) {
     const feedGood = all.length > 0;
     resp.headers.set('Cache-Control', 'public, max-age=' + (feedGood ? 3600 : 60));
     if (feedGood) ctx.waitUntil(cache.put(cacheKey, resp.clone()));
+    return resp;
+  }
+
+  // ===== Pass 320: 13F Watch — which whale funds have filed their quarterly
+  // holdings report (SEC EDGAR, free, no key). 13F-HR is due 45 days after
+  // quarter end; on deadline day the marquee names land AFTER the close.
+  // This reports FILINGS (who filed, when, EDGAR link) — parsing the actual
+  // holdings info-table XML is a separate, heavier build. Honest by
+  // construction: sec_name comes from EDGAR's own registrant record, so a
+  // wrong CIK in our list shows up as a visible name mismatch, and a fetch
+  // failure is an honest hole, never a fabricated row. data.sec.gov requires
+  // a descriptive User-Agent per SEC fair-access policy.
+  if (path === '/brain/13f') {
+    const cache = caches.default;
+    const cacheKey = new Request(url.toString(), { method: 'GET' });
+    const hit = await cache.match(cacheKey);
+    if (hit) return hit;
+    const WHALES = [
+      { cik: 1067983, label: 'Berkshire Hathaway' },
+      { cik: 1336528, label: 'Pershing Square' },
+      { cik: 1649339, label: 'Scion Asset Management' },
+      { cik: 1536411, label: 'Duquesne Family Office' },
+      { cik: 1037389, label: 'Renaissance Technologies' },
+      { cik: 1350694, label: 'Bridgewater Associates' },
+      { cik: 1423053, label: 'Citadel Advisors' },
+      { cik: 1029160, label: 'Soros Fund Management' },
+      { cik: 1040273, label: 'Third Point' },
+      { cik: 1061768, label: 'Baupost Group' },
+      { cik: 1167483, label: 'Tiger Global' },
+      { cik: 1656456, label: 'Appaloosa' }   // Tepper re-registered in 2016; the old CIK 1006438 stopped filing
+    ];
+    async function fetchWhale(w) {
+      try {
+        const cik10 = String(w.cik).padStart(10, '0');
+        const r = await fetch('https://data.sec.gov/submissions/CIK' + cik10 + '.json',
+          { headers: { 'User-Agent': 'bpleone-research options.bpleone.com brandonpleone@gmail.com' } });
+        if (!r.ok) return null;
+        const j = await r.json();
+        const rec = j.filings && j.filings.recent;
+        if (!rec || !Array.isArray(rec.form)) return null;
+        let idx = -1;
+        for (let i = 0; i < rec.form.length; i++) {
+          if (rec.form[i] === '13F-HR' || rec.form[i] === '13F-HR/A') { idx = i; break; }
+        }
+        const out = { cik: w.cik, label: w.label, sec_name: j.name || null, latest: null };
+        if (idx >= 0) {
+          const acc = rec.accessionNumber[idx];
+          out.latest = {
+            form: rec.form[idx],
+            filingDate: rec.filingDate[idx],
+            accession: acc,
+            url: 'https://www.sec.gov/Archives/edgar/data/' + w.cik + '/' + acc.replace(/-/g, '') + '/' + acc + '-index.htm'
+          };
+        }
+        return out;
+      } catch (e) { return null; }
+    }
+    // Two waves keep the burst inside SEC's ~10 req/s fair-access guidance.
+    const wave1 = await Promise.all(WHALES.slice(0, 6).map(fetchWhale));
+    const wave2 = await Promise.all(WHALES.slice(6).map(fetchWhale));
+    const whales = wave1.concat(wave2).filter(Boolean);
+    const etNow = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/New_York' }));
+    const todayISO = etNow.getFullYear() + '-' + String(etNow.getMonth() + 1).padStart(2, '0') + '-' + String(etNow.getDate()).padStart(2, '0');
+    whales.forEach(w => { if (w.latest) w.latest.filed_today = w.latest.filingDate === todayISO; });
+    whales.sort((a, b) => {
+      const at = a.latest ? a.latest.filingDate : '', bt = b.latest ? b.latest.filingDate : '';
+      return bt.localeCompare(at);
+    });
+    const resp = json({
+      ok: whales.length > 0,
+      source: 'sec-edgar/submissions',
+      count: whales.length,
+      missing: WHALES.length - whales.length,
+      updatedAt: Date.now(),
+      whales,
+      note: 'Latest 13F-HR per fund from SEC EDGAR. 13F holdings are a snapshot as of quarter end, published up to 45 days later - positions may have changed since. A filing appearing here is a fact, not an endorsement; open the EDGAR link for the actual holdings table.'
+    });
+    // Deadline-day filings stream in; 5-min cache on success, failures not cached (pass 308 rule).
+    const w13Good = whales.length > 0;
+    resp.headers.set('Cache-Control', 'public, max-age=' + (w13Good ? 300 : 60));
+    if (w13Good) ctx.waitUntil(cache.put(cacheKey, resp.clone()));
     return resp;
   }
 

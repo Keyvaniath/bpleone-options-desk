@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>13F Watch — whale quarterly filings — bpleone / trade</title>
+<meta name="description" content="Which whale funds have filed their quarterly 13F holdings report — live from SEC EDGAR with direct filing links. Real filings, honest 45-day-lag labeling, no placeholders.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" media="print" onload="this.media='all'"><noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap"></noscript>
+<link rel="stylesheet" href="css/style.css?v=v219">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.whale-row { display:grid; grid-template-columns: minmax(180px,1.4fr) 90px 110px 110px minmax(140px,1fr); gap:10px; padding:12px; border-bottom:1px solid var(--border); font-family:var(--font-mono); font-size:12px; align-items:center; }
+.whale-row.today { border-left:3px solid var(--green); background:rgba(16,185,129,0.05); }
+.whale-row.q2new { border-left:3px solid var(--accent); }
+.whale-row.old { border-left:3px solid var(--border); }
+.tag-today { padding:2px 7px; border-radius:3px; font-size:9px; font-weight:800; background:rgba(16,185,129,0.18); color:var(--green); }
+.tag-new { padding:2px 7px; border-radius:3px; font-size:9px; font-weight:800; background:rgba(0,212,255,0.16); color:var(--accent); }
+.tag-wait { padding:2px 7px; border-radius:3px; font-size:9px; font-weight:800; background:rgba(148,163,184,0.16); color:var(--text-muted); }
+.whale-head { display:grid; grid-template-columns: minmax(180px,1.4fr) 90px 110px 110px minmax(140px,1fr); gap:10px; padding:8px 12px; font-size:10px; text-transform:uppercase; letter-spacing:0.5px; color:var(--text-muted); border-bottom:1px solid var(--border); }
+@media (max-width: 720px){ .whale-row, .whale-head { grid-template-columns: 1.3fr 80px 100px; } .whale-row > :nth-child(4), .whale-row > :nth-child(5), .whale-head > :nth-child(4), .whale-head > :nth-child(5) { display:none; } }
+</style>
+  <link rel="canonical" href="https://options.bpleone.com/13f-watch.html">
+</head>
+<body data-needs="live">
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">🐋 13F Watch</div>
+      <div class="page-subtitle">Whale quarterly holdings filings, live from SEC EDGAR · <span id="market-clock">--</span></div>
+    </div>
+    <div class="flex gap-8">
+      <button class="btn btn-secondary" id="refreshBtn">🔄 Refresh</button>
+    </div>
+  </div>
+
+  <div class="card mb-24" id="deadlineCard" style="background:rgba(0,212,255,0.04);border-color:rgba(0,212,255,0.25);">
+    <div style="font-size:14px;font-weight:700;color:var(--accent);" id="deadlineHead">13F cycle</div>
+    <div style="font-size:12px;color:var(--text-muted);margin-top:4px;" id="deadlineSub">—</div>
+  </div>
+
+  <div class="grid grid-3 mb-24">
+    <div class="card"><div class="card-header"><div class="card-title">Filed this cycle</div></div><div class="mono" style="font-size:26px;font-weight:700;color:var(--accent);" id="kpiFiled">--</div><div class="mono" style="font-size:11px;color:var(--text-muted);">of <span id="kpiTracked">--</span> tracked funds</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">Filed today</div></div><div class="mono" style="font-size:26px;font-weight:700;color:var(--green);" id="kpiToday">--</div><div class="mono" style="font-size:11px;color:var(--text-muted);">lands after the close on deadline day</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">Still waiting</div></div><div class="mono" style="font-size:26px;font-weight:700;color:var(--yellow);" id="kpiWaiting">--</div><div class="mono" style="font-size:11px;color:var(--text-muted);">latest on file is a prior quarter</div></div>
+  </div>
+
+  <div class="card mb-24">
+    <div class="card-header"><div class="card-title">Tracked whales</div><div class="mono" style="font-size:11px;color:var(--text-muted);" id="updatedAt"></div></div>
+    <div class="whale-head"><div>Fund (SEC registrant name)</div><div>Form</div><div>Filed</div><div>Status</div><div>Filing</div></div>
+    <div id="whaleList"><div style="padding:24px;text-align:center;color:var(--text-muted);">Loading from SEC EDGAR…</div></div>
+  </div>
+
+  <div class="card mb-24" style="background:rgba(245,158,11,0.05);border-color:rgba(245,158,11,0.3);">
+    <div style="font-size:12px;color:var(--text-secondary);line-height:1.7;">
+      <strong style="color:var(--yellow);">Read this before acting on a 13F.</strong>
+      A 13F is a snapshot of a fund's US long positions <em>as of quarter end</em>, published up to <strong>45 days later</strong> — the fund may have exited or reversed every position since. It omits shorts, options hedges context, and non-US holdings, so a headline position can be one leg of a trade you can't see. A filing appearing here is a fact, not an endorsement, and this desk has no proven edge acting on any of it (see the <a href="edge-scorecard.html">live scorecard</a>). Open the EDGAR link and read the actual holdings table before drawing conclusions.
+    </div>
+  </div>
+</div>
+
+<script src="js/data-provider.js?v=v219"></script>
+<script src="js/ai-client.js?v=v219"></script>
+<script src="js/app.js?v=v219"></script>
+<script src="js/notify.js?v=v219"></script>
+<script src="js/live.js?v=v219"></script>
+<script>
+buildNav('13f-watch');
+(function () {
+  const WORKER = 'https://bpleone-brain-worker.brandonpleone.workers.dev';
+  const $ = id => document.getElementById(id);
+  const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+  // Current 13F cycle, computed (never hardcoded): quarter ends Mar 31 / Jun 30 /
+  // Sep 30 / Dec 31; 13F-HR is due 45 days later. We show the most recent
+  // quarter end and its deadline, in ET.
+  function cycle() {
+    const et = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/New_York' }));
+    const y = et.getFullYear();
+    const qEnds = [new Date(y - 1, 11, 31), new Date(y, 2, 31), new Date(y, 5, 30), new Date(y, 8, 30), new Date(y, 11, 31)];
+    let qe = qEnds[0];
+    for (const d of qEnds) { if (d <= et) qe = d; }
+    const deadline = new Date(qe.getTime() + 45 * 86400000);
+    return { qe, deadline, isDeadlineDay: et.toDateString() === deadline.toDateString(), past: et > deadline };
+  }
+  const fmtD = d => d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  const c = cycle();
+  $('deadlineHead').textContent = c.isDeadlineDay
+    ? '🔔 DEADLINE DAY — Q-end ' + fmtD(c.qe) + ' 13Fs are due TODAY (' + fmtD(c.deadline) + ')'
+    : '13F cycle: holdings as of ' + fmtD(c.qe) + ' · filing deadline ' + fmtD(c.deadline);
+  $('deadlineSub').textContent = c.isDeadlineDay
+    ? 'The marquee funds typically file in the final hours — most land after the 4pm ET close. This page re-checks EDGAR every few minutes.'
+    : (c.past ? 'The deadline for this quarter has passed — filings below marked with the cycle tag are the fresh ones.'
+              : 'Filings can arrive any time before the deadline; most funds wait until the final days.');
+
+  const qeISO = c.qe.getFullYear() + '-' + String(c.qe.getMonth() + 1).padStart(2, '0') + '-' + String(c.qe.getDate()).padStart(2, '0');
+
+  async function load() {
+    try {
+      const r = await fetch(WORKER + '/brain/13f');
+      const j = await r.json();
+      if (!j.ok || !Array.isArray(j.whales) || !j.whales.length) throw new Error('empty');
+      let filed = 0, today = 0;
+      const rows = j.whales.map(w => {
+        const l = w.latest;
+        const name = esc(w.sec_name || w.label);
+        if (!l) return '<div class="whale-row old"><div>' + name + '</div><div>—</div><div>—</div><div><span class="tag-wait">NO 13F FOUND</span></div><div>—</div></div>';
+        const isCycle = l.filingDate > qeISO;   // filed after quarter end = this cycle's report
+        if (isCycle) filed++;
+        if (l.filed_today) today++;
+        const cls = l.filed_today ? 'today' : (isCycle ? 'q2new' : 'old');
+        const tag = l.filed_today ? '<span class="tag-today">FILED TODAY</span>'
+                  : isCycle ? '<span class="tag-new">THIS CYCLE</span>'
+                  : '<span class="tag-wait">WAITING (prior qtr)</span>';
+        const link = /^https:\/\/www\.sec\.gov\//.test(l.url) ? '<a href="' + esc(l.url) + '" target="_blank" rel="noopener" style="color:var(--accent);">holdings on EDGAR ↗</a>' : '—';
+        return '<div class="whale-row ' + cls + '"><div>' + name + '</div><div>' + esc(l.form) + '</div><div>' + esc(l.filingDate) + '</div><div>' + tag + '</div><div>' + link + '</div></div>';
+      });
+      $('whaleList').innerHTML = rows.join('');
+      $('kpiFiled').textContent = filed;
+      $('kpiTracked').textContent = j.whales.length;
+      $('kpiToday').textContent = today;
+      $('kpiWaiting').textContent = j.whales.length - filed;
+      $('updatedAt').textContent = 'EDGAR checked ' + new Date(j.updatedAt).toLocaleTimeString();
+    } catch (e) {
+      $('whaleList').innerHTML = '<div style="padding:24px;text-align:center;color:var(--text-muted);">SEC EDGAR unreachable right now — nothing fabricated in its place. Retry shortly.</div>';
+    }
+  }
+  load();
+  $('refreshBtn').addEventListener('click', load);
+  // Visibility-gated 5-min poll (deadline-day filings stream in after the close).
+  setInterval(function () { if (!document.hidden) load(); }, 5 * 60 * 1000);
+  document.addEventListener('visibilitychange', function () { if (!document.hidden) load(); });
+})();
+</script>
+</body>
+</html>
