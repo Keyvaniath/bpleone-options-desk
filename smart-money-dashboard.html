@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Smart Money Dashboard — whales, insiders, options flow on one screen — bpleone / trade</title>
+<meta name="description" content="One screen for what the smart money actually did: every tracked whale's 13F changes ranked by size, the live SEC insider tape, and today's options dollar-flow — all real public data, honestly labeled.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" media="print" onload="this.media='all'"><noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap"></noscript>
+<link rel="stylesheet" href="css/style.css?v=v221">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.kpi { padding:16px 18px; }
+.kpi .v { font-family:var(--font-mono); font-size:24px; font-weight:800; margin-top:4px; }
+.kpi .l { font-size:10px; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.5px; }
+.kpi .s { font-size:11px; color:var(--text-muted); margin-top:3px; }
+.mv-head, .mv-row { display:grid; grid-template-columns: minmax(150px,1fr) minmax(160px,1.3fr) 96px 100px 90px; gap:8px; align-items:center; font-family:var(--font-mono); font-size:12px; }
+.mv-head { padding:8px 12px; font-size:9.5px; text-transform:uppercase; letter-spacing:0.4px; color:var(--text-muted); border-bottom:1px solid var(--border); }
+.mv-row { padding:9px 12px; border-bottom:1px solid rgba(255,255,255,0.04); }
+.mv-row .fund { font-family:var(--font-sans); font-size:11.5px; color:var(--text-secondary); }
+.chg-add { color:var(--green); font-weight:800; } .chg-trim { color:var(--red); font-weight:800; }
+.chg-new { color:var(--accent); font-weight:800; } .chg-exit { color:var(--red); font-weight:800; }
+.chip { padding:5px 12px; border-radius:16px; border:1px solid var(--border); background:transparent; color:var(--text-secondary); cursor:pointer; font-size:11px; font-weight:700; font-family:var(--font-sans); }
+.chip.on { border-color:var(--accent); color:var(--accent); background:rgba(0,212,255,0.08); }
+.ins-row { display:grid; grid-template-columns: 70px minmax(140px,1fr) 90px 100px 90px; gap:8px; padding:8px 12px; font-family:var(--font-mono); font-size:12px; border-bottom:1px solid rgba(255,255,255,0.04); align-items:center; }
+.fl-row { display:grid; grid-template-columns: 70px 100px 100px 1fr; gap:8px; padding:8px 12px; font-family:var(--font-mono); font-size:12px; border-bottom:1px solid rgba(255,255,255,0.04); align-items:center; }
+@media (max-width: 760px){ .mv-head, .mv-row { grid-template-columns: minmax(110px,1fr) minmax(120px,1.2fr) 80px 90px; } .mv-head > :nth-child(5), .mv-row > :nth-child(5) { display:none; } }
+</style>
+  <link rel="canonical" href="https://options.bpleone.com/smart-money-dashboard.html">
+</head>
+<body data-needs="live">
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">🐋 Smart Money Dashboard</div>
+      <div class="page-subtitle">What the whales, insiders, and options tape <strong>actually did</strong> — one screen, ranked, all public data · <span id="market-clock">--</span></div>
+    </div>
+    <button class="btn btn-secondary" id="refreshBtn">🔄 Refresh</button>
+  </div>
+
+  <div style="margin-bottom:16px;padding:11px 16px;border-radius:10px;background:rgba(245,158,11,0.06);border-left:3px solid var(--yellow);font-size:12px;color:var(--text-secondary);line-height:1.6;">
+    <strong>What this is (and isn't).</strong> Real public records: quarterly 13F filings (up to 45 days lagged, longs only), SEC Form-4 insider transactions (filed within 2 business days), and ~15-min-delayed daily options $-flow. It shows what these players <em>did</em>, not what you should do — none of it is a proven timing edge (<a href="edge-scorecard.html">live proof</a>), and none of it is advice.
+  </div>
+
+  <div class="grid grid-4 mb-24">
+    <div class="card kpi"><div class="l">Whales filed (this cycle)</div><div class="v" id="kFiled">--</div><div class="s"><a href="13f-watch.html">13F Watch →</a></div></div>
+    <div class="card kpi"><div class="l">Biggest whale move</div><div class="v" id="kBig" style="font-size:15px;line-height:1.3;">--</div><div class="s" id="kBigSub"></div></div>
+    <div class="card kpi"><div class="l">Insider tape (last 150 filings)</div><div class="v" id="kIns">--</div><div class="s"><a href="insider-live.html">Insider feed →</a></div></div>
+    <div class="card kpi"><div class="l">Options $-flow today</div><div class="v" id="kFlow">--</div><div class="s"><a href="options-flow.html">Flow detail →</a></div></div>
+  </div>
+
+  <!-- SECTION 1: WHALE MOVES -->
+  <div class="card mb-24">
+    <div class="card-header">
+      <div class="card-title">🐋 Whale moves — every 13F change, ranked by size</div>
+      <div class="mono" style="font-size:11px;color:var(--text-muted);" id="mvStatus">parsing filings…</div>
+    </div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;padding:10px 12px 4px;">
+      <button class="chip on" data-f="ALL">All</button>
+      <button class="chip" data-f="NEW">★ New</button>
+      <button class="chip" data-f="ADDED">▲ Added</button>
+      <button class="chip" data-f="TRIMMED">▼ Trimmed</button>
+      <button class="chip" data-f="EXITED">✕ Exited</button>
+    </div>
+    <div class="mv-head"><div>Fund</div><div>Issuer</div><div>Action</div><div>Position value</div><div>Shares Δ</div></div>
+    <div id="mvBody"><div style="padding:22px;text-align:center;color:var(--text-muted);">Parsing whale filings from EDGAR — first load takes a few seconds…</div></div>
+    <div id="mvSkipped" style="font-size:11px;color:var(--text-muted);padding:10px 12px;"></div>
+  </div>
+
+  <!-- SECTION 2: INSIDER TAPE -->
+  <div class="card mb-24">
+    <div class="card-header"><div class="card-title">🏛 Insider tape — SEC Form 4, open-market trades</div><div class="mono" style="font-size:11px;color:var(--text-muted);" id="insMeta"></div></div>
+    <div id="insClusters" style="padding:10px 12px;font-size:12px;"></div>
+    <div class="ins-row" style="font-size:9.5px;text-transform:uppercase;color:var(--text-muted);border-bottom:1px solid var(--border);"><div>Side</div><div>Insider</div><div>Symbol</div><div>Value</div><div>Date</div></div>
+    <div id="insBody"><div style="padding:18px;text-align:center;color:var(--text-muted);">Loading…</div></div>
+  </div>
+
+  <!-- SECTION 3: OPTIONS FLOW -->
+  <div class="card mb-24">
+    <div class="card-header"><div class="card-title">🌊 Options $-flow — daily aggregate (CBOE, ~15-min delayed)</div><div class="mono" style="font-size:11px;color:var(--text-muted);" id="flMeta"></div></div>
+    <div class="fl-row" style="font-size:9.5px;text-transform:uppercase;color:var(--text-muted);border-bottom:1px solid var(--border);"><div>Symbol</div><div>Net $ dir</div><div>P/C vol</div><div>Total $ traded</div></div>
+    <div id="flBody"><div style="padding:18px;text-align:center;color:var(--text-muted);">Loading…</div></div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js?v=v221"></script>
+<script src="js/ai-client.js?v=v221"></script>
+<script src="js/app.js?v=v221"></script>
+<script src="js/notify.js?v=v221"></script>
+<script src="js/live.js?v=v221"></script>
+<script>
+buildNav('smart-money-dashboard');
+(function () {
+  const WORKER = 'https://bpleone-brain-worker.brandonpleone.workers.dev';
+  const $ = id => document.getElementById(id);
+  const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const fmtB = v => v == null ? '—' : v >= 1e9 ? '$' + (v / 1e9).toFixed(2) + 'B' : v >= 1e6 ? '$' + (v / 1e6).toFixed(1) + 'M' : '$' + Math.round(v / 1e3) + 'K';
+  async function jget(p) { try { const r = await fetch(WORKER + p, { cache: 'no-store' }); if (r.ok) return await r.json(); } catch (e) {} return null; }
+
+  let allMoves = [], filter = 'ALL';
+  function renderMoves() {
+    const rows = allMoves.filter(m => filter === 'ALL' ? m.change !== 'UNCHANGED' : m.change === filter);
+    if (!rows.length) {
+      $('mvBody').innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-muted);">' + (allMoves.length ? 'No ' + filter.toLowerCase() + ' moves in the parsed filings.' : 'No changes parsed yet.') + '</div>';
+      return;
+    }
+    const tag = c => c === 'ADDED' ? '<span class="chg-add">▲ ADDED</span>' : c === 'TRIMMED' ? '<span class="chg-trim">▼ TRIMMED</span>'
+      : c === 'NEW' ? '<span class="chg-new">★ NEW</span>' : c === 'EXITED' ? '<span class="chg-exit">✕ EXITED</span>' : '—';
+    $('mvBody').innerHTML = rows.slice(0, 60).map(m =>
+      '<div class="mv-row"><div class="fund">' + esc(m.fund) + '</div><div>' + esc(m.name) + (m.putCall ? ' <span style="color:var(--yellow);">(' + esc(m.putCall) + ')</span>' : '') + '</div>'
+      + '<div>' + tag(m.change) + '</div><div>' + fmtB(m.value) + '</div>'
+      + '<div>' + (m.shares_chg_pct != null ? (m.shares_chg_pct > 0 ? '+' : '') + m.shares_chg_pct + '%' : (m.change === 'NEW' ? 'new' : m.change === 'EXITED' ? 'out' : '—')) + '</div></div>').join('');
+  }
+  document.querySelectorAll('.chip').forEach(ch => ch.addEventListener('click', function () {
+    document.querySelectorAll('.chip').forEach(c => c.classList.remove('on'));
+    this.classList.add('on'); filter = this.dataset.f; renderMoves();
+  }));
+
+  async function loadWhales() {
+    const list = await jget('/brain/13f');
+    if (!list || !list.ok) { $('mvStatus').textContent = 'EDGAR unreachable'; $('mvBody').innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-muted);">13F list unreachable — nothing fabricated.</div>'; return; }
+    const cycleFiled = list.whales.filter(w => w.latest && w.latest.filingDate > '2026-06-30').length;
+    $('kFiled').textContent = cycleFiled + ' / ' + list.whales.length;
+    const skipped = [];
+    let done = 0;
+    await Promise.all(list.whales.map(async w => {
+      const h = await jget('/brain/13f-holdings?cik=' + w.cik);
+      done++;
+      $('mvStatus').textContent = 'parsed ' + done + ' / ' + list.whales.length + ' funds';
+      if (!h || !h.ok) { skipped.push({ label: w.label, note: h && h.note, url: h && h.url }); return; }
+      const fund = h.sec_name || h.label;
+      (h.top || []).forEach(t => {
+        if (t.change && t.change !== 'UNCHANGED') allMoves.push({ fund, name: t.name, putCall: t.putCall, change: t.change, value: t.value, shares_chg_pct: t.shares_chg_pct });
+      });
+      (h.exited || []).forEach(e => allMoves.push({ fund, name: e.name, putCall: e.putCall, change: 'EXITED', value: e.value_prev, shares_chg_pct: null }));
+      allMoves.sort((a, b) => (b.value || 0) - (a.value || 0));
+      renderMoves();
+    }));
+    $('mvStatus').textContent = allMoves.length + ' changes across ' + (list.whales.length - skipped.length) + ' parsed funds';
+    if (allMoves.length) {
+      const big = allMoves[0];
+      $('kBig').textContent = big.name.split(' ').slice(0, 2).join(' ') + ' ' + (big.change === 'ADDED' ? '▲' : big.change === 'NEW' ? '★' : big.change === 'EXITED' ? '✕' : '▼');
+      $('kBigSub').textContent = big.fund + ' · ' + fmtB(big.value) + (big.shares_chg_pct != null ? ' · ' + (big.shares_chg_pct > 0 ? '+' : '') + big.shares_chg_pct + '% shares' : '');
+    }
+    $('mvSkipped').innerHTML = skipped.length
+      ? '<strong>Not parseable in-browser (mega-fund tables):</strong> ' + skipped.map(s => esc(s.label) + (s.url ? ' <a href="' + esc(s.url) + '" target="_blank" rel="noopener" style="color:var(--accent);">EDGAR ↗</a>' : '')).join(' · ') + ' — their filings are real; the tables are just too large to parse here. Nothing is fabricated in their place.'
+      : '';
+  }
+
+  async function loadInsiders() {
+    const j = await jget('/brain/insider-feed');
+    if (!j || !j.ok) { $('insBody').innerHTML = '<div style="padding:16px;text-align:center;color:var(--text-muted);">Insider feed unreachable — nothing fabricated.</div>'; return; }
+    $('insMeta').textContent = j.buy_count + ' buys / ' + j.sell_count + ' sells · ' + fmtB(j.buy_value) + ' bought vs ' + fmtB(j.sell_value) + ' sold';
+    $('kIns').textContent = j.buy_count + '↑ ' + j.sell_count + '↓';
+    $('insClusters').innerHTML = (j.clusters && j.clusters.length)
+      ? '<strong style="color:var(--green);">Buy clusters (≥2 insiders buying):</strong> ' + j.clusters.slice(0, 6).map(c => esc(c.sym) + ' (' + c.buyers + ' buyers, ' + fmtB(c.value) + ')').join(' · ')
+      : '<span style="color:var(--text-muted);">No ≥2-insider open-market buy clusters in the latest filings — an honest zero, not a gap.</span>';
+    const om = (j.transactions || []).filter(t => t.openMarket).slice(0, 10);
+    $('insBody').innerHTML = om.length ? om.map(t =>
+      '<div class="ins-row"><div style="font-weight:800;color:' + (t.side === 'BUY' ? 'var(--green)' : 'var(--red)') + ';">' + esc(t.side) + '</div>'
+      + '<div style="font-family:var(--font-sans);font-size:11.5px;">' + esc(t.name) + '</div><div>' + esc(t.sym || '') + '</div>'
+      + '<div>' + fmtB(t.value) + '</div><div>' + esc(t.transactionDate || t.filingDate || '') + '</div></div>').join('')
+      : '<div style="padding:16px;text-align:center;color:var(--text-muted);">No open-market transactions in the latest filings.</div>';
+  }
+
+  async function loadFlow() {
+    const j = await jget('/brain/options-flow');
+    if (!j || !j.ok) { $('flBody').innerHTML = '<div style="padding:16px;text-align:center;color:var(--text-muted);">Flow unreachable (CBOE outage or off-hours) — nothing fabricated.</div>'; $('kFlow').textContent = '—'; return; }
+    const net = j.agg_net_dollar_pct;
+    $('kFlow').textContent = (net > 0 ? '+' : '') + (net * 100).toFixed(0) + '% calls';
+    $('flMeta').textContent = j.symbols_with_data + ' names · ' + fmtB(j.agg_call_dollar + j.agg_put_dollar) + ' total premium · net ' + (net > 0 ? 'call' : 'put') + '-tilted';
+    $('flBody').innerHTML = (j.flows || []).slice(0, 8).map(f =>
+      '<div class="fl-row"><div style="font-weight:800;">' + esc(f.sym) + '</div>'
+      + '<div style="color:' + (f.dir > 0 ? 'var(--green)' : f.dir < 0 ? 'var(--red)' : 'var(--text-muted)') + ';font-weight:700;">' + (f.dir > 0 ? '▲ calls' : f.dir < 0 ? '▼ puts' : '— neutral') + ' ' + (f.netDollarPct > 0 ? '+' : '') + (f.netDollarPct * 100).toFixed(0) + '%</div>'
+      + '<div>' + (f.pcVol != null ? f.pcVol : '—') + '</div><div>' + fmtB(f.totalDollar) + '</div></div>').join('');
+  }
+
+  function loadAll() { allMoves = []; loadWhales(); loadInsiders(); loadFlow(); }
+  loadAll();
+  $('refreshBtn').addEventListener('click', loadAll);
+  setInterval(function () { if (!document.hidden) { loadInsiders(); loadFlow(); } }, 5 * 60 * 1000);
+})();
+</script>
+</body>
+</html>
