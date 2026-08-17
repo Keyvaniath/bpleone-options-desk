@@ -38,7 +38,7 @@
 // Pass 200: version stamp so brain-proof.html + worker-setup.html can detect
 // when the deployed worker is behind the repo source. Bump on every meaningful
 // behavior change. Read via /brain/health → worker_version field.
-const WORKER_VERSION = 'pass-312';
+const WORKER_VERSION = 'pass-313';
 
 const UNIVERSE = [
   'SPY','QQQ','IWM','DIA','AAPL','NVDA','TSLA','MSFT','META','AMZN','GOOGL','AMD',
@@ -2748,6 +2748,7 @@ async function handleRequest(request, env, ctx) {
           out.latest = {
             form: rec.form[idx],
             filingDate: rec.filingDate[idx],
+            periodOfReport: (rec.reportDate && rec.reportDate[idx]) || null,   // pass 326: the as-of quarter end
             accession: acc,
             url: 'https://www.sec.gov/Archives/edgar/data/' + w.cik + '/' + acc.replace(/-/g, '') + '/' + acc + '-index.htm'
           };
@@ -2803,7 +2804,7 @@ async function handleRequest(request, env, ctx) {
     const rec = sub.filings.recent;
     const accs = [];
     for (let i = 0; i < rec.form.length && accs.length < 2; i++) {
-      if (rec.form[i] === '13F-HR') accs.push({ acc: rec.accessionNumber[i], date: rec.filingDate[i] });
+      if (rec.form[i] === '13F-HR') accs.push({ acc: rec.accessionNumber[i], date: rec.filingDate[i], period: (rec.reportDate && rec.reportDate[i]) || null });
     }
     if (!accs.length) return json({ ok: false, error: 'no 13F-HR on file for this CIK' }, 404);
     const edgarUrl = a => 'https://www.sec.gov/Archives/edgar/data/' + whale.cik + '/' + a.replace(/-/g, '') + '/' + a + '-index.htm';
@@ -2877,6 +2878,8 @@ async function handleRequest(request, env, ctx) {
       ok: true,
       cik: whale.cik, label: whale.label, sec_name: sub.name || null,
       filingDate: accs[0].date, prevFilingDate: accs[1] ? accs[1].date : null,
+      periodOfReport: accs[0].period,                                  // pass 326: holdings as-of date (quarter end)
+      prevPeriodOfReport: accs[1] ? accs[1].period : null,             // trades in the diff happened BETWEEN these two dates
       url: edgarUrl(accs[0].acc),
       positions: cur.positions,
       total_value: cur.total,

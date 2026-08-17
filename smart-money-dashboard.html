@@ -16,7 +16,7 @@
 .kpi .v { font-family:var(--font-mono); font-size:24px; font-weight:800; margin-top:4px; }
 .kpi .l { font-size:10px; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.5px; }
 .kpi .s { font-size:11px; color:var(--text-muted); margin-top:3px; }
-.mv-head, .mv-row { display:grid; grid-template-columns: minmax(150px,1fr) minmax(160px,1.3fr) 96px 100px 90px; gap:8px; align-items:center; font-family:var(--font-mono); font-size:12px; }
+.mv-head, .mv-row { display:grid; grid-template-columns: minmax(140px,1fr) minmax(150px,1.3fr) 92px 96px 80px 132px; gap:8px; align-items:center; font-family:var(--font-mono); font-size:12px; }
 .mv-head { padding:8px 12px; font-size:9.5px; text-transform:uppercase; letter-spacing:0.4px; color:var(--text-muted); border-bottom:1px solid var(--border); }
 .mv-row { padding:9px 12px; border-bottom:1px solid rgba(255,255,255,0.04); }
 .mv-row .fund { font-family:var(--font-sans); font-size:11.5px; color:var(--text-secondary); }
@@ -26,7 +26,7 @@
 .chip.on { border-color:var(--accent); color:var(--accent); background:rgba(0,212,255,0.08); }
 .ins-row { display:grid; grid-template-columns: 70px minmax(140px,1fr) 90px 100px 90px; gap:8px; padding:8px 12px; font-family:var(--font-mono); font-size:12px; border-bottom:1px solid rgba(255,255,255,0.04); align-items:center; }
 .fl-row { display:grid; grid-template-columns: 70px 100px 100px 1fr; gap:8px; padding:8px 12px; font-family:var(--font-mono); font-size:12px; border-bottom:1px solid rgba(255,255,255,0.04); align-items:center; }
-@media (max-width: 760px){ .mv-head, .mv-row { grid-template-columns: minmax(110px,1fr) minmax(120px,1.2fr) 80px 90px; } .mv-head > :nth-child(5), .mv-row > :nth-child(5) { display:none; } }
+@media (max-width: 760px){ .mv-head, .mv-row { grid-template-columns: minmax(110px,1fr) minmax(120px,1.2fr) 80px 90px; } .mv-head > :nth-child(5), .mv-row > :nth-child(5), .mv-head > :nth-child(6), .mv-row > :nth-child(6) { display:none; } }
 </style>
   <link rel="canonical" href="https://options.bpleone.com/smart-money-dashboard.html">
 </head>
@@ -66,7 +66,10 @@
       <button class="chip" data-f="TRIMMED">▼ Trimmed</button>
       <button class="chip" data-f="EXITED">✕ Exited</button>
     </div>
-    <div class="mv-head"><div>Fund</div><div>Issuer</div><div>Action</div><div>Position value</div><div>Shares Δ</div></div>
+    <div style="padding:4px 12px 8px;font-size:11px;color:var(--text-muted);line-height:1.5;">
+      <strong>How new are these?</strong> A 13F shows holdings <em>as of</em> a quarter end, published up to 45 days later — so each trade below happened sometime <em>during</em> that quarter: roughly <strong>6 weeks to 4½ months</strong> before you're reading it. The dates column shows both: when the snapshot was taken → when it became public.
+    </div>
+    <div class="mv-head"><div>Fund</div><div>Issuer</div><div>Action</div><div>Position value</div><div>Shares Δ</div><div>As-of → Filed</div></div>
     <div id="mvBody"><div style="padding:22px;text-align:center;color:var(--text-muted);">Parsing whale filings from EDGAR — first load takes a few seconds…</div></div>
     <div id="mvSkipped" style="font-size:11px;color:var(--text-muted);padding:10px 12px;"></div>
   </div>
@@ -122,10 +125,12 @@ buildNav('smart-money-dashboard');
     }
     const tag = c => c === 'ADDED' ? '<span class="chg-add">▲ ADDED</span>' : c === 'TRIMMED' ? '<span class="chg-trim">▼ TRIMMED</span>'
       : c === 'NEW' ? '<span class="chg-new">★ NEW</span>' : c === 'EXITED' ? '<span class="chg-exit">✕ EXITED</span>' : '—';
+    const md = s => { if (!s) return '?'; const p = s.split('-'); return p.length === 3 ? (+p[1]) + '/' + (+p[2]) + '/' + p[0].slice(2) : s; };
     $('mvBody').innerHTML = rows.slice(0, 60).map(m =>
       '<div class="mv-row"><div class="fund">' + esc(m.fund) + (m.priorQtr ? ' <span style="color:var(--yellow);font-size:9.5px;font-weight:800;" title="This fund\'s latest 13F is a prior quarter — it has not filed the current cycle yet">PRIOR QTR</span>' : '') + '</div><div>' + esc(m.name) + (m.putCall ? ' <span style="color:var(--yellow);">(' + esc(m.putCall) + ')</span>' : '') + '</div>'
       + '<div>' + tag(m.change) + '</div><div>' + fmtB(m.value) + '</div>'
-      + '<div>' + (m.shares_chg_pct != null ? (m.shares_chg_pct > 0 ? '+' : '') + m.shares_chg_pct + '%' : (m.change === 'NEW' ? 'new' : m.change === 'EXITED' ? 'out' : '—')) + '</div></div>').join('');
+      + '<div>' + (m.shares_chg_pct != null ? (m.shares_chg_pct > 0 ? '+' : '') + m.shares_chg_pct + '%' : (m.change === 'NEW' ? 'new' : m.change === 'EXITED' ? 'out' : '—')) + '</div>'
+      + '<div style="color:var(--text-muted);" title="Holdings snapshot date → the date it became public. The trade happened sometime in the quarter ending on the first date.">' + md(m.period) + ' → ' + md(m.filed) + '</div></div>').join('');
   }
   document.querySelectorAll('.chip').forEach(ch => ch.addEventListener('click', function () {
     document.querySelectorAll('.chip').forEach(c => c.classList.remove('on'));
@@ -140,16 +145,17 @@ buildNav('smart-money-dashboard');
     const skipped = [];
     let done = 0;
     await Promise.all(list.whales.map(async w => {
-      const h = await jget('/brain/13f-holdings?cik=' + w.cik + '&v=2');   // v=2: busts pre-entity-fix cached parses (pass 325)
+      const h = await jget('/brain/13f-holdings?cik=' + w.cik + '&v=3');   // v=3: response now carries periodOfReport (pass 326)
       done++;
       $('mvStatus').textContent = 'parsed ' + done + ' / ' + list.whales.length + ' funds';
       if (!h || !h.ok) { skipped.push({ label: w.label, note: h && h.note, url: h && h.url }); return; }
       const fund = h.sec_name || h.label;
       const priorQtr = !!(h.filingDate && h.filingDate <= qeISO);
+      const period = h.periodOfReport, filed = h.filingDate;
       (h.top || []).forEach(t => {
-        if (t.change && t.change !== 'UNCHANGED') allMoves.push({ fund, priorQtr, name: t.name, putCall: t.putCall, change: t.change, value: t.value, shares_chg_pct: t.shares_chg_pct });
+        if (t.change && t.change !== 'UNCHANGED') allMoves.push({ fund, priorQtr, period, filed, name: t.name, putCall: t.putCall, change: t.change, value: t.value, shares_chg_pct: t.shares_chg_pct });
       });
-      (h.exited || []).forEach(e => allMoves.push({ fund, priorQtr, name: e.name, putCall: e.putCall, change: 'EXITED', value: e.value_prev, shares_chg_pct: null }));
+      (h.exited || []).forEach(e => allMoves.push({ fund, priorQtr, period, filed, name: e.name, putCall: e.putCall, change: 'EXITED', value: e.value_prev, shares_chg_pct: null }));
       allMoves.sort((a, b) => (b.value || 0) - (a.value || 0));
       renderMoves();
     }));
