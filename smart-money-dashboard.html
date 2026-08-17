@@ -104,6 +104,16 @@ buildNav('smart-money-dashboard');
   async function jget(p) { try { const r = await fetch(WORKER + p, { cache: 'no-store' }); if (r.ok) return await r.json(); } catch (e) {} return null; }
 
   let allMoves = [], filter = 'ALL';
+  // Current 13F cycle quarter-end (computed, never hardcoded) — used to tag
+  // moves from funds whose latest filing is still a PRIOR quarter (pass 325).
+  const qeISO = (function () {
+    const et = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/New_York' }));
+    const y = et.getFullYear();
+    const qs = [new Date(y - 1, 11, 31), new Date(y, 2, 31), new Date(y, 5, 30), new Date(y, 8, 30), new Date(y, 11, 31)];
+    let qe = qs[0];
+    for (const d of qs) { if (d <= et) qe = d; }
+    return qe.getFullYear() + '-' + String(qe.getMonth() + 1).padStart(2, '0') + '-' + String(qe.getDate()).padStart(2, '0');
+  })();
   function renderMoves() {
     const rows = allMoves.filter(m => filter === 'ALL' ? m.change !== 'UNCHANGED' : m.change === filter);
     if (!rows.length) {
@@ -113,7 +123,7 @@ buildNav('smart-money-dashboard');
     const tag = c => c === 'ADDED' ? '<span class="chg-add">▲ ADDED</span>' : c === 'TRIMMED' ? '<span class="chg-trim">▼ TRIMMED</span>'
       : c === 'NEW' ? '<span class="chg-new">★ NEW</span>' : c === 'EXITED' ? '<span class="chg-exit">✕ EXITED</span>' : '—';
     $('mvBody').innerHTML = rows.slice(0, 60).map(m =>
-      '<div class="mv-row"><div class="fund">' + esc(m.fund) + '</div><div>' + esc(m.name) + (m.putCall ? ' <span style="color:var(--yellow);">(' + esc(m.putCall) + ')</span>' : '') + '</div>'
+      '<div class="mv-row"><div class="fund">' + esc(m.fund) + (m.priorQtr ? ' <span style="color:var(--yellow);font-size:9.5px;font-weight:800;" title="This fund\'s latest 13F is a prior quarter — it has not filed the current cycle yet">PRIOR QTR</span>' : '') + '</div><div>' + esc(m.name) + (m.putCall ? ' <span style="color:var(--yellow);">(' + esc(m.putCall) + ')</span>' : '') + '</div>'
       + '<div>' + tag(m.change) + '</div><div>' + fmtB(m.value) + '</div>'
       + '<div>' + (m.shares_chg_pct != null ? (m.shares_chg_pct > 0 ? '+' : '') + m.shares_chg_pct + '%' : (m.change === 'NEW' ? 'new' : m.change === 'EXITED' ? 'out' : '—')) + '</div></div>').join('');
   }
@@ -130,15 +140,16 @@ buildNav('smart-money-dashboard');
     const skipped = [];
     let done = 0;
     await Promise.all(list.whales.map(async w => {
-      const h = await jget('/brain/13f-holdings?cik=' + w.cik);
+      const h = await jget('/brain/13f-holdings?cik=' + w.cik + '&v=2');   // v=2: busts pre-entity-fix cached parses (pass 325)
       done++;
       $('mvStatus').textContent = 'parsed ' + done + ' / ' + list.whales.length + ' funds';
       if (!h || !h.ok) { skipped.push({ label: w.label, note: h && h.note, url: h && h.url }); return; }
       const fund = h.sec_name || h.label;
+      const priorQtr = !!(h.filingDate && h.filingDate <= qeISO);
       (h.top || []).forEach(t => {
-        if (t.change && t.change !== 'UNCHANGED') allMoves.push({ fund, name: t.name, putCall: t.putCall, change: t.change, value: t.value, shares_chg_pct: t.shares_chg_pct });
+        if (t.change && t.change !== 'UNCHANGED') allMoves.push({ fund, priorQtr, name: t.name, putCall: t.putCall, change: t.change, value: t.value, shares_chg_pct: t.shares_chg_pct });
       });
-      (h.exited || []).forEach(e => allMoves.push({ fund, name: e.name, putCall: e.putCall, change: 'EXITED', value: e.value_prev, shares_chg_pct: null }));
+      (h.exited || []).forEach(e => allMoves.push({ fund, priorQtr, name: e.name, putCall: e.putCall, change: 'EXITED', value: e.value_prev, shares_chg_pct: null }));
       allMoves.sort((a, b) => (b.value || 0) - (a.value || 0));
       renderMoves();
     }));

@@ -38,7 +38,7 @@
 // Pass 200: version stamp so brain-proof.html + worker-setup.html can detect
 // when the deployed worker is behind the repo source. Bump on every meaningful
 // behavior change. Read via /brain/health → worker_version field.
-const WORKER_VERSION = 'pass-311';
+const WORKER_VERSION = 'pass-312';
 
 const UNIVERSE = [
   'SPY','QQQ','IWM','DIA','AAPL','NVDA','TSLA','MSFT','META','AMZN','GOOGL','AMD',
@@ -2825,7 +2825,10 @@ async function handleRequest(request, env, ctx) {
         if (xml.length > 4500000) return { err: 'info table too large to parse in-worker' };
         const rows = {};
         const re = /<(?:\w+:)?infoTable>([\s\S]*?)<\/(?:\w+:)?infoTable>/g;
-        const tag = (block, t) => { const mm = block.match(new RegExp('<(?:\\w+:)?' + t + '>([^<]*)<')); return mm ? mm[1].trim() : ''; };
+        // Pass 325: decode XML entities — EDGAR stores "&" as "&amp;" etc.; passing
+        // them through raw made the client (which escapes again) render "S&amp;P".
+        const dec = s => s.replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&#(\d+);/g, (m, n) => String.fromCharCode(+n));
+        const tag = (block, t) => { const mm = block.match(new RegExp('<(?:\\w+:)?' + t + '>([^<]*)<')); return mm ? dec(mm[1].trim()) : ''; };
         let m, total = 0, n = 0;
         while ((m = re.exec(xml)) !== null) {
           const b = m[1];
