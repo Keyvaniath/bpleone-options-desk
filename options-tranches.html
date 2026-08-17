@@ -54,7 +54,11 @@
 
   <div id="underBox" class="card mb-24" style="display:none;"></div>
 
+  <div style="margin-bottom:10px;font-size:12px;color:var(--accent);font-weight:700;">👇 Click any strike row to generate the complete play card — entry, exits, time stop, and sizing, all pre-committed.</div>
   <div id="ladders"><div style="padding:30px;text-align:center;color:var(--text-muted);">Loading the live chain…</div></div>
+
+  <!-- The play card: every rule decided BEFORE entry (an alert without an order is a diary entry) -->
+  <div id="playCard" class="card mb-24" style="display:none;border-color:rgba(0,212,255,0.4);"></div>
 
   <!-- Tranche plan -->
   <div class="card mb-24" id="trancheCard" style="display:none;">
@@ -89,6 +93,8 @@ buildNav('options-tranches');
   const money = x => x == null || isNaN(x) ? '—' : '$' + Number(x).toFixed(2);
 
   let dir = 'call';   // call | put
+  let pcStore = [];                       // strike rows -> play-card data (pass 327)
+  let state = { sym: '', last: null, atr: null };
   async function jget(p) { try { const r = await fetch(WORKER + p, { cache: 'no-store' }); if (r.ok) return await r.json(); } catch (e) {} return null; }
 
   // Horizon targets in DTE. Day = nearest listed expiration (could be 0DTE);
@@ -130,6 +136,8 @@ buildNav('options-tranches');
   async function build() {
     const sym = cleanSym($('symIn').value);
     if (!sym) return;
+    pcStore = [];                                   // fresh card data each build
+    $('playCard').style.display = 'none';           // stale cards never survive a rebuild
     history.replaceState(null, '', '?sym=' + sym);
     $('ladders').innerHTML = '<div style="padding:30px;text-align:center;color:var(--text-muted);">Pulling the live ' + esc(sym) + ' chain…</div>';
 
@@ -198,7 +206,8 @@ buildNav('options-tranches');
         const bePct = last ? ((be - last) / last * 100) : null;
         const sprPct = c.mid > 0 ? ((c.ask - c.bid) / c.mid * 100) : null;
         const illiq = (sprPct != null && sprPct > 10) || (c.oi < 100);
-        return '<div class="strike-row">'
+        pcStore.push({ c, tier: t.key, exp: pick.exp, dte: pick.dte, hz: h.label });
+        return '<div class="strike-row" data-pc="' + (pcStore.length - 1) + '" style="cursor:pointer;" title="Click for the full play card">'
           + '<div class="tier ' + t.cls + '">' + t.key + ' <span style="color:var(--text-muted);font-weight:400;">Δ' + fm(Math.abs(c.delta)) + '</span></div>'
           + '<div style="font-weight:800;">' + fm(c.strike, c.strike % 1 ? 2 : 0) + '</div>'
           + '<div>' + fm(c.bid) + ' × ' + fm(c.ask) + (illiq ? ' <span class="illiq">WIDE</span>' : '') + '</div>'
@@ -231,6 +240,7 @@ buildNav('options-tranches');
         trs.push(Math.max(b.h - b.l, Math.abs(b.h - pc), Math.abs(b.l - pc)));
       }
       const atr = trs.slice(-14).reduce((s, x) => s + x, 0) / Math.min(14, trs.length);
+      state = { sym: sym, last: last, atr: atr };   // pass 327: the play card reads these
       const sgn = dir === 'call' ? -1 : 1;   // calls: add on pullbacks; puts: add on bounces
       const lv = [
         { t: 'T1', lvl: last, note: 'at market — starter', alloc: '40%' },
@@ -242,9 +252,87 @@ buildNav('options-tranches');
         + lv.map(x => '<div class="tr-row"><div style="font-weight:800;">' + x.t + '</div><div>' + money(x.lvl) + '</div><div style="font-family:var(--font-sans);font-size:12px;color:var(--text-secondary);">' + x.note + '</div><div>' + x.alloc + '</div></div>').join('');
       $('trancheNote').textContent = 'A scaling template, not advice: it spends allocation gradually so a full position never rides a single entry. Levels are computed from the real 14-day ATR (' + money(atr) + ') — if T2/T3 never fill, the position simply stays smaller. Re-run after big moves; ATR shifts.';
     } else {
+      state = { sym: sym, last: last, atr: null };
       $('trancheCard').style.display = 'none';
     }
   }
+
+  // ===== Pass 327: the PLAY CARD — every decision pre-committed before entry.
+  // Mechanical defaults exist to cap damage, not to create edge (there is no
+  // proven edge — the header says so). "An alert without an order is a diary entry."
+  function fmtDate(d) { return (d.getMonth() + 1) + '/' + d.getDate() + '/' + String(d.getFullYear()).slice(2); }
+  function renderCard(p) {
+    const c = p.c, isCall = dir === 'call';
+    const mid = c.mid, cost = mid * 100;
+    const be = isCall ? c.strike + mid : c.strike - mid;
+    const tp1 = mid * 1.5, tp2 = mid * 2, stop = mid * 0.5;
+    const timeStop = new Date(Date.now() + Math.max(1, Math.floor(p.dte / 2)) * 86400000);
+    const inval = state.atr != null && state.last != null
+      ? (isCall ? state.last - 1.25 * state.atr : state.last + 1.25 * state.atr) : null;
+    const contract = state.sym + ' ' + p.exp + ' $' + c.strike + ' ' + (isCall ? 'CALL' : 'PUT');
+    const dayTrade = p.dte <= 2;
+    const spr = mid > 0 ? ((c.ask - c.bid) / mid * 100) : 0;
+    const html =
+      '<div class="card-header"><div class="card-title">🧾 Play card — ' + esc(contract) + ' <span style="font-size:11px;color:var(--text-muted);">(' + esc(p.tier) + ' · ' + esc(p.hz) + ' · ' + p.dte + ' DTE · Δ' + fm(Math.abs(c.delta)) + ')</span></div>'
+      + '<button class="btn btn-secondary" id="pcCopy" style="font-size:11px;">📋 Copy card</button></div>'
+      + '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:14px;padding:4px 2px;font-size:12.5px;line-height:1.7;">'
+
+      + '<div><div style="font-weight:800;color:var(--accent);margin-bottom:4px;">1 · ENTRY (limit only, never market)</div>'
+      + 'Quote now: ' + fm(c.bid) + ' × ' + fm(c.ask) + ' — work a <b>limit at mid ' + money(mid) + ' or better</b>' + (spr > 10 ? ' <span style="color:var(--red);font-weight:800;">(WIDE spread ' + fm(spr, 0) + '% — shave toward the bid or skip)</span>' : '') + '.<br>'
+      + 'Cost = <b>' + money(cost) + ' per contract</b> — that entire amount is at risk.<br>'
+      + (state.atr != null ? 'Scale in, don\'t lump: <b>40%</b> now · <b>30%</b> if ' + esc(state.sym) + ' ' + (isCall ? 'pulls back to' : 'bounces to') + ' ' + money(state.last + (isCall ? -0.5 : 0.5) * state.atr) + ' · <b>30%</b> at ' + money(state.last + (isCall ? -1 : 1) * state.atr) + '. Unfilled tranches just mean a smaller position.' : 'Bars unavailable — single entry at the limit, smaller size.') + '</div>'
+
+      + '<div><div style="font-weight:800;color:var(--green);margin-bottom:4px;">2 · EXITS — place these orders AT entry</div>'
+      + 'Profit: GTC limit to sell <b>half at ' + money(tp1) + '</b> (+50%) and <b>the rest at ' + money(tp2) + '</b> (+100%).<br>'
+      + 'Stop: close it all if the option trades <b>' + money(stop) + '</b> (−50%)' + (inval != null ? ' <b>or</b> ' + esc(state.sym) + ' ' + (isCall ? 'closes below' : 'closes above') + ' <b>' + money(inval) + '</b> (1.25× ATR against you — the thesis is wrong)' : '') + '.<br>'
+      + '<span style="color:var(--text-muted);">Options gap — a premium stop is a rule you execute, not a resting stop-loss order (those fill terribly on options). Check it at the close.</span></div>'
+
+      + '<div><div style="font-weight:800;color:var(--yellow);margin-bottom:4px;">3 · TIME STOP (theta is the silent killer)</div>'
+      + (dayTrade ? '<b>0–2 DTE: day-trade only.</b> Whatever is open at 3:45pm ET gets closed. No overnight holds, no exceptions.'
+        : 'If neither target nor stop has hit by <b>' + fmtDate(timeStop) + '</b> (halfway to expiry), close it anyway — theta decay accelerates in the back half and the trade has told you it isn\'t working.') + '<br>'
+      + '<span style="color:var(--text-muted);">Check <a href="earnings-calendar.html">earnings</a> + <a href="economic-events.html">econ events</a> inside your window — holding through a binary is a decision, not an accident.</span></div>'
+
+      + '<div><div style="font-weight:800;margin-bottom:4px;">4 · SIZE (decide the loss first)</div>'
+      + 'Risk <b>1% of the account max</b> on any single options play.<br>'
+      + 'Account $ <input id="pcAcct" type="number" min="0" step="1000" style="width:110px;padding:4px 8px;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text-primary);font-family:var(--font-mono);"> → <span id="pcSize" style="font-weight:800;">enter account size</span><br>'
+      + '<span style="color:var(--text-muted);">If 1% doesn\'t buy even one contract, the honest answer is: this contract is too big for the account — drop a tier or skip.</span></div>'
+
+      + '</div>'
+      + '<div style="margin-top:10px;padding:10px 14px;border-radius:8px;background:rgba(245,158,11,0.07);border-left:3px solid var(--yellow);font-size:11.5px;color:var(--text-secondary);line-height:1.6;">'
+      + 'These mechanics cap damage — they do not create edge. The desk\'s directional record is drift-grade (see the header), quotes are ~15-min delayed (confirm at your broker), and this card is a structuring template, not advice. The one rule that matters most: <b>write the exits down before you enter, then obey them.</b></div>';
+    const el = $('playCard');
+    el.innerHTML = html;
+    el.style.display = 'block';
+    el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    const acct = document.getElementById('pcAcct');
+    const sizeOut = document.getElementById('pcSize');
+    acct.addEventListener('input', function () {
+      const a = parseFloat(this.value);
+      if (!(a > 0)) { sizeOut.textContent = 'enter account size'; return; }
+      const n = Math.floor(a * 0.01 / cost);
+      sizeOut.textContent = n >= 1
+        ? n + ' contract' + (n > 1 ? 's' : '') + ' (' + money(n * cost) + ' at risk = ' + (n * cost / a * 100).toFixed(2) + '%)'
+        : '0 — one contract (' + money(cost) + ') exceeds 1% of this account';
+    });
+    document.getElementById('pcCopy').addEventListener('click', function () {
+      const txt = 'PLAY CARD (research template, not advice) — ' + contract + '\n'
+        + 'Entry: limit at mid ' + money(mid) + ' or better. Tranches: 40% now'
+        + (state.atr != null ? ', 30% @ ' + money(state.last + (isCall ? -0.5 : 0.5) * state.atr) + ', 30% @ ' + money(state.last + (isCall ? -1 : 1) * state.atr) : '') + '.\n'
+        + 'Exits (place at entry): half off @ ' + money(tp1) + ' (+50%), rest @ ' + money(tp2) + ' (+100%). Stop: option @ ' + money(stop) + ' (-50%)' + (inval != null ? ' or ' + state.sym + (isCall ? ' closes < ' : ' closes > ') + money(inval) : '') + '.\n'
+        + 'Time stop: ' + (dayTrade ? 'day-trade only, flat by 3:45pm ET.' : 'close by ' + fmtDate(timeStop) + ' if nothing hit.') + '\n'
+        + 'Size: max 1% of account at risk. Cost ' + money(cost) + '/contract, 100% at risk.\n'
+        + 'No proven edge - mechanics cap damage, they do not create profit. Quotes ~15min delayed.';
+      const done = () => { this.textContent = '✓ Copied'; setTimeout(() => { this.textContent = '📋 Copy card'; }, 1800); };
+      if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(txt).then(done).catch(() => window.prompt('Copy:', txt));
+      else window.prompt('Copy:', txt);
+    });
+  }
+  $('ladders').addEventListener('click', function (ev) {
+    const row = ev.target.closest('.strike-row');
+    if (!row || row.dataset.pc == null) return;
+    const p = pcStore[+row.dataset.pc];
+    if (p) renderCard(p);
+  });
 
   // Wire-up
   $('dirBtn').addEventListener('click', function () {
