@@ -20,6 +20,12 @@
 .tag-new { padding:2px 7px; border-radius:3px; font-size:9px; font-weight:800; background:rgba(0,212,255,0.16); color:var(--accent); }
 .tag-wait { padding:2px 7px; border-radius:3px; font-size:9px; font-weight:800; background:rgba(148,163,184,0.16); color:var(--text-muted); }
 .whale-head { display:grid; grid-template-columns: minmax(180px,1.4fr) 90px 110px 110px minmax(140px,1fr); gap:10px; padding:8px 12px; font-size:10px; text-transform:uppercase; letter-spacing:0.5px; color:var(--text-muted); border-bottom:1px solid var(--border); }
+.hbtn { padding:3px 9px; border-radius:6px; border:1px solid var(--border); background:transparent; color:var(--accent); cursor:pointer; font-size:10px; font-weight:700; font-family:var(--font-sans); }
+.hbtn:hover { border-color:var(--accent); }
+.hpanel { padding:10px 14px 14px; background:rgba(0,212,255,0.03); border-bottom:1px solid var(--border); }
+.hrow { display:grid; grid-template-columns: minmax(160px,1.3fr) 90px 70px 110px 110px; gap:8px; padding:6px 4px; font-family:var(--font-mono); font-size:11.5px; border-bottom:1px solid rgba(255,255,255,0.04); align-items:center; }
+.chg-add { color:var(--green); font-weight:800; } .chg-trim { color:var(--red); font-weight:800; }
+.chg-new { color:var(--accent); font-weight:800; } .chg-same { color:var(--text-muted); }
 @media (max-width: 720px){ .whale-row, .whale-head { grid-template-columns: 1.3fr 80px 100px; } .whale-row > :nth-child(4), .whale-row > :nth-child(5), .whale-head > :nth-child(4), .whale-head > :nth-child(5) { display:none; } }
 </style>
   <link rel="canonical" href="https://options.bpleone.com/13f-watch.html">
@@ -116,8 +122,11 @@ buildNav('13f-watch');
         const tag = l.filed_today ? '<span class="tag-today">FILED TODAY</span>'
                   : isCycle ? '<span class="tag-new">THIS CYCLE</span>'
                   : '<span class="tag-wait">WAITING (prior qtr)</span>';
-        const link = /^https:\/\/www\.sec\.gov\//.test(l.url) ? '<a href="' + esc(l.url) + '" target="_blank" rel="noopener" style="color:var(--accent);">holdings on EDGAR ↗</a>' : '—';
-        return '<div class="whale-row ' + cls + '"><div>' + name + '</div><div>' + esc(l.form) + '</div><div>' + esc(l.filingDate) + '</div><div>' + tag + '</div><div>' + link + '</div></div>';
+        const link = /^https:\/\/www\.sec\.gov\//.test(l.url) ? '<a href="' + esc(l.url) + '" target="_blank" rel="noopener" style="color:var(--accent);">EDGAR ↗</a>' : '—';
+        const cikNum = parseInt(w.cik, 10) || 0;
+        return '<div class="whale-row ' + cls + '"><div>' + name + '</div><div>' + esc(l.form) + '</div><div>' + esc(l.filingDate) + '</div><div>' + tag + '</div>'
+          + '<div style="display:flex;gap:8px;align-items:center;"><button class="hbtn" data-cik="' + cikNum + '">▸ holdings</button>' + link + '</div></div>'
+          + '<div class="hpanel" id="hp-' + cikNum + '" style="display:none;"></div>';
       });
       $('whaleList').innerHTML = rows.join('');
       $('kpiFiled').textContent = filed;
@@ -129,6 +138,54 @@ buildNav('13f-watch');
       $('whaleList').innerHTML = '<div style="padding:24px;text-align:center;color:var(--text-muted);">SEC EDGAR unreachable right now — nothing fabricated in its place. Retry shortly.</div>';
     }
   }
+  // Pass 322: expandable parsed holdings (top positions + Q/Q changes) per fund.
+  const hCache = {};
+  const fmtB = v => v >= 1e9 ? '$' + (v / 1e9).toFixed(2) + 'B' : v >= 1e6 ? '$' + (v / 1e6).toFixed(1) + 'M' : '$' + Math.round(v / 1e3) + 'K';
+  const chgTag = t => {
+    if (t === 'ADDED') return '<span class="chg-add">▲ ADDED</span>';
+    if (t === 'TRIMMED') return '<span class="chg-trim">▼ TRIMMED</span>';
+    if (t === 'NEW') return '<span class="chg-new">★ NEW</span>';
+    if (t === 'UNCHANGED') return '<span class="chg-same">— HELD</span>';
+    return '<span class="chg-same">—</span>';
+  };
+  function renderHoldings(el, j) {
+    if (!j || !j.ok) {
+      el.innerHTML = '<div style="font-size:12px;color:var(--text-muted);padding:6px 0;">' + esc((j && j.note) || 'Holdings unavailable right now — nothing fabricated in its place.')
+        + ((j && j.url) ? ' <a href="' + esc(j.url) + '" target="_blank" rel="noopener" style="color:var(--accent);">Open the filing on EDGAR ↗</a>' : '') + '</div>';
+      return;
+    }
+    const head = '<div style="font-size:11px;color:var(--text-muted);margin-bottom:6px;">' + esc(j.sec_name || j.label) + ' · ' + j.positions + ' positions · ' + fmtB(j.total_value) + ' reported'
+      + (j.diff_available ? ' · changes vs ' + esc(j.prevFilingDate) : ' · no prior filing to diff') + '</div>';
+    const rows = '<div class="hrow" style="font-size:9px;text-transform:uppercase;color:var(--text-muted);"><div>Issuer</div><div>Value</div><div>% book</div><div>Change</div><div>Shares Δ</div></div>'
+      + j.top.slice(0, 12).map(t => '<div class="hrow"><div>' + esc(t.name) + (t.putCall ? ' <span style="color:var(--yellow);">(' + esc(t.putCall) + ')</span>' : '') + '</div>'
+        + '<div>' + fmtB(t.value) + '</div><div>' + (t.pct_of_book != null ? t.pct_of_book + '%' : '—') + '</div>'
+        + '<div>' + chgTag(t.change) + '</div>'
+        + '<div>' + (t.shares_chg_pct != null && t.change !== 'UNCHANGED' ? (t.shares_chg_pct > 0 ? '+' : '') + t.shares_chg_pct + '%' : '—') + '</div></div>').join('');
+    const exited = (j.exited && j.exited.length)
+      ? '<div style="font-size:11px;color:var(--red);margin-top:8px;">EXITED: ' + j.exited.slice(0, 6).map(e => esc(e.name)).join(' · ') + '</div>' : '';
+    el.innerHTML = head + rows + exited
+      + '<div style="font-size:10.5px;color:var(--text-muted);margin-top:8px;">' + esc(j.note || '') + ' <a href="' + esc(j.url) + '" target="_blank" rel="noopener" style="color:var(--accent);">Full filing ↗</a></div>';
+  }
+  $('whaleList').addEventListener('click', async function (ev) {
+    const btn = ev.target.closest('.hbtn');
+    if (!btn) return;
+    const cik = parseInt(btn.dataset.cik, 10);
+    const panel = document.getElementById('hp-' + cik);
+    if (!panel) return;
+    if (panel.style.display !== 'none') { panel.style.display = 'none'; btn.textContent = '▸ holdings'; return; }
+    panel.style.display = 'block'; btn.textContent = '▾ holdings';
+    if (hCache[cik]) { renderHoldings(panel, hCache[cik]); return; }
+    panel.innerHTML = '<div style="font-size:12px;color:var(--text-muted);padding:6px 0;">Parsing the filing from EDGAR…</div>';
+    try {
+      const r = await fetch(WORKER + '/brain/13f-holdings?cik=' + cik);
+      const j = await r.json();
+      hCache[cik] = j;
+      renderHoldings(panel, j);
+    } catch (e) {
+      renderHoldings(panel, null);
+    }
+  });
+
   load();
   $('refreshBtn').addEventListener('click', load);
   // Visibility-gated 5-min poll (deadline-day filings stream in after the close).

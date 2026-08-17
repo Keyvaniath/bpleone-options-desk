@@ -38,7 +38,7 @@
 // Pass 200: version stamp so brain-proof.html + worker-setup.html can detect
 // when the deployed worker is behind the repo source. Bump on every meaningful
 // behavior change. Read via /brain/health → worker_version field.
-const WORKER_VERSION = 'pass-310';
+const WORKER_VERSION = 'pass-311';
 
 const UNIVERSE = [
   'SPY','QQQ','IWM','DIA','AAPL','NVDA','TSLA','MSFT','META','AMZN','GOOGL','AMD',
@@ -77,6 +77,25 @@ const KV_KEYS = {
 // comfortable buffer for high-activity days and accounts for the rotating
 // 12-syms-per-minute capture cadence.
 const MAX_JOURNAL = 35000;
+
+// Pass 322: whale funds tracked by /brain/13f + /brain/13f-holdings. sec_name
+// is always taken from EDGAR's own registrant record at fetch time, so a wrong
+// CIK here shows up as a visible name mismatch on the page, never silently.
+const WHALES_13F = [
+  { cik: 1067983, label: 'Berkshire Hathaway' },
+  { cik: 1336528, label: 'Pershing Square' },
+  { cik: 1649339, label: 'Scion Asset Management' },
+  { cik: 1536411, label: 'Duquesne Family Office' },
+  { cik: 1037389, label: 'Renaissance Technologies' },
+  { cik: 1350694, label: 'Bridgewater Associates' },
+  { cik: 1423053, label: 'Citadel Advisors' },
+  { cik: 1029160, label: 'Soros Fund Management' },
+  { cik: 1040273, label: 'Third Point' },
+  { cik: 1061768, label: 'Baupost Group' },
+  { cik: 1167483, label: 'Tiger Global' },
+  { cik: 1656456, label: 'Appaloosa' }   // Tepper re-registered in 2016; the old CIK 1006438 stopped filing
+];
+const SEC_UA = { headers: { 'User-Agent': 'bpleone-research options.bpleone.com brandonpleone@gmail.com' } };
 // Pass 226: horizons in CALENDAR hours, sized so the effective TRADING-day
 // window matches the bootstrap labels (daily bars = trading days, FWD_DAYS=5).
 // mid was 120h (5 calendar days) — but weekends plus the market-hours resolve
@@ -2709,20 +2728,7 @@ async function handleRequest(request, env, ctx) {
     const cacheKey = new Request(url.toString(), { method: 'GET' });
     const hit = await cache.match(cacheKey);
     if (hit) return hit;
-    const WHALES = [
-      { cik: 1067983, label: 'Berkshire Hathaway' },
-      { cik: 1336528, label: 'Pershing Square' },
-      { cik: 1649339, label: 'Scion Asset Management' },
-      { cik: 1536411, label: 'Duquesne Family Office' },
-      { cik: 1037389, label: 'Renaissance Technologies' },
-      { cik: 1350694, label: 'Bridgewater Associates' },
-      { cik: 1423053, label: 'Citadel Advisors' },
-      { cik: 1029160, label: 'Soros Fund Management' },
-      { cik: 1040273, label: 'Third Point' },
-      { cik: 1061768, label: 'Baupost Group' },
-      { cik: 1167483, label: 'Tiger Global' },
-      { cik: 1656456, label: 'Appaloosa' }   // Tepper re-registered in 2016; the old CIK 1006438 stopped filing
-    ];
+    const WHALES = WHALES_13F;
     async function fetchWhale(w) {
       try {
         const cik10 = String(w.cik).padStart(10, '0');
@@ -2773,6 +2779,111 @@ async function handleRequest(request, env, ctx) {
     const w13Good = whales.length > 0;
     resp.headers.set('Cache-Control', 'public, max-age=' + (w13Good ? 300 : 60));
     if (w13Good) ctx.waitUntil(cache.put(cacheKey, resp.clone()));
+    return resp;
+  }
+
+  // ===== Pass 322: parsed 13F holdings + quarter-over-quarter diff. Fetches the
+  // fund's two most recent 13F-HR info tables from EDGAR, parses the XML, and
+  // returns top positions with ADDED/TRIMMED/NEW/EXITED changes. Restricted to
+  // the tracked whale CIKs (this is not an open EDGAR proxy). Mega-fund tables
+  // (Citadel/RenTech-class, tens of MB) are size-gated with an honest note —
+  // the EDGAR link is the source of truth. Filings are immutable: 6h cache.
+  if (path === '/brain/13f-holdings') {
+    const cikRaw = parseInt(url.searchParams.get('cik') || '', 10);
+    const whale = WHALES_13F.find(w => w.cik === cikRaw);
+    if (!whale) return json({ ok: false, error: 'cik must be one of the tracked whales (see /brain/13f)' }, 400);
+    const cache = caches.default;
+    const cacheKey = new Request(url.toString(), { method: 'GET' });
+    const hit = await cache.match(cacheKey);
+    if (hit) return hit;
+    const cik10 = String(whale.cik).padStart(10, '0');
+    let sub = null;
+    try { const r = await fetch('https://data.sec.gov/submissions/CIK' + cik10 + '.json', SEC_UA); if (r.ok) sub = await r.json(); } catch (e) {}
+    if (!sub || !sub.filings || !sub.filings.recent) return json({ ok: false, error: 'EDGAR submissions unreachable' }, 502);
+    const rec = sub.filings.recent;
+    const accs = [];
+    for (let i = 0; i < rec.form.length && accs.length < 2; i++) {
+      if (rec.form[i] === '13F-HR') accs.push({ acc: rec.accessionNumber[i], date: rec.filingDate[i] });
+    }
+    if (!accs.length) return json({ ok: false, error: 'no 13F-HR on file for this CIK' }, 404);
+    const edgarUrl = a => 'https://www.sec.gov/Archives/edgar/data/' + whale.cik + '/' + a.replace(/-/g, '') + '/' + a + '-index.htm';
+    async function loadTable(acc) {
+      try {
+        const folder = 'https://www.sec.gov/Archives/edgar/data/' + whale.cik + '/' + acc.replace(/-/g, '') + '/';
+        const ir = await fetch(folder + 'index.json', SEC_UA);
+        if (!ir.ok) return { err: 'filing index unreachable' };
+        const idx = await ir.json();
+        const files = ((idx.directory && idx.directory.item) || []).map(x => x.name);
+        const xmlName = files.find(f => /infotable/i.test(f) && /\.xml$/i.test(f))
+          || files.find(f => /\.xml$/i.test(f) && !/primary_doc/i.test(f));
+        if (!xmlName) return { err: 'no info-table XML in the filing' };
+        const rx = await fetch(folder + xmlName, SEC_UA);
+        if (!rx.ok) return { err: 'info table unreachable' };
+        const clen = +(rx.headers.get('content-length') || 0);
+        if (clen > 4000000) return { err: 'info table too large to parse in-worker (' + Math.round(clen / 1e6) + 'MB — mega-fund)' };
+        const xml = await rx.text();
+        if (xml.length > 4500000) return { err: 'info table too large to parse in-worker' };
+        const rows = {};
+        const re = /<(?:\w+:)?infoTable>([\s\S]*?)<\/(?:\w+:)?infoTable>/g;
+        const tag = (block, t) => { const mm = block.match(new RegExp('<(?:\\w+:)?' + t + '>([^<]*)<')); return mm ? mm[1].trim() : ''; };
+        let m, total = 0, n = 0;
+        while ((m = re.exec(xml)) !== null) {
+          const b = m[1];
+          const name = tag(b, 'nameOfIssuer'), cusip = tag(b, 'cusip'), cls = tag(b, 'titleOfClass');
+          const val = +tag(b, 'value') || 0, sh = +tag(b, 'sshPrnamt') || 0;
+          const put = tag(b, 'putCall');
+          const k = (cusip || name) + (put ? '|' + put : '');
+          if (!rows[k]) rows[k] = { name, cls, putCall: put || null, value: 0, shares: 0 };
+          rows[k].value += val; rows[k].shares += sh; total += val; n++;
+        }
+        if (!n) return { err: 'info table parsed to zero rows' };
+        return { rows, total, positions: Object.keys(rows).length };
+      } catch (e) { return { err: 'parse failed: ' + ((e && e.message) || e) }; }
+    }
+    const cur = await loadTable(accs[0].acc);
+    if (cur.err) {
+      const resp = json({
+        ok: false, cik: whale.cik, label: whale.label, sec_name: sub.name || null,
+        filingDate: accs[0].date, url: edgarUrl(accs[0].acc),
+        note: 'Holdings not parseable in-worker: ' + cur.err + '. The EDGAR filing link is the source of truth.'
+      });
+      resp.headers.set('Cache-Control', 'public, max-age=60');
+      return resp;
+    }
+    const prev = accs[1] ? await loadTable(accs[1].acc) : null;
+    const prevRows = prev && !prev.err ? prev.rows : null;
+    const sorted = Object.entries(cur.rows).sort((a, b) => b[1].value - a[1].value);
+    const fmtPos = ([k, v]) => {
+      const p = prevRows ? prevRows[k] : null;
+      let change = prevRows ? (p ? (v.shares === p.shares ? 'UNCHANGED' : (v.shares > p.shares ? 'ADDED' : 'TRIMMED')) : 'NEW') : null;
+      return {
+        name: v.name, class: v.cls || null, putCall: v.putCall,
+        value: v.value, shares: v.shares,
+        pct_of_book: cur.total > 0 ? +(v.value / cur.total * 100).toFixed(2) : null,
+        change,
+        shares_prev: p ? p.shares : null,
+        shares_chg_pct: p && p.shares > 0 ? +((v.shares / p.shares - 1) * 100).toFixed(1) : null
+      };
+    };
+    const exited = prevRows
+      ? Object.entries(prevRows).filter(([k]) => !cur.rows[k])
+        .sort((a, b) => b[1].value - a[1].value).slice(0, 10)
+        .map(([k, v]) => ({ name: v.name, class: v.cls || null, putCall: v.putCall, value_prev: v.value }))
+      : [];
+    const resp = json({
+      ok: true,
+      cik: whale.cik, label: whale.label, sec_name: sub.name || null,
+      filingDate: accs[0].date, prevFilingDate: accs[1] ? accs[1].date : null,
+      url: edgarUrl(accs[0].acc),
+      positions: cur.positions,
+      total_value: cur.total,
+      top: sorted.slice(0, 25).map(fmtPos),
+      exited,
+      diff_available: !!prevRows,
+      note: '13F long-only snapshot as of quarter end, published up to 45 days later; value in USD as reported. Changes are share-count vs the prior 13F-HR. Not an endorsement; verify on EDGAR.'
+    });
+    resp.headers.set('Cache-Control', 'public, max-age=21600');   // filings are immutable
+    ctx.waitUntil(cache.put(cacheKey, resp.clone()));
     return resp;
   }
 
