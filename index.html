@@ -18,7 +18,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" media="print" onload="this.media='all'"><noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap"></noscript>
-<link rel="stylesheet" href="css/style.css?v=v221">
+<link rel="stylesheet" href="css/style.css?v=v222">
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
@@ -50,6 +50,7 @@
     <div class="hero-cta">
       <a href="today.html" class="btn btn-primary btn-lg" style="background:linear-gradient(135deg,#00d4ff,#0094c7);border:none;color:#000;font-weight:800;">📅 Open Today's Command Center →</a>
       <a href="pick-of-day.html" class="btn btn-primary btn-lg" style="background:linear-gradient(135deg,#10b981,#059669);border:none;">🎯 Pick of the Day</a>
+      <a href="smart-money-dashboard.html" class="btn btn-primary btn-lg" style="background:linear-gradient(135deg,#7c3aed,#5b21b6);border:none;" title="Whale 13F moves, the SEC insider tape, and options $-flow — one screen">🐋 Smart Money</a>
       <a href="edge-scorecard.html" class="btn btn-secondary btn-lg" title="Does the brain beat the market's drift? The honest proof.">📊 Does it work?</a>
       <a href="share.html" class="btn btn-secondary btn-lg" title="Grab today's pick as a shareable card">📣 Share the pick</a>
     </div>
@@ -63,6 +64,9 @@
     <div style="margin-top:28px;">
       <div style="font-size:11px;font-weight:800;letter-spacing:1.5px;color:var(--text-muted);text-transform:uppercase;margin-bottom:12px;">What's actually real here — the data, not a magic predictor</div>
       <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;">
+        <a href="smart-money-dashboard.html" data-ev="home_smartmoney" style="display:block;text-decoration:none;color:inherit;padding:16px;border-radius:12px;background:var(--bg-elevated);border:1px solid rgba(124,58,237,0.45);transition:border-color .15s;" onmouseover="this.style.borderColor='var(--accent)'" onmouseout="this.style.borderColor='rgba(124,58,237,0.45)'">
+          <div style="font-size:22px;">🐋</div><div style="font-weight:800;margin:8px 0 4px;">Smart Money Dashboard</div><div style="font-size:12px;color:var(--text-muted);line-height:1.5;">Whale 13F moves ranked (<b id="home-whale" style="color:var(--accent);">parsing…</b>), the live insider tape &amp; options $-flow — one screen.</div>
+        </a>
         <a href="insider-clusters.html" data-ev="home_insider" style="display:block;text-decoration:none;color:inherit;padding:16px;border-radius:12px;background:var(--bg-elevated);border:1px solid var(--border);transition:border-color .15s;" onmouseover="this.style.borderColor='var(--accent)'" onmouseout="this.style.borderColor='var(--border)'">
           <div style="font-size:22px;">🏛</div><div style="font-weight:800;margin:8px 0 4px;">Insider Buying</div><div style="font-size:12px;color:var(--text-muted);line-height:1.5;">Real SEC Form-4 — who's putting their own money in, and buy clusters.</div>
         </a>
@@ -109,6 +113,25 @@
           .then(function (r) { return r.json(); })
           .then(function (h) { if (h && h.model_trained) setTxt('hs-trained', (h.model_trained).toLocaleString()); })
           .catch(function () {});
+        // Smart-money tile: how many tracked whales have filed this cycle (real
+        // EDGAR count). Quarter-end computed, never hardcoded, so it can't go stale.
+        fetch(W + '/brain/13f', { cache: 'no-store' })
+          .then(function (r) { return r.json(); })
+          .then(function (j) {
+            if (!j || !j.ok || !j.whales) return;
+            var et = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/New_York' }));
+            var y = et.getFullYear();
+            var qs = [new Date(y - 1, 11, 31), new Date(y, 2, 31), new Date(y, 5, 30), new Date(y, 8, 30), new Date(y, 11, 31)];
+            var qe = qs[0];
+            for (var k = 0; k < qs.length; k++) { if (qs[k] <= et) qe = qs[k]; }
+            var qeISO = qe.getFullYear() + '-' + ('0' + (qe.getMonth() + 1)).slice(-2) + '-' + ('0' + qe.getDate()).slice(-2);
+            var cnt = 0;
+            for (var i = 0; i < j.whales.length; i++) {
+              var l = j.whales[i].latest;
+              if (l && l.filingDate > qeISO) cnt++;
+            }
+            setTxt('home-whale', cnt + '/' + j.whales.length + ' whales filed');
+          }).catch(function () { setTxt('home-whale', 'live'); });
       } catch (e) {}
     })();
     </script>
@@ -276,12 +299,12 @@
 
 <div id="site-footer"></div>
 
-<script src="js/app.js?v=v221"></script>
-<script src="js/notify.js?v=v221"></script>
-<script src="js/charts.js?v=v221"></script>
-<script src="js/live.js?v=v221"></script>
+<script src="js/app.js?v=v222"></script>
+<script src="js/notify.js?v=v222"></script>
+<script src="js/charts.js?v=v222"></script>
+<script src="js/live.js?v=v222"></script>
 <!-- Auto-added direct loads (audit pass 2) -->
-<script src="js/money-tracker.js?v=v221"></script>
+<script src="js/money-tracker.js?v=v222"></script>
 <script>
   buildNav('home');
   document.addEventListener('DOMContentLoaded', () => {

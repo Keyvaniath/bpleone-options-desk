@@ -257,6 +257,7 @@ function buildNav(activePage) {
     + '<ul class="nav-links">'
     + '<li><a href="start-here.html" class="' + (activePage==='start-here'?'active':'') + '" style="font-weight:800;color:var(--accent);" title="New here? 2-minute orientation">🧭 Start Here</a></li>'
     + '<li><a href="today.html" class="' + (activePage==='today'?'active':'') + '" style="font-weight:800;">📅 Today</a></li>'
+    + '<li><a href="smart-money-dashboard.html" class="' + (activePage==='smart-money-dashboard'?'active':'') + '" style="font-weight:800;">🐋 Smart Money</a></li>'
     + '<li><a href="dashboard.html" class="' + (activePage==='dashboard'?'active':'') + '">Dashboard</a></li>'
     + '<li class="nav-dd"><a href="#" class="' + (isPlays?'active':'') + '">Daily ▾</a><div class="nav-dropdown">'
     +   '<a href="pick-of-day.html">🎯 Pick of the Day</a>'
