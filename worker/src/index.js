@@ -38,7 +38,7 @@
 // Pass 200: version stamp so brain-proof.html + worker-setup.html can detect
 // when the deployed worker is behind the repo source. Bump on every meaningful
 // behavior change. Read via /brain/health → worker_version field.
-const WORKER_VERSION = 'pass-313';
+const WORKER_VERSION = 'pass-314';
 
 const UNIVERSE = [
   'SPY','QQQ','IWM','DIA','AAPL','NVDA','TSLA','MSFT','META','AMZN','GOOGL','AMD',
@@ -3080,7 +3080,12 @@ async function handleRequest(request, env, ctx) {
     // Pass 258: gate broadcasts through the editable constraints (noise control).
     // The brain still SCORES + TRAINS on the whole universe; constraints only
     // decide what we surface as a pick.
-    const sigs = applyConstraints(allSigs, constraints);
+    // Pass 328: VIX stays in the training universe (vol-regime input) but spot
+    // VIX is NOT a tradeable instrument - broadcasting it as the "Pick of the
+    // Day" hands the reader something they literally cannot buy. The tradeable
+    // vol expressions (VXX/UVXY) are in the universe and rank on their own.
+    const NON_TRADEABLE = new Set(['VIX']);
+    const sigs = applyConstraints(allSigs, constraints).filter(s => !NON_TRADEABLE.has(s.sym));
     sigs.forEach(s => { s._conv = Math.abs(s.predProb - 0.5); });
     sigs.sort((a, b) => b._conv - a._conv);
     // Pass 307 (honesty): each signal carries its own scan timestamp. The SIGNALS
