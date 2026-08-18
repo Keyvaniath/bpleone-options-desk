@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Play Journal — your logged options cards, graded live — bpleone / trade</title>
+<meta name="description" content="Your logged options play cards, marked to the live chain: P&L, and a loud flag the moment one of your own pre-committed rules triggers — profit target, stop, invalidation, or time stop. Private to this browser; export any time.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" media="print" onload="this.media='all'"><noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap"></noscript>
+<link rel="stylesheet" href="css/style.css?v=v225">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.pj-card { background:var(--bg-elevated); border:1px solid var(--border); border-radius:14px; margin-bottom:14px; padding:14px 18px; }
+.pj-card.triggered { border-color:var(--red); background:linear-gradient(135deg,rgba(220,38,38,0.10),rgba(220,38,38,0.02)); }
+.pj-card.target { border-color:var(--green); background:linear-gradient(135deg,rgba(16,185,129,0.10),rgba(16,185,129,0.02)); }
+.pj-head { display:flex; align-items:baseline; gap:12px; flex-wrap:wrap; }
+.pj-sym { font-family:var(--font-mono); font-size:19px; font-weight:900; }
+.pj-pl { font-family:var(--font-mono); font-size:17px; font-weight:800; }
+.pj-rules { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:8px; margin-top:10px; }
+.pj-rule { padding:8px 10px; border-radius:8px; background:var(--bg); border:1px solid var(--border); font-size:11px; }
+.pj-rule .rl { color:var(--text-muted); text-transform:uppercase; font-size:9px; letter-spacing:0.4px; }
+.pj-rule .rv { font-family:var(--font-mono); font-weight:800; font-size:13px; margin-top:2px; }
+.pj-rule.hit { border-color:var(--red); background:rgba(220,38,38,0.10); }
+.pj-rule.hit-good { border-color:var(--green); background:rgba(16,185,129,0.10); }
+.pj-alarm { margin-top:10px; padding:9px 13px; border-radius:8px; font-size:12.5px; font-weight:800; }
+.alarm-stop { background:rgba(220,38,38,0.15); color:var(--red); }
+.alarm-tp { background:rgba(16,185,129,0.15); color:var(--green); }
+.pj-closed { opacity:0.75; }
+</style>
+  <link rel="canonical" href="https://options.bpleone.com/play-journal.html">
+</head>
+<body data-needs="live">
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">📝 Play Journal</div>
+      <div class="page-subtitle">Your logged cards, marked to the live chain — with a loud flag the moment one of <strong>your own rules</strong> triggers · <span id="market-clock">--</span></div>
+    </div>
+    <div class="flex gap-8">
+      <a href="options-tranches.html" class="btn btn-primary" style="font-size:12px;">🎯 Build a new card</a>
+      <button class="btn btn-secondary" id="exportBtn" style="font-size:12px;">⬇ Export</button>
+      <button class="btn btn-secondary" id="refreshBtn">🔄</button>
+    </div>
+  </div>
+
+  <div style="margin-bottom:16px;padding:11px 16px;border-radius:10px;background:rgba(245,158,11,0.06);border-left:3px solid var(--yellow);font-size:12px;color:var(--text-secondary);line-height:1.6;">
+    <strong>How this works.</strong> Cards you log on <a href="options-tranches.html">Strikes &amp; Tranches</a> land here, <strong>private to this browser</strong> (nothing uploads; Export saves a JSON backup). Each open card is marked against the ~15-min-delayed chain, and when a pre-committed rule triggers — target, stop, invalidation, time stop — the card lights up. The journal doesn't trade for you: <strong>it reminds you what you promised yourself.</strong> Discipline is the product; direction was never proven (<a href="edge-scorecard.html">scorecard</a>).
+  </div>
+
+  <div class="grid grid-4 mb-24">
+    <div class="card" style="padding:14px 18px;"><div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;">Open cards</div><div class="mono" style="font-size:24px;font-weight:800;" id="stOpen">—</div></div>
+    <div class="card" style="padding:14px 18px;"><div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;">Open P&amp;L (marked)</div><div class="mono" style="font-size:24px;font-weight:800;" id="stPL">—</div></div>
+    <div class="card" style="padding:14px 18px;"><div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;">Rules triggered now</div><div class="mono" style="font-size:24px;font-weight:800;color:var(--red);" id="stTrig">—</div></div>
+    <div class="card" style="padding:14px 18px;"><div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;">Closed record</div><div class="mono" style="font-size:24px;font-weight:800;" id="stRec">—</div></div>
+  </div>
+
+  <div id="openList"><div style="padding:26px;text-align:center;color:var(--text-muted);">Loading journal…</div></div>
+  <div class="card-header" style="margin-top:8px;"><div class="card-title">Closed</div></div>
+  <div id="closedList"><div style="padding:12px;color:var(--text-muted);font-size:12px;">—</div></div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js?v=v225"></script>
+<script src="js/ai-client.js?v=v225"></script>
+<script src="js/app.js?v=v225"></script>
+<script src="js/notify.js?v=v225"></script>
+<script src="js/live.js?v=v225"></script>
+<script>
+buildNav('play-journal');
+(function () {
+  const WORKER = 'https://bpleone-brain-worker.brandonpleone.workers.dev';
+  const KEY = 'bpleone_play_journal_v1';
+  const $ = id => document.getElementById(id);
+  const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const money = x => x == null || isNaN(x) ? '—' : '$' + Number(x).toFixed(2);
+  const load = () => { try { const j = JSON.parse(localStorage.getItem(KEY) || '[]'); return Array.isArray(j) ? j : []; } catch (e) { return []; } };
+  const save = j => { try { localStorage.setItem(KEY, JSON.stringify(j)); } catch (e) {} };
+  async function jget(p) { try { const r = await fetch(WORKER + p, { cache: 'no-store' }); if (r.ok) return await r.json(); } catch (e) {} return null; }
+
+  async function render() {
+    const jn = load();
+    const open = jn.filter(e => e.status === 'open');
+    const closed = jn.filter(e => e.status !== 'open').slice().reverse();
+    $('stOpen').textContent = open.length;
+
+    // Closed record (realized)
+    const wins = closed.filter(e => (e.exitPrice - e.entry) * (e.contracts || 1) > 0).length;
+    $('stRec').textContent = closed.length ? wins + 'W / ' + (closed.length - wins) + 'L' : '—';
+
+    // Closed list
+    $('closedList').innerHTML = closed.length ? closed.slice(0, 20).map(e => {
+      const pl = (e.exitPrice - e.entry) * 100 * (e.contracts || 1);
+      return '<div class="pj-card pj-closed"><div class="pj-head"><span class="pj-sym">' + esc(e.sym) + ' $' + e.strike + (e.type === 'call' ? 'C' : 'P') + '</span>'
+        + '<span style="font-size:11px;color:var(--text-muted);">' + esc(e.exp) + ' · in ' + money(e.entry) + ' → out ' + money(e.exitPrice) + ' · ' + esc(e.closeReason || '') + '</span>'
+        + '<span class="pj-pl" style="margin-left:auto;color:' + (pl >= 0 ? 'var(--green)' : 'var(--red)') + ';">' + (pl >= 0 ? '+' : '') + money(pl) + '</span></div></div>';
+    }).join('') : '<div style="padding:12px;color:var(--text-muted);font-size:12px;">No closed cards yet.</div>';
+
+    if (!open.length) {
+      $('openList').innerHTML = '<div style="padding:26px;text-align:center;color:var(--text-muted);">No open cards. Build one on <a href="options-tranches.html">Strikes &amp; Tranches</a> and hit 📝 Log to journal — only log REAL fills.</div>';
+      $('stPL').textContent = '—'; $('stTrig').textContent = '0';
+      return;
+    }
+
+    // Mark each open card to the live chain (one chain fetch per unique symbol).
+    const syms = [...new Set(open.map(e => e.sym))];
+    const chains = {}, unders = {};
+    const uq = await jget('/brain/quotes?syms=' + syms.join(','));
+    for (const s of syms) {
+      chains[s] = await jget('/brain/options-chain?sym=' + s);
+      unders[s] = uq && uq.quotes && uq.quotes[s] ? uq.quotes[s].last : null;
+    }
+    let totPL = 0, trig = 0, anyMark = false;
+    const todayISO = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/New_York' })).toISOString ? (function(){ const d = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/New_York' })); return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0'); })() : '';
+    $('openList').innerHTML = open.map(e => {
+      const ch = chains[e.sym];
+      let mid = null;
+      if (ch && ch.ok) {
+        const c = ch.contracts.find(x => x.expiration === e.exp && x.strike === e.strike && x.type === e.type);
+        if (c && c.bid > 0) mid = c.mid;
+      }
+      const under = unders[e.sym];
+      const pl = mid != null ? (mid - e.entry) * 100 * (e.contracts || 1) : null;
+      if (pl != null) { totPL += pl; anyMark = true; }
+      const r = e.rules || {};
+      const hitTp1 = mid != null && mid >= r.tp1, hitTp2 = mid != null && mid >= r.tp2;
+      const hitStop = mid != null && mid <= r.stop;
+      const hitInval = under != null && r.inval != null && (e.type === 'call' ? under <= r.inval : under >= r.inval);
+      const hitTime = r.timeStop && todayISO >= r.timeStop;
+      const expired = todayISO > e.exp;
+      const anyBad = hitStop || hitInval || hitTime || expired;
+      const anyGood = hitTp1 || hitTp2;
+      if (anyBad || anyGood) trig++;
+      const rule = (label, val, hit, good) => '<div class="pj-rule' + (hit ? (good ? ' hit-good' : ' hit') : '') + '"><div class="rl">' + label + '</div><div class="rv">' + val + (hit ? (good ? ' ✅' : ' 🔔') : '') + '</div></div>';
+      let alarm = '';
+      if (expired) alarm = '<div class="pj-alarm alarm-stop">⛔ EXPIRED — record the outcome and close the card.</div>';
+      else if (hitStop) alarm = '<div class="pj-alarm alarm-stop">🔔 YOUR STOP RULE TRIGGERED (option ≤ ' + money(r.stop) + '). The rulebook you wrote says: close it.</div>';
+      else if (hitInval) alarm = '<div class="pj-alarm alarm-stop">🔔 INVALIDATION TRIGGERED (' + esc(e.sym) + ' through ' + money(r.inval) + '). The thesis is wrong by your own definition.</div>';
+      else if (hitTime) alarm = '<div class="pj-alarm alarm-stop">⏰ TIME STOP REACHED (' + esc(r.timeStop) + '). Neither target nor stop hit — the trade told you it isn\'t working.</div>';
+      else if (hitTp2) alarm = '<div class="pj-alarm alarm-tp">✅ FULL TARGET HIT (≥ ' + money(r.tp2) + '). Take it — winners you don\'t sell aren\'t winners.</div>';
+      else if (hitTp1) alarm = '<div class="pj-alarm alarm-tp">✅ FIRST TARGET HIT (≥ ' + money(r.tp1) + '). Your rule: sell half here.</div>';
+      return '<div class="pj-card' + (anyBad ? ' triggered' : anyGood ? ' target' : '') + '">'
+        + '<div class="pj-head"><span class="pj-sym">' + esc(e.sym) + ' $' + e.strike + (e.type === 'call' ? 'C' : 'P') + '</span>'
+        + '<span style="font-size:11px;color:var(--text-muted);">exp ' + esc(e.exp) + ' · ' + (e.contracts || 1) + 'ct @ ' + money(e.entry) + ' (' + esc(e.tier || '') + ')</span>'
+        + '<span style="font-family:var(--font-mono);font-size:13px;">now ' + (mid != null ? money(mid) : '<span style="color:var(--text-muted)">no mark</span>') + '</span>'
+        + '<span class="pj-pl" style="margin-left:auto;color:' + (pl == null ? 'var(--text-muted)' : pl >= 0 ? 'var(--green)' : 'var(--red)') + ';">' + (pl == null ? '—' : (pl >= 0 ? '+' : '') + money(pl)) + '</span>'
+        + '<button class="btn btn-secondary pj-close" data-id="' + esc(e.id) + '" style="font-size:11px;">Close card</button></div>'
+        + '<div class="pj-rules">'
+        + rule('Sell ½ (+50%)', money(r.tp1), hitTp1, true)
+        + rule('Sell all (+100%)', money(r.tp2), hitTp2, true)
+        + rule('Stop (−50%)', money(r.stop), hitStop, false)
+        + rule('Invalidation', r.inval != null ? esc(e.sym) + (e.type === 'call' ? ' < ' : ' > ') + money(r.inval) + (under != null ? ' (now ' + money(under) + ')' : '') : '—', hitInval, false)
+        + rule('Time stop', esc(r.timeStop || '—'), hitTime, false)
+        + '</div>' + alarm + '</div>';
+    }).join('');
+    $('stPL').textContent = anyMark ? (totPL >= 0 ? '+' : '') + money(totPL) : '—';
+    $('stPL').style.color = totPL >= 0 ? 'var(--green)' : 'var(--red)';
+    $('stTrig').textContent = trig;
+  }
+
+  document.addEventListener('click', function (ev) {
+    const btn = ev.target.closest('.pj-close');
+    if (!btn) return;
+    const jn = load();
+    const e = jn.find(x => x.id === btn.dataset.id);
+    if (!e) return;
+    const px = parseFloat(window.prompt('Exit price per contract (your ACTUAL fill; 0 if expired worthless):', ''));
+    if (isNaN(px) || px < 0) return;
+    const why = window.prompt('Why closed? (target / stop / invalidation / time-stop / discretion)', '') || '';
+    e.status = 'closed'; e.exitPrice = px; e.closeReason = why.slice(0, 60); e.closedAt = Date.now();
+    save(jn); render();
+  });
+  $('exportBtn').addEventListener('click', function () {
+    const blob = new Blob([localStorage.getItem(KEY) || '[]'], { type: 'application/json' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'bpleone-play-journal-' + new Date().toISOString().slice(0, 10) + '.json';
+    a.click();
+  });
+  $('refreshBtn').addEventListener('click', render);
+  render();
+  setInterval(function () { if (!document.hidden) render(); }, 3 * 60 * 1000);
+})();
+</script>
+</body>
+</html>

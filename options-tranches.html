@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" media="print" onload="this.media='all'"><noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap"></noscript>
-<link rel="stylesheet" href="css/style.css?v=v224">
+<link rel="stylesheet" href="css/style.css?v=v225">
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
 <style>
@@ -77,11 +77,11 @@
 
 <div id="site-footer"></div>
 
-<script src="js/data-provider.js?v=v224"></script>
-<script src="js/ai-client.js?v=v224"></script>
-<script src="js/app.js?v=v224"></script>
-<script src="js/notify.js?v=v224"></script>
-<script src="js/live.js?v=v224"></script>
+<script src="js/data-provider.js?v=v225"></script>
+<script src="js/ai-client.js?v=v225"></script>
+<script src="js/app.js?v=v225"></script>
+<script src="js/notify.js?v=v225"></script>
+<script src="js/live.js?v=v225"></script>
 <script>
 buildNav('options-tranches');
 (function () {
@@ -274,7 +274,7 @@ buildNav('options-tranches');
     const spr = mid > 0 ? ((c.ask - c.bid) / mid * 100) : 0;
     const html =
       '<div class="card-header"><div class="card-title">🧾 Play card — ' + esc(contract) + ' <span style="font-size:11px;color:var(--text-muted);">(' + esc(p.tier) + ' · ' + esc(p.hz) + ' · ' + p.dte + ' DTE · Δ' + fm(Math.abs(c.delta)) + ')</span></div>'
-      + '<button class="btn btn-secondary" id="pcCopy" style="font-size:11px;">📋 Copy card</button></div>'
+      + '<div class="flex gap-8"><button class="btn btn-primary" id="pcLog" style="font-size:11px;">📝 Log to journal</button><button class="btn btn-secondary" id="pcCopy" style="font-size:11px;">📋 Copy card</button></div></div>'
       + '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:14px;padding:4px 2px;font-size:12.5px;line-height:1.7;">'
 
       + '<div><div style="font-weight:800;color:var(--accent);margin-bottom:4px;">1 · ENTRY (limit only, never market)</div>'
@@ -325,6 +325,32 @@ buildNav('options-tranches');
       const done = () => { this.textContent = '✓ Copied'; setTimeout(() => { this.textContent = '📋 Copy card'; }, 1800); };
       if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(txt).then(done).catch(() => window.prompt('Copy:', txt));
       else window.prompt('Copy:', txt);
+    });
+    // Pass 331: one-click log to the local Play Journal. The journal page then
+    // grades this card against the live chain and flags when a rule triggers.
+    document.getElementById('pcLog').addEventListener('click', function () {
+      const KEY = 'bpleone_play_journal_v1';
+      let jn = [];
+      try { jn = JSON.parse(localStorage.getItem(KEY) || '[]'); if (!Array.isArray(jn)) jn = []; } catch (e) { jn = []; }
+      const fill = parseFloat(window.prompt('Your ACTUAL fill price per contract (premium, e.g. 5.35). Cancel if not filled yet - log only real fills:', mid.toFixed(2)));
+      if (!(fill > 0)) return;
+      const nCt = parseInt(window.prompt('How many contracts?', '1'), 10);
+      if (!(nCt > 0)) return;
+      jn.push({
+        id: 'pj-' + Date.now() + '-' + Math.random().toString(36).slice(2, 6),
+        loggedAt: Date.now(),
+        sym: state.sym, exp: p.exp, strike: c.strike, type: isCall ? 'call' : 'put',
+        tier: p.tier, entry: fill, contracts: nCt,
+        rules: { tp1: +(fill * 1.5).toFixed(2), tp2: +(fill * 2).toFixed(2), stop: +(fill * 0.5).toFixed(2),
+                 inval: inval != null ? +inval.toFixed(2) : null,
+                 timeStop: new Date(Date.now() + Math.max(1, Math.floor(p.dte / 2)) * 86400000).toISOString().slice(0, 10),
+                 dayTrade: dayTrade },
+        status: 'open'
+      });
+      if (jn.length > 200) jn.splice(0, jn.length - 200);
+      try { localStorage.setItem(KEY, JSON.stringify(jn)); } catch (e) { window.alert('Could not save (storage full).'); return; }
+      this.textContent = '✓ Logged';
+      setTimeout(() => { window.location.href = 'play-journal.html'; }, 700);
     });
   }
   $('ladders').addEventListener('click', function (ev) {
