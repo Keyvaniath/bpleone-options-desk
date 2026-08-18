@@ -189,7 +189,7 @@ function updateTickerItem(sym, q) {
 
 function buildNav(activePage) {
   activePage = activePage || '';
-  const playsGrp = ['totd','options-lab','options-tranches','plays','horizons','broadcast','signals','earnings','earnings-preview','pre-market','zero-dte','setup-wizard','paper-trade','game-plan','hot-movers','squeeze-radar','trade-plan','trade-of-the-day'];
+  const playsGrp = ['totd','options-lab','options-tranches','spy-radar','plays','horizons','broadcast','signals','earnings','earnings-preview','pre-market','zero-dte','setup-wizard','paper-trade','game-plan','hot-movers','squeeze-radar','trade-plan','trade-of-the-day'];
   const tradeGrp = ['flow','chain','ta','momentum','market-internals','smart-money','heatmap','watchlists','vol-surface','gex','tape','sectors','pairs','calendar-analyzer','vol-cone','dark-pool','short-interest','etf-flows','volume-profile','order-flow','ticker','multi-leg-builder','bracket-builder','spread-scanner','wheel','correlation','big-bets','dark-pool-pro','day-trader-pro','flow-replay','gex-pro','iv-crush-tracker','opex-tracker','options-builder','options-pricer','options-skew-radar','orderbook','trade-tape','vol-term'];
   // Daily workflow group — top of funnel
   const dailyGrp = ['pick-of-day','morning-brief','daily-debrief','tomorrow-playbook','friday-summary','catalyst-clock','ai-narrative','daily-stats','conviction-stack','game-plan'];
@@ -263,6 +263,7 @@ function buildNav(activePage) {
     +   '<a href="pick-of-day.html">🎯 Pick of the Day</a>'
     +   '<a href="options-lab.html">🤖 Options Play Lab</a>'
     +   '<a href="options-tranches.html">🎯 Strikes &amp; Tranches</a>'
+    +   '<a href="spy-radar.html">📡 SPY Radar</a>'
     +   '<a href="morning-brief.html">☀ Morning Brief</a>'
     +   '<a href="conviction-stack.html">⭐ Conviction Stack</a>'
     +   '<a href="trade-of-the-day.html">🎯 Trade of the Day</a>'

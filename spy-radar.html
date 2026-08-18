@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SPY Radar — the index, every day — bpleone / trade</title>
+<meta name="description" content="The daily SPY screen: today's implied move from the live options chain, real pivot levels and ATR context, the desk's honest 5-day lean, the week's implied range, and the econ events left this week. One click into strike ladders and play cards.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" media="print" onload="this.media='all'"><noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap"></noscript>
+<link rel="stylesheet" href="css/style.css?v=v223">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.big { font-family:var(--font-mono); font-size:34px; font-weight:900; line-height:1; }
+.kpi2 { padding:16px 18px; }
+.kpi2 .l { font-size:10px; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.5px; }
+.kpi2 .v { font-family:var(--font-mono); font-size:22px; font-weight:800; margin-top:4px; }
+.kpi2 .s { font-size:11px; color:var(--text-muted); margin-top:3px; }
+.lvl-row { display:grid; grid-template-columns: 110px 1fr 110px; gap:10px; padding:7px 10px; font-family:var(--font-mono); font-size:12.5px; align-items:center; border-bottom:1px solid rgba(255,255,255,0.04); }
+.imp-row { display:grid; grid-template-columns: 110px 90px 110px 110px 70px; gap:8px; padding:9px 12px; font-family:var(--font-mono); font-size:12.5px; align-items:center; border-bottom:1px solid rgba(255,255,255,0.04); }
+.imp-head { display:grid; grid-template-columns: 110px 90px 110px 110px 70px; gap:8px; padding:8px 12px; font-size:9.5px; text-transform:uppercase; letter-spacing:0.4px; color:var(--text-muted); border-bottom:1px solid var(--border); }
+.ev-row { display:grid; grid-template-columns: 130px 1fr 90px 90px; gap:8px; padding:8px 12px; font-family:var(--font-mono); font-size:12px; align-items:center; border-bottom:1px solid rgba(255,255,255,0.04); }
+.rangebar { height:10px; border-radius:6px; background:rgba(255,255,255,0.08); overflow:hidden; position:relative; }
+.rangebar > span { display:block; height:100%; background:linear-gradient(90deg,var(--accent),#7c3aed); }
+@media (max-width:700px){ .imp-row,.imp-head { grid-template-columns: 90px 80px 100px 90px; } .imp-row > :nth-child(5),.imp-head > :nth-child(5){ display:none; } }
+</style>
+  <link rel="canonical" href="https://options.bpleone.com/spy-radar.html">
+</head>
+<body data-needs="live">
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">📡 SPY Radar</div>
+      <div class="page-subtitle">The index, every day — implied moves from the live chain, real levels, the week's calendar · <span id="market-clock">--</span></div>
+    </div>
+    <div class="flex gap-8">
+      <a href="options-tranches.html?sym=SPY" class="btn btn-primary" style="font-size:12px;">🎯 SPY strike ladders →</a>
+      <button class="btn btn-secondary" id="refreshBtn">🔄</button>
+    </div>
+  </div>
+
+  <div style="margin-bottom:16px;padding:11px 16px;border-radius:10px;background:rgba(245,158,11,0.06);border-left:3px solid var(--yellow);font-size:12px;color:var(--text-secondary);line-height:1.6;">
+    <strong>What this is.</strong> A daily context screen, not a signal: implied moves are what the options market charges (~15-min delayed CBOE), levels are arithmetic on real bars, and the desk's lean is a drift-graded model output with <strong>no proven edge</strong> (<a href="edge-scorecard.html">live proof</a>). Nothing here is advice.
+  </div>
+
+  <!-- TODAY -->
+  <div class="grid grid-4 mb-24">
+    <div class="card kpi2"><div class="l">SPY now</div><div class="v" id="rNow">—</div><div class="s" id="rChg">—</div></div>
+    <div class="card kpi2"><div class="l">Today's implied move</div><div class="v" id="rImpToday">—</div><div class="s" id="rImpTodaySub">nearest expiry ATM straddle</div></div>
+    <div class="card kpi2"><div class="l">This week's implied</div><div class="v" id="rImpWeek">—</div><div class="s" id="rImpWeekSub">Friday expiry straddle</div></div>
+    <div class="card kpi2"><div class="l">VIX</div><div class="v" id="rVix">—</div><div class="s" id="rVixChg">—</div></div>
+  </div>
+
+  <div class="grid grid-12 mb-24">
+    <!-- LEVELS -->
+    <div class="card col-5">
+      <div class="card-header"><div class="card-title">📐 Levels (real bars, floor-trader pivots)</div></div>
+      <div id="rLevels"><div style="padding:16px;color:var(--text-muted);">Loading…</div></div>
+      <div style="padding:10px 12px 4px;">
+        <div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:5px;">Today's range vs a normal day (ATR14) <span id="rRangePct" style="color:var(--text-secondary);"></span></div>
+        <div class="rangebar"><span id="rRangeBar" style="width:0%;"></span></div>
+      </div>
+    </div>
+    <!-- DESK LEAN -->
+    <div class="card col-7">
+      <div class="card-header"><div class="card-title">🧠 The desk's honest 5-day lean on SPY</div><div class="mono" style="font-size:11px;color:var(--text-muted);" id="rLeanAge"></div></div>
+      <div id="rLean" style="padding:6px 12px;font-size:13px;line-height:1.8;color:var(--text-secondary);">Loading…</div>
+    </div>
+  </div>
+
+  <!-- IMPLIED MOVE LADDER -->
+  <div class="card mb-24">
+    <div class="card-header"><div class="card-title">🌡 What the options market charges — implied move by expiry</div><div class="mono" style="font-size:11px;color:var(--text-muted);" id="rImpMeta"></div></div>
+    <div class="imp-head"><div>Expiry</div><div>DTE</div><div>ATM straddle</div><div>Implied move</div><div>IV</div></div>
+    <div id="rImpBody"><div style="padding:18px;text-align:center;color:var(--text-muted);">Loading the live chain…</div></div>
+    <div style="padding:10px 12px;font-size:11.5px;color:var(--text-muted);line-height:1.6;">Reading it: the straddle price is the market's break-even for a move in <em>either</em> direction by that expiry. A day where you expect more than the implied number is a day options are "cheap" to you; expecting less makes them "expensive." That judgment is yours — the desk has no proven edge on it.</div>
+  </div>
+
+  <!-- WEEK CALENDAR -->
+  <div class="card mb-24">
+    <div class="card-header"><div class="card-title">🗓 Left on this week's calendar (US, high-impact)</div><div class="mono" style="font-size:11px;color:var(--text-muted);" id="rEvMeta"></div></div>
+    <div id="rEvBody"><div style="padding:18px;text-align:center;color:var(--text-muted);">Loading…</div></div>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js?v=v223"></script>
+<script src="js/ai-client.js?v=v223"></script>
+<script src="js/app.js?v=v223"></script>
+<script src="js/notify.js?v=v223"></script>
+<script src="js/live.js?v=v223"></script>
+<script>
+buildNav('spy-radar');
+(function () {
+  const WORKER = 'https://bpleone-brain-worker.brandonpleone.workers.dev';
+  const $ = id => document.getElementById(id);
+  const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const fm = (x, d) => x == null || isNaN(x) ? '—' : Number(x).toFixed(d == null ? 2 : d);
+  const money = x => x == null || isNaN(x) ? '—' : '$' + Number(x).toFixed(2);
+  async function jget(p) { try { const r = await fetch(WORKER + p, { cache: 'no-store' }); if (r.ok) return await r.json(); } catch (e) {} return null; }
+
+  async function load() {
+    const [quotes, bars, chain, sigs, econ] = await Promise.all([
+      jget('/brain/quotes?syms=SPY,VIX'),
+      jget('/brain/bars?syms=SPY&days=40'),
+      jget('/brain/options-chain?sym=SPY'),
+      jget('/brain/signals'),
+      jget('/brain/econ')
+    ]);
+
+    const q = quotes && quotes.quotes && quotes.quotes.SPY;
+    const vix = quotes && quotes.quotes && quotes.quotes.VIX;
+    const last = q && q.last > 0 ? q.last : null;
+    if (last) {
+      $('rNow').textContent = money(last);
+      $('rChg').textContent = (q.changePct >= 0 ? '+' : '') + fm(q.changePct) + '% today';
+      $('rChg').style.color = q.changePct >= 0 ? 'var(--green)' : 'var(--red)';
+    }
+    if (vix && vix.last > 0) {
+      $('rVix').textContent = fm(vix.last);
+      $('rVixChg').textContent = (vix.changePct >= 0 ? '+' : '') + fm(vix.changePct) + '% · ' + (vix.last < 14 ? 'low vol regime' : vix.last < 20 ? 'normal vol' : vix.last < 28 ? 'elevated vol' : 'stressed');
+    }
+
+    // ---- Levels from real daily bars (floor-trader pivots off YESTERDAY's bar).
+    const arr = bars && bars.bars && bars.bars.SPY;
+    let atr = null;
+    if (Array.isArray(arr) && arr.length >= 15) {
+      const trs = [];
+      for (let i = 1; i < arr.length; i++) { const b = arr[i], pc = arr[i - 1].c; trs.push(Math.max(b.h - b.l, Math.abs(b.h - pc), Math.abs(b.l - pc))); }
+      atr = trs.slice(-14).reduce((s, x) => s + x, 0) / 14;
+      const y = arr[arr.length - 2] || arr[arr.length - 1];   // yesterday's completed bar
+      const P = (y.h + y.l + y.c) / 3;
+      const R1 = 2 * P - y.l, S1 = 2 * P - y.h, R2 = P + (y.h - y.l), S2 = P - (y.h - y.l);
+      const hi20 = Math.max.apply(null, arr.slice(-20).map(b => b.h));
+      const lo20 = Math.min.apply(null, arr.slice(-20).map(b => b.l));
+      const lvls = [
+        ['R2', R2, 'stretch resistance'], ['R1', R1, 'first resistance'], ['Pivot', P, 'the day\'s balance line'],
+        ['S1', S1, 'first support'], ['S2', S2, 'stretch support'],
+        ['20d high', hi20, 'range top'], ['20d low', lo20, 'range bottom'], ['ATR14', atr, 'a "normal" full day']
+      ];
+      $('rLevels').innerHTML = lvls.map(l =>
+        '<div class="lvl-row"><div style="font-weight:800;">' + l[0] + '</div><div style="font-family:Inter;font-size:11px;color:var(--text-muted);">' + l[2] + '</div><div style="text-align:right;font-weight:700;' + (last && Math.abs(l[1] - last) / last < 0.0015 && l[0] !== 'ATR14' ? 'color:var(--accent);' : '') + '">' + money(l[1]) + '</div></div>').join('');
+      const today = arr[arr.length - 1];
+      if (today && atr > 0 && today.h > today.l) {
+        const used = Math.min(150, (today.h - today.l) / atr * 100);
+        $('rRangeBar').style.width = Math.min(100, used) + '%';
+        $('rRangePct').textContent = '· ' + used.toFixed(0) + '% used' + (used > 100 ? ' (bigger than a normal day already)' : '');
+      }
+    } else {
+      $('rLevels').innerHTML = '<div style="padding:16px;color:var(--text-muted);">Bar history unavailable — no levels fabricated in its place.</div>';
+    }
+
+    // ---- Desk lean, honestly labeled.
+    const spySig = sigs && Array.isArray(sigs.signals) ? sigs.signals.find(s => s.sym === 'SPY') : null;
+    if (spySig) {
+      $('rLeanAge').textContent = 'scan ' + (sigs.ageSec < 90 ? sigs.ageSec + 's' : Math.round(sigs.ageSec / 60) + 'm') + ' old';
+      const up = spySig.predProb >= 0.5;
+      $('rLean').innerHTML =
+        'Model P(up over 5 trading days): <b style="color:' + (up ? 'var(--green)' : 'var(--red)') + ';font-family:var(--font-mono);font-size:18px;">' + Math.round(spySig.predProb * 100) + '%</b>'
+        + ' · signal <b>' + esc(spySig.signal) + '</b> · ' + esc(spySig.reason || '') + '<br>'
+        + 'Universe regime: <b>' + esc(sigs.regime || '—') + '</b> (mean P(up) ' + Math.round((sigs.universe_mean_prob || 0) * 100) + '% across ' + sigs.count + ' names)<br>'
+        + '<span style="font-size:11.5px;color:var(--text-muted);">The honest label: this model\'s live record does not beat market drift (<a href="edge-scorecard.html">proof</a>). Treat it as one input, never a reason on its own. For a tradeable structure: <a href="options-tranches.html?sym=SPY">SPY ladders + play card →</a></span>';
+    } else {
+      $('rLean').innerHTML = '<span style="color:var(--text-muted);">Signal feed unreachable — nothing fabricated.</span>';
+    }
+
+    // ---- Implied-move ladder from the live chain.
+    if (chain && chain.ok && Array.isArray(chain.contracts) && chain.contracts.length && last) {
+      const now = new Date();
+      const rows = [];
+      const exps = chain.expirations.slice(0, 30);
+      // nearest, ~this Friday, ~next Friday, ~2wk, monthly (~30d): pick by DTE targets, dedupe
+      const targets = [0, 2, 4, 7, 14, 30];
+      const used = new Set();
+      for (const t of targets) {
+        let best = null, gap = 1e9;
+        for (const e of exps) {
+          if (used.has(e)) continue;
+          const dte = Math.max(0, Math.round((new Date(e + 'T16:00:00-04:00') - now) / 864e5));
+          if (Math.abs(dte - t) < gap) { gap = Math.abs(dte - t); best = { e, dte }; }
+        }
+        if (!best) continue;
+        used.add(best.e);
+        const inExp = chain.contracts.filter(c => c.expiration === best.e && c.bid > 0);
+        let atm = null, g2 = 1e9;
+        for (const c of inExp) { const g = Math.abs(c.strike - last); if (g < g2) { g2 = g; atm = c.strike; } }
+        const call = inExp.find(c => c.strike === atm && c.type === 'call');
+        const put = inExp.find(c => c.strike === atm && c.type === 'put');
+        if (!call || !put) continue;
+        const strad = call.mid + put.mid;
+        rows.push({ e: best.e, dte: best.dte, atm, strad, pct: strad / last * 100, iv: (call.iv + put.iv) / 2 });
+      }
+      rows.sort((a, b) => a.dte - b.dte);
+      $('rImpBody').innerHTML = rows.map(r =>
+        '<div class="imp-row"><div>' + esc(r.e) + '</div><div>' + r.dte + 'd</div><div>' + money(r.strad) + ' @ ' + r.atm + '</div><div style="font-weight:800;">±' + fm(r.pct, 1) + '% (' + money(last * r.pct / 100) + ')</div><div>' + fm(r.iv * 100, 0) + '%</div></div>').join('');
+      $('rImpMeta').textContent = 'ATM straddles · CBOE ~15-min delayed';
+      const dayRow = rows[0], wkRow = rows.find(r => r.dte >= 2 && r.dte <= 6) || rows[1];
+      if (dayRow) { $('rImpToday').textContent = '±' + fm(dayRow.pct, 1) + '%'; $('rImpTodaySub').textContent = money(last * dayRow.pct / 100) + ' by ' + dayRow.e.slice(5) + ' (' + dayRow.dte + 'd)'; }
+      if (wkRow) { $('rImpWeek').textContent = '±' + fm(wkRow.pct, 1) + '%'; $('rImpWeekSub').textContent = money(last * wkRow.pct / 100) + ' by ' + wkRow.e.slice(5); }
+    } else {
+      $('rImpBody').innerHTML = '<div style="padding:18px;text-align:center;color:var(--text-muted);">Chain unavailable right now — implied moves not fabricated.</div>';
+    }
+
+    // ---- Week's remaining US high-impact events.
+    if (econ && econ.ok && Array.isArray(econ.events)) {
+      const now = Date.now();
+      const evs = econ.events.filter(e => e.country === 'USD' && /high/i.test(e.impact) && new Date(e.date).getTime() > now - 3600000);
+      $('rEvMeta').textContent = (econ.stale ? 'last-good copy · ' : '') + evs.length + ' remaining';
+      $('rEvBody').innerHTML = evs.length ? evs.slice(0, 10).map(e => {
+        const d = new Date(e.date);
+        return '<div class="ev-row"><div>' + d.toLocaleString('en-US', { timeZone: 'America/New_York', weekday: 'short', month: 'numeric', day: 'numeric', hour: 'numeric', minute: '2-digit' }) + '</div><div style="font-family:Inter;">' + esc(e.title) + '</div><div style="color:var(--text-muted);">fcst ' + esc(e.forecast || '—') + '</div><div style="color:var(--text-muted);">prev ' + esc(e.previous || '—') + '</div></div>';
+      }).join('') : '<div style="padding:16px;text-align:center;color:var(--text-muted);">No US high-impact events left this week — the calendar risk is behind you.</div>';
+    } else {
+      $('rEvBody').innerHTML = '<div style="padding:16px;text-align:center;color:var(--text-muted);">Calendar feed unreachable — check <a href="economic-events.html">economic events</a>.</div>';
+    }
+  }
+
+  load();
+  $('refreshBtn').addEventListener('click', load);
+  setInterval(function () { if (!document.hidden) load(); }, 2 * 60 * 1000);
+})();
+</script>
+</body>
+</html>
