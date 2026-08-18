@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Options Board — today's names with strikes, exits, OI — bpleone / trade</title>
+<meta name="description" content="The desk's stocks of the day, each with its live options block: strikes by delta, expiration dates, bid/ask, open interest, greeks, breakevens, and mechanical sell points — one board, all real CBOE data, honestly labeled.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" media="print" onload="this.media='all'"><noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap"></noscript>
+<link rel="stylesheet" href="css/style.css?v=v224">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<style>
+.name-card { background:var(--bg-elevated); border:1px solid var(--border); border-radius:14px; margin-bottom:18px; overflow:hidden; }
+.name-card.potd { border-color:rgba(0,212,255,0.45); }
+.nc-head { display:flex; align-items:baseline; gap:14px; flex-wrap:wrap; padding:14px 18px 10px; }
+.nc-sym { font-family:var(--font-mono); font-size:26px; font-weight:900; }
+.nc-tag { font-size:9.5px; font-weight:800; padding:3px 8px; border-radius:5px; letter-spacing:0.5px; }
+.tag-potd { background:rgba(0,212,255,0.16); color:var(--accent); }
+.tag-alpha { background:rgba(124,58,237,0.16); color:#a78bfa; }
+.ob-wrap { overflow-x:auto; }
+.ob-head, .ob-row { display:grid; grid-template-columns: 66px 120px 108px 118px 96px 76px 100px 150px 92px; gap:8px; align-items:center; font-family:var(--font-mono); font-size:11.5px; min-width:940px; }
+.ob-head { padding:7px 14px; font-size:9px; text-transform:uppercase; letter-spacing:0.4px; color:var(--text-muted); border-top:1px solid var(--border); border-bottom:1px solid var(--border); }
+.ob-row { padding:9px 14px; border-bottom:1px solid rgba(255,255,255,0.04); }
+.ob-row:last-child { border-bottom:none; }
+.tier-itm { color:var(--green); font-weight:800; } .tier-atm { color:var(--accent); font-weight:800; } .tier-otm { color:var(--yellow); font-weight:800; }
+.illiq { color:var(--red); font-size:9px; font-weight:800; }
+.nc-foot { padding:10px 18px 14px; font-size:11.5px; color:var(--text-muted); line-height:1.7; border-top:1px solid rgba(255,255,255,0.05); }
+</style>
+  <link rel="canonical" href="https://options.bpleone.com/options-board.html">
+</head>
+<body data-needs="live">
+<div id="site-nav"></div>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">🗒 Options Board <span class="feat-badge feat-live">LIVE CHAIN</span></div>
+      <div class="page-subtitle">Today's names, each with the full options block — strikes · expirations · OI · greeks · sell points — auto-built from the desk's daily scan · <span id="market-clock">--</span></div>
+    </div>
+    <div class="flex gap-8">
+      <a href="spy-radar.html" class="btn btn-secondary" style="font-size:12px;">📡 SPY Radar</a>
+      <button class="btn btn-secondary" id="refreshBtn">🔄 Refresh</button>
+    </div>
+  </div>
+
+  <div id="edgeBox" style="margin-bottom:16px;padding:11px 16px;border-radius:10px;background:rgba(245,158,11,0.06);border-left:3px solid var(--yellow);font-size:12px;color:var(--text-secondary);line-height:1.6;">
+    <strong>Read once, applies to every row.</strong> The names come from the desk's daily scan — directional leans with <strong>no proven edge over market drift</strong> (<a href="edge-scorecard.html">live proof</a>). The options data is the real ~15-min-delayed CBOE chain. Sell points are the desk's <em>mechanical template</em> (½ off at +50%, rest at +100%, stop at −50% or the underlying invalidation) — they cap damage, they don't create profit. Premiums are 100% at risk. Size ≤1% of account per play. Nothing here is advice.
+  </div>
+
+  <div id="board"><div style="padding:30px;text-align:center;color:var(--text-muted);">Loading today's scan, then pulling each live chain…</div></div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js?v=v224"></script>
+<script src="js/ai-client.js?v=v224"></script>
+<script src="js/app.js?v=v224"></script>
+<script src="js/notify.js?v=v224"></script>
+<script src="js/live.js?v=v224"></script>
+<script>
+buildNav('options-board');
+(function () {
+  const WORKER = 'https://bpleone-brain-worker.brandonpleone.workers.dev';
+  const $ = id => document.getElementById(id);
+  const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const fm = (x, d) => x == null || isNaN(x) ? '—' : Number(x).toFixed(d == null ? 2 : d);
+  const money = x => x == null || isNaN(x) ? '—' : '$' + Number(x).toFixed(2);
+  const TIERS = [{ k: 'ITM', cls: 'tier-itm', t: 0.70 }, { k: 'ATM', cls: 'tier-atm', t: 0.50 }, { k: 'OTM', cls: 'tier-otm', t: 0.30 }];
+  async function jget(p) { try { const r = await fetch(WORKER + p, { cache: 'no-store' }); if (r.ok) return await r.json(); } catch (e) {} return null; }
+  function fmtDate(d) { return (d.getMonth() + 1) + '/' + d.getDate(); }
+
+  function buildBlock(pick, chain, bars, isPotd) {
+    const sym = pick.sym, isCall = pick.dir === 'UP';
+    const last = pick.last;
+    // ATR for the invalidation level
+    let atr = null;
+    const arr = bars && bars.bars && bars.bars[sym];
+    if (Array.isArray(arr) && arr.length >= 15) {
+      const trs = [];
+      for (let i = 1; i < arr.length; i++) { const b = arr[i], pc = arr[i - 1].c; trs.push(Math.max(b.h - b.l, Math.abs(b.h - pc), Math.abs(b.l - pc))); }
+      atr = trs.slice(-14).reduce((s, x) => s + x, 0) / 14;
+    }
+    const head =
+      '<div class="nc-head">'
+      + '<span class="nc-sym">' + esc(sym) + '</span>'
+      + '<span class="nc-tag ' + (isPotd ? 'tag-potd' : 'tag-alpha') + '">' + (isPotd ? '🎯 PICK OF THE DAY' : '⭐ ALPHA') + '</span>'
+      + '<span style="font-family:var(--font-mono);font-weight:800;font-size:16px;">' + money(last) + '</span>'
+      + '<span style="font-family:var(--font-mono);font-size:13px;font-weight:700;color:' + ((pick.changePct || 0) >= 0 ? 'var(--green)' : 'var(--red)') + ';">' + ((pick.changePct || 0) >= 0 ? '+' : '') + fm(pick.changePct) + '% today</span>'
+      + '<span style="font-size:12px;color:' + (isCall ? 'var(--green)' : 'var(--red)') + ';font-weight:800;">' + (isCall ? '▲ UP lean → CALLS' : '▼ DOWN lean → PUTS') + '</span>'
+      + '<span style="font-size:11px;color:var(--text-muted);">' + pick.pct_up + '% P(up 5d) · conviction ' + Math.round(pick.conviction * 100) + '% · ' + esc(pick.reason || '') + '</span>'
+      + '</div>';
+
+    if (!chain || !chain.ok || !Array.isArray(chain.contracts) || !chain.contracts.length) {
+      return '<div class="name-card' + (isPotd ? ' potd' : '') + '">' + head
+        + '<div style="padding:14px 18px;color:var(--text-muted);font-size:12px;">No listed options chain available for ' + esc(sym) + ' right now — nothing fabricated in its place. <a href="options-tranches.html?sym=' + esc(sym) + '" style="color:var(--accent);">Try the ladder page →</a></div></div>';
+    }
+
+    // Week expiration: the listed expiry nearest 7 DTE but at least 3 DTE (the
+    // lean is a 5-trading-day call; sub-3-DTE contracts are a different game).
+    const now = new Date();
+    let best = null, gap = 1e9;
+    for (const e of chain.expirations) {
+      const dte = Math.max(0, Math.round((new Date(e + 'T16:00:00-04:00') - now) / 864e5));
+      if (dte < 3) continue;
+      if (Math.abs(dte - 7) < gap) { gap = Math.abs(dte - 7); best = { e, dte }; }
+    }
+    if (!best) return '<div class="name-card">' + head + '<div style="padding:14px 18px;color:var(--text-muted);font-size:12px;">No expiration ≥3 DTE listed.</div></div>';
+    const side = chain.contracts.filter(c => c.expiration === best.e && c.type === (isCall ? 'call' : 'put') && c.bid > 0 && c.oi > 0 && c.delta != null);
+    const rows = TIERS.map(tier => {
+      let b = null, g = 1e9;
+      for (const c of side) { const gg = Math.abs(Math.abs(c.delta) - tier.t); if (gg < g) { g = gg; b = c; } }
+      if (!b) return '<div class="ob-row"><div class="' + tier.cls + '">' + tier.k + '</div><div style="grid-column:2/-1;color:var(--text-muted);">no liquid strike near Δ' + tier.t.toFixed(2) + '</div></div>';
+      const be = isCall ? b.strike + b.mid : b.strike - b.mid;
+      const spr = b.mid > 0 ? (b.ask - b.bid) / b.mid * 100 : 0;
+      const illiq = spr > 10 || b.oi < 100;
+      return '<div class="ob-row">'
+        + '<div class="' + tier.cls + '">' + tier.k + '</div>'
+        + '<div><b>$' + b.strike + (isCall ? 'C' : 'P') + '</b> ' + esc(best.e.slice(5)) + '</div>'
+        + '<div>' + fm(b.bid) + '×' + fm(b.ask) + (illiq ? ' <span class="illiq">WIDE</span>' : '') + '</div>'
+        + '<div>' + money(b.mid * 100) + '/ct · Δ' + fm(Math.abs(b.delta)) + '</div>'
+        + '<div>IV ' + fm(b.iv * 100, 0) + '% Θ' + fm(b.theta) + '</div>'
+        + '<div><b>' + (b.oi || 0).toLocaleString() + '</b><span style="color:var(--text-muted);"> oi</span></div>'
+        + '<div>' + money(be) + '<span style="color:var(--text-muted);"> be</span></div>'
+        + '<div style="color:var(--green);">½ @ ' + money(b.mid * 1.5) + ' · all @ ' + money(b.mid * 2) + '</div>'
+        + '<div style="color:var(--red);">stop ' + money(b.mid * 0.5) + '</div>'
+        + '</div>';
+    }).join('');
+    const inval = atr != null ? last + (isCall ? -1.25 : 1.25) * atr : null;
+    const timeStop = new Date(Date.now() + Math.max(1, Math.floor(best.dte / 2)) * 86400000);
+    const foot = '<div class="nc-foot">'
+      + '<b>Exits (per row):</b> sell ½ at +50%, rest at +100% — GTC limits placed at entry · <b>Stop:</b> option −50%' + (inval != null ? ' or ' + esc(sym) + ' closes ' + (isCall ? 'below' : 'above') + ' <b>' + money(inval) + '</b> (1.25× ATR14)' : '') + ' · <b>Time stop:</b> close by <b>' + fmtDate(timeStop) + '</b> if nothing hit · <b>Size:</b> ≤1% of account. '
+      + '<a href="options-tranches.html?sym=' + esc(sym) + '" style="color:var(--accent);">All horizons + full play card →</a></div>';
+    return '<div class="name-card' + (isPotd ? ' potd' : '') + '">' + head
+      + '<div class="ob-wrap"><div class="ob-head"><div>Tier</div><div>Strike · Exp</div><div>Bid × Ask</div><div>Cost · Delta</div><div>IV · Theta</div><div>Open Int</div><div>Breakeven</div><div>Sell points</div><div>Stop</div></div>'
+      + rows + '</div>' + foot + '</div>';
+  }
+
+  async function load() {
+    const picks = await jget('/brain/picks');
+    if (!picks || !picks.ok) {
+      $('board').innerHTML = '<div style="padding:30px;text-align:center;color:var(--text-muted);">Desk scan unreachable — nothing fabricated in its place.</div>';
+      return;
+    }
+    // Stocks of the day: POTD first, then alpha names (deduped), max 5 blocks.
+    const names = [];
+    if (picks.pick_of_day) names.push({ pick: picks.pick_of_day, potd: true });
+    (picks.alpha || []).forEach(a => {
+      if (names.length < 5 && !names.some(n => n.pick.sym === a.sym)) names.push({ pick: a, potd: false });
+    });
+    if (!names.length) {
+      $('board').innerHTML = '<div style="padding:30px;text-align:center;color:var(--text-muted);">No names cleared the constraints today — that discipline is the point. Check back during market hours.</div>';
+      return;
+    }
+    $('board').innerHTML = names.map(n => '<div id="blk-' + esc(n.pick.sym) + '" class="name-card"><div class="nc-head"><span class="nc-sym">' + esc(n.pick.sym) + '</span><span style="color:var(--text-muted);font-size:12px;">pulling live chain…</span></div></div>').join('');
+    // Sequential chain fetches (each is a large payload; worker caches 5 min).
+    for (const n of names) {
+      const [chain, bars] = await Promise.all([
+        jget('/brain/options-chain?sym=' + n.pick.sym),
+        jget('/brain/bars?syms=' + n.pick.sym + '&days=20')
+      ]);
+      const el = document.getElementById('blk-' + n.pick.sym);
+      if (el) el.outerHTML = buildBlock(n.pick, chain, bars, n.potd);
+    }
+  }
+
+  load();
+  $('refreshBtn').addEventListener('click', load);
+  setInterval(function () { if (!document.hidden) load(); }, 3 * 60 * 1000);
+})();
+</script>
+</body>
+</html>
