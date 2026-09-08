@@ -49,6 +49,15 @@
     <strong>Read once, applies to every row.</strong> The names come from the desk's daily scan — directional leans with <strong>no proven edge over market drift</strong> (<a href="edge-scorecard.html">live proof</a>). The options data is the real ~15-min-delayed CBOE chain. Sell points are the desk's <em>mechanical template</em> (½ off at +50%, rest at +100%, stop at −50% or the underlying invalidation) — they cap damage, they don't create profit. Premiums are 100% at risk. Size ≤1% of account per play. Nothing here is advice.
   </div>
 
+  <!-- Pass 332: the three play tiers, AUTO-COMPUTED live on every load — the
+       daily conviction gate, the week's event-window structure, and the month
+       structure. No hand-written plays sheet to go stale. -->
+  <div class="grid grid-12 mb-24">
+    <div class="card col-4" id="tierDay" style="padding:16px 18px;"><div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;font-weight:800;">🎯 Play of the day</div><div style="padding:10px 0;color:var(--text-muted);font-size:12px;">computing…</div></div>
+    <div class="card col-4" id="tierWeek" style="padding:16px 18px;"><div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;font-weight:800;">📊 Structure of the week</div><div style="padding:10px 0;color:var(--text-muted);font-size:12px;">computing…</div></div>
+    <div class="card col-4" id="tierMonth" style="padding:16px 18px;"><div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;font-weight:800;">🗓 Structure of the month</div><div style="padding:10px 0;color:var(--text-muted);font-size:12px;">computing…</div></div>
+  </div>
+
   <div id="board"><div style="padding:30px;text-align:center;color:var(--text-muted);">Loading today's scan, then pulling each live chain…</div></div>
 </div>
 
@@ -137,8 +146,80 @@ buildNav('options-board');
       + rows + '</div>' + foot + '</div>';
   }
 
+  // ===== Pass 332: the three play tiers, computed live (never hand-written).
+  const tl = t => '<div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;font-weight:800;">' + t + '</div>';
+  async function loadTiers(picks) {
+    // DAY — the conviction gate: below the bar, the honest play is NO PLAY.
+    const CONV_BAR = 0.45;
+    const p = picks && picks.ok ? picks.pick_of_day : null;
+    const dayEl = $('tierDay');
+    if (p && p.conviction >= CONV_BAR) {
+      dayEl.innerHTML = tl('🎯 Play of the day')
+        + '<div style="font-family:var(--font-mono);font-size:22px;font-weight:900;margin:6px 0 2px;">' + esc(p.sym) + ' ' + (p.dir === 'UP' ? '<span style="color:var(--green);">▲</span>' : '<span style="color:var(--red);">▼</span>') + '</div>'
+        + '<div style="font-size:12px;color:var(--text-secondary);">' + Math.round(p.conviction * 100) + '% conviction · ' + p.pct_up + '% P(up 5d) · ' + esc(p.reason || '') + '</div>'
+        + '<div style="font-size:10.5px;color:var(--text-muted);margin-top:6px;">Full option block below · a drift-graded lean, not advice.</div>';
+    } else {
+      dayEl.innerHTML = tl('🎯 Play of the day')
+        + '<div style="font-size:19px;font-weight:900;margin:8px 0 2px;color:var(--yellow);">NO PLAY</div>'
+        + '<div style="font-size:12px;color:var(--text-secondary);line-height:1.6;">Top conviction ' + (p ? Math.round(p.conviction * 100) : 0) + '% — below the 45% bar. The machine says nothing today, and its <a href="edge-scorecard.html" style="color:var(--accent);">live record</a> says believe it. Flat is a position.</div>';
+    }
+    // WEEK + MONTH — the SPY expiration that SPANS the window's US high-impact
+    // events, priced live: implied move, IV, and both Δ.30 sides.
+    const [econ, chain, sq] = await Promise.all([jget('/brain/econ'), jget('/brain/options-chain?sym=SPY'), jget('/brain/quotes?syms=SPY')]);
+    const last = sq && sq.quotes && sq.quotes.SPY ? sq.quotes.SPY.last : null;
+    const now = new Date();
+    const evs = (econ && econ.ok && Array.isArray(econ.events) ? econ.events : [])
+      .filter(e => e.country === 'USD' && /high/i.test(e.impact || '') && new Date(e.date) > now);
+    function structFor(minD, maxD, targetD) {
+      if (!chain || !chain.ok || !Array.isArray(chain.contracts) || !last) return null;
+      const wEvs = evs.filter(e => (new Date(e.date) - now) / 864e5 <= maxD);
+      let needDte = targetD;
+      if (wEvs.length) {
+        const lastEv = Math.max.apply(null, wEvs.map(e => new Date(e.date).getTime()));
+        needDte = Math.max(minD, Math.ceil((lastEv - now) / 864e5));
+      }
+      let best = null, g = 1e9;
+      for (const e of chain.expirations) {
+        const d = Math.round((new Date(e + 'T16:00:00-04:00') - now) / 864e5);
+        if (d < needDte || d < minD) continue;
+        if (d - needDte < g) { g = d - needDte; best = { e, d }; }
+      }
+      if (!best) return null;
+      const inE = chain.contracts.filter(c => c.expiration === best.e && c.bid > 0 && c.oi > 0);
+      let atm = null, g2 = 1e9;
+      for (const c of inE) { const gg = Math.abs(c.strike - last); if (gg < g2) { g2 = gg; atm = c.strike; } }
+      const call = inE.find(c => c.strike === atm && c.type === 'call');
+      const put = inE.find(c => c.strike === atm && c.type === 'put');
+      let oc = null, g3 = 1e9, op = null, g4 = 1e9;
+      for (const c of inE) {
+        if (c.delta == null) continue;
+        if (c.type === 'call') { const gg = Math.abs(c.delta - 0.3); if (gg < g3) { g3 = gg; oc = c; } }
+        else { const gg = Math.abs(Math.abs(c.delta) - 0.3); if (gg < g4) { g4 = gg; op = c; } }
+      }
+      if (!call || !put || !oc || !op) return null;
+      return { exp: best.e, dte: best.d, imp: (call.mid + put.mid) / last * 100, iv: (call.iv + put.iv) / 2, oc, op, evs: wEvs };
+    }
+    function renderStruct(el, title, s, stale) {
+      if (!s) { el.innerHTML = tl(title) + '<div style="font-size:12px;color:var(--text-muted);padding:8px 0;">Chain or calendar unreachable — nothing fabricated in its place.</div>'; return; }
+      const evLine = s.evs.length
+        ? s.evs.slice(0, 3).map(e => { const d = new Date(e.date); return esc(e.title) + ' ' + (d.getMonth() + 1) + '/' + d.getDate(); }).join(' · ')
+        : 'no US high-impact events in the feed for this window';
+      el.innerHTML = tl(title)
+        + '<div style="font-family:var(--font-mono);font-size:17px;font-weight:900;margin:6px 0 2px;">SPY ' + esc(s.exp.slice(5)) + ' · ±' + s.imp.toFixed(1) + '%</div>'
+        + '<div style="font-size:11px;color:var(--text-muted);line-height:1.5;">' + s.dte + ' DTE · IV ' + Math.round(s.iv * 100) + '%' + (stale ? ' · calendar from last-good copy' : '') + '<br>' + evLine + '</div>'
+        + '<div style="font-family:var(--font-mono);font-size:12px;margin-top:8px;line-height:1.8;">'
+        + 'Δ.30 call $' + s.oc.strike + ' @ ' + money(s.oc.mid) + ' <span style="color:var(--text-muted);">(' + money(s.oc.mid * 100) + '/ct)</span><br>'
+        + 'Δ.30 put $' + s.op.strike + ' @ ' + money(s.op.mid) + ' <span style="color:var(--text-muted);">(' + money(s.op.mid * 100) + '/ct)</span></div>'
+        + '<div style="font-size:10.5px;color:var(--text-muted);margin-top:6px;">The window\'s priced structure, both directions — the direction judgment is yours; the desk has no proven edge. <a href="options-tranches.html?sym=SPY" style="color:var(--accent);">Full card →</a></div>';
+    }
+    const econStale = !!(econ && econ.stale);
+    renderStruct($('tierWeek'), '📊 Structure of the week', structFor(2, 7, 5), econStale);
+    renderStruct($('tierMonth'), '🗓 Structure of the month', structFor(20, 35, 30), econStale);
+  }
+
   async function load() {
     const picks = await jget('/brain/picks');
+    loadTiers(picks).catch(function () {});
     if (!picks || !picks.ok) {
       $('board').innerHTML = '<div style="padding:30px;text-align:center;color:var(--text-muted);">Desk scan unreachable — nothing fabricated in its place.</div>';
       return;
