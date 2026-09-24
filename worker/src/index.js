@@ -38,7 +38,7 @@
 // Pass 200: version stamp so brain-proof.html + worker-setup.html can detect
 // when the deployed worker is behind the repo source. Bump on every meaningful
 // behavior change. Read via /brain/health → worker_version field.
-const WORKER_VERSION = 'pass-315';
+const WORKER_VERSION = 'pass-316';
 
 const UNIVERSE = [
   'SPY','QQQ','IWM','DIA','AAPL','NVDA','TSLA','MSFT','META','AMZN','GOOGL','AMD',
@@ -1993,7 +1993,14 @@ async function handleRequest(request, env, ctx) {
     // Pass 296 (scale): this is the single hottest endpoint (every visitor polls it
     // every ~30s via worker-quotes.js). Per-colo cached read - cron rewrites SIGNALS
     // every ~3 min, so 30s of read lag is invisible.
-    const snap = await kvGet(env, KV_KEYS.SIGNALS, { updatedAt: 0, signals: {} }, 30);
+    const [snap, liveCalSig] = await Promise.all([
+      kvGet(env, KV_KEYS.SIGNALS, { updatedAt: 0, signals: {} }, 30),
+      kvGet(env, KV_KEYS.LIVE_CAL, null, 60)   // pass 333
+    ]);
+    // Pass 333: when the live self-calibration says the direction signal is
+    // uninformative, cross-sectional ranks would turn noise (or exact ties) into
+    // a full BUY/SELL spread. Every name is HOLD until the record earns it.
+    const sigNoPlay = !!(liveCalSig && liveCalSig.n >= 300 && !liveCalSig.informative);
     let arr = Object.values(snap.signals || {})
       .filter(s => s && (Date.now() - (s.ts || 0)) < 4 * 24 * 60 * 60 * 1000);  // ~4d retention
 
@@ -2004,8 +2011,9 @@ async function handleRequest(request, env, ctx) {
     const regime = n < 8 ? 'unknown' : (universeMean >= 0.52 ? 'bullish' : universeMean <= 0.48 ? 'bearish' : 'neutral');
     if (n >= 8) {
       for (const s of withProb) {
-        let below = 0; for (const q of sorted) { if (q < s.predProb) below++; }
-        const rank = n > 1 ? below / (n - 1) : 0.5;   // 0 = weakest .. 1 = strongest in universe
+        // Pass 333: mid-rank for ties (all-equal probabilities rank 0.5, not 0).
+        let below = 0, equal = 0; for (const q of sorted) { if (q < s.predProb) below++; else if (q === s.predProb) equal++; }
+        const rank = n > 1 ? (below + (equal - 1) / 2) / (n - 1) : 0.5;   // 0 = weakest .. 1 = strongest in universe
         s.rel_rank = +rank.toFixed(3);
         s.rel_excess = +(s.predProb - universeMean).toFixed(4);
         const rv = s.rvol || 0;
@@ -2017,6 +2025,7 @@ async function handleRequest(request, env, ctx) {
         else if (rank >= 0.70) { s.signal = 'LEAN BUY'; s.reason = 'upper-third relative strength' + volNote; }
         else if (rank <= 0.30) { s.signal = 'LEAN SELL'; s.reason = 'lower-third relative strength' + volNote; }
         else { s.signal = 'HOLD'; s.reason = 'mid-pack relative strength'; }
+        if (sigNoPlay) { s.signal = 'HOLD'; s.reason = 'no play: live calibration says the direction signal is uninformative' + volNote; }
         // Sort key: distance from the pack x a volume boost (so volume-confirmed extremes rank first).
         s.rank = +(Math.abs(rank - 0.5) * 2 * (1 + Math.min(rv || 1, 4) / 4)).toFixed(4);
       }
