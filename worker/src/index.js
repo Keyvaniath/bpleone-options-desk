@@ -38,7 +38,7 @@
 // Pass 200: version stamp so brain-proof.html + worker-setup.html can detect
 // when the deployed worker is behind the repo source. Bump on every meaningful
 // behavior change. Read via /brain/health → worker_version field.
-const WORKER_VERSION = 'pass-314';
+const WORKER_VERSION = 'pass-315';
 
 const UNIVERSE = [
   'SPY','QQQ','IWM','DIA','AAPL','NVDA','TSLA','MSFT','META','AMZN','GOOGL','AMD',
@@ -46,8 +46,22 @@ const UNIVERSE = [
   'CRM','UBER','SLV','UNG','DBA','FXI','MCHI','EWJ','EWG','EWU','INDA','EWZ','EWY',
   'EWT','EEM','EFA','VEA','VWO','UUP','FXE','FXY','FXB','FXC','FXA','FXF','SHY',
   'IEF','TBT','HYG','LQD','TIP','VXX','UVXY','VNQ','NFLX','ORCL','AVGO','MU',
-  'JPM','BAC','GS','XLF','XLK','XLV','XLY','XLP','XLI','XLU','XLC','XLB','XLRE'
+  'JPM','BAC','GS','XLF','XLK','XLV','XLY','XLP','XLI','XLU','XLC','XLB','XLRE',
+  // Pass 333: the names actually traded on the desk that the brain never covered.
+  'MRVL','CRDO','COHR','BE','OKTA','ATI','DRAM'
 ];
+
+// Pass 333: what the desk may BROADCAST as a pick. Everything in UNIVERSE still
+// trains (FX/rates/intl/commodity/vol are regime context), but picks come only
+// from optionable single stocks + index/sector ETFs. VIX is untradeable; VXX/UVXY
+// decay structurally, so a 5-day direction call on them is not an options play.
+const BROADCAST_EXCLUDE = new Set([
+  'VIX', 'VXX', 'UVXY',
+  'UUP', 'FXE', 'FXY', 'FXB', 'FXC', 'FXA', 'FXF',
+  'SHY', 'IEF', 'TLT', 'TBT', 'TIP', 'HYG', 'LQD',
+  'FXI', 'MCHI', 'EWJ', 'EWG', 'EWU', 'INDA', 'EWZ', 'EWY', 'EWT', 'EEM', 'EFA', 'VEA', 'VWO',
+  'GLD', 'SLV', 'USO', 'UNG', 'DBA'
+]);
 
 const KV_KEYS = {
   JOURNAL: 'journal_v1',          // array of prediction entries
@@ -66,7 +80,8 @@ const KV_KEYS = {
   CONSTRAINTS: 'broadcast_constraints_v1', // pass 258: editable noise-control constraints for broadcasts
   RESEARCH: 'research_v1',          // pass 264: what the features CAN predict (volatility / dense direction)
   ANALYTICS: 'analytics_v1',        // pass 268: first-party usage analytics (anon page views + events)
-  ECON_CACHE: 'econ_cache_v1',      // pass 319: last-good ForexFactory calendar (upstream rejects CF egress IPs ~2/3 of the time)
+  ECON_CACHE: 'econ_cache_v1',
+  LIVE_CAL: 'live_calibration_v1',  // pass 333: calibration refit daily on the brain's own graded record      // pass 319: last-good ForexFactory calendar (upstream rejects CF egress IPs ~2/3 of the time)
 };
 
 // Pass 218: bumped from 12,000 → 35,000. Live training triggers on the
@@ -352,6 +367,39 @@ function applySymBias(p, sym, model) {
   const b = model && model.symBias && model.symBias[sym];
   if (!b || !isFinite(p)) return p;
   return sigmoid(plattLogit(p) + b);
+}
+
+// Pass 333: LIVE self-calibration. The bootstrap Platt is fit once on a
+// held-out backtest slice; the live record then showed high-conviction calls
+// hitting ~37% vs ~46% for low-conviction ones (BSS -0.16 on 6k calls) - the
+// model was confident exactly where it was wrong. This refits y ~ sigmoid(a *
+// logit(p) + b) daily on the brain's OWN resolved 5-day calls. a <= 0.2 means the
+// direction signal is currently uninformative: broadcast confidence collapses
+// to the base rate and the desk says NO PLAY until the record earns it back.
+// Never inverts the model (a is clamped at 0), never amplifies past 1.5.
+function fitLiveCalibration(pairs) {
+  if (!Array.isArray(pairs) || pairs.length < 300) return null;
+  let a = 1, b = 0;
+  for (let it = 0; it < 60; it++) {
+    let ga = 0, gb = 0, haa = 1e-6, hab = 0, hbb = 1e-6;
+    for (const d of pairs) {
+      const p = sigmoid(a * d.x + b), w = p * (1 - p), r = d.y - p;
+      ga += r * d.x; gb += r; haa += w * d.x * d.x; hab += w * d.x; hbb += w;
+    }
+    const det = haa * hbb - hab * hab;
+    if (!(det > 0)) break;
+    const da = (hbb * ga - hab * gb) / det, db = (-hab * ga + haa * gb) / det;
+    a += da; b += db;
+    if (Math.abs(da) < 1e-7 && Math.abs(db) < 1e-7) break;
+  }
+  if (!isFinite(a) || !isFinite(b)) return null;
+  const upRate = pairs.reduce((s, d) => s + d.y, 0) / pairs.length;
+  return { a: +a.toFixed(4), b: +b.toFixed(4), n: pairs.length, up_rate: +upRate.toFixed(4), informative: a > 0.2 };
+}
+function applyLiveCalibration(p, cal) {
+  if (!cal || typeof cal.a !== 'number' || typeof cal.b !== 'number' || !isFinite(p)) return p;
+  const a = Math.max(0, Math.min(1.5, cal.a));
+  return sigmoid(a * plattLogit(p) + cal.b);
 }
 
 function fitPlatt(pairs) {
@@ -1250,13 +1298,14 @@ async function tick(env) {
     return { ok: true, skipped: 'market-closed', journal_cleared: !!clearFlag };
   }
 
-  let [journal, model, lastTick, barsHistory, platt, signalsSnap] = await Promise.all([
+  let [journal, model, lastTick, barsHistory, platt, signalsSnap, liveCal] = await Promise.all([
     kvGet(env, KV_KEYS.JOURNAL, []),  // re-read: reflects the clear above if it fired
     kvGet(env, KV_KEYS.MODEL, newModel()),
     kvGet(env, KV_KEYS.LAST_TICK, { ts: 0, syms_updated: 0, errors: 0 }),
     kvGet(env, KV_KEYS.BARS_HISTORY, {}),  // pass 193: per-sym recent bars
     kvGet(env, KV_KEYS.PLATT, null),      // pass 213: Platt calibration params
-    kvGet(env, KV_KEYS.SIGNALS, { updatedAt: 0, signals: {} })  // pass 231: scanner snapshot
+    kvGet(env, KV_KEYS.SIGNALS, { updatedAt: 0, signals: {} }),  // pass 231: scanner snapshot
+    kvGet(env, KV_KEYS.LIVE_CAL, null)    // pass 333: live self-calibration
   ]);
   const signalsMap = (signalsSnap && signalsSnap.signals) ? signalsSnap.signals : {};
   const journalClearedThisTick = !!clearFlag;
@@ -1299,6 +1348,22 @@ async function tick(env) {
   // last-saved bars, so we don't lose any signal — just stop paying for a
   // 17,000-element BARS_HISTORY KV write 1,400 times/day.
   let barsHistoryDirty = false;
+  // Pass 333: seed bar history for names without enough bars (new UNIVERSE
+  // members would otherwise run on degenerate features for ~3 weeks). Real
+  // Yahoo daily bars only; bounded to 2 fetches per tick.
+  {
+    let seeded = 0;
+    const etKey = t => { const e = new Date(new Date(t).toLocaleString('en-US', { timeZone: 'America/New_York' })); return e.getUTCFullYear() * 10000 + (e.getUTCMonth() + 1) * 100 + e.getUTCDate(); };
+    for (const sym of slice) {
+      if (seeded >= 2) break;
+      if (Array.isArray(barsHistory[sym]) && barsHistory[sym].length >= 14) continue;
+      const hist = await fetchYahooHistorical(sym, 60);
+      seeded++;
+      if (!Array.isArray(hist) || hist.length < 14) continue;
+      barsHistory[sym] = hist.slice(-40).map(b => ({ ts: b.ts, dayKey: etKey(b.ts), open: b.open, high: b.high, low: b.low, close: b.close, volume: b.volume }));
+      barsHistoryDirty = true;
+    }
+  }
   for (const sym of slice) {
     const q = byMap[sym];
     if (!q) continue;
@@ -1358,7 +1423,13 @@ async function tick(env) {
     const rawP = predict(model, features);                 // pure global model output
     const adjP = applySymBias(rawP, sym, model);            // pass 234: per-symbol recalibration
     const p = applyPlatt(adjP, platt);                      // pass 213: global calibration -> final
-    signalsMap[sym] = computeSignal(sym, q, history, p, dayKey);
+    // Pass 333: the scanner/picks see the LIVE-calibrated probability (earned
+    // confidence); the journal keeps the model's own p so grading and the next
+    // calibration fit still measure the model itself.
+    const pBroadcast = (liveCal && liveCal.n >= 300) ? applyLiveCalibration(adjP, liveCal) : p;
+    signalsMap[sym] = computeSignal(sym, q, history, pBroadcast, dayKey);
+    signalsMap[sym].predProbModel = +p.toFixed(4);
+    signalsMap[sym].calibrated = !!(liveCal && liveCal.n >= 300);
 
     // Pass 226/230: capture ONE journal entry per symbol per ET trading day,
     // taken LATE in the session (>= 3pm ET) so the snapshot's price, volume
@@ -1450,6 +1521,24 @@ async function tick(env) {
   const minNow = Math.floor(Date.now() / 60000);
   const changed = (captured > 0 || resolved > 0 || trained > 0);
   const writes = [];
+  // Pass 333: refit the live self-calibration once per ET day from the model's
+  // own resolved 5-day calls (last 3,000). predProbRaw + the current per-symbol
+  // bias reproduce the pre-calibration score; the label is whether price rose.
+  if (!liveCal || liveCal.dayKey !== dayKey) {
+    const pairs = [];
+    for (let k = journal.length - 1; k >= 0 && pairs.length < 3000; k--) {
+      const e = journal[k];
+      const out = e && e.resolved && e.resolved.mid;
+      if (out !== 'correct' && out !== 'wrong') continue;
+      const raw = typeof e.predProbRaw === 'number' ? e.predProbRaw : e.predProb;
+      if (typeof raw !== 'number' || !isFinite(raw) || typeof e.predProb !== 'number') continue;
+      const adj = applySymBias(raw, e.sym, model);
+      const wentUp = (e.predProb >= 0.5) === (out === 'correct') ? 1 : 0;
+      pairs.push({ x: plattLogit(adj), y: wentUp });
+    }
+    const fit = fitLiveCalibration(pairs);
+    if (fit) writes.push(kvPut(env, KV_KEYS.LIVE_CAL, Object.assign(fit, { dayKey, fittedAt: Date.now() })));
+  }
   if (changed) writes.push(kvPut(env, KV_KEYS.JOURNAL, journal));
   if (changed || minNow % 2 === 0) {
     writes.push(kvPut(env, KV_KEYS.LAST_TICK, {
@@ -2961,7 +3050,7 @@ async function handleRequest(request, env, ctx) {
     // background training noise (the brain is often "bearish on everything").
     const convOf = e => Math.abs((e.predProb || 0.5) - 0.5);
     const byDayR = {};
-    resolved.forEach(e => { (byDayR[e.dayKey] = byDayR[e.dayKey] || []).push(e); });
+    resolved.filter(e => !BROADCAST_EXCLUDE.has(e.sym)).forEach(e => { (byDayR[e.dayKey] = byDayR[e.dayKey] || []).push(e); });   // pass 333: broadcast-eligible only
     const potdResolved = [], alphaResolved = [];
     Object.values(byDayR).forEach(day => {
       const s = day.slice().sort((a, b) => convOf(b) - convOf(a));
@@ -3070,9 +3159,10 @@ async function handleRequest(request, env, ctx) {
   // full universe stays in the background. =====
   if (path === '/brain/picks') {
     // Pass 296 (scale): per-colo cached read (30s); cron rewrites SIGNALS ~1/3min.
-    const [snap, constraints] = await Promise.all([
+    const [snap, constraints, liveCal] = await Promise.all([
       kvGet(env, KV_KEYS.SIGNALS, { updatedAt: 0, signals: {} }, 30),
-      loadConstraints(env)
+      loadConstraints(env),
+      kvGet(env, KV_KEYS.LIVE_CAL, null, 60)   // pass 333
     ]);
     const allSigs = Object.values(snap.signals || {})
       .filter(s => s && typeof s.predProb === 'number' && s.last > 0)
@@ -3084,8 +3174,10 @@ async function handleRequest(request, env, ctx) {
     // VIX is NOT a tradeable instrument - broadcasting it as the "Pick of the
     // Day" hands the reader something they literally cannot buy. The tradeable
     // vol expressions (VXX/UVXY) are in the universe and rank on their own.
-    const NON_TRADEABLE = new Set(['VIX']);
-    const sigs = applyConstraints(allSigs, constraints).filter(s => !NON_TRADEABLE.has(s.sym));
+    // Pass 333: generalized to BROADCAST_EXCLUDE (VIX, decaying vol ETPs, FX,
+    // rates, country funds, commodities) - picks are options plays on stocks and
+    // index/sector ETFs only.
+    const sigs = applyConstraints(allSigs, constraints).filter(s => !BROADCAST_EXCLUDE.has(s.sym));
     sigs.forEach(s => { s._conv = Math.abs(s.predProb - 0.5); });
     sigs.sort((a, b) => b._conv - a._conv);
     // Pass 307 (honesty): each signal carries its own scan timestamp. The SIGNALS
@@ -3130,6 +3222,15 @@ async function handleRequest(request, env, ctx) {
     const best_long = bestLongSig
       ? Object.assign(fmt(bestLongSig), { weak: bestLongSig.predProb < 0.52 })
       : null;
+    // Pass 333: NO PLAY while the live self-calibration says the direction signal
+    // is uninformative. The ranking is kept (as model_leans) for transparency,
+    // but nothing is presented as a pick.
+    const noPlay = !!(liveCal && liveCal.n >= 300 && !liveCal.informative);
+    const calibration = liveCal ? {
+      slope_a: liveCal.a, intercept_b: liveCal.b, graded_calls: liveCal.n,
+      informative: !!liveCal.informative, up_rate: liveCal.up_rate,
+      fitted: liveCal.fittedAt ? new Date(liveCal.fittedAt).toISOString() : null
+    } : null;
     return json({
       ok: true,
       updatedAt: snap.updatedAt || 0,
@@ -3138,9 +3239,18 @@ async function handleRequest(request, env, ctx) {
       universe_size: sigs.length,             // how many passed the constraints (broadcastable)
       filtered_out: allSigs.length - sigs.length, // noise removed by constraints
       constraints,                            // the constraints in force (transparency)
-      pick_of_day: potdSig ? fmt(potdSig) : null,
-      best_long,
-      alpha,
+      pick_of_day: noPlay ? null : (potdSig ? fmt(potdSig) : null),
+      best_long: noPlay ? null : best_long,
+      alpha: noPlay ? [] : alpha,
+      no_play: noPlay ? {
+        reason: 'The brain refits its own calibration daily on its graded 5-day calls. Right now that fit says its direction signal is uninformative (slope ' + liveCal.a + ' on ' + liveCal.n + ' calls; needs > 0.2), so no pick is broadcast until the record earns one.',
+        calibration
+      } : null,
+      calibration,
+      model_leans: noPlay ? sigs.slice()
+        .sort((x, y) => Math.abs((y.predProbModel != null ? y.predProbModel : y.predProb) - 0.5) - Math.abs((x.predProbModel != null ? x.predProbModel : x.predProb) - 0.5))
+        .slice(0, 8)
+        .map(s2 => Object.assign(fmt(s2), { pct_up_model: Math.round((s2.predProbModel != null ? s2.predProbModel : s2.predProb) * 100) })) : undefined,
       note: 'Pick of the Day = the brain’s single highest-conviction 5-day call among names that pass your constraints (can be UP or DOWN). Best Long = the single most bullish passing name (weak=true means no real long edge today). Alpha = top passing leans. Constraints are editable at /brain/constraints; the brain still trains on the FULL universe — constraints only govern what gets broadcast. Records are in /brain/confluence-score; which conditions actually carry edge is in /brain/segments.'
     }, 200, 30);
   }
@@ -4213,7 +4323,7 @@ function isDiscordWebhook(u) {
 // Mirrors the /brain/picks logic so the Discord post and the website agree.
 function digestPicksFromSnap(snap) {
   const sigs = Object.values((snap && snap.signals) || {})
-    .filter(s => s && typeof s.predProb === 'number' && s.last > 0);
+    .filter(s => s && typeof s.predProb === 'number' && s.last > 0 && !BROADCAST_EXCLUDE.has(s.sym));
   if (sigs.length < 8) return null;
   sigs.forEach(s => { s._conv = Math.abs(s.predProb - 0.5); });
   const potd = sigs.slice().sort((a, b) => b._conv - a._conv)[0];
@@ -4278,6 +4388,8 @@ async function maybeDailyDigest(env) {
     const snap = await kvGet(env, KV_KEYS.SIGNALS, { signals: {} });
     const sigFresh = snap.updatedAt && (Date.now() - snap.updatedAt) < 6 * 3600 * 1000;
     if (!sigFresh) return;                          // wait for a fresh snapshot
+    const liveCal = await kvGet(env, KV_KEYS.LIVE_CAL, null);
+    if (liveCal && liveCal.n >= 300 && !liveCal.informative) return;   // pass 333: NO PLAY -> nothing to post
     const picks = digestPicksFromSnap(snap);
     if (!picks) return;                             // not enough signals yet
     const res = await postDiscordDigest(env, picks);
@@ -4513,10 +4625,13 @@ async function maybeConfluenceScorecard(env) {
         const insMap = await insiderBiasMap(env);
         const log = await kvGet(env, 'confluence_log_v1', []);
         for (const s of signals) {
-          const brainDir = s.predProb >= 0.52 ? 1 : s.predProb <= 0.48 ? -1 : 0;
+          // Pass 333: grade the model's own probability (predProbModel); the
+          // broadcast predProb is live-calibrated and can sit at the base rate.
+          const pm = typeof s.predProbModel === 'number' ? s.predProbModel : s.predProb;
+          const brainDir = pm >= 0.52 ? 1 : pm <= 0.48 ? -1 : 0;
           const insDir = insMap[s.sym] || 0;
           if (brainDir === 0 && insDir === 0) continue;     // no call to grade
-          log.push({ dayKey, ts: Date.now(), sym: s.sym, entry: s.last, brainDir, insDir, predProb: +s.predProb.toFixed(4), resolved: false });
+          log.push({ dayKey, ts: Date.now(), sym: s.sym, entry: s.last, brainDir, insDir, predProb: +pm.toFixed(4), resolved: false });
         }
         await kvPut(env, 'confluence_log_v1', log.slice(-4000));  // cap to bound KV size
         await kvPut(env, 'confluence_snap_day_v1', dayKey);

@@ -235,6 +235,13 @@ The whole site was swept so nothing fabricated reads as live. Three moves:
 
 **Honesty rule going forward:** never show a fabricated number as live. If a feed is free-derivable (Yahoo/Stooq/Binance) wire it real; if it needs a paid feed, show '—' or the SAMPLE banner.
 
+**Pass 333 invariants (worker pass-315 — do NOT regress):**
+- **Broadcast confidence is LIVE-calibrated.** The worker refits `live_calibration_v1` once per ET day on the model's own last 3,000 resolved 5-day calls (pre-calibration score = predProbRaw + current symBias; label = price rose). Scanner/picks use `applyLiveCalibration` (a clamped to [0, 1.5] — never inverts, never amplifies). The JOURNAL and the confluence snapshot keep the MODEL's own probability (`predProbModel` on signals) so grading and the next fit measure the model, not the calibration.
+- **NO PLAY gate:** when the fit slope a ≤ 0.2 (uninformative), /brain/picks returns pick_of_day/best_long null, alpha [] and a `no_play` object with the fit; pick pages must explain it, never show a blank or a coin flip as a pick. The Discord digest skips posting.
+- **Never pick by raw conviction again without checking the conviction-band record.** On 8/18–9/16 live data the ranking was inverted (40–80% conviction hit ~37–38% vs ~45–49% below 40%).
+- **BROADCAST_EXCLUDE** (VIX, VXX, UVXY, FX, rates, country funds, commodities) limits picks to optionable single stocks + index/sector ETFs; those symbols still TRAIN as regime context.
+- **UNIVERSE includes the traded book names** (CRDO, MRVL, COHR, BE, OKTA, ATI, DRAM). Any name with < 14 bars auto-backfills 40 real Yahoo daily bars (≤ 2 per tick).
+
 **Pass 306/316 invariants (state-of-project deep audit — do NOT regress these):**
 - **NO RVOL before 10:00 ET.** Yahoo's pre-open "volume" is the PRIOR session's full-day total; projecting it fabricated 5–12× "unusual volume" + fake BUY/SELL reasons in /brain/picks every morning. `computeSignal` requires `etHour() >= 10` (≥30 min of real session) before projecting. Pre-open, rvol stays null and volume-based signals stay quiet.
 - **Today's day-bar is only created at/after the RTH open** (`etHour() >= 9.5` gate in the tick's new-day branch). Pre-open Yahoo still reports yesterday's dayOpen/High/Low — creating the bar earlier stamps yesterday's OHLC on today's dayKey and corrupts range/ATR training features on gap days. (Training data before 2026-08-10 has known gap-day contamination from this.)
