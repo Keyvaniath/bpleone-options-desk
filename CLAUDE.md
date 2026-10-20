@@ -235,6 +235,12 @@ The whole site was swept so nothing fabricated reads as live. Three moves:
 
 **Honesty rule going forward:** never show a fabricated number as live. If a feed is free-derivable (Yahoo/Stooq/Binance) wire it real; if it needs a paid feed, show '—' or the SAMPLE banner.
 
+**Pass 334 invariants (worker pass-317, the radar call ledger — do NOT regress):**
+- **Every radar call is logged, then graded.** `maybeRadarLog` (cron, weekdays from 16:20 ET, `RADAR_BATCH` = 5 names per tick, each name tried at most 3 times a day, isolate-level done flag) appends one record per name per session to KV `radar_log_v1` (capped at `RADAR_MAX_RECORDS`); `radar_state_v1` tracks the day. Pure logic lives in `worker/src/radar.js` (`RADAR_SET`: SPY first, because SPY's bar decides whether the day was a session; then QQQ, SMH, SOXX, XLK, 14 semis, 7 mega-cap tech). Tests: `node _test_radar_log.js`.
+- **The ledger logs what the page DISPLAYS.** Labels come from `labelDisplayedSignals` (the cross-sectional rank labels + the NO PLAY override), shared with `/brain/signals`. Never log the stored scanner label: it differs from what visitors see.
+- **Grading rules:** leans are graded at 5 sessions against the drift null with the overlap correction (same-sym, same-direction calls within 9 calendar days are one observation; no verdict before 20 independent calls); range calls against a FAIR straddle's ~57.5% containment, never against 50% or 68%; the implied move is the options market's forecast, never the desk's skill. `GET /brain/radar-log?sym=&n=` is read-only (KV read cached 60s, response 300s).
+- **Deploy note:** the live worker (pass-317) was deployed from branch `radar-ledger-2026-10-19` on 10/19/26, which was not pushed (site pushes wait for Brandon). Merge that branch before deploying the worker from `main`, or the deploy rolls the ledger back to pass-316.
+
 **Pass 333 invariants (worker pass-315 — do NOT regress):**
 - **Broadcast confidence is LIVE-calibrated.** The worker refits `live_calibration_v1` once per ET day on the model's own last 3,000 resolved 5-day calls (pre-calibration score = predProbRaw + current symBias; label = price rose). Scanner/picks use `applyLiveCalibration` (a clamped to [0, 1.5] — never inverts, never amplifies). The JOURNAL and the confluence snapshot keep the MODEL's own probability (`predProbModel` on signals) so grading and the next fit measure the model, not the calibration.
 - **NO PLAY gate:** when the fit slope a ≤ 0.2 (uninformative), /brain/picks returns pick_of_day/best_long null, alpha [] and a `no_play` object with the fit; pick pages must explain it, never show a blank or a coin flip as a pick. The Discord digest skips posting.
@@ -293,6 +299,7 @@ Outcome of the sweep: the seeded-sin / LCG pages were each wired real where free
 - `GET /brain/picks` — Pick of the Day + Best Long + Alpha list (honors `broadcast_constraints_v1`)
 - `GET /brain/constraints` — current noise-control config (GET open; POST is auth — sets conviction floors, filters, focus/exclude)
 - `GET /brain/confluence-score` — self-computing forward-test verdict (ready=false until ≥20 graded confluence calls)
+- `GET /brain/radar-log?sym=&n=` — the radar call ledger, graded (pass 334 / worker pass-317): groups (index, semis, tech), per-name table, recent calls for `sym`
 - `GET /brain/news` — real headlines (no browser key needed)
 - `GET /brain/insider` — SEC Form-4 insider transactions (16-name basket)
 - `GET /brain/quotes?syms=` — real Yahoo quotes (last/prevClose/changePct/volume/dayHigh/dayLow), 60s KV cache; accepts ANY ticker incl. on-demand caret indices (pass 280/283)
