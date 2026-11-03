@@ -7,7 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" media="print" onload="this.media='all'"><noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap"></noscript>
-<link rel="stylesheet" href="css/style.css?v=v230">
+<link rel="stylesheet" href="css/style.css?v=v231">
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <style>
   .chain-table { font-family: var(--font-mono); font-size: 11.5px; }
@@ -57,16 +57,16 @@
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
   <link rel="canonical" href="https://options.bpleone.com/options-chain.html">
-  <meta name="description" content="Options Chain — part of the bpleone options & technical-analysis trading desk, with a self-learning brain that grades its own edge honestly vs market drift.">
+  <meta name="description" content="Options Chain — the real CBOE chain (~15 min delayed): bid/ask, IV, greeks, open interest and volume, IV smile, term structure and a strategy builder priced off real mids.">
 </head>
-<body data-needs="chain">
+<body>
 <div id="site-nav"></div>
 
 <div class="container">
   <div class="page-header">
     <div>
       <div class="page-title">Options Chain</div>
-      <div class="page-subtitle">Full chain with Greeks, IV smile, term structure · <span id="market-clock">--</span></div>
+      <div class="page-subtitle">CBOE chain with greeks, IV smile, term structure (~15 min delayed) · <span id="market-clock">--</span></div>
     </div>
     <div class="flex gap-8">
       <select id="chainSymbol" style="background:var(--bg-tertiary);border:1px solid var(--border);color:var(--text-primary);padding:8px 14px;border-radius:8px;font-family:var(--font-mono);font-size:14px;font-weight:600;">
@@ -86,14 +86,14 @@
     </div>
   </div>
 
-  <div class="demo-banner"><span class="icon">⚠</span><div><strong>Demo data on this page.</strong> Real options chains (live bid/ask + Greeks) are not on Finnhub free tier. Chain values below are Black-Scholes computed from synthetic IV. Required upgrade: <span class="req">Polygon Options Starter (~$29/mo) or Tradier broker API</span>. <a href="settings.html">Configure provider →</a></div></div>
+  <div class="demo-banner" id="chainBanner"><span class="icon">⏳</span><div>Loading the CBOE chain…</div></div>
 
   <!-- Underlying snapshot -->
   <div class="underlying-strip">
     <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:20px;align-items:center;">
       <div>
         <div style="font-family:var(--font-mono);font-size:28px;font-weight:800;" id="ulSymbol">NVDA</div>
-        <div style="font-size:11px;color:var(--text-muted);">NVIDIA Corporation</div>
+        <div style="font-size:11px;color:var(--text-muted);" id="ulName">NVIDIA Corporation</div>
       </div>
       <div>
         <div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.05em;">Last</div>
@@ -104,20 +104,20 @@
         <div class="mono" style="font-size:14px;font-weight:600;"><span data-live="NVDA:change">+4.31</span> (<span data-live="NVDA:changePct">+3.21%</span>)</div>
       </div>
       <div>
-        <div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.05em;">IV Rank</div>
-        <div class="mono" style="font-size:14px;font-weight:600;color:var(--yellow);">42</div>
+        <div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.05em;">ATM IV (expiry)</div>
+        <div class="mono" style="font-size:14px;font-weight:600;color:var(--yellow);" id="kAtmIv">—</div>
       </div>
       <div>
-        <div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.05em;">IV30</div>
-        <div class="mono" style="font-size:14px;font-weight:600;">38.4%</div>
+        <div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.05em;">ATM IV ~30d</div>
+        <div class="mono" style="font-size:14px;font-weight:600;" id="kIv30">—</div>
       </div>
       <div>
-        <div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.05em;">HV30</div>
-        <div class="mono" style="font-size:14px;font-weight:600;">31.2%</div>
+        <div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.05em;">HV30 (realized)</div>
+        <div class="mono" style="font-size:14px;font-weight:600;" id="kHv30">—</div>
       </div>
       <div>
-        <div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.05em;">Earnings</div>
-        <div class="mono" style="font-size:14px;font-weight:600;color:var(--accent);">May 28 AMC</div>
+        <div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.05em;">Next earnings</div>
+        <div class="mono" style="font-size:14px;font-weight:600;color:var(--accent);" id="kEarn">—</div>
       </div>
     </div>
   </div>
@@ -126,18 +126,13 @@
   <div class="card mb-16" style="margin-bottom:16px;">
     <div class="toolbar">
       <div class="filter-group">
-        <button class="filter-btn active">All Strikes</button>
-        <button class="filter-btn">Near ATM</button>
-        <button class="filter-btn">OTM Only</button>
-        <button class="filter-btn">ITM Only</button>
-      </div>
-      <div class="filter-group">
-        <button class="filter-btn active">Price/Greeks</button>
-        <button class="filter-btn">Vol/OI</button>
-        <button class="filter-btn">IV</button>
+        <button class="filter-btn active" data-sf="all">All Strikes</button>
+        <button class="filter-btn" data-sf="atm">Near ATM</button>
+        <button class="filter-btn" data-sf="otm">OTM Calls</button>
+        <button class="filter-btn" data-sf="itm">ITM Calls</button>
       </div>
       <div style="margin-left:auto;color:var(--text-muted);font-size:12px;">
-        <span class="signal-dot green"></span> Streaming · <span class="mono" id="chainExpiryLabel">--</span> expiry
+        <span class="signal-dot green" id="chainDot"></span> <span id="chainMode">CBOE ~15m delayed</span> · <span class="mono" id="chainExpiryLabel">--</span> expiry
       </div>
     </div>
   </div>
@@ -270,10 +265,10 @@
 
 <div id="site-footer"></div>
 
-<script src="js/app.js?v=v230"></script>
-<script src="js/notify.js?v=v230"></script>
-<script src="js/charts.js?v=v230"></script>
-<script src="js/live.js?v=v230"></script>
+<script src="js/app.js?v=v231"></script>
+<script src="js/notify.js?v=v231"></script>
+<script src="js/charts.js?v=v231"></script>
+<script src="js/live.js?v=v231"></script>
 <script>
 buildNav('chain');
 
@@ -283,7 +278,131 @@ let CURR_SYM = 'NVDA';
 let CURR_DTE_IDX = 2; // start at ~38 DTE
 let CHARTS = {};
 
-function getSpot() { return QUOTES[CURR_SYM].last; }
+// Audit 2026-11-03: this page was Black-Scholes on synthetic IV with random volume/OI while the desk worker
+// already serves the real CBOE chain (~15 min delayed). The real chain is the default now; the modeled chain is
+// only a labeled fallback when the real one cannot be loaded.
+const WORKER = (window.WorkerBridge && WorkerBridge.getUrl && WorkerBridge.getUrl()) || 'https://bpleone-brain-worker.brandonpleone.workers.dev';
+const REAL_SRC = { 'worker-yahoo': 1, 'snapshot': 1, 'finnhub': 1, 'polygon': 1, 'alpaca': 1, 'tradier': 1 };
+let REAL = false, SPOT = null, CHAIN_META = null, LOAD_SEQ = 0, CURRENT_STRAT = 'long-call';
+
+function getSpot() {
+  if (SPOT > 0) return SPOT;
+  const q = QUOTES[CURR_SYM];
+  return q && q.last > 0 ? q.last : null;
+}
+
+function etToday() { return new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' }); }
+function dteOf(exp) { return Math.max(0, Math.round((Date.parse(exp + 'T00:00:00Z') - Date.parse(etToday() + 'T00:00:00Z')) / 86400000)); }
+
+// CBOE contracts -> the page's layer shape: one layer per expiry, `around` strikes either side of ATM.
+function realLayers(j, S, around) {
+  const byExp = {};
+  for (const c of j.contracts) {
+    if (!(c.strike > 0) || !c.expiration) continue;
+    const e = byExp[c.expiration] || (byExp[c.expiration] = {});
+    const r = e[c.strike] || (e[c.strike] = { strike: c.strike });
+    const p = c.type === 'call' ? 'call' : 'put';
+    r[p + 'Bid'] = c.bid || 0; r[p + 'Ask'] = c.ask || 0; r[p + 'Mid'] = c.mid || 0;
+    r[p + 'IV'] = c.iv > 0 ? c.iv * 100 : 0;
+    r[p + 'Delta'] = c.delta || 0; r[p + 'Gamma'] = c.gamma || 0; r[p + 'Theta'] = c.theta || 0;
+    r[p + 'OI'] = c.oi || 0; r[p + 'Vol'] = c.volume || 0;
+  }
+  const out = [];
+  const etNow = new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', hour: '2-digit', hourCycle: 'h23' }).format(new Date());
+  const today = etToday(), closed = +etNow >= 16;
+  for (const exp of Object.keys(byExp).sort()) {
+    if (exp < today || (exp === today && closed)) continue;   // expired (today's expiry after the 4 PM ET close)
+    const rows = Object.values(byExp[exp]).filter(r => r.callAsk != null && r.putAsk != null).sort((a, b) => a.strike - b.strike);
+    if (rows.length < 3) continue;
+    let k = 0, gap = Infinity;
+    rows.forEach((r, i) => { const g = Math.abs(r.strike - S); if (g < gap) { gap = g; k = i; } });
+    out.push({ expiry: exp, dte: dteOf(exp), strikes: rows.slice(Math.max(0, k - around), k + around + 1), all: rows });
+  }
+  return out;
+}
+
+let STRIKE_FILTER = 'all', HV30 = {}, EARN = null;
+const NAMES = { SPY: 'SPDR S&P 500 ETF', QQQ: 'Invesco QQQ (Nasdaq-100)', IWM: 'iShares Russell 2000 ETF', NVDA: 'NVIDIA Corporation', AAPL: 'Apple Inc.', TSLA: 'Tesla, Inc.', MSFT: 'Microsoft Corporation', META: 'Meta Platforms', AMD: 'Advanced Micro Devices', GOOGL: 'Alphabet Inc. (Class A)', AMZN: 'Amazon.com, Inc.' };
+const ETFS = { SPY: 1, QQQ: 1, IWM: 1 };
+function atmIv(layer, S) {
+  if (!layer || !S) return null;
+  const r = layer.strikes.reduce((a, b) => Math.abs(b.strike - S) < Math.abs(a.strike - S) ? b : a);
+  const v = [r.callIV, r.putIV].filter(x => x > 0 && x < 300);
+  return v.length ? v.reduce((s, x) => s + x, 0) / v.length : null;
+}
+// Strip values: only from the real chain, real closes and the real calendar; '—' otherwise.
+function updateStrip() {
+  const S = getSpot();
+  const set = (id, t) => { const el = document.getElementById(id); if (el) el.textContent = t; };
+  set('ulName', NAMES[CURR_SYM] || '');
+  set('chainMode', REAL ? 'CBOE ~15m delayed' : 'MODELED (not market data)');
+  const dot = document.getElementById('chainDot'); if (dot) dot.className = 'signal-dot ' + (REAL ? 'green' : 'yellow');
+  const a = REAL ? atmIv(CHAIN[CURR_DTE_IDX], S) : null;
+  set('kAtmIv', a != null ? a.toFixed(1) + '%' : '—');
+  let near = null;
+  if (REAL) for (const l of CHAIN) if (!near || Math.abs(l.dte - 30) < Math.abs(near.dte - 30)) near = l;
+  const a30 = near ? atmIv(near, S) : null;
+  set('kIv30', a30 != null ? a30.toFixed(1) + '% (' + near.dte + 'd)' : '—');
+  set('kHv30', HV30[CURR_SYM] != null ? HV30[CURR_SYM].toFixed(1) + '%' : '—');
+  if (ETFS[CURR_SYM]) set('kEarn', 'n/a (ETF)');
+  else if (!EARN) set('kEarn', '—');
+  else { const e = EARN.find(x => x.symbol === CURR_SYM); set('kEarn', e ? e.date.slice(5).replace('-', '/') + ' ' + String(e.hour || '').toUpperCase() : 'none in 30d'); }
+}
+// HV30 = annualized stdev of the last 30 daily log returns from /brain/history (real Yahoo daily closes).
+async function loadHv(sym) {
+  if (HV30[sym] != null) return;
+  try {
+    const j = await fetch(WORKER + '/brain/history?sym=' + encodeURIComponent(sym)).then(r => r.ok ? r.json() : null);
+    const c = (j && Array.isArray(j.closes) ? j.closes : []).map(x => x.c).filter(x => x > 0);
+    if (c.length < 31) return;
+    const rets = []; for (let i = c.length - 30; i < c.length; i++) rets.push(Math.log(c[i] / c[i - 1]));
+    const m = rets.reduce((s, x) => s + x, 0) / rets.length;
+    const sd = Math.sqrt(rets.reduce((s, x) => s + (x - m) * (x - m), 0) / (rets.length - 1));
+    HV30[sym] = sd * Math.sqrt(252) * 100;
+  } catch (e) {}
+}
+async function loadEarnings() {
+  try {
+    const j = await fetch(WORKER + '/brain/earnings?days=30').then(r => r.ok ? r.json() : null);
+    if (j && j.ok && Array.isArray(j.earnings)) EARN = j.earnings.filter(e => e.date >= etToday());
+  } catch (e) {}
+}
+
+function setChainBanner(mode) {
+  const el = document.getElementById('chainBanner');
+  if (!el) return;
+  if (mode === 'real') {
+    el.style.cssText = 'border-color:rgba(16,185,129,0.4);background:rgba(16,185,129,0.07);';
+    el.innerHTML = '<span class="icon">✓</span><div><strong>Real ' + (CHAIN_META.provider || 'CBOE') + ' chain, ~' + (CHAIN_META.delayedMin || 15) + ' min delayed</strong>, via the desk worker. Bid/ask, IV, greeks, open interest and volume are the exchange\'s; spot is the delayed last ($' + getSpot().toFixed(2) + '). Strategy premiums below are the real mids for the selected expiry. Research, not advice.</div>';
+  } else if (mode === 'model') {
+    el.style.cssText = '';
+    el.innerHTML = '<span class="icon">⚠</span><div><strong>MODELED chain, not market data.</strong> The real CBOE chain could not be loaded for ' + CURR_SYM + ', so the values below are Black-Scholes on a synthetic IV with random volume/OI. Do not trade on them; reload to retry the real chain.</div>';
+  } else {
+    el.style.cssText = '';
+    el.innerHTML = '<span class="icon">⏳</span><div>Loading the CBOE chain for ' + CURR_SYM + '…</div>';
+  }
+}
+
+// Strategy legs priced off the real chain: nearest listed strike, its real mid (ask if the mid is missing).
+function priceLegs(legs) {
+  const layer = CHAIN[CURR_DTE_IDX];
+  if (!REAL || !layer) return legs;
+  return legs.map(l => {
+    if (l.type === 'stock') return l;
+    let best = null, gap = Infinity;
+    for (const r of (layer.all || layer.strikes)) { const g = Math.abs(r.strike - l.strike); if (g < gap) { gap = g; best = r; } }
+    if (!best) return l;
+    const mid = l.type === 'call' ? best.callMid : best.putMid;
+    const ask = l.type === 'call' ? best.callAsk : best.putAsk;
+    return Object.assign({}, l, { strike: best.strike, premium: mid > 0 ? mid : (ask > 0 ? ask : 0) });
+  });
+}
+function repriceStrategy() {
+  const S = getSpot();
+  if (!S || !STRATS[CURRENT_STRAT]) return;
+  CURRENT_LEGS = priceLegs(STRATS[CURRENT_STRAT](S));
+  renderLegs();
+}
 
 function renderChain() {
   const expiries = CHAIN.map(c => c.dte);
@@ -293,7 +412,12 @@ function renderChain() {
   document.getElementById('chainExpiryLabel').textContent = layer.expiry;
   const S = getSpot();
   const tbody = document.getElementById('chainBody');
-  tbody.innerHTML = layer.strikes.map(r => {
+  let kAtm = 0; layer.strikes.forEach((r, i) => { if (Math.abs(r.strike - S) < Math.abs(layer.strikes[kAtm].strike - S)) kAtm = i; });
+  const rowsShown = layer.strikes.filter((r, i) => STRIKE_FILTER === 'all' ? true
+    : STRIKE_FILTER === 'atm' ? Math.abs(i - kAtm) <= 3
+    : STRIKE_FILTER === 'otm' ? r.strike >= S : r.strike < S);
+  updateStrip();
+  tbody.innerHTML = rowsShown.map(r => {
     const callITM = r.strike < S;
     const putITM = r.strike > S;
     return `<tr class="${callITM?'chain-itm':'chain-call'}">
@@ -321,9 +445,9 @@ function renderChain() {
   drawOIHeat();
 }
 
-function loadSymbol(sym) {
+async function loadSymbol(sym, keepExpiry) {
   CURR_SYM = sym;
-  CHAIN = buildChain(sym);
+  const seq = ++LOAD_SEQ;
   document.getElementById('ulSymbol').textContent = sym;
   // re-bind live for new symbol
   document.querySelectorAll('[data-live]').forEach(el => {
@@ -332,7 +456,30 @@ function loadSymbol(sym) {
     el.dataset.prev = '';
   });
   bindLive();
-  renderChain();
+  if (!keepExpiry) setChainBanner('loading');
+  const [j, q] = await Promise.all([
+    fetch(WORKER + '/brain/options-chain?sym=' + encodeURIComponent(sym), { cache: 'no-store' }).then(r => r.ok ? r.json() : null).catch(() => null),
+    fetch(WORKER + '/brain/quotes?syms=' + encodeURIComponent(sym), { cache: 'no-store' }).then(r => r.ok ? r.json() : null).catch(() => null)
+  ]);
+  if (seq !== LOAD_SEQ) return;   // a newer symbol load superseded this one
+  const wq = q && q.quotes && q.quotes[sym];
+  SPOT = wq && wq.last > 0 ? wq.last : null;
+  const S = getSpot();
+  const layers = (j && j.ok && Array.isArray(j.contracts) && j.contracts.length && S) ? realLayers(j, S, 12) : [];
+  if (layers.length) {
+    REAL = true; CHAIN = layers;
+    CHAIN_META = { provider: j.provider || 'CBOE', delayedMin: j.delayedMin || 15 };
+    const keep = keepExpiry ? CHAIN.findIndex(c => c.expiry === keepExpiry) : -1;
+    const i30 = CHAIN.findIndex(c => c.dte >= 30);
+    CURR_DTE_IDX = keep >= 0 ? keep : (i30 >= 0 ? i30 : 0);
+  } else {
+    REAL = false; SPOT = null;
+    CHAIN = buildChain(sym);   // labeled MODELED fallback
+    CURR_DTE_IDX = Math.max(0, Math.min(2, CHAIN.length - 1));
+  }
+  setChainBanner(REAL ? 'real' : 'model');
+  if (CHAIN.length) renderChain();
+  if (!keepExpiry) loadHv(sym).then(() => { if (sym === CURR_SYM) updateStrip(); });
 }
 
 // ---------- Charts ----------
@@ -344,8 +491,8 @@ function drawSmile() {
     data: {
       labels: layer.strikes.map(s => s.strike),
       datasets: [
-        { label: 'Call IV', data: layer.strikes.map(s => s.callIV), borderColor: '#10b981', backgroundColor: 'rgba(16,185,129,0.15)', borderWidth: 2, tension: 0.35, pointRadius: 0, fill: true },
-        { label: 'Put IV',  data: layer.strikes.map(s => s.putIV),  borderColor: '#ef4444', backgroundColor: 'rgba(239,68,68,0.05)', borderWidth: 2, tension: 0.35, pointRadius: 0, fill: false, borderDash: [4,3] }
+        { label: 'Call IV', data: layer.strikes.map(s => (s.callIV > 0 && s.callIV < 300) ? s.callIV : null), borderColor: '#10b981', backgroundColor: 'rgba(16,185,129,0.15)', borderWidth: 2, tension: 0.35, pointRadius: 0, fill: true },
+        { label: 'Put IV',  data: layer.strikes.map(s => (s.putIV > 0 && s.putIV < 300) ? s.putIV : null),  borderColor: '#ef4444', backgroundColor: 'rgba(239,68,68,0.05)', borderWidth: 2, tension: 0.35, pointRadius: 0, fill: false, borderDash: [4,3] }
       ]
     },
     options: baseOptions(true)
@@ -407,7 +554,8 @@ const STRATS = {
     { type:'call', side:'long', strike:Math.round(S*1.05/5)*5, premium:S*0.018, qty:1 },
     { type:'put',  side:'long', strike:Math.round(S*0.95/5)*5, premium:S*0.018, qty:1 }],
   'covered-call': S => [
-    { type:'stock', side:'long', entry:S, qty:100 },
+    // qty is in 100-share units: drawPayoff applies the x100 contract multiplier to every leg (qty:100 overstated the stock leg 100x).
+    { type:'stock', side:'long', entry:S, qty:1 },
     { type:'call', side:'short', strike:Math.round(S*1.04/5)*5, premium:S*0.018, qty:1 }],
   'csp': S => [{ type:'put', side:'short', strike:Math.round(S*0.97/5)*5, premium:S*0.022, qty:1 }]
 };
@@ -421,12 +569,14 @@ function renderLegs() {
       <span style="color:${sideClr};font-weight:700;text-transform:uppercase;">${l.side}</span>
       <span style="color:var(--text-muted);">${typeLbl}${l.qty>1?` × ${l.qty}`:''}</span>
       <span>${l.type!=='stock' ? `Strike <strong>${l.strike}</strong>` : `Entry <strong>${l.entry?.toFixed(2)}</strong>`}</span>
-      <span>${l.type!=='stock' ? `Prem <strong>${l.premium.toFixed(2)}</strong>` : `Shares <strong>${l.qty}</strong>`}</span>
+      <span>${l.type!=='stock' ? `Prem <strong>${l.premium.toFixed(2)}</strong>` : `Shares <strong>${(l.qty || 1) * 100}</strong>`}</span>
       <span></span>
       <span></span>
       <button class="btn btn-ghost" data-leg-remove="${i}" style="padding:2px 8px;font-size:11px;">✕</button>
     </div>`;
-  }).join('');
+  }).join('') + '<div style="font-size:11px;color:var(--text-muted);margin-top:6px;">' + (REAL && CHAIN[CURR_DTE_IDX]
+      ? 'Premiums: real ' + (CHAIN_META.provider || 'CBOE') + ' mids, exp ' + CHAIN[CURR_DTE_IDX].expiry + ' (~15 min delayed).'
+      : 'Premiums: MODELED (fixed % of spot), not market prices.') + '</div>';
   document.querySelectorAll('[data-leg-remove]').forEach(b => b.onclick = () => { CURRENT_LEGS.splice(+b.dataset.legRemove,1); renderLegs(); drawPayoff(); });
   drawPayoff();
 }
@@ -502,20 +652,23 @@ function recalcGreeks() {
 }
 
 // ---------- Wire ----------
-document.addEventListener('DOMContentLoaded', () => {
-  loadSymbol('NVDA');
-  CURRENT_LEGS = STRATS['long-call'](getSpot());
-  renderLegs();
-
-  document.getElementById('chainSymbol').addEventListener('change', e => loadSymbol(e.target.value));
-  document.getElementById('chainExpiry').addEventListener('change', e => { CURR_DTE_IDX = +e.target.value; renderChain(); });
+document.addEventListener('DOMContentLoaded', async () => {
+  document.getElementById('chainSymbol').addEventListener('change', async e => { await loadSymbol(e.target.value); repriceStrategy(); });
+  document.getElementById('chainExpiry').addEventListener('change', e => { CURR_DTE_IDX = +e.target.value; renderChain(); repriceStrategy(); });
+  document.querySelectorAll('[data-sf]').forEach(b => b.addEventListener('click', () => {
+    document.querySelectorAll('[data-sf]').forEach(x => x.classList.remove('active'));
+    b.classList.add('active'); STRIKE_FILTER = b.dataset.sf; if (CHAIN.length) renderChain();
+  }));
+  loadEarnings().then(updateStrip);
+  await loadSymbol('NVDA');
+  repriceStrategy();
 
   document.querySelectorAll('[data-strat]').forEach(btn => {
     btn.addEventListener('click', () => {
       document.querySelectorAll('[data-strat]').forEach(b => b.classList.remove('active'));
       btn.classList.add('active');
-      CURRENT_LEGS = STRATS[btn.dataset.strat](getSpot());
-      renderLegs();
+      CURRENT_STRAT = btn.dataset.strat;
+      repriceStrategy();
     });
   });
 
@@ -528,8 +681,15 @@ document.addEventListener('DOMContentLoaded', () => {
   let redrawTimer = null;
   Feed.subscribe('*', () => {
     if (redrawTimer) return;
-    redrawTimer = setTimeout(() => { redrawTimer = null; renderChain(); }, 2500);
+    redrawTimer = setTimeout(() => {
+      redrawTimer = null;
+      const q = QUOTES[CURR_SYM];
+      if (REAL && q && q.last > 0 && REAL_SRC[q.priceSource || q.source]) SPOT = q.last;
+      if (CHAIN.length) renderChain();
+    }, 2500);
   });
+  // The worker caches the chain for 5 minutes; refresh it while the tab is visible, keeping the selected expiry.
+  setInterval(() => { if (!document.hidden && REAL && CHAIN[CURR_DTE_IDX]) loadSymbol(CURR_SYM, CHAIN[CURR_DTE_IDX].expiry); }, 5 * 60 * 1000);
 });
 </script>
 </body>

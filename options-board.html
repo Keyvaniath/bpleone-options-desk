@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" media="print" onload="this.media='all'"><noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap"></noscript>
-<link rel="stylesheet" href="css/style.css?v=v230">
+<link rel="stylesheet" href="css/style.css?v=v231">
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
 <style>
@@ -36,7 +36,7 @@
 <div class="container">
   <div class="page-header">
     <div>
-      <div class="page-title">🗒 Options Board <span class="feat-badge feat-live">LIVE CHAIN</span></div>
+      <div class="page-title">🗒 Options Board <span class="feat-badge feat-live">CBOE CHAIN · ~15M DELAYED</span></div>
       <div class="page-subtitle">Today's names, each with the full options block — strikes · expirations · OI · greeks · sell points — auto-built from the desk's daily scan · <span id="market-clock">--</span></div>
     </div>
     <div class="flex gap-8">
@@ -63,11 +63,11 @@
 
 <div id="site-footer"></div>
 
-<script src="js/data-provider.js?v=v230"></script>
-<script src="js/ai-client.js?v=v230"></script>
-<script src="js/app.js?v=v230"></script>
-<script src="js/notify.js?v=v230"></script>
-<script src="js/live.js?v=v230"></script>
+<script src="js/data-provider.js?v=v231"></script>
+<script src="js/ai-client.js?v=v231"></script>
+<script src="js/app.js?v=v231"></script>
+<script src="js/notify.js?v=v231"></script>
+<script src="js/live.js?v=v231"></script>
 <script>
 buildNav('options-board');
 (function () {
@@ -85,8 +85,12 @@ buildNav('options-board');
     const last = pick.last;
     // ATR for the invalidation level
     let atr = null;
-    const arr = bars && bars.bars && bars.bars[sym];
-    if (Array.isArray(arr) && arr.length >= 15) {
+    const arr0 = bars && bars.bars && bars.bars[sym];
+    // Audit 2026-11-03: stored bars were ~9:30 ET snapshots until worker pass-319's evening finalize, so a range
+    // from unverified bars understates ATR. Use only completed sessions verified against the real daily OHLC (fin).
+    const etD = ts => new Date(ts).toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
+    const arr = Array.isArray(arr0) ? arr0.filter(b => etD(b.ts) !== etD(Date.now())) : null;
+    if (Array.isArray(arr) && arr.length >= 15 && arr.slice(-15).every(b => b.fin)) {
       const trs = [];
       for (let i = 1; i < arr.length; i++) { const b = arr[i], pc = arr[i - 1].c; trs.push(Math.max(b.h - b.l, Math.abs(b.h - pc), Math.abs(b.l - pc))); }
       atr = trs.slice(-14).reduce((s, x) => s + x, 0) / 14;

@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" media="print" onload="this.media='all'"><noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap"></noscript>
-<link rel="stylesheet" href="css/style.css?v=v230">
+<link rel="stylesheet" href="css/style.css?v=v231">
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
 <style>
@@ -39,7 +39,7 @@
 <div class="container">
   <div class="page-header">
     <div>
-      <div class="page-title">🎯 Strikes &amp; Tranches <span class="feat-badge feat-live">LIVE CHAIN</span></div>
+      <div class="page-title">🎯 Strikes &amp; Tranches <span class="feat-badge feat-live">CBOE CHAIN · ~15M DELAYED</span></div>
       <div class="page-subtitle">Real options ladders for <strong>day · week · month · quarter+</strong> from the live CBOE chain (~15-min delayed) — premiums, greeks, breakevens, and ATR-based tranche entry levels. A <strong>structuring tool</strong>, not a signal.</div>
     </div>
     <div class="flex gap-8" style="align-items:center;flex-wrap:wrap;">
@@ -77,11 +77,11 @@
 
 <div id="site-footer"></div>
 
-<script src="js/data-provider.js?v=v230"></script>
-<script src="js/ai-client.js?v=v230"></script>
-<script src="js/app.js?v=v230"></script>
-<script src="js/notify.js?v=v230"></script>
-<script src="js/live.js?v=v230"></script>
+<script src="js/data-provider.js?v=v231"></script>
+<script src="js/ai-client.js?v=v231"></script>
+<script src="js/app.js?v=v231"></script>
+<script src="js/notify.js?v=v231"></script>
+<script src="js/live.js?v=v231"></script>
 <script>
 buildNav('options-tranches');
 (function () {
@@ -113,11 +113,19 @@ buildNav('options-tranches');
     { key: 'OTM', cls: 'tier-otm', target: 0.30, desc: 'aggressive — cheapest, most leverage, most likely to expire worthless' }
   ];
 
+  // Audit 2026-11-03: after the 4 PM ET close today's expiry has expired, but it was still offered as the
+  // "Day" 0-DTE ladder (and the EDT offset was hardcoded). DTE is now counted in ET calendar days and
+  // expired expirations are skipped.
+  function etParts() {
+    const p = {}; new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', hourCycle: 'h23' }).formatToParts(new Date()).forEach(x => { p[x.type] = x.value; });
+    return { day: p.year + '-' + p.month + '-' + p.day, hour: +p.hour };
+  }
   function pickExp(expirations, targetDte) {
-    const now = new Date();
+    const et = etParts();
     let best = null, bestGap = 1e9;
     for (const e of expirations) {
-      const dte = Math.max(0, Math.round((new Date(e + 'T16:00:00-04:00') - now) / 86400000));
+      if (e < et.day || (e === et.day && et.hour >= 16)) continue;   // expired
+      const dte = Math.round((Date.parse(e + 'T00:00:00Z') - Date.parse(et.day + 'T00:00:00Z')) / 86400000);
       const gap = Math.abs(dte - targetDte);
       if (gap < bestGap) { bestGap = gap; best = { exp: e, dte }; }
     }
@@ -232,8 +240,12 @@ buildNav('options-tranches');
     $('ladders').innerHTML = cards;
 
     // Tranche template off real ATR(14): T1 market, T2 −0.5×ATR pullback, T3 −1×ATR (mirrored for puts).
-    const barArr = bars && bars.bars && bars.bars[sym];
-    if (last && Array.isArray(barArr) && barArr.length >= 15) {
+    const barArr0 = bars && bars.bars && bars.bars[sym];
+    // Audit 2026-11-03: stored bars were ~9:30 ET snapshots until worker pass-319's evening finalize, so a range
+    // from unverified bars understates ATR. Use only completed sessions verified against the real daily OHLC (fin).
+    const etD = ts => new Date(ts).toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
+    const barArr = Array.isArray(barArr0) ? barArr0.filter(b => etD(b.ts) !== etD(Date.now())) : null;
+    if (last && Array.isArray(barArr) && barArr.length >= 15 && barArr.slice(-15).every(b => b.fin)) {
       const trs = [];
       for (let i = 1; i < barArr.length; i++) {
         const b = barArr[i], pc = barArr[i - 1].c;

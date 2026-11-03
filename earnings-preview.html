@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" media="print" onload="this.media='all'"><noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap"></noscript>
-<link rel="stylesheet" href="css/style.css?v=v230">
+<link rel="stylesheet" href="css/style.css?v=v231">
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
@@ -39,7 +39,7 @@
   <div class="page-header">
     <div>
       <div class="page-title">Earnings Preview · <span id="sym" class="mono">—</span> <span class="feat-badge feat-live">REAL</span></div>
-      <div class="page-subtitle">Live EPS estimates · analyst recs · price history · IV crush math · <span id="market-clock">--</span></div>
+      <div class="page-subtitle">Finnhub EPS estimates · analyst recs · implied move from the CBOE ATM straddle (~15 min delayed) · <span id="market-clock">--</span></div>
     </div>
     <div class="flex gap-8">
       <input id="symInput" placeholder="Symbol…" value="NVDA" autocomplete="off" style="background:var(--bg-elevated);border:1px solid var(--border);border-radius:8px;padding:7px 12px;color:var(--text-primary);font-size:13px;font-family:var(--font-mono);width:120px;text-transform:uppercase;">
@@ -54,7 +54,7 @@
     <div class="kbig"><div class="lab">Next Report</div><div class="val mono" id="kDate">—</div><div class="sub" id="kHour">—</div></div>
     <div class="kbig"><div class="lab">EPS Estimate</div><div class="val mono yellow-text" id="kEps">—</div><div class="sub" id="kEpsPrior">—</div></div>
     <div class="kbig"><div class="lab">Revenue Estimate</div><div class="val mono" id="kRev">—</div><div class="sub" id="kRevPrior">—</div></div>
-    <div class="kbig"><div class="lab">Implied Move (synthetic)</div><div class="val mono yellow-text" id="kMove">—</div><div class="sub" id="kMoveD">±$ —</div></div>
+    <div class="kbig"><div class="lab">Implied Move (ATM straddle)</div><div class="val mono yellow-text" id="kMove">—</div><div class="sub" id="kMoveD">±$ —</div></div>
   </div>
 
   <!-- Detail + analyst recs -->
@@ -63,7 +63,7 @@
       <div class="card-header"><div class="card-title">📋 Next Earnings Detail</div></div>
       <div class="metric-grid" id="detailBox"><div class="k" style="grid-column:1/-1;text-align:center;color:var(--text-muted);padding:20px;">Loading…</div></div>
       <div style="margin-top:14px;padding:12px 14px;background:var(--bg-secondary);border-radius:8px;font-size:11px;color:var(--text-muted);line-height:1.5;">
-        Implied move is computed from a synthetic 30-day IV approximation. With Polygon Options data, this becomes the actual front-month straddle / spot — the textbook "implied move" the market is pricing in.
+        Implied move = the ATM call + put mid on the first listed expiry that covers the reaction session, divided by spot (CBOE free chain, ~15 min delayed, via the desk worker). The straddle also prices the non-earnings days to that expiry, so it slightly overstates the earnings-only move. When the chain is unavailable this shows —, never an estimate.
       </div>
     </div>
 
@@ -101,14 +101,15 @@
 
 <div id="site-footer"></div>
 
-<script src="js/data-provider.js?v=v230"></script>
-<script src="js/ai-client.js?v=v230"></script>
-<script src="js/app.js?v=v230"></script>
-<script src="js/notify.js?v=v230"></script>
-<script src="js/live.js?v=v230"></script>
+<script src="js/data-provider.js?v=v231"></script>
+<script src="js/ai-client.js?v=v231"></script>
+<script src="js/app.js?v=v231"></script>
+<script src="js/notify.js?v=v231"></script>
+<script src="js/live.js?v=v231"></script>
 <script>
 buildNav('earnings-preview');
 const $ = id => document.getElementById(id);
+const WORKER = (window.WorkerBridge && WorkerBridge.getUrl && WorkerBridge.getUrl()) || 'https://bpleone-brain-worker.brandonpleone.workers.dev';
 const POPULAR = ['NVDA','AAPL','MSFT','META','GOOGL','AMZN','TSLA','AMD','PLTR','COIN','SMCI','SHOP','CRM','BABA'];
 
 function renderQuick(active) {
@@ -162,7 +163,11 @@ async function load() {
 
     renderDetail(sym, next, m, q);
     renderRecs(recs);
-    renderStrats(sym, m, q, next);
+    const spot = (q && q.c > 0) ? q.c : ((typeof QUOTES !== 'undefined' && QUOTES[sym] && QUOTES[sym].last > 0) ? QUOTES[sym].last : null);
+    $('strats').innerHTML = '<div style="padding:16px;color:var(--text-muted);">Pulling the CBOE chain for the implied move…</div>';
+    const imp = (next && spot) ? await fetchImpliedMove(sym, next.date, next.hour, spot) : null;
+    renderImplied(imp, spot, next);
+    renderStrats(sym, spot, imp, next);
   } catch (e) {
     $('detailBox').innerHTML = '<div class="empty-card"><div class="icon">⚠</div><div>' + e.message + '</div></div>';
   }
@@ -181,20 +186,8 @@ function renderDetail(sym, next, m, q) {
   $('kRev').textContent = next.revenueEstimate != null ? fmtBig(next.revenueEstimate) : '—';
   $('kRevPrior').textContent = next.revenueActual != null ? 'Prior actual: ' + fmtBig(next.revenueActual) : '—';
 
-  // Implied move (synthetic 30d IV approximation)
-  const spot = (q && q.c) || (typeof QUOTES !== 'undefined' && QUOTES[sym] ? QUOTES[sym].last : null);
-  let impliedPct = null;
-  if (spot && m.beta) {
-    // Quick proxy: beta-adjusted historical realized
-    const baseVol = 0.30 + (m.beta - 1) * 0.10;
-    impliedPct = baseVol * Math.sqrt(7/365) * 100;
-  } else if (spot) {
-    impliedPct = 5.0; // default placeholder
-  }
-  if (impliedPct) {
-    $('kMove').textContent = '±' + impliedPct.toFixed(1) + '%';
-    if (spot) $('kMoveD').textContent = '±' + fmt$(spot * impliedPct / 100);
-  }
+  const spot = (q && q.c > 0) ? q.c : ((typeof QUOTES !== 'undefined' && QUOTES[sym] && QUOTES[sym].last > 0) ? QUOTES[sym].last : null);
+  $('kMove').textContent = '…'; $('kMoveD').textContent = 'pulling the CBOE chain';
 
   $('detailBox').innerHTML = `
     <div class="k">Symbol</div><div class="v">${sym}</div>
@@ -235,10 +228,46 @@ function renderRecs(recs) {
   `;
 }
 
-function renderStrats(sym, m, q, next) {
-  const spot = (q && q.c) || (typeof QUOTES !== 'undefined' && QUOTES[sym] ? QUOTES[sym].last : 100);
-  const impliedPct = (0.30 + (m.beta ? (m.beta - 1) * 0.10 : 0)) * Math.sqrt(7/365) * 100;
-  const moveAbs = (spot * impliedPct / 100);
+// Real implied move: ATM straddle mid / spot on the first listed expiry that covers the reaction session
+// (same method as earnings-playbook and the radar). AMC or unknown hour reacts next session.
+async function fetchImpliedMove(sym, earningsDate, hour, spot) {
+  try {
+    const res = await fetch(WORKER + '/brain/options-chain?sym=' + encodeURIComponent(sym), { cache: 'no-store' });
+    if (!res.ok) return null;
+    const j = await res.json();
+    if (!j || !j.ok || !Array.isArray(j.contracts) || !j.contracts.length || !(spot > 0) || !earningsDate) return null;
+    const minExp = (String(hour || '').toLowerCase() === 'bmo') ? earningsDate : earningsDate + '~';
+    const exps = [...new Set(j.contracts.map(c => c.expiration))].filter(e => e >= minExp).sort();
+    for (const e of exps.slice(0, 3)) {
+      const inExp = j.contracts.filter(c => c.expiration === e && c.bid > 0 && c.mid > 0);
+      let atm = null, gap = Infinity;
+      for (const c of inExp) { const g = Math.abs(c.strike - spot); if (g < gap) { gap = g; atm = c.strike; } }
+      const call = inExp.find(c => c.strike === atm && c.type === 'call');
+      const put = inExp.find(c => c.strike === atm && c.type === 'put');
+      if (call && put) return { pct: (call.mid + put.mid) / spot * 100, exp: e, strike: atm };
+    }
+    return null;
+  } catch (e) { return null; }
+}
+
+function renderImplied(imp, spot, next) {
+  if (!next) return;
+  if (imp) {
+    $('kMove').textContent = '±' + imp.pct.toFixed(1) + '%';
+    $('kMoveD').textContent = '±' + fmt$(spot * imp.pct / 100) + ' · ' + imp.strike + ' straddle, exp ' + imp.exp;
+  } else {
+    $('kMove').textContent = '—';
+    $('kMoveD').textContent = spot ? 'no CBOE chain covering the report' : 'no live quote';
+  }
+}
+
+function renderStrats(sym, spot, imp, next) {
+  if (!next) { $('strats').innerHTML = ''; return; }
+  if (!imp || !(spot > 0)) {
+    $('strats').innerHTML = '<div style="padding:16px;color:var(--text-muted);">Strategy levels need the real implied move (the CBOE straddle) and a live quote. Neither is invented here; try again during market hours or open the <a href="options-chain.html?sym=' + encodeURIComponent(sym) + '" style="color:var(--accent);">chain</a>.</div>';
+    return;
+  }
+  const impliedPct = imp.pct;
   const strats = [
     { name: 'Long Strangle', kind: 'long premium',
       thesis: 'If you think the move > ' + impliedPct.toFixed(1) + '% implied. Buy ' + Math.round(spot * 1.04) + ' Call + ' + Math.round(spot * 0.96) + ' Put. Wins on either direction, loses on IV crush if no move.' },

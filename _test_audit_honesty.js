@@ -81,6 +81,24 @@ const today = read('today.html');
 t('Today leads with the live record', /id="pf-live"/.test(today) && /live_resolved/.test(today) && /No edge in live trading/.test(today));
 t('Today makes no "proof it works" or "Real $" claim', today.indexOf('the proof it works') < 0 && today.indexOf('Real $ track record') < 0);
 
+// 6d. Third sweep (11/3 night): pick and P&L pages judge the brain by its LIVE record; the options chain is the
+//     real CBOE chain with a labeled modeled fallback; implied moves come from the straddle; ATR-based option
+//     levels use only verified bars; expired expirations are never offered; delayed data is never badged LIVE.
+['pick-of-day', 'money-made'].forEach(p =>
+  t(p + ' edge verdict checks the live record first', /liveBad/.test(read(p + '.html')) && /No edge in live trading/.test(read(p + '.html'))));
+const chainPg = read('options-chain.html');
+t('options-chain loads the real CBOE chain, modeled only as a labeled fallback', /\/brain\/options-chain/.test(chainPg) && /REAL = false; SPOT = null;\s*\n\s*CHAIN = buildChain\(sym\);/.test(chainPg) && /MODELED chain, not market data/.test(chainPg));
+t('options-chain strip has no hardcoded IV rank / HV / earnings date', !/May 28 AMC/.test(chainPg) && !/>42<\/div>/.test(chainPg) && /id="kHv30"/.test(chainPg) && /\/brain\/earnings\?days=30/.test(chainPg));
+t('options-chain covered call stock leg is one 100-share unit', /\{ type:'stock', side:'long', entry:S, qty:1 \}/.test(chainPg));
+const epv = read('earnings-preview.html');
+t('earnings-preview implied move is the CBOE straddle, no beta proxy or placeholder', /\/brain\/options-chain/.test(epv) && !/impliedPct = 5\.0/.test(epv) && !/0\.30 \+ \(m\.beta/.test(epv) && !/QUOTES\[sym\]\.last : 100\)/.test(epv));
+['options-board', 'options-tranches'].forEach(p =>
+  t(p + ' ATR uses only verified (fin) bars', /every\(b => b\.fin\)/.test(read(p + '.html'))));
+t('expired expirations are skipped (tranches + chain)', /et\.hour >= 16\)\) continue/.test(read('options-tranches.html')) && /exp === today && closed\)\) continue/.test(chainPg));
+['dashboard', 'pre-market', 'paper-trade', 'horizons', 'broadcast', 'pick-of-day', 'options-board', 'options-tranches'].forEach(p =>
+  t(p + ' has no static LIVE badge', !/<span class="feat-badge feat-live"[^>]*>LIVE[^<]*<\/span>/.test(read(p + '.html'))));
+t('broadcast explains NO PLAY instead of blaming constraints', /picks && picks\.no_play\)\s*\n\s*\? 'NO PLAY today/.test(read('broadcast.html')));
+
 // 7. Worker sources parse strictly. `node --check` passed an ES-module file with an unescaped quote in a
 //    string (found 2026-11-03), so parse the bodies as scripts with imports/exports stripped.
 ['worker/src/index.js', 'worker/src/grading.js', 'worker/src/radar.js', 'worker/src/bars.js'].forEach(f => {
