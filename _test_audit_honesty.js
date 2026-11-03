@@ -70,6 +70,17 @@ t('no-play gate reads /brain/picks and handles closed + unreachable', /\/brain\/
 ['trade-of-the-day', 'brain-bet', 'conviction-stack', 'morning-brief'].forEach(p =>
   t(p + ' loads the NO PLAY gate', read(p + '.html').indexOf('js/no-play-gate.js') >= 0 && gate.indexOf("'" + p + "'") >= 0));
 
+// 6c. Screenshot fixes (11/3 evening): crypto change vs Coinbase's 24h open, never the May seed; the nav pill
+//     counts worker-yahoo as DELAYED and never resets to a hardcoded LIVE; Today leads with the live record.
+const dp = read('js/data-provider.js');
+t('crypto baseline is Coinbase open_24h (WS) and /stats open (REST)', /m\.open_24h/.test(dp) && /\/stats'/.test(dp) && /parseFloat\(data\.open\)/.test(dp) && !/preserve seed prevClose/.test(dp));
+const appjs = read('js/app.js');
+t('nav pill counts worker-yahoo as delayed', /s\.indexOf\('worker-yahoo'\) !== -1/.test(appjs));
+t('nav pill never resets to a hardcoded LIVE after a brain cycle', !/setTimeout\(\(\) => \{ if \(text\) text\.textContent = 'LIVE'; \}/.test(appjs) && /nav-pulse-text">FEED</.test(appjs));
+const today = read('today.html');
+t('Today leads with the live record', /id="pf-live"/.test(today) && /live_resolved/.test(today) && /No edge in live trading/.test(today));
+t('Today makes no "proof it works" or "Real $" claim', today.indexOf('the proof it works') < 0 && today.indexOf('Real $ track record') < 0);
+
 // 7. Worker sources parse strictly. `node --check` passed an ES-module file with an unescaped quote in a
 //    string (found 2026-11-03), so parse the bodies as scripts with imports/exports stripped.
 ['worker/src/index.js', 'worker/src/grading.js', 'worker/src/radar.js'].forEach(f => {

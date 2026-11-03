@@ -911,14 +911,18 @@ const DataProvider = (function() {
           if (typeof window.CrossSourceCheck !== 'undefined') {
             try { window.CrossSourceCheck.record(sym, 'coinbase', price); } catch (e) {}
           }
-          // Audit pass 14: preserve seed prevClose (yesterday's close).
+          // Audit 2026-11-03: crypto trades 24/7 and has no "previous close"; the baseline is Coinbase's own
+          // 24h open (open_24h). Pass 14 kept the SEED prevClose (the 2026-05-15 table), so BTC read -18.3%
+          // on a +1.4% day, and ETH's -46% vs its seed tripped Feed's >25% heal and read a fake flat 0%.
           q.last = price;
-          q.bid = parseFloat(m.best_bid) || +(price - 0.5).toFixed(2);
-          q.ask = parseFloat(m.best_ask) || +(price + 0.5).toFixed(2);
+          const open24 = parseFloat(m.open_24h);
+          if (isFinite(open24) && open24 > 0) { q.prevClose = open24; q.changeBasis = '24h'; }
+          q.bid = parseFloat(m.best_bid) || q.bid;
+          q.ask = parseFloat(m.best_ask) || q.ask;
           q.volume = parseFloat(m.volume_24h) || q.volume;
           q.dayHigh = parseFloat(m.high_24h) || q.dayHigh;
           q.dayLow = parseFloat(m.low_24h) || q.dayLow;
-          if (q.prevClose > 0) {
+          if (q.prevClose > 0 && q.changeBasis === '24h') {
             q.change = q.last - q.prevClose;
             q.changePct = (q.change / q.prevClose) * 100;
           }
@@ -993,7 +997,7 @@ const DataProvider = (function() {
       try {
         const controller = (typeof AbortController !== 'undefined') ? new AbortController() : null;
         const timeoutId = controller ? setTimeout(() => controller.abort(), 5000) : null;
-        const res = await fetch('https://api.exchange.coinbase.com/products/' + pair + '/ticker', {
+        const res = await fetch('https://api.exchange.coinbase.com/products/' + pair + '/stats', {
           method: 'GET',
           signal: controller ? controller.signal : undefined
         });
@@ -1004,7 +1008,7 @@ const DataProvider = (function() {
           continue;
         }
         const data = await res.json();
-        const price = parseFloat(data.price);
+        const price = parseFloat(data.last);   // /stats: last + open (24h), so the change has a real baseline
         if (!isFinite(price) || price <= 0) continue;
         // Validate via DataReliability before accepting
         if (typeof window.DataReliability !== 'undefined') {
@@ -1017,11 +1021,11 @@ const DataProvider = (function() {
           try { window.CrossSourceCheck.record(sym, 'coinbase-rest', price); } catch (e) {}
         }
         const q = QUOTES[sym];
-        // Audit pass 14: preserve seed prevClose (yesterday's close).
+        // Audit 2026-11-03: 24h open as the baseline (see the WS handler); no fabricated bid/ask spread.
         q.last = price;
-        q.bid = +(price - 0.5).toFixed(2);
-        q.ask = +(price + 0.5).toFixed(2);
-        if (q.prevClose > 0) {
+        const open24 = parseFloat(data.open);
+        if (isFinite(open24) && open24 > 0) { q.prevClose = open24; q.changeBasis = '24h'; }
+        if (q.prevClose > 0 && q.changeBasis === '24h') {
           q.change = q.last - q.prevClose;
           q.changePct = (q.change / q.prevClose) * 100;
         }

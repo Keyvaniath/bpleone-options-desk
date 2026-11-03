@@ -253,7 +253,7 @@ function buildNav(activePage) {
     + '<a href="index.html" class="logo"><div class="logo-mark">BP</div>'
     + '<span>bpleone <span style="color:var(--accent);font-weight:400">/ trade</span></span></a>'
     + '<a href="https://bpleone.com" target="_blank" rel="noopener" style="display:inline-flex;align-items:center;gap:6px;padding:6px 12px;margin-left:14px;background:var(--bg-elevated);border:1px solid var(--border);border-radius:14px;color:var(--text-secondary);font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;text-decoration:none;transition:all 0.15s;" onmouseover="this.style.borderColor=\'var(--accent)\';this.style.color=\'var(--accent)\';" onmouseout="this.style.borderColor=\'var(--border)\';this.style.color=\'var(--text-secondary)\';" title="Back to the bpleone.com hub">← Hub</a>'
-    + '<div id="nav-live-pulse" style="display:inline-flex;align-items:center;gap:6px;padding:6px 12px;margin-left:10px;background:rgba(16,185,129,0.12);border:1px solid rgba(16,185,129,0.4);border-radius:14px;color:#10b981;font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:0.5px;" title="Brain is alive and ticking"><span id="nav-pulse-dot" style="width:7px;height:7px;border-radius:50%;background:#10b981;box-shadow:0 0 8px #10b981;animation:bpleonePulse 1.5s ease-in-out infinite;"></span><span id="nav-pulse-text">LIVE</span></div>'
+    + '<div id="nav-live-pulse" style="display:inline-flex;align-items:center;gap:6px;padding:6px 12px;margin-left:10px;background:rgba(16,185,129,0.12);border:1px solid rgba(16,185,129,0.4);border-radius:14px;color:#10b981;font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:0.5px;" title="Brain is alive and ticking"><span id="nav-pulse-dot" style="width:7px;height:7px;border-radius:50%;background:#10b981;box-shadow:0 0 8px #10b981;animation:bpleonePulse 1.5s ease-in-out infinite;"></span><span id="nav-pulse-text">FEED</span></div>'
     + '<ul class="nav-links">'
     + '<li><a href="start-here.html" class="' + (activePage==='start-here'?'active':'') + '" style="font-weight:800;color:var(--accent);" title="New here? 2-minute orientation">🧭 Start Here</a></li>'
     + '<li><a href="today.html" class="' + (activePage==='today'?'active':'') + '" style="font-weight:800;">📅 Today</a></li>'
@@ -759,8 +759,12 @@ function initLivePulseTicker() {
     if (text) {
       const d = e.detail || {};
       if (d.captured > 0 || d.resolved > 0) {
+        // Audit 2026-11-03: restore the label the session/source check computed (DELAYED, CLOSED, ...),
+        // never a hardcoded 'LIVE' (it overwrote DELAYED after every brain cycle).
+        const prevLabel = (text.textContent.indexOf('+') === 0) ? (text.dataset.label || 'DELAYED') : text.textContent;
+        text.dataset.label = prevLabel;
         text.textContent = '+' + (d.captured || 0) + 'p ' + (d.resolved || 0) + 'r';
-        setTimeout(() => { if (text) text.textContent = 'LIVE'; }, 4000);
+        setTimeout(() => { if (text) text.textContent = text.dataset.label || prevLabel; }, 4000);
       }
     }
     if (dot) {
@@ -809,7 +813,9 @@ function initLivePulseTicker() {
   // so the pill doesn't lie about market state on weekends/nights.
   // Also detect whether the underlying source is realtime (Finnhub/Polygon/
   // CoinbaseWS) or delayed (Stooq) and tell the user the truth.
-  setInterval(() => {
+  // Audit 2026-11-03: the pill rendered "LIVE" for the first 8 s before this check ran; it now starts
+  // neutral ("FEED") and is classified at 1.5 s, then every 8 s.
+  const classifyFeed = () => {
     const text = document.getElementById('nav-pulse-text');
     const dot = document.getElementById('nav-pulse-dot');
     const pill = document.getElementById('nav-live-pulse');
@@ -825,7 +831,9 @@ function initLivePulseTicker() {
           if (!src) continue;
           const s = String(src).toLowerCase();
           if (s.indexOf('finnhub') !== -1 || s.indexOf('polygon') !== -1 || s.indexOf('alpaca') !== -1 || s.indexOf('tradier') !== -1 || (s.indexOf('coinbase') !== -1 && s.indexOf('refresh') === -1 && s.indexOf('rest') === -1)) realtimeCount++;
-          else if (s.indexOf('stooq') !== -1 || s.indexOf('coinbase-rest') !== -1 || s.indexOf('refresh') !== -1) delayedCount++;
+          // Audit 2026-11-03: worker-yahoo (the primary equity feed) and CDN snapshots are DELAYED. They were
+          // uncounted, so two Coinbase symbols outvoted ~75 delayed equities and the pill claimed real-time.
+          else if (s.indexOf('worker-yahoo') !== -1 || s.indexOf('snapshot') !== -1 || s.indexOf('stooq') !== -1 || s.indexOf('coinbase-rest') !== -1 || s.indexOf('refresh') !== -1) delayedCount++;
         }
       }
     } catch (e) {}
@@ -846,7 +854,7 @@ function initLivePulseTicker() {
         pill.style.background = 'rgba(245,158,11,0.12)';
         pill.style.borderColor = 'rgba(245,158,11,0.4)';
         pill.style.color = 'var(--yellow)';
-        pill.title = 'Stooq free tier — ~15 min delayed. Click for details / upgrade to real-time.';
+        pill.title = 'Equities: Yahoo last sale via the desk worker, not real-time (up to ~15 min behind). Crypto: real-time via Coinbase. Click for details.';
         // Make the pill click through to live-status
         if (!pill._clickWired) {
           pill.style.cursor = 'pointer';
@@ -879,7 +887,10 @@ function initLivePulseTicker() {
       pill.style.color = 'var(--text-muted)';
       pill.title = 'Market closed — ticker shows last close';
     }
-  }, 8000);
+    text.dataset.label = text.textContent;
+  };
+  setTimeout(classifyFeed, 1500);
+  setInterval(classifyFeed, 8000);
 }
 
 // Force live-data attempt on every page load. Stooq + Coinbase free polling
