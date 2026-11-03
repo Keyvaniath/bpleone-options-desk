@@ -64,5 +64,13 @@ t('single cache-bust version site-wide (' + [...versions].join(',') + ')', versi
 ['congress-ptr.yml', 'econ-calendar.yml', 'edge-lab.yml'].forEach(w =>
   t(w + ' writes a data/meta sidecar', /node _write_meta\.js /.test(read('.github/workflows/' + w)) && /data\/meta\//.test(read('.github/workflows/' + w))));
 
+// 7. Worker sources parse strictly. `node --check` passed an ES-module file with an unescaped quote in a
+//    string (found 2026-11-03), so parse the bodies as scripts with imports/exports stripped.
+['worker/src/index.js', 'worker/src/grading.js', 'worker/src/radar.js'].forEach(f => {
+  const body = read(f).replace(/^import .*$/mg, '').replace(/^export default /mg, 'const __d = ').replace(/^export /mg, '');
+  let okParse = true; try { new vm.Script('(async () => {' + body + '\n})'); } catch (e) { okParse = false; console.log('  ' + f + ': ' + e.message); }
+  t(f + ' parses strictly', okParse);
+});
+
 console.log(pass + ' passed, ' + fail + ' failed');
 process.exit(fail ? 1 : 0);

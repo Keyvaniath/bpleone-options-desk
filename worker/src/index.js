@@ -1,4 +1,5 @@
 import { RADAR_SET, RADAR_MAX_RECORDS, barsToDaily, buildCall, fillOutcomes, radarStats, etDateStr } from './radar.js';
+import { overlapScore, splitForCap, archiveBuckets, appendUnique, sealRecord, lastHash, verifyChain, windowOf, horizonStats } from './grading.js';
 /* ===========================================
    BPLEONE Brain Worker — 24/7 server-side brain
    ---
@@ -39,7 +40,7 @@ import { RADAR_SET, RADAR_MAX_RECORDS, barsToDaily, buildCall, fillOutcomes, rad
 // Pass 200: version stamp so brain-proof.html + worker-setup.html can detect
 // when the deployed worker is behind the repo source. Bump on every meaningful
 // behavior change. Read via /brain/health → worker_version field.
-const WORKER_VERSION = 'pass-317';
+const WORKER_VERSION = 'pass-318';
 
 const UNIVERSE = [
   'SPY','QQQ','IWM','DIA','AAPL','NVDA','TSLA','MSFT','META','AMZN','GOOGL','AMD',
@@ -507,6 +508,23 @@ async function kvPutTTL(env, key, value, ttlSec) {
 }
 async function kvDelete(env, key) {
   try { await env.BRAIN_KV.delete(key); } catch (e) {}
+}
+
+// Pass-318 (audit 2026-11-03): capped ledgers ARCHIVE what the cap would drop instead of deleting it.
+// Dropped records go to append-only monthly keys archive_<name>_<YYYYMM> (read: GET /brain/archive).
+// If an archive write fails the log is NOT trimmed this time (it may run slightly over the cap until the
+// next write succeeds), so a record is never lost to a failed write. Usually one bucket = 1 read + 1 write.
+async function capAndArchive(env, name, log, cap) {
+  const { kept, dropped } = splitForCap(log, cap);
+  if (!dropped.length) return kept;
+  const buckets = archiveBuckets(name, dropped);
+  for (const key of Object.keys(buckets)) {
+    try {
+      const existing = await kvGet(env, key, []);
+      await env.BRAIN_KV.put(key, JSON.stringify(appendUnique(existing, buckets[key])));
+    } catch (e) { return log; }
+  }
+  return kept;
 }
 
 // ============================================================
@@ -2690,34 +2708,19 @@ async function handleRequest(request, env, ctx) {
     const log = await kvGet(env, 'flow_log_v1', [], 60);   // pass 298 (scale): per-colo cached read
     const resolved = log.filter(e => e && e.resolved && typeof e.ret === 'number');
     const driftUp = resolved.length ? resolved.filter(e => e.ret > 0).length / resolved.length : 0.5;
-    function score(entries, dirFn) {
-      const calls = entries.map(e => ({ dir: dirFn(e), ret: e.ret })).filter(c => c.dir !== 0);
-      const n = calls.length;
-      const hits = calls.filter(c => (c.dir > 0 && c.ret > 0) || (c.dir < 0 && c.ret < 0)).length;
-      const avgDirRet = n ? calls.reduce((a, c) => a + c.ret * c.dir, 0) / n : null;
-      let nullHits = 0;
-      calls.forEach(c => { nullHits += (c.dir > 0 ? driftUp : (1 - driftUp)); });
-      const p0 = n ? nullHits / n : 0.5;
-      const zDrift = (n >= 5 && p0 > 0 && p0 < 1) ? (hits - n * p0) / Math.sqrt(n * p0 * (1 - p0)) : null;
-      return {
-        n, hits,
-        hit_rate: n ? +(hits / n).toFixed(4) : null,
-        drift_null_rate: +p0.toFixed(4),
-        avg_directional_ret_pct: avgDirRet != null ? +avgDirRet.toFixed(3) : null,
-        profitable: avgDirRet != null && avgDirRet > 0,
-        z_score_vs_drift: zDrift != null ? +zDrift.toFixed(2) : null,
-        beats_drift_95: zDrift != null && zDrift > 1.64
-      };
-    }
+    // Pass-318 (audit 2026-11-03): graded with the SAME overlap correction as /brain/confluence-score
+    // (worker/src/grading.js). Before this, n counted every daily call on overlapping 5-day windows as
+    // independent, overstating the evidence in both directions.
+    const score = (entries, dirFn) => overlapScore(entries, dirFn, driftUp);
     const leg = score(resolved, e => e.flowDir);
     const VERDICT_MIN_N = 20;
     const pending = log.filter(e => e && !e.resolved).length;
     const vpct = x => (x == null ? '—' : (x * 100).toFixed(1) + '%');
     let verdict;
-    if (leg.n < VERDICT_MIN_N) {
+    if (leg.n < VERDICT_MIN_N || leg.effective_n < 5) {
       verdict = {
-        ready: false, status: 'ACCRUING', graded: leg.n, needed: VERDICT_MIN_N, pending,
-        headline: 'Options-flow forward-test still accruing — ' + leg.n + ' of ' + VERDICT_MIN_N + ' flow calls graded. No verdict yet; each call grades 5 trading days after capture, so this fills in over the coming weeks.'
+        ready: false, status: 'ACCRUING', graded: leg.n, effective_n: leg.effective_n, needed: VERDICT_MIN_N, pending,
+        headline: 'Options-flow forward-test still accruing — ' + leg.n + ' of ' + VERDICT_MIN_N + ' flow calls graded (' + leg.effective_n + ' independent). No verdict yet; each call grades 5 trading days after capture, so this fills in over the coming weeks.'
       };
     } else {
       const beats = !!leg.beats_drift_95, profitable = !!leg.profitable;
@@ -2725,18 +2728,24 @@ async function handleRequest(request, env, ctx) {
       verdict = {
         ready: true,
         status: (beats && profitable) ? 'EDGE' : 'NO_EDGE',
-        graded: leg.n, hit_rate: leg.hit_rate, drift_base_rate: leg.drift_null_rate,
+        graded: leg.n, effective_n: leg.effective_n, hit_rate: leg.hit_rate, drift_base_rate: leg.drift_null_rate,
+        z_score_vs_drift: leg.z_score_vs_drift, z_score_vs_drift_raw: leg.z_score_vs_drift_raw,
         avg_return_pct: leg.avg_directional_ret_pct, profitable, beats_drift_95: beats,
         headline: (beats && profitable)
           ? 'YES — free options-flow shows edge. Following the daily $-flow direction hits ' + vpct(leg.hit_rate) + ' over ' + leg.n + ' graded calls, beats the market-drift base rate (' + vpct(leg.drift_null_rate) + ') at 95%, and is profitable (avg ' + retStr + ' per call). This justifies pursuing richer / real-time flow data.'
           : (!profitable
-            ? 'NO — flow calls are directionally right ' + vpct(leg.hit_rate) + ' (n=' + leg.n + '), but average return is ' + retStr + ' per call: not profitable (small wins, big losses on misses). Free options-flow shows no tradeable edge.'
-            : 'NO — flow hits ' + vpct(leg.hit_rate) + ' (n=' + leg.n + '), but that does not clear the market-drift base rate (' + vpct(leg.drift_null_rate) + ') at 95%: the hit rate is explained by drift, not a flow edge.')
+            ? 'NO — flow calls are directionally right ' + vpct(leg.hit_rate) + ' (n=' + leg.n + ', ' + leg.effective_n + ' independent), but average return is ' + retStr + ' per call: not profitable (small wins, big losses on misses). Free options-flow shows no tradeable edge.'
+            : 'NO — flow hits ' + vpct(leg.hit_rate) + ' (n=' + leg.n + ', ' + leg.effective_n + ' independent), but that does not clear the market-drift base rate (' + vpct(leg.drift_null_rate) + ') at 95%: the hit rate is explained by drift, not a flow edge.')
       };
     }
     return json({
       ok: true, signal: 'free-cboe-options-flow', leg, verdict,
-      note: 'Forward-test of the FREE daily options-flow signal: each weekday the worker captures the $-flow direction per liquid name, grades the realized 5-day move, and checks whether following the flow beats the market-drift base rate at 95%. Honest null = drift; a high hit-rate that merely rides drift is not edge.'
+      window: windowOf(log),                 // pass-318: what the (capped, rolling) ledger actually covers
+      retention: { cap: 4000, archive: '/brain/archive?log=flow', note: 'From pass-318 the cap archives older calls instead of deleting them. Calls rotated out before pass-318 are gone.' },
+      horizon: horizonStats(resolved),       // realized calendar days capture -> exit (records from pass-318 on)
+      sealed: log.filter(e => e && e.hash).length,
+      method: 'Each weekday the worker reads the CBOE free chain (15-min delayed, daily aggregates, NOT trade-level sweeps or blocks), sums call vs put $-volume (volume x mid x 100) per name, and logs a direction when |net| > 15%. Entry = the signals-snapshot last price; exit = the Yahoo quote at the first resolving tick >= 7 calendar days later (about 5 sessions; the realized horizon is published under horizon). Hit rate is graded against the market-drift null with the overlap correction: same-name same-direction calls within 9 days count as one independent observation.',
+      note: 'Forward-test of the FREE daily options-flow signal. Honest null = drift; a high hit-rate that merely rides drift is not edge. A negative z means the flow direction did worse than drift.'
     }, 200, 60);   // pass 298 (scale): response cache
   }
 
@@ -3144,8 +3153,41 @@ async function handleRequest(request, env, ctx) {
         dir: e.brainDir, ret: e.ret, predProb: e.predProb,
         conf: (e.brainDir !== 0 && e.insDir !== 0 && Math.sign(e.brainDir) === Math.sign(e.insDir))
       })),
-      note: 'Live FORWARD test: each daily directional call graded against the real 5-trading-day move. Hit = direction correct. beats_coin_flip_95 = one-sided z>1.64. Small N early — this fills out over weeks. The brain’s BACKtested edge is in /brain/metrics.'
+      // Pass-318 (audit 2026-11-03): disclose what the capped ledger covers. At ~80 calls/day the 4,000 cap
+      // made this a ROLLING ~7-week window; it now archives instead of deleting (calls dropped earlier are gone).
+      window: windowOf(log),
+      retention: { cap: 4000, at_cap: log.length >= 4000, archive: '/brain/archive?log=confluence', note: 'From pass-318 the cap archives older calls instead of deleting them. Calls rotated out before pass-318 are gone, so every figure here covers the window above, not the full history.' },
+      horizon: horizonStats(resolved),
+      sealed: log.filter(e => e && e.hash).length,
+      note: 'Live FORWARD test: each daily directional call graded against the realized move from the signals-snapshot entry to the Yahoo quote at the first resolving tick >= 7 calendar days later (about 5 sessions; see horizon). Hit = direction correct. Significance uses the overlap correction (effective_n). The brain’s BACKtested edge is in /brain/metrics.'
     }, 200, 60);   // pass 298 (scale): response cache
+  }
+
+  // ===== Pass-318: append-only archive of ledger records the caps rotated out (read-only).
+  // GET /brain/archive?log=flow|confluence|radar            -> the months held + counts
+  // GET /brain/archive?log=flow|confluence|radar&month=YYYYMM -> that month's records
+  if (path === '/brain/archive') {
+    const name = (url.searchParams.get('log') || '').toLowerCase();
+    if (['flow', 'confluence', 'radar'].indexOf(name) < 0) return json({ ok: false, error: 'log must be flow, confluence or radar' }, 400);
+    const month = (url.searchParams.get('month') || '').replace(/[^0-9]/g, '').slice(0, 6);
+    if (month) {
+      const recs = await kvGet(env, 'archive_' + name + '_' + month, [], 300);
+      return json({ ok: true, log: name, month, count: recs.length, records: recs }, 200, 300);
+    }
+    let keys = [];
+    try { const l = await env.BRAIN_KV.list({ prefix: 'archive_' + name + '_' }); keys = (l.keys || []).map(k => k.name); } catch (e) {}
+    return json({ ok: true, log: name, months: keys.map(k => k.slice(('archive_' + name + '_').length)).sort(),
+      note: 'Records the 4,000 (flow, confluence) / 6,000 (radar) caps rotated out, kept append-only from pass-318 on.' }, 200, 3600);
+  }
+
+  // ===== Pass-318: verify the hash chain of sealed capture records (read-only).
+  if (path === '/brain/ledger-verify') {
+    const name = (url.searchParams.get('log') || '').toLowerCase();
+    const key = { flow: 'flow_log_v1', confluence: 'confluence_log_v1' }[name];
+    if (!key) return json({ ok: false, error: 'log must be flow or confluence' }, 400);
+    const log = await kvGet(env, key, [], 60);
+    const v = await verifyChain(log);
+    return json(Object.assign({ ok: true, log: name, note: 'Each sealed record hashes its capture fields plus the previous sealed record’s hash. Outcome fields are appended later and are outside the seal. Legacy = captured before pass-318 (unsealed).' }, v), 200, 300);
   }
 
   // ===== Pass 254: today's broadcast picks — the single Pick of the Day + the
@@ -4575,10 +4617,13 @@ async function maybeFlowScorecard(env) {
             if (!ch || !Array.isArray(ch.contracts) || !ch.contracts.length) continue;
             const f = flowAgg(ch);
             if (f.dir === 0) continue;   // no directional flow call to grade today
-            log.push({ dayKey, ts: Date.now(), sym, entry: +sigMap[sym].last, flowDir: f.dir, netDollarPct: f.netDollarPct, resolved: false });
+            // Pass-318: sealed capture record (rules version, worker version, data provenance, hash chain).
+            log.push(await sealRecord({ dayKey, ts: Date.now(), sym, entry: +sigMap[sym].last, flowDir: f.dir, netDollarPct: f.netDollarPct,
+              v: 2, rules: 'flow-v1-netdollar-0.15', worker: WORKER_VERSION, chain: { provider: ch.provider || null, delayedMin: ch.delayedMin == null ? null : ch.delayedMin },
+              entrySrc: 'signals-snapshot', entryAsOf: snap.updatedAt || null, resolved: false }, lastHash(log)));
           } catch (e) { /* skip this symbol; never break the snapshot */ }
         }
-        await kvPut(env, 'flow_log_v1', log.slice(-4000));
+        await kvPut(env, 'flow_log_v1', await capAndArchive(env, 'flow', log, 4000));
         await kvPut(env, 'flow_snap_day_v1', dayKey);
         return;   // capture this tick; resolve on a later one (bound the work)
       }
@@ -4596,6 +4641,9 @@ async function maybeFlowScorecard(env) {
       e.exit = +q.last.toFixed(2);
       e.ret = +(((q.last - e.entry) / e.entry) * 100).toFixed(3);   // 5-day % move
       e.resolved = true;
+      // Pass-318: the exit is the quote at the resolving tick (>= 7 calendar days after capture), not a
+      // fixed close. Record when, so /brain/flow-score can publish the realized horizon distribution.
+      e.exitTs = now; e.exitSrc = 'yahoo-quote-at-resolve'; e.horizonDays = +((now - e.ts) / 86400000).toFixed(2);
       dirty = true;
     }
     if (dirty) await kvPut(env, 'flow_log_v1', log);
@@ -4688,7 +4736,7 @@ async function maybeRadarLog(env) {
         state.done.push(sym); state.gaps.push(sym);
       }
     }
-    if (dirty) await kvPut(env, 'radar_log_v1', log.slice(-RADAR_MAX_RECORDS));
+    if (dirty) await kvPut(env, 'radar_log_v1', await capAndArchive(env, 'radar', log, RADAR_MAX_RECORDS));
     await kvPut(env, 'radar_state_v1', state);
     if (state.trading === false || state.done.length >= RADAR_SET.length) RADAR_DONE_DAY = clk.day;
   } catch (e) { /* never let the radar log break the cron */ }
@@ -4718,9 +4766,12 @@ async function maybeConfluenceScorecard(env) {
           const brainDir = pm >= 0.52 ? 1 : pm <= 0.48 ? -1 : 0;
           const insDir = insMap[s.sym] || 0;
           if (brainDir === 0 && insDir === 0) continue;     // no call to grade
-          log.push({ dayKey, ts: Date.now(), sym: s.sym, entry: s.last, brainDir, insDir, predProb: +pm.toFixed(4), resolved: false });
+          log.push(await sealRecord({ dayKey, ts: Date.now(), sym: s.sym, entry: s.last, brainDir, insDir, predProb: +pm.toFixed(4),
+            v: 2, rules: 'confluence-v1-brain0.52-insider', worker: WORKER_VERSION, entrySrc: 'signals-snapshot', entryAsOf: snap.updatedAt || null,
+            resolved: false }, lastHash(log)));
         }
-        await kvPut(env, 'confluence_log_v1', log.slice(-4000));  // cap to bound KV size
+        // Pass-318: the 4,000 cap now archives instead of deleting (it had been rotating ~80 calls/day out).
+        await kvPut(env, 'confluence_log_v1', await capAndArchive(env, 'confluence', log, 4000));
         await kvPut(env, 'confluence_snap_day_v1', dayKey);
         return;  // don't also resolve this tick — bound the work
       }
@@ -4738,6 +4789,7 @@ async function maybeConfluenceScorecard(env) {
       e.exit = +q.last.toFixed(2);
       e.ret = +(((q.last - e.entry) / e.entry) * 100).toFixed(3);  // 5-day % move
       e.resolved = true;
+      e.exitTs = now; e.exitSrc = 'yahoo-quote-at-resolve'; e.horizonDays = +((now - e.ts) / 86400000).toFixed(2);   // pass-318
       dirty = true;
     }
     if (dirty) await kvPut(env, 'confluence_log_v1', log);

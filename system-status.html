@@ -92,7 +92,7 @@ table.ss td.note { color:var(--text-muted);font-size:11.5px;line-height:1.5;min-
   // Read-only: public worker GETs, the site's own data files, and GitHub's public Actions API. No keys.
   const WORKER = (window.WorkerBridge && WorkerBridge.getUrl && WorkerBridge.getUrl()) || 'https://bpleone-brain-worker.brandonpleone.workers.dev';
   const REPO = 'Keyvaniath/bpleone-options-desk';
-  const EXPECTED_WORKER_VERSION = 'pass-317';   // bump with WORKER_VERSION in worker/src/index.js (and worker-setup.html)
+  const EXPECTED_WORKER_VERSION = 'pass-318';   // bump with WORKER_VERSION in worker/src/index.js (and worker-setup.html)
   const CONFLUENCE_CAP = 4000;                  // confluence_log_v1 retention cap in the worker
 
   // Freshness targets, minutes. "hours" = when the target applies; outside it the row is IDLE, not stale.
@@ -238,12 +238,16 @@ table.ss td.note { color:var(--text-muted);font-size:11.5px;line-height:1.5;min-
     if (conf._err || conf.total_logged == null) add('Confluence forward test', KIND.batch, null, null, '< cap', 'bad', 'Unreadable.');
     else {
       const atCap = conf.total_logged >= CONFLUENCE_CAP;
-      add('Confluence forward test', KIND.batch, null, null, '< ' + CONFLUENCE_CAP + ' rows', atCap ? 'warn' : 'ok',
-        conf.total_logged + ' logged, ' + conf.graded + ' graded, ' + conf.pending + ' pending. ' + (atCap ? 'AT THE RETENTION CAP: the oldest calls are dropped as new ones arrive and there is no archive yet, so the long-run record is not preserved.' : ''));
+      const archived = !!(conf.retention && conf.retention.archive);   // worker pass-318+
+      const win = conf.window && conf.window.first_day ? ' Covers ' + conf.window.first_day + ' to ' + conf.window.last_day + '.' : '';
+      add('Confluence forward test', KIND.batch, null, null, '< ' + CONFLUENCE_CAP + ' rows', (atCap && !archived) ? 'warn' : 'ok',
+        conf.total_logged + ' logged, ' + conf.graded + ' graded, ' + conf.pending + ' pending.' + win + ' ' +
+        (atCap ? (archived ? 'At the cap: older calls now move to the archive (/brain/archive), so figures cover the window above, not the full history.' : 'AT THE RETENTION CAP: the oldest calls are dropped as new ones arrive and there is no archive yet, so the long-run record is not preserved.') : ''));
     }
     if (flow._err || !flow.verdict) add('Options-flow forward test', KIND.batch, null, null, '—', 'bad', 'Unreadable.');
     else add('Options-flow forward test', KIND.batch, null, null, '—', 'ok',
-      flow.verdict.graded + ' graded, hit rate ' + (flow.verdict.hit_rate * 100).toFixed(1) + '% vs drift ' + (flow.verdict.drift_base_rate * 100).toFixed(1) + '%: ' + esc(flow.verdict.status) + '. Daily CBOE aggregates, not trade-level flow. Not yet overlap-corrected, so its n overstates independent observations.');
+      flow.verdict.graded + ' graded' + (flow.leg && flow.leg.effective_n != null ? ' (' + flow.leg.effective_n + ' independent)' : '') + ', hit rate ' + (flow.verdict.hit_rate * 100).toFixed(1) + '% vs drift ' + (flow.verdict.drift_base_rate * 100).toFixed(1) + '%: ' + esc(flow.verdict.status) + '. Daily CBOE aggregates, not trade-level flow. ' +
+      (flow.leg && flow.leg.effective_n != null ? 'Overlap-corrected.' : 'Not yet overlap-corrected (worker before pass-318), so its n overstates independent observations.'));
 
     // 5. Batch files on the site
     if (!Array.isArray(econ) || !econ.length) add('Economic calendar', KIND.batch, null, null, 'covers this week', 'bad', 'data/econ-calendar-thisweek.json unreadable or empty.');
