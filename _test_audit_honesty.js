@@ -64,6 +64,12 @@ t('single cache-bust version site-wide (' + [...versions].join(',') + ')', versi
 ['congress-ptr.yml', 'econ-calendar.yml', 'edge-lab.yml'].forEach(w =>
   t(w + ' writes a data/meta sidecar', /node _write_meta\.js /.test(read('.github/workflows/' + w)) && /data\/meta\//.test(read('.github/workflows/' + w))));
 
+// 6b. Pick pages that rank with the browser model show the worker's NO PLAY gate first.
+const gate = read('js/no-play-gate.js');
+t('no-play gate reads /brain/picks and handles closed + unreachable', /\/brain\/picks/.test(gate) && /No qualifying setups today/.test(gate) && /Could not confirm/.test(gate));
+['trade-of-the-day', 'brain-bet', 'conviction-stack', 'morning-brief'].forEach(p =>
+  t(p + ' loads the NO PLAY gate', read(p + '.html').indexOf('js/no-play-gate.js') >= 0 && gate.indexOf("'" + p + "'") >= 0));
+
 // 7. Worker sources parse strictly. `node --check` passed an ES-module file with an unescaped quote in a
 //    string (found 2026-11-03), so parse the bodies as scripts with imports/exports stripped.
 ['worker/src/index.js', 'worker/src/grading.js', 'worker/src/radar.js'].forEach(f => {
