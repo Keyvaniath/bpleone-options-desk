@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" media="print" onload="this.media='all'"><noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap"></noscript>
-<link rel="stylesheet" href="css/style.css?v=v228">
+<link rel="stylesheet" href="css/style.css?v=v230">
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
 <style>
@@ -94,11 +94,11 @@
 
 <div id="site-footer"></div>
 
-<script src="js/data-provider.js?v=v228"></script>
-<script src="js/ai-client.js?v=v228"></script>
-<script src="js/app.js?v=v228"></script>
-<script src="js/notify.js?v=v228"></script>
-<script src="js/live.js?v=v228"></script>
+<script src="js/data-provider.js?v=v230"></script>
+<script src="js/ai-client.js?v=v230"></script>
+<script src="js/app.js?v=v230"></script>
+<script src="js/notify.js?v=v230"></script>
+<script src="js/live.js?v=v230"></script>
 <script>
 buildNav('alerts-builder');
 
@@ -137,7 +137,11 @@ function refreshRsiBars() {
       const bars = (j && (j.bars || j)) || {};
       syms.forEach(s => {
         const arr = Array.isArray(bars[s]) ? bars[s] : [];
-        rsiBars[s] = { closes: arr.map(b => +b.c).filter(c => c > 0), lastTs: arr.length ? arr[arr.length - 1].ts : 0, ts: Date.now() };
+        // Completed sessions must be verified (fin=1, worker pass-319); today's bar is replaced by the live print.
+        const etD = ts => new Date(ts).toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
+        const completed = arr.filter(b => etD(b.ts) !== etD(Date.now()));
+        const ok = completed.length >= 15 && completed.slice(-15).every(b => b.fin);
+        rsiBars[s] = { closes: ok ? arr.map(b => +b.c).filter(c => c > 0) : [], lastTs: arr.length ? arr[arr.length - 1].ts : 0, ts: Date.now() };
       });
       paint();
     }).catch(() => {});
@@ -228,7 +232,7 @@ function paint() {
       const currentVal = getValue(a.sym, a.field);
       card.innerHTML = '<div style="display:flex;justify-content:space-between;align-items:start;">'
         + '<div style="flex:1;"><div style="font-weight:700;font-size:14px;">' + a.sym + ' ' + a.field + ' ' + a.op + ' ' + a.value + '</div>'
-        + '<div style="font-size:12px;color:var(--text-muted);margin-top:4px;">→ ' + a.action + ' · ' + a.repeat + ' · current: ' + (currentVal == null ? (a.field === 'rsi' ? 'RSI n/a (no bar history yet)' : 'no live quote') : currentVal.toFixed(2)) + (a.fireCount ? ' · fired ' + a.fireCount + 'x' : '') + '</div></div>'
+        + '<div style="font-size:12px;color:var(--text-muted);margin-top:4px;">→ ' + a.action + ' · ' + a.repeat + ' · current: ' + (currentVal == null ? (a.field === 'rsi' ? 'RSI n/a (no verified bar history yet)' : 'no live quote') : currentVal.toFixed(2)) + (a.fireCount ? ' · fired ' + a.fireCount + 'x' : '') + '</div></div>'
         + '<div style="display:flex;gap:6px;">'
         + '<button class="btn btn-ghost toggle" data-i="' + i + '" style="padding:4px 10px;font-size:11px;">' + (a.enabled ? '⏸' : '▶') + '</button>'
         + '<button class="btn btn-ghost del" data-i="' + i + '" style="padding:4px 10px;font-size:11px;color:var(--red);">🗑</button></div></div>';

@@ -1,5 +1,6 @@
 import { RADAR_SET, RADAR_MAX_RECORDS, barsToDaily, buildCall, fillOutcomes, radarStats, etDateStr } from './radar.js';
 import { overlapScore, splitForCap, archiveBuckets, appendUnique, sealRecord, lastHash, verifyChain, windowOf, horizonStats } from './grading.js';
+import { etDayKey, reconcileBars, overlayToday } from './bars.js';
 /* ===========================================
    BPLEONE Brain Worker — 24/7 server-side brain
    ---
@@ -40,7 +41,7 @@ import { overlapScore, splitForCap, archiveBuckets, appendUnique, sealRecord, la
 // Pass 200: version stamp so brain-proof.html + worker-setup.html can detect
 // when the deployed worker is behind the repo source. Bump on every meaningful
 // behavior change. Read via /brain/health → worker_version field.
-const WORKER_VERSION = 'pass-318';
+const WORKER_VERSION = 'pass-319';
 
 const UNIVERSE = [
   'SPY','QQQ','IWM','DIA','AAPL','NVDA','TSLA','MSFT','META','AMZN','GOOGL','AMD',
@@ -2117,14 +2118,20 @@ async function handleRequest(request, env, ctx) {
     reqB = [...new Set(reqB)];
     const daysB = Math.min(40, Math.max(2, parseInt(url.searchParams.get('days') || '40', 10) || 40));
     const barsHistory = await kvGet(env, KV_KEYS.BARS_HISTORY, {}, 30);   // pass 299 (scale): per-colo cached read of the large bars blob
+    // Pass-319: today's stored bar is a ~9:30-9:40 snapshot until the evening finalize; serve it overlaid with
+    // the latest cached session quote (one extra KV read, colo-cached; no writes).
+    let liveQ = {};
+    try { const raw = await env.BRAIN_KV.get('live_quotes_cache_v1', { cacheTtl: 30 }); if (raw) liveQ = (JSON.parse(raw) || {}).quotes || {}; } catch (e) {}
+    const todayKeyB = etDayKey(Date.now());
     const outB = {};
     for (const sym of reqB) {
       const h = barsHistory[sym];
       if (Array.isArray(h) && h.length) {
-        outB[sym] = h.slice(-daysB).map(b => ({ ts: b.ts, o: b.open, h: b.high, l: b.low, c: b.close, v: b.volume }));
+        outB[sym] = h.slice(-daysB).map(b => overlayToday({ ts: b.ts, o: b.open, h: b.high, l: b.low, c: b.close, v: b.volume, fin: b.fin ? 1 : 0 }, liveQ[sym], todayKeyB));
       }
     }
-    return json({ count: Object.keys(outB).length, days: daysB, bars: outB }, 200, 30);
+    return json({ count: Object.keys(outB).length, days: daysB, bars: outB,
+      note: 'fin=1: the bar matches the real daily OHLCV (finalized after 4:45 PM ET, pass-319). fin=0: not yet verified. live=1: today\u2019s bar overlaid with the latest session quote (delayed), final only after the evening finalize.' }, 200, 30);
   }
 
   // ===== Pass 304: LONG-horizon daily closes (for the multi-timeframe "Horizons"
@@ -4742,6 +4749,41 @@ async function maybeRadarLog(env) {
   } catch (e) { /* never let the radar log break the cron */ }
 }
 
+// Pass-319 (audit 2026-11-03): FINALIZE the stored daily bars after the close. Pass 209 persists a day-bar
+// only when it is created (~9:30-9:40 ET); later intraday updates are memory-only, so between auto-bootstraps
+// every stored bar was a morning snapshot (SPY 2026-11-02 stored close 759.54 vs the real 752.10; NVDA's range
+// $1.11 vs $8.32). After 16:45 ET each weekday this reconciles every stored bar per symbol with Yahoo's real
+// daily OHLCV (worker/src/bars.js), BARS_FINALIZE_BATCH symbols per tick, one BARS_HISTORY write per tick.
+const BARS_FINALIZE_BATCH = 6;
+let BARS_DONE_DAY = null;
+async function maybeFinalizeBars(env) {
+  try {
+    const clk = etClock();
+    if (clk.dow === 'Sat' || clk.dow === 'Sun' || clk.t < 16.75) return;   // 4:45 PM ET: official closes have settled
+    if (BARS_DONE_DAY === clk.day) return;
+    const prev = await kvGet(env, 'bars_finalize_v1', null);
+    const state = (prev && prev.day === clk.day) ? prev : { day: clk.day, done: [], tries: {}, changed: 0, verified: 0 };
+    const barsHistory = await kvGet(env, KV_KEYS.BARS_HISTORY, {});
+    const syms = Object.keys(barsHistory).filter(k => Array.isArray(barsHistory[k]) && barsHistory[k].length);
+    const todo = syms.filter(k => !state.done.includes(k)).slice(0, BARS_FINALIZE_BATCH);
+    if (!todo.length) { BARS_DONE_DAY = clk.day; return; }
+    const todayKey = etDayKey(Date.now());
+    let dirty = false;
+    for (const sym of todo) {
+      state.tries[sym] = (state.tries[sym] || 0) + 1;
+      const hist = await fetchYahooHistorical(sym, 60);
+      if (!Array.isArray(hist) || !hist.length) { if (state.tries[sym] >= 3) state.done.push(sym); continue; }
+      const r = reconcileBars(barsHistory[sym], hist, todayKey, true);
+      if (r.changed || r.verified) dirty = true;
+      state.changed += r.changed; state.verified += r.verified;
+      state.done.push(sym);
+    }
+    if (dirty) await kvPut(env, KV_KEYS.BARS_HISTORY, barsHistory);
+    await kvPut(env, 'bars_finalize_v1', state);
+    if (state.done.length >= syms.length) BARS_DONE_DAY = clk.day;
+  } catch (e) { /* never let the finalizer break the cron */ }
+}
+
 async function maybeConfluenceScorecard(env) {
   try {
     const dayKey = etDayKeyNow();
@@ -4814,6 +4856,8 @@ export default {
     ctx.waitUntil(maybeFlowScorecard(env));
     // Pass 317: radar call ledger (after the close; own log + try/catch)
     ctx.waitUntil(maybeRadarLog(env));
+    // Pass-319: finalize the stored daily bars against the real daily OHLCV (after the close)
+    ctx.waitUntil(maybeFinalizeBars(env));
     // Pass 257: daily delivery — post Pick of the Day to Discord (weekday AM, once)
     ctx.waitUntil(maybeDailyDigest(env));
   }

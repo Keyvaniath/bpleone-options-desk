@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" media="print" onload="this.media='all'"><noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap"></noscript>
-<link rel="stylesheet" href="css/style.css?v=v228">
+<link rel="stylesheet" href="css/style.css?v=v230">
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
 <style>
@@ -67,26 +67,28 @@
     <div class="card"><div class="card-header"><div class="card-title">SPY</div></div><div class="mono" style="font-size:24px;font-weight:700;" id="hSpy">—</div><div style="font-size:12px;color:var(--text-muted);" id="hSpyChg">—</div></div>
     <div class="card"><div class="card-header"><div class="card-title">VIX</div></div><div class="mono" style="font-size:24px;font-weight:700;" id="hVix">—</div><div style="font-size:12px;color:var(--text-muted);" id="hRegime">—</div></div>
     <div class="card"><div class="card-header"><div class="card-title">Top Mover Right Now</div></div><div class="mono" style="font-size:24px;font-weight:700;" id="hTop">—</div><div style="font-size:12px;color:var(--text-muted);" id="hTopChg">—</div></div>
-    <div class="card"><div class="card-header"><div class="card-title">Desk Win Rate (YTD)</div></div><div class="mono green-text" style="font-size:24px;font-weight:700;" id="hWin">—</div><div style="font-size:12px;color:var(--text-muted);" id="hWinSub">—</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">Your logged trades (this browser)</div></div><div class="mono" style="font-size:24px;font-weight:700;" id="hWin">—</div><div style="font-size:12px;color:var(--text-muted);" id="hWinSub">—</div></div>
   </div>
 
   <!-- Main 3-col -->
   <div class="grid grid-12">
     <div class="card col-5">
-      <div class="card-header"><div class="card-title">⭐ Top 5 Setups Right Now</div></div>
+      <div class="card-header"><div class="card-title">📈 Biggest movers right now (not picks)</div></div>
       <div id="topPlays"></div>
-      <a href="plays.html" class="btn btn-ghost" style="font-size:11px;padding:4px 10px;margin-top:10px;display:inline-block;">All Plays →</a>
+      <a href="plays.html" class="btn btn-ghost" style="font-size:11px;padding:4px 10px;margin-top:10px;display:inline-block;">Movers list →</a>
     </div>
 
     <div class="card col-4">
       <div class="card-header"><div class="card-title">🏦 Today's Catalysts</div></div>
       <div id="catList"></div>
+      <div id="catSrc" style="font-size:10.5px;color:var(--text-muted);margin-top:8px;line-height:1.5;"></div>
       <a href="economic-events.html" class="btn btn-ghost" style="font-size:11px;padding:4px 10px;margin-top:10px;display:inline-block;">Full Calendar →</a>
     </div>
 
     <div class="card col-3">
       <div class="card-header"><div class="card-title">📐 Key Levels — SPY</div></div>
       <div id="lvlList"></div>
+      <div id="lvlSrc" style="font-size:10.5px;color:var(--text-muted);margin-top:8px;line-height:1.5;"></div>
       <a href="ticker.html?sym=SPY" class="btn btn-ghost" style="font-size:11px;padding:4px 10px;margin-top:10px;display:inline-block;">SPY Focus →</a>
     </div>
   </div>
@@ -145,16 +147,36 @@
 
 <div id="site-footer"></div>
 
-<script src="js/data-provider.js?v=v228"></script>
-<script src="js/ai-client.js?v=v228"></script>
-<script src="js/app.js?v=v228"></script>
-<script src="js/notify.js?v=v228"></script>
-<script src="js/live.js?v=v228"></script>
-<script src="js/ta.js?v=v228"></script>
-<script src="js/learn.js?v=v228"></script>
-<script src="js/discord.js?v=v228"></script>
+<script src="js/data-provider.js?v=v230"></script>
+<script src="js/ai-client.js?v=v230"></script>
+<script src="js/app.js?v=v230"></script>
+<script src="js/notify.js?v=v230"></script>
+<script src="js/live.js?v=v230"></script>
+<script src="js/ta.js?v=v230"></script>
+<script src="js/learn.js?v=v230"></script>
+<script src="js/discord.js?v=v230"></script>
+<script src="js/no-play-gate.js?v=v230" defer></script>
 <script>
 buildNav('game-plan');
+
+// Audit 2026-11-03: every number on this page comes from a real feed or is shown as unavailable. Before this,
+// "Today's Catalysts" was a hardcoded list (CPI, "Fed Speak - Powell", "NVDA earnings next week", "Tomorrow NFP")
+// shown every day, the SPY "key levels" were fixed multiples of the price (52w high = x1.05, VWAP = x0.999,
+// 50DMA = x0.97, 200DMA = x0.93), and the "Top 5 Setups" were the day's biggest movers (seed rows included)
+// labeled with spreads and a 55 + 5 x |%| score.
+const WORKER = (window.WorkerBridge && WorkerBridge.getUrl && WorkerBridge.getUrl()) || 'https://bpleone-brain-worker.brandonpleone.workers.dev';
+const REAL_SRC = { 'worker-yahoo': 1, 'snapshot': 1, 'coinbase': 1, 'coinbase-ws': 1, 'coinbase-rest': 1, 'finnhub': 1, 'polygon': 1, 'alpaca': 1, 'tradier': 1 };
+const esc = x => String(x == null ? '' : x).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const etDayOf = ts => new Date(ts).toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
+function realQ(sym) {
+  const q = (typeof QUOTES !== 'undefined') ? QUOTES[sym] : null;
+  return (q && q.last > 0 && (q.fresh || REAL_SRC[q.priceSource])) ? q : null;
+}
+function realQuotes() {
+  if (typeof QUOTES === 'undefined') return [];
+  return Object.keys(QUOTES).map(k => { const q = realQ(k); return q ? Object.assign({ symbol: k }, q, { symbol: q.symbol || k }) : null; })
+    .filter(q => q && isFinite(q.changePct));
+}
 
 function refreshDateAndSession() {
   const d = new Date();
@@ -178,7 +200,7 @@ setInterval(refreshDateAndSession, 1000);
 
 function refreshStats() {
   if (typeof QUOTES === 'undefined') return;
-  const spy = QUOTES.SPY, vix = QUOTES.VIX;
+  const spy = realQ('SPY'), vix = realQ('VIX');
   if (spy) {
     document.getElementById('hSpy').textContent = '$' + spy.last.toFixed(2);
     const el = document.getElementById('hSpyChg');
@@ -190,7 +212,7 @@ function refreshStats() {
     const reg = (typeof Learn !== 'undefined') ? Learn.bucketVixRegime(vix.last) : '—';
     document.getElementById('hRegime').textContent = reg.charAt(0).toUpperCase() + reg.slice(1) + ' vol regime';
   }
-  const sorted = Object.values(QUOTES).filter(q => q.symbol !== 'VIX').sort((a, b) => Math.abs(b.changePct) - Math.abs(a.changePct));
+  const sorted = realQuotes().filter(q => q.symbol !== 'VIX').sort((a, b) => Math.abs(b.changePct) - Math.abs(a.changePct));
   const top = sorted[0];
   if (top) {
     document.getElementById('hTop').textContent = top.symbol;
@@ -204,8 +226,8 @@ function refreshStats() {
       const st = Learn.load();
       const closed = st.trades.filter(t => t.result);
       const wins = closed.filter(t => t.result === 'win').length;
-      const wr = closed.length ? (100 * wins / closed.length) : 0;
-      document.getElementById('hWin').textContent = wr.toFixed(1) + '%';
+      const wr = closed.length ? (100 * wins / closed.length) : null;
+      document.getElementById('hWin').textContent = wr == null ? '—' : wr.toFixed(1) + '% win';
       const avgR = closed.length ? closed.reduce((a, t) => a + (t.R || 0), 0) / closed.length : 0;
       document.getElementById('hWinSub').textContent = closed.length + ' trades · avg ' + (avgR >= 0 ? '+' : '') + avgR.toFixed(2) + 'R';
     }
@@ -215,65 +237,100 @@ refreshStats();
 if (typeof Feed !== 'undefined') Feed.subscribe('*', () => refreshStats());
 
 function renderTopPlays() {
-  if (typeof QUOTES === 'undefined') return;
-  const arr = Object.values(QUOTES).filter(q => q.symbol !== 'VIX').sort((a, b) => Math.abs(b.changePct) - Math.abs(a.changePct)).slice(0, 5);
+  const arr = realQuotes().filter(q => q.symbol !== 'VIX').sort((a, b) => Math.abs(b.changePct) - Math.abs(a.changePct)).slice(0, 5);
   const wrap = document.getElementById('topPlays');
+  if (!arr.length) { wrap.innerHTML = '<div style="padding:10px 0;color:var(--text-muted);font-size:12px;">Waiting for real quotes…</div>'; return; }
   wrap.innerHTML = arr.map(q => {
-    const bull = q.changePct >= 0;
-    const cls = bull ? '' : 'bear';
-    const direction = bull ? 'Bullish continuation' : 'Bearish flush';
-    const structure = bull ? 'Bull call spread' : 'Bear put spread';
-    let score = Math.round(55 + Math.abs(q.changePct) * 5);
-    try {
-      if (typeof Learn !== 'undefined') {
-        score = Learn.adjustedScoreCtx(score, 'macd-cross', { sector: 'Tech', regime: Learn.bucketVixRegime(Learn.currentVix()) });
-      }
-    } catch (e) {}
-    return `<div class="play-strip ${cls}">
+    const up = q.changePct >= 0;
+    return `<div class="play-strip ${up ? '' : 'bear'}">
       <div class="head">
         <div>
-          <div class="name">${q.symbol} <span style="color:var(--text-muted);font-weight:400;font-size:12px;">— ${direction}</span></div>
-          <div class="meta">${structure} · entry ≈ $${q.last.toFixed(2)} · score ${score}/100</div>
+          <div class="name">${esc(q.symbol)} <span style="color:var(--text-muted);font-weight:400;font-size:12px;">— ${up ? 'up' : 'down'} ${Math.abs(q.changePct).toFixed(2)}% today</span></div>
+          <div class="meta">$${q.last.toFixed(2)} · ${q.priceSource === 'worker-yahoo' ? 'Yahoo last sale (delayed)' : esc(q.priceSource || 'feed')} · a move, not a setup</div>
         </div>
-        <a href="ticker.html?sym=${q.symbol}" class="btn btn-ghost" style="font-size:11px;padding:4px 10px;">view</a>
+        <a href="ticker.html?sym=${encodeURIComponent(q.symbol)}" class="btn btn-ghost" style="font-size:11px;padding:4px 10px;">view</a>
       </div>
     </div>`;
   }).join('');
 }
 renderTopPlays();
+let _tpAt = 0;
+if (typeof Feed !== 'undefined') Feed.subscribe('*', () => { if (Date.now() - _tpAt > 5000) { _tpAt = Date.now(); renderTopPlays(); } });
+setInterval(renderTopPlays, 15000);
 
-function renderCatalysts() {
-  // Simple inline calendar — could be fed from a real provider later
-  const items = [
-    { when: '08:30 ET', what: 'CPI MoM (consensus 0.3%)', impact: 'high' },
-    { when: '10:00 ET', what: 'Retail Sales preliminary', impact: 'med' },
-    { when: '14:00 ET', what: 'Fed Speak — Powell', impact: 'high' },
-    { when: 'After close', what: 'NVDA earnings (next week)', impact: 'high' },
-    { when: 'Tomorrow', what: 'NFP + Unemployment 8:30 ET', impact: 'high' }
-  ];
-  document.getElementById('catList').innerHTML = items.map(it => `<div class="cal-item">
-    <span class="when">${it.when}</span>
-    <span class="what">${it.what}</span>
-    <span class="impact imp-${it.impact}">${it.impact.toUpperCase()}</span>
-  </div>`).join('');
+const WATCH = ['SPY','QQQ','NVDA','AMD','AVGO','MU','TSM','MRVL','ASML','AMAT','LRCX','INTC','QCOM','ARM','COHR','CRDO','AAPL','MSFT','GOOGL','META','AMZN','ORCL','PLTR','TSLA','NFLX','CRM','UBER','COIN','SMCI','SHOP','JPM','BAC','GS','DRAM','BE','OKTA','ATI','VST','C','SU','EOG','DINO','DHT','AUGO','PNFP'];
+async function renderCatalysts() {
+  const el = document.getElementById('catList'), src = document.getElementById('catSrc');
+  const today = etDayOf(Date.now());
+  const items = [], notes = [];
+  try {
+    const r = await fetch('data/econ-calendar-thisweek.json', { cache: 'no-store' });
+    const a = r.ok ? await r.json() : null;
+    if (Array.isArray(a)) {
+      a.filter(e => e && e.country === 'USD' && e.date && etDayOf(Date.parse(e.date)) === today && (e.impact === 'High' || e.impact === 'Medium'))
+        .forEach(e => {
+          const t = Date.parse(e.date);
+          items.push({ t, when: new Date(t).toLocaleTimeString('en-US', { timeZone: 'America/New_York', hour: 'numeric', minute: '2-digit' }) + ' ET',
+            what: e.title + (e.forecast ? ' (fcst ' + e.forecast + (e.previous ? ', prev ' + e.previous : '') + ')' : ''), impact: e.impact === 'High' ? 'high' : 'med' });
+        });
+      notes.push('US releases from the ForexFactory weekly calendar');
+    } else notes.push('economic calendar unavailable');
+  } catch (e) { notes.push('economic calendar unavailable'); }
+  try {
+    const r = await fetch(WORKER + '/brain/earnings?days=2', { cache: 'no-store' });
+    const j = r.ok ? await r.json() : null;
+    if (j && Array.isArray(j.earnings)) {
+      j.earnings.filter(e => e && WATCH.indexOf(e.symbol) >= 0 && e.date >= today).slice(0, 8).forEach(e => {
+        items.push({ t: Date.parse(e.date + 'T12:00:00-05:00') + (e.hour === 'amc' ? 6 * 3600000 : e.hour === 'bmo' ? -4 * 3600000 : 0),
+          when: (e.date === today ? 'Today' : e.date.slice(5)) + (e.hour === 'bmo' ? ' pre-open' : e.hour === 'amc' ? ' after close' : ''),
+          what: e.symbol + ' earnings' + (typeof e.epsEstimate === 'number' ? ' (EPS est ' + e.epsEstimate.toFixed(2) + ')' : ''), impact: 'high' });
+      });
+      notes.push('earnings from Finnhub via the desk worker (dates can shift; confirm with the company)');
+    }
+  } catch (e) {}
+  items.sort((x, y) => x.t - y.t);
+  el.innerHTML = items.length
+    ? items.map(it => `<div class="cal-item"><span class="when">${esc(it.when)}</span><span class="what">${esc(it.what)}</span><span class="impact imp-${it.impact}">${it.impact.toUpperCase()}</span></div>`).join('')
+    : '<div style="padding:10px 0;color:var(--text-muted);font-size:12px;">No high- or medium-impact US releases and no watched earnings today.</div>';
+  if (src) src.textContent = 'Source: ' + notes.join(' · ') + '.';
 }
 renderCatalysts();
 
-function renderLevels() {
-  const spy = (typeof QUOTES !== 'undefined') ? QUOTES.SPY : null;
-  const s = spy ? spy.last : 560;
-  const lvls = [
-    { lab: '52w high', val: (s * 1.05).toFixed(2), cls: 'green-text' },
-    { lab: 'R2', val: (s * 1.012).toFixed(2), cls: 'green-text' },
-    { lab: 'R1 (today)', val: (s * 1.006).toFixed(2), cls: 'green-text' },
-    { lab: 'VWAP', val: (s * 0.999).toFixed(2), cls: '' },
-    { lab: 'Pivot', val: s.toFixed(2), cls: '' },
-    { lab: 'S1 (today)', val: (s * 0.994).toFixed(2), cls: 'red-text' },
-    { lab: 'S2', val: (s * 0.988).toFixed(2), cls: 'red-text' },
-    { lab: '50DMA', val: (s * 0.97).toFixed(2), cls: '' },
-    { lab: '200DMA', val: (s * 0.93).toFixed(2), cls: '' }
-  ];
-  document.getElementById('lvlList').innerHTML = lvls.map(l => `<div class="lvl-row"><span class="lab">${l.lab}</span><span class="val ${l.cls}">$${l.val}</span></div>`).join('');
+async function renderLevels() {
+  const el = document.getElementById('lvlList'), src = document.getElementById('lvlSrc');
+  const today = etDayOf(Date.now());
+  const rows = [], note = [];
+  try {
+    const [br, hr] = await Promise.all([
+      fetch(WORKER + '/brain/bars?syms=SPY&days=10', { cache: 'no-store' }).then(r => r.ok ? r.json() : null).catch(() => null),
+      fetch(WORKER + '/brain/history?sym=SPY', { cache: 'no-store' }).then(r => r.ok ? r.json() : null).catch(() => null)
+    ]);
+    // Floor-trader pivots off the last COMPLETED session (today's bar is still forming).
+    const bars = ((br && br.bars && br.bars.SPY) || []).filter(b => b && etDayOf(b.ts) !== today && b.h > 0 && b.l > 0 && b.c > 0);
+    const pb = bars[bars.length - 1];
+    // Only a bar verified against the real daily OHLC (worker pass-319 sets fin=1 after 4:45 PM ET). Unverified
+    // stored bars were morning snapshots (11/2: H 759.73 / L 759.10 vs the real 763.86 / 751.60).
+    if (pb && !pb.fin) note.push('pivots pending: the ' + etDayOf(pb.ts) + ' bar is not yet verified against the real daily high/low');
+    if (pb && pb.fin) {
+      const P = (pb.h + pb.l + pb.c) / 3, R = pb.h - pb.l;
+      rows.push(['R2', P + R, 'green-text'], ['R1', 2 * P - pb.l, 'green-text'], ['Pivot', P, ''], ['S1', 2 * P - pb.h, 'red-text'], ['S2', P - R, 'red-text']);
+      note.push('pivots from the ' + etDayOf(pb.ts) + ' bar (H ' + pb.h.toFixed(2) + ', L ' + pb.l.toFixed(2) + ', C ' + pb.c.toFixed(2) + ')');
+    }
+    const closes = ((hr && hr.closes) || []).filter(x => x && x.c > 0 && etDayOf(x.t) !== today).map(x => x.c);
+    const sma = n => closes.length >= n ? closes.slice(-n).reduce((a, b) => a + b, 0) / n : null;
+    if (closes.length >= 200) rows.push(['52w closing high', Math.max(...closes.slice(-252)), 'green-text']);
+    const s50 = sma(50), s200 = sma(200);
+    if (s50) rows.push(['50-day SMA', s50, '']);
+    if (s200) rows.push(['200-day SMA', s200, '']);
+    if (closes.length) note.push('averages from ' + closes.length + ' daily closes');
+  } catch (e) {}
+  const q = realQ('SPY');
+  if (q && rows.length) rows.push(['SPY now', q.last, 'now']);
+  rows.sort((a, b) => b[1] - a[1]);
+  el.innerHTML = rows.length
+    ? rows.map(r => `<div class="lvl-row"${r[2] === 'now' ? ' style="font-weight:800;color:var(--accent);"' : ''}><span class="lab">${r[0]}</span><span class="val ${r[2] === 'now' ? '' : r[2]}">$${r[1].toFixed(2)}</span></div>`).join('')
+    : '<div style="color:var(--text-muted);font-size:12px;">Levels unavailable (the desk worker did not answer). None are estimated.</div>';
+  if (src) src.textContent = note.length ? 'Floor-trader pivots and moving averages: ' + note.join('; ') + '. No VWAP: this site has no intraday volume feed.' : '';
 }
 renderLevels();
 
@@ -284,7 +341,7 @@ const CHK_ITEMS = [
   'Check overnight futures + VIX',
   'Note today\'s key catalysts (CPI/Fed/earnings)',
   'Identify SPY key levels (R/S/VWAP/50DMA)',
-  'Review top 5 setups from Plays page',
+  'Review the movers list (movers, not picks)',
   'Set risk budget — max 1% per trade, 3% total',
   'Set alerts on watchlist symbols',
   'Confirm broker P&L tracker is open',
@@ -314,14 +371,15 @@ renderChecklist();
 // ---------------- Mood ----------------
 function renderMood() {
   if (typeof QUOTES === 'undefined') return;
-  const spy = QUOTES.SPY, vix = QUOTES.VIX;
+  const vix = realQ('VIX');
   let breadthBull = 0, breadthBear = 0;
-  Object.values(QUOTES).forEach(q => { if (q.changePct > 0) breadthBull++; else if (q.changePct < 0) breadthBear++; });
+  realQuotes().forEach(q => { if (q.changePct > 0) breadthBull++; else if (q.changePct < 0) breadthBear++; });
+  if (!(breadthBull + breadthBear)) { document.getElementById('mood').innerHTML = '<div style="padding:14px 0;text-align:center;color:var(--text-muted);font-size:12px;">Waiting for real quotes…</div>'; return; }
   const breadthPct = breadthBull / (breadthBull + breadthBear) * 100;
-  const vixLvl = vix ? vix.last : 16;
+  const vixLvl = vix ? vix.last : null;
   let mood = 'NEUTRAL', color = 'var(--yellow)';
-  if (breadthPct > 65 && vixLvl < 18) { mood = 'GREEDY'; color = 'var(--green)'; }
-  else if (breadthPct < 35 && vixLvl > 22) { mood = 'FEARFUL'; color = 'var(--red)'; }
+  if (breadthPct > 65 && vixLvl != null && vixLvl < 18) { mood = 'GREEDY'; color = 'var(--green)'; }
+  else if (breadthPct < 35 && vixLvl != null && vixLvl > 22) { mood = 'FEARFUL'; color = 'var(--red)'; }
   else if (breadthPct > 55) { mood = 'CONSTRUCTIVE'; color = 'var(--green)'; }
   else if (breadthPct < 45) { mood = 'CAUTIOUS'; color = 'var(--yellow)'; }
 
@@ -337,8 +395,8 @@ function renderMood() {
       </div>
       <div style="text-align:center;padding:10px;background:var(--bg-elevated);border-radius:8px;">
         <div style="font-size:11px;color:var(--text-muted);">VIX</div>
-        <div class="mono" style="font-size:18px;font-weight:700;">${vixLvl.toFixed(2)}</div>
-        <div style="font-size:11px;color:var(--text-muted);">${vixLvl < 14 ? 'Complacent' : vixLvl < 20 ? 'Normal' : vixLvl < 30 ? 'Elevated' : 'Panic'}</div>
+        <div class="mono" style="font-size:18px;font-weight:700;">${vixLvl == null ? '—' : vixLvl.toFixed(2)}</div>
+        <div style="font-size:11px;color:var(--text-muted);">${vixLvl == null ? 'no VIX quote' : vixLvl < 14 ? 'Complacent' : vixLvl < 20 ? 'Normal' : vixLvl < 30 ? 'Elevated' : 'Panic'}</div>
       </div>
     </div>`;
   let narrative = '';
@@ -347,7 +405,7 @@ function renderMood() {
   else if (mood === 'CONSTRUCTIVE') narrative = '<strong>Healthy tape.</strong> Trade with momentum but don\'t chase. Pullbacks to VWAP are buyable.';
   else if (mood === 'CAUTIOUS') narrative = '<strong>Mixed signals.</strong> Size down. Wait for confirmation. Avoid pre-Fed/CPI new positions.';
   else narrative = '<strong>Range-bound.</strong> Mean-reversion bias. Fade extremes back to VWAP/POC.';
-  document.getElementById('moodNarrative').innerHTML = narrative;
+  document.getElementById('moodNarrative').innerHTML = '<span style="opacity:0.75;">Rule of thumb for this tape, not a signal:</span> ' + narrative + '<br><span style="opacity:0.75;">Breadth = share of the ' + (breadthBull + breadthBear) + ' tracked names up today (real quotes only).</span>';
 }
 renderMood();
 if (typeof Feed !== 'undefined') setInterval(renderMood, 5000);

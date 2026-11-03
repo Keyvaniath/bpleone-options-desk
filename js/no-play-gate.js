@@ -16,11 +16,11 @@
   if (typeof document === 'undefined') return;
   const WORKER = (window.WorkerBridge && WorkerBridge.getUrl && WorkerBridge.getUrl()) || 'https://bpleone-brain-worker.brandonpleone.workers.dev';
   // page -> the element holding the page's own pick output (dimmed when the gate is closed); null = banner only
-  const PAGES = { 'trade-of-the-day': '#content', 'brain-bet': '#bet', 'conviction-stack': null, 'morning-brief': null, 'plays': '#playsGrid' };
+  const PAGES = { 'trade-of-the-day': '#content', 'brain-bet': '#bet', 'conviction-stack': null, 'morning-brief': null, 'plays': '#playsGrid', 'game-plan': '#topPlays' };
   const page = ((location.pathname.split('/').pop() || '').toLowerCase().replace(/\.html$/, '')) || 'index';
   if (!(page in PAGES)) return;
   // What the page's own output IS, so the label below it is accurate (plays.html ranks movers, it is not a model).
-  const WHAT = { 'plays': 'a list of today\'s biggest movers ranked by the size of the move' };
+  const WHAT = { 'plays': 'a list of today\'s biggest movers ranked by the size of the move', 'game-plan': 'today\'s plan: real calendar, real SPY levels and the day\'s biggest movers' };
   const what = WHAT[page] || 'this browser\'s own model output';
   const CK = 'bpleone_no_play_gate_v1';
 
@@ -52,7 +52,7 @@
       const target = sel && document.querySelector(sel);
       if (target) {
         target.style.opacity = '0.45';
-        const tagText = (page === 'plays' ? 'Movers list' : 'Raw browser-model output') + ' · not a pick (NO PLAY today)';
+        const tagText = ((page === 'plays' || page === 'game-plan') ? 'Movers list' : 'Raw browser-model output') + ' · not a pick (NO PLAY today)';
         target.setAttribute('aria-label', tagText);
         const tag = document.createElement('div');
         tag.style.cssText = 'font-size:11px;font-weight:800;letter-spacing:0.5px;color:#ef4444;text-transform:uppercase;margin:0 0 8px;';
