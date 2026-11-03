@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" media="print" onload="this.media='all'"><noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap"></noscript>
-<link rel="stylesheet" href="css/style.css?v=v225">
+<link rel="stylesheet" href="css/style.css?v=v226">
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
 <style>
@@ -123,18 +123,20 @@
 </div>
 
 <div id="site-footer"></div>
-<script src="js/data-provider.js?v=v225"></script>
-<script src="js/ai-client.js?v=v225"></script>
-<script src="js/app.js?v=v225"></script>
-<script src="js/notify.js?v=v225"></script>
-<script src="js/live.js?v=v225"></script>
-<script src="js/ta.js?v=v225"></script>
-<script src="js/learn.js?v=v225"></script>
+<script src="js/data-provider.js?v=v226"></script>
+<script src="js/ai-client.js?v=v226"></script>
+<script src="js/app.js?v=v226"></script>
+<script src="js/notify.js?v=v226"></script>
+<script src="js/live.js?v=v226"></script>
+<script src="js/ta.js?v=v226"></script>
+<script src="js/learn.js?v=v226"></script>
 <script>buildNav('earnings');</script>
 
 <script>
 (function () {
-  const KEY = 'bpleone_earnings_playbook_v1';
+  // v2 (audit 2026-11-03): v1 results carried the fabricated 1.7xATR "implied move" and synthetic dates; never re-render them.
+  const KEY = 'bpleone_earnings_playbook_v2';
+  try { localStorage.removeItem('bpleone_earnings_playbook_v1'); } catch (e) {}
 
   function getFinnhubKey() {
     try {
@@ -145,15 +147,55 @@
     } catch (e) { return null; }
   }
 
+  // Audit 2026-11-03: keyless path through the worker's /brain/earnings (Finnhub, fetched server-side in
+  // <=7-day chunks). Before this, a visitor without a Finnhub key got a FABRICATED calendar (every watchlist
+  // name "reporting" in 5 days). Now: a user key if set, else the worker, else an honest empty state.
+  const WORKER = (window.WorkerBridge && WorkerBridge.getUrl && WorkerBridge.getUrl()) || 'https://bpleone-brain-worker.brandonpleone.workers.dev';
+  let calendarSource = null;
   async function fetchEarningsCalendar(fromDate, toDate) {
     const key = getFinnhubKey();
-    if (!key) return null;
+    if (key) {
+      try {
+        const url = `https://finnhub.io/api/v1/calendar/earnings?from=${fromDate}&to=${toDate}&token=${encodeURIComponent(key)}`;
+        const res = await fetch(url);
+        if (res.ok) { const j = await res.json(); if (Array.isArray(j.earningsCalendar)) { calendarSource = 'Finnhub (your key)'; return j.earningsCalendar; } }
+      } catch (e) {}
+    }
     try {
-      const url = `https://finnhub.io/api/v1/calendar/earnings?from=${fromDate}&to=${toDate}&token=${encodeURIComponent(key)}`;
-      const res = await fetch(url);
+      const days = Math.max(1, Math.min(60, Math.round((new Date(toDate) - new Date(fromDate)) / 86400000)));
+      const res = await fetch(WORKER + '/brain/earnings?days=' + days, { cache: 'no-store' });
       if (!res.ok) return null;
       const j = await res.json();
-      return j.earningsCalendar || [];
+      if (!j || !j.ok || !Array.isArray(j.earnings)) return null;
+      calendarSource = 'Finnhub via the desk worker';
+      return j.earnings;
+    } catch (e) { return null; }
+  }
+
+  // Real implied move: ATM straddle mid / spot on the first listed expiry that covers the reaction session
+  // (the radar's method). CBOE free chain, ~15 min delayed. The straddle also prices the non-earnings days
+  // to expiry, so it slightly overstates the earnings-only move on longer-dated expiries.
+  async function fetchImpliedMove(sym, earningsDate, hour) {
+    try {
+      const res = await fetch(WORKER + '/brain/options-chain?sym=' + encodeURIComponent(sym), { cache: 'no-store' });
+      if (!res.ok) return null;
+      const j = await res.json();
+      if (!j || !j.ok || !Array.isArray(j.contracts) || !j.contracts.length) return null;
+      const q = (typeof QUOTES !== 'undefined') ? QUOTES[sym] : null;
+      const spot = (q && q.last > 0) ? q.last : null;
+      if (!spot) return null;
+      // AMC (or unknown hour) reacts next session, so the expiry must be after the report date.
+      const minExp = (hour === 'bmo') ? earningsDate : earningsDate + '~';
+      const exps = [...new Set(j.contracts.map(c => c.expiration))].filter(e => e >= minExp).sort();
+      for (const e of exps.slice(0, 3)) {
+        const inExp = j.contracts.filter(c => c.expiration === e && c.bid > 0 && c.mid > 0);
+        let atm = null, gap = Infinity;
+        for (const c of inExp) { const g = Math.abs(c.strike - spot); if (g < gap) { gap = g; atm = c.strike; } }
+        const call = inExp.find(c => c.strike === atm && c.type === 'call');
+        const put = inExp.find(c => c.strike === atm && c.type === 'put');
+        if (call && put) return { pct: +((call.mid + put.mid) / spot * 100).toFixed(2), exp: e, strike: atm, provider: j.provider, delayedMin: j.delayedMin };
+      }
+      return null;
     } catch (e) { return null; }
   }
 
@@ -201,19 +243,20 @@
     const { avgAbsMove, impliedMove, biasScore, biasConsistency, n } = analysis;
     const movesTxt = analysis.pastMoves.map(m => (m >= 0 ? '+' : '') + m.toFixed(1) + '%').join(', ');
     if (strat.tag === 'long-vol') {
-      return `Past ${n} earnings averaged ${avgAbsMove.toFixed(1)}% absolute move. Market implies only ${impliedMove ? impliedMove.toFixed(1) + '%' : '?'} for this print. Buy a straddle or strangle ~1-2 days pre-earnings, close immediately after the announcement before IV crush kills both legs.`;
+      return `Past ${n} earnings averaged ${avgAbsMove.toFixed(1)}% absolute move. The ATM straddle (exp ${analysis.implied ? analysis.implied.exp : '?'}) prices only ${impliedMove ? impliedMove.toFixed(1) + '%' : '?'}. With ${n} prior prints this is a small-sample read, not a tested edge. Buy a straddle or strangle ~1-2 days pre-earnings, close immediately after the announcement before IV crush kills both legs.`;
     }
     if (strat.tag === 'iv-crush') {
-      return `Past ${n} earnings averaged only ${avgAbsMove.toFixed(1)}% move. Market implies ${impliedMove.toFixed(1)}% — significantly over-priced vol. Consider selling a short iron condor or short strangle covering the implied range. Let IV crush + theta work.`;
+      return `Past ${n} earnings averaged only ${avgAbsMove.toFixed(1)}% move. The ATM straddle (exp ${analysis.implied ? analysis.implied.exp : '?'}) prices ${impliedMove.toFixed(1)}%, rich against that history (${n} prints: a small sample, not a tested edge). Defined-risk only: an iron condor outside the implied range, never a naked strangle.`;
     }
     if (strat.tag.indexOf('directional') !== -1) {
       const dir = strat.tag === 'directional-long' ? 'up' : 'down';
-      return `Past 4 earnings reactions: ${movesTxt}. Average ${dir === 'up' ? '+' : '-'}${Math.abs(biasScore).toFixed(1)}% with ${(biasConsistency * 100).toFixed(0)}% same-direction. Strong directional edge. Consider ${dir === 'up' ? 'long calls (slightly ITM, 2-4 weeks DTE)' : 'long puts'} sized to risk only 1× the implied move on the trade.`;
+      return `Past ${n} earnings reactions: ${movesTxt}. Average ${dir === 'up' ? '+' : '-'}${Math.abs(biasScore).toFixed(1)}% with ${(biasConsistency * 100).toFixed(0)}% same-direction. A consistent pattern over ${n} prints, too few to call an edge. Consider ${dir === 'up' ? 'long calls (slightly ITM, 2-4 weeks DTE)' : 'long puts'} sized to risk only 1× the implied move on the trade.`;
     }
-    return `Past ${n} moves were noisy or mixed (${movesTxt}). No clear edge. Stand aside unless you have a strong fundamental thesis.`;
+    if (n < 2) return `No prior earnings-reaction history loaded (it needs a Finnhub key in Settings), so no strategy is proposed. ${impliedMove != null ? 'The options market prices a ' + impliedMove.toFixed(1) + '% move through the ' + analysis.implied.exp + ' expiry.' : ''}`;
+    return `Past ${n} moves were noisy or mixed (${movesTxt}). No clear pattern. Stand aside unless you have a strong fundamental thesis.`;
   }
 
-  function analyzeSymbol(sym, earningsDate, historicalEarnings, recentBars) {
+  function analyzeSymbol(sym, earningsDate, historicalEarnings, recentBars, implied) {
     // Find past EPS surprise data (last 4)
     const past4 = (historicalEarnings || []).slice(0, 4);
     // Approximate past post-earnings moves: find the bar at/after each past report date
@@ -238,16 +281,13 @@
     const avgAbsMove = n ? pastMoves.reduce((a, x) => a + Math.abs(x), 0) / n : null;
     const biasScore = n ? pastMoves.reduce((a, x) => a + x, 0) / n : 0;
     const biasConsistency = n ? pastMoves.filter(x => Math.sign(x) === Math.sign(biasScore)).length / n : 0;
-    // Implied move: approximate from ATM IV. Without real chain data, use ATR% × √(DTE)
+    // Implied move: the real ATM straddle when the chain is available (see fetchImpliedMove). Audit 2026-11-03:
+    // the old value was 1.7 x ATR% and was presented as "the market implies", driving straddle / iron-condor
+    // recommendations off a number no market produced. No chain = null = no vol strategy.
     const q = (typeof QUOTES !== 'undefined') ? QUOTES[sym] : null;
-    const dte = Math.max(1, (new Date(earningsDate).getTime() - Date.now()) / 86400000);
-    const snap = typeof TA !== 'undefined' ? TA.snapshot(sym) : null;
-    let impliedMove = null;
-    if (snap && snap.atrPct) {
-      // Earnings IV typically ~1.5-2× normal ATR; assume implied = 1.7 × atrPct
-      impliedMove = +(snap.atrPct * 1.7).toFixed(2);
-    }
-    return { pastMoves, n, avgAbsMove, biasScore: +biasScore.toFixed(2), biasConsistency, impliedMove, dte: +dte.toFixed(1), last: q ? q.last : null };
+    const dte = Math.max(0, (new Date(earningsDate + 'T16:00:00-05:00').getTime() - Date.now()) / 86400000);
+    const impliedMove = implied ? implied.pct : null;
+    return { pastMoves, n, avgAbsMove, biasScore: +biasScore.toFixed(2), biasConsistency, impliedMove, implied, dte: +dte.toFixed(1), last: q ? q.last : null };
   }
 
   async function runAnalysis() {
@@ -259,14 +299,13 @@
     let calendar = await fetchEarningsCalendar(fromD, toD);
     const universe = (document.getElementById('symList').value || '').split(',').map(s => s.trim().toUpperCase()).filter(Boolean);
 
-    // Filter calendar to universe
+    // Filter calendar to universe. No calendar = say so and stop; never invent report dates.
     if (!calendar) {
-      // No live calendar — synthesize from universe (use a fake +5d date)
-      calendar = universe.map(sym => ({ symbol: sym, date: new Date(Date.now() + 5 * 86400000).toISOString().slice(0, 10), hour: 'amc', epsEstimate: null, revenueEstimate: null }));
-      document.getElementById('status').textContent = 'no live calendar — using synthetic';
-    } else {
-      calendar = calendar.filter(e => universe.indexOf(e.symbol) !== -1);
+      document.getElementById('status').textContent = 'Earnings calendar unavailable (worker and Finnhub both failed). No dates are shown rather than guessed. Try again shortly.';
+      renderResults([]);
+      return;
     }
+    calendar = calendar.filter(e => universe.indexOf(e.symbol) !== -1);
     calendar = calendar.sort((a, b) => a.date.localeCompare(b.date));
 
     document.getElementById('status').textContent = 'analyzing ' + calendar.length + ' symbols…';
@@ -279,13 +318,14 @@
         const from = to - 400 * 86400000;
         const bars = await fetchDailyBars(e.symbol, from, to);
         const hist = await fetchHistoricalEarnings(e.symbol);
-        const analysis = analyzeSymbol(e.symbol, e.date, hist, bars);
+        const implied = await fetchImpliedMove(e.symbol, e.date, e.hour);
+        const analysis = analyzeSymbol(e.symbol, e.date, hist, bars, implied);
         const strat = pickStrategy(analysis);
         const thesis = buildThesis(analysis, strat);
         results.push({ symbol: e.symbol, date: e.date, hour: e.hour, epsEst: e.epsEstimate, analysis, strat, thesis });
       } catch (err) { console.warn('analyze', e.symbol, err); }
     }
-    document.getElementById('status').textContent = '';
+    document.getElementById('status').textContent = 'calendar: ' + (calendarSource || 'n/a') + ' · implied moves: CBOE ATM straddle, ~15 min delayed · research only, not advice';
     saveResults(results);
     renderResults(results);
   }
@@ -327,7 +367,7 @@
         <div><span class="strat-pill ${stratPillCls}">${r.strat.label}</span></div>
         <div class="metrics">
           <div class="metric"><div class="lab">Past avg-abs</div><div class="val">${a.avgAbsMove != null ? a.avgAbsMove.toFixed(1) + '%' : '—'}</div></div>
-          <div class="metric"><div class="lab">Implied (est.)</div><div class="val">${a.impliedMove != null ? a.impliedMove.toFixed(1) + '%' : '—'}</div></div>
+          <div class="metric"><div class="lab">Implied (straddle${a.implied ? ' ' + a.implied.exp.slice(5) : ''})</div><div class="val">${a.impliedMove != null ? a.impliedMove.toFixed(1) + '%' : '—'}</div></div>
           <div class="metric"><div class="lab">Bias</div><div class="val ${a.biasScore > 0 ? 'r-pos' : a.biasScore < 0 ? 'r-neg' : ''}">${a.biasScore >= 0 ? '+' : ''}${a.biasScore.toFixed(1)}%</div></div>
           <div class="metric"><div class="lab">Same-dir</div><div class="val">${a.n ? (a.biasConsistency * 100).toFixed(0) + '%' : '—'}</div></div>
         </div>

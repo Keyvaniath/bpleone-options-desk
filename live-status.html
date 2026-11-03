@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600;700;800&display=swap" media="print" onload="this.media='all'"><noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600;700;800&display=swap"></noscript>
-<link rel="stylesheet" href="css/style.css?v=v225">
+<link rel="stylesheet" href="css/style.css?v=v226">
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
 <style>
@@ -63,7 +63,7 @@ table.t td { padding:8px 10px;border-bottom:1px solid rgba(255,255,255,0.04); }
 
   <div id="upgrade-card" class="upgrade" style="display:none;">
     <h3>⚡ Want true real-time? Free upgrade in 2 minutes.</h3>
-    <div class="step"><strong>What you have now:</strong> Stooq returns end-of-day or ~15-min-delayed prices for free, no key. Coinbase WebSocket returns real-time crypto. Both run by default.</div>
+    <div class="step"><strong>What you have now:</strong> Yahoo last-sale prices through the desk worker (not real-time; see the status note above), with Stooq as a fallback, and real-time crypto from the Coinbase WebSocket. All run by default. Backend freshness is on <a href="system-status.html">System Status</a>.</div>
     <div class="step"><strong>What real-time gets you:</strong> Tick-level US equities (no delay), so the brain sees prices the same instant your broker does. Same brain, same sizing — just fresher fuel.</div>
     <div class="step"><strong>How to upgrade (60 seconds):</strong>
       <ol style="margin:8px 0 0 18px;padding:0;line-height:1.7;color:var(--text-secondary);">
@@ -93,6 +93,7 @@ table.t td { padding:8px 10px;border-bottom:1px solid rgba(255,255,255,0.04); }
     <div class="card-header"><div class="card-title">🔗 Related</div></div>
     <div style="display:flex;gap:12px;flex-wrap:wrap;">
       <a href="settings.html" style="text-decoration:none;display:inline-block;background:linear-gradient(135deg,#00d4ff,#0094c7);color:#000;padding:10px 18px;border-radius:8px;font-weight:700;">⚙ Wire real-time</a>
+      <a href="system-status.html" style="text-decoration:none;display:inline-block;background:rgba(120,140,160,0.12);color:var(--accent);padding:10px 18px;border-radius:8px;font-weight:700;">🩺 System Status</a>
       <a href="data-reliability.html" style="text-decoration:none;display:inline-block;background:rgba(120,140,160,0.12);color:var(--accent);padding:10px 18px;border-radius:8px;font-weight:700;">📊 Reliability</a>
       <a href="source-quality.html" style="text-decoration:none;display:inline-block;background:rgba(120,140,160,0.12);color:var(--accent);padding:10px 18px;border-radius:8px;font-weight:700;">⚖️ Source Quality</a>
       <a href="connect-live-data.html" style="text-decoration:none;display:inline-block;background:rgba(120,140,160,0.12);color:var(--accent);padding:10px 18px;border-radius:8px;font-weight:700;">📡 Data Manager</a>
@@ -102,15 +103,17 @@ table.t td { padding:8px 10px;border-bottom:1px solid rgba(255,255,255,0.04); }
 
 <div id="site-footer"></div>
 
-<script src="js/data-provider.js?v=v225"></script>
-<script src="js/ai-client.js?v=v225"></script>
-<script src="js/app.js?v=v225"></script>
-<script src="js/notify.js?v=v225"></script>
-<script src="js/live.js?v=v225"></script>
+<script src="js/data-provider.js?v=v226"></script>
+<script src="js/ai-client.js?v=v226"></script>
+<script src="js/app.js?v=v226"></script>
+<script src="js/notify.js?v=v226"></script>
+<script src="js/live.js?v=v226"></script>
 <script>buildNav('live-status');</script>
 <script>
 const REALTIME_SOURCES = ['finnhub', 'polygon', 'alpaca', 'tradier', 'coinbase', 'coinbase-ws'];
-const DELAYED_SOURCES = ['stooq', 'stooq-refresh', 'coinbase-rest', 'coinbase-refresh', 'stale-refresh'];
+// Audit 2026-11-03: worker-yahoo (the site's PRIMARY price feed since pass 239) was missing here, so every real
+// quote classified as 'unknown'. It is Yahoo last-sale via the desk worker: delayed, never labeled real-time.
+const DELAYED_SOURCES = ['worker-yahoo', 'snapshot', 'stooq', 'stooq-refresh', 'coinbase-rest', 'coinbase-refresh', 'stale-refresh'];
 
 function classifySource(src) {
   if (!src) return 'seed';
@@ -180,7 +183,7 @@ function render() {
   } else if (delayedCount > 0) {
     cls = 'delayed';
     big = '🟡 DELAYED ~15 MIN';
-    sub = 'You are seeing real prices, but they are delayed by ~15 minutes (Stooq free tier) for equities. Crypto (BTC, ETH) is real-time via Coinbase WS. ' +
+    sub = 'You are seeing real prices, but not real-time: equities come from Yahoo last-sale via the desk worker (polled every 30-45s; the worker cache is normally under a minute old but can serve up to 15 min old while it refreshes; Nasdaq-reported for US stocks, not the consolidated tape; indices and some listings ~15 min delayed). Crypto (BTC, ETH) is real-time via Coinbase WS. ' +
           'For tick-level US equity data, wire a free Finnhub key in Settings (below).';
   } else if (staleCount > 0) {
     cls = 'stale';

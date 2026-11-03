@@ -62,7 +62,11 @@ const Notify = (function() {
       // polyfilled and later removed (some browser extensions), don't throw.
       if (!supported() || Notification.permission !== 'granted' || loadPrefs().muted) return;
       if (typeof QUOTES === 'undefined') return;
-      const sorted = Object.values(QUOTES).sort((a, b) => Math.abs(b.changePct) - Math.abs(a.changePct));
+      // Audit 2026-11-03: rank REAL-feed quotes only. Seed rows (2026-05-15 table) and mock-walk ticks carry
+      // fabricated changePct and must never become a "NVDA up 3%" notification.
+      const REAL = { 'worker-yahoo': 1, 'finnhub': 1, 'coinbase': 1, 'coinbase-ws': 1 };
+      const sorted = Object.values(QUOTES).filter(q => q && q.last > 0 && REAL[q.priceSource] && isFinite(q.changePct))
+        .sort((a, b) => Math.abs(b.changePct) - Math.abs(a.changePct));
       const top = sorted[0];
       if (!top || top.symbol === lastFiredFor) return;
       // Only fire if move is "notable"
@@ -70,7 +74,7 @@ const Notify = (function() {
       lastFiredFor = top.symbol;
       const dir = top.changePct >= 0 ? 'up' : 'down';
       fire(`${top.symbol} ${dir} ${Math.abs(top.changePct).toFixed(2)}%`,
-           `Now $${top.last.toFixed(2)}. Tap to view signals.`,
+           `Now $${top.last.toFixed(2)} (${top.priceSource === 'worker-yahoo' ? 'Yahoo last sale, may be delayed' : top.priceSource}). Price move only, not a signal.`,
            { tag: top.symbol, url: 'signals.html' });
     }, 60000);
     if (typeof window !== 'undefined') window._notifyAutoSubInterval = id;

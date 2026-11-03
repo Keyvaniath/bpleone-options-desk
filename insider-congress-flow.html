@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" media="print" onload="this.media='all'"><noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap"></noscript>
-<link rel="stylesheet" href="css/style.css?v=v225">
+<link rel="stylesheet" href="css/style.css?v=v226">
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
 <style>
@@ -120,13 +120,13 @@
 </div>
 
 <div id="site-footer"></div>
-<script src="js/data-provider.js?v=v225"></script>
-<script src="js/ai-client.js?v=v225"></script>
-<script src="js/app.js?v=v225"></script>
-<script src="js/notify.js?v=v225"></script>
-<script src="js/live.js?v=v225"></script>
-<script src="js/ta.js?v=v225"></script>
-<script src="js/learn.js?v=v225"></script>
+<script src="js/data-provider.js?v=v226"></script>
+<script src="js/ai-client.js?v=v226"></script>
+<script src="js/app.js?v=v226"></script>
+<script src="js/notify.js?v=v226"></script>
+<script src="js/live.js?v=v226"></script>
+<script src="js/ta.js?v=v226"></script>
+<script src="js/learn.js?v=v226"></script>
 <script>buildNav('smart-money');</script>
 
 <script>
@@ -189,35 +189,26 @@
     } catch (e) { return null; }
   }
 
-  function syntheticTx(sym) {
-    const out = [];
-    const types = ['buy', 'sell'];
-    const roles = ['CEO', 'CFO', 'CTO', 'DIR', 'PRES'];
-    const n = 1 + Math.floor(Math.random() * 4);
-    const basePx = (typeof QUOTES !== 'undefined' && QUOTES[sym]) ? QUOTES[sym].last : 100;
-    for (let i = 0; i < n; i++) {
-      const t = Math.random() < 0.45 ? 'buy' : 'sell';
-      const role = roles[Math.floor(Math.random() * roles.length)];
-      const shares = (t === 'buy' ? 1 : -1) * Math.floor((1000 + Math.random() * 50000));
-      const price = +(basePx * (0.95 + Math.random() * 0.1)).toFixed(2);
-      out.push({ sym, name: `${role} Surname`, ts: Date.now() - Math.floor(Math.random() * 30 * 86400000), shares, price, value: Math.abs(shares) * price, type: t, title: role, role });
-    }
-    return out;
-  }
+  // Audit 2026-11-03: syntheticTx() (Math.random insider trades) was written into the shared cache
+  // bpleone_insider_cache_v1 when no Finnhub key was set, and confluence-scanner.html read that cache for its
+  // insider signal. Removed: with no key there is no insider data, and the page says so.
 
   async function pullAll() {
     const universe = (document.getElementById('universe').value || '').split(',').map(s => s.trim().toUpperCase()).filter(Boolean);
     const key = getFinnhubKey();
     document.getElementById('btnPull').disabled = true;
     document.getElementById('btnPull').textContent = 'Pulling…';
-    document.getElementById('status').textContent = (key ? 'fetching Finnhub data…' : 'using synthetic (no Finnhub key)');
+    document.getElementById('status').textContent = (key ? 'fetching Finnhub data…' : 'no Finnhub key: no insider data (set a key in Settings; SEC Form 4 data is on insider-live.html)');
     const cache = loadCache();
+    // drop any entry not marked real (older versions of this page cached generated data here)
+    Object.keys(cache.tx || {}).forEach(k => { if (!cache.tx[k] || cache.tx[k].real !== true) delete cache.tx[k]; });
     for (let i = 0; i < universe.length; i++) {
       const sym = universe[i];
       document.getElementById('status').textContent = `${i + 1}/${universe.length}: ${sym}`;
-      if (cache.tx[sym] && Date.now() - cache.tx[sym].ts < TTL) continue;
-      const tx = key ? await fetchInsiderTx(sym) : syntheticTx(sym);
-      cache.tx[sym] = { ts: Date.now(), data: tx };
+      if (cache.tx[sym] && cache.tx[sym].real === true && Date.now() - cache.tx[sym].ts < TTL) continue;
+      if (!key) continue;
+      const tx = await fetchInsiderTx(sym);
+      cache.tx[sym] = { ts: Date.now(), data: tx, real: true, source: 'finnhub' };
       const sent = key ? await fetchSentiment(sym) : null;
       if (sent) cache.sent[sym] = { ts: Date.now(), data: sent };
     }
@@ -235,7 +226,7 @@
     const allTx = [];
     universe.forEach(sym => {
       const entry = cache.tx[sym];
-      if (!entry || !entry.data) return;
+      if (!entry || !entry.data || entry.real !== true) return;
       allTx.push(...entry.data);
     });
     allTx.sort((a, b) => b.ts - a.ts);

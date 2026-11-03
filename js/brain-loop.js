@@ -169,7 +169,12 @@ const BrainLoop = (function () {
     // Cross-reference TA score + ADX + rvol + insider buying + sentiment
     let insiderCache = {};
     let sentCache = {};
-    try { insiderCache = JSON.parse(localStorage.getItem('bpleone_insider_cache_v1') || '{"tx":{}}').tx || {}; } catch (e) {}
+    try {
+      // Audit 2026-11-03: only entries marked real (Finnhub). Older versions of insider-congress-flow.html cached
+      // generated (Math.random) insider trades here when no key was set; they must never become training features.
+      const raw = JSON.parse(localStorage.getItem('bpleone_insider_cache_v1') || '{"tx":{}}').tx || {};
+      Object.keys(raw).forEach(k => { if (raw[k] && raw[k].real === true) insiderCache[k] = raw[k]; });
+    } catch (e) {}
     try { sentCache = JSON.parse(localStorage.getItem('bpleone_sentiment_cache_v1') || '{}'); } catch (e) {}
 
     UNIVERSE.forEach(sym => {

@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" media="print" onload="this.media='all'"><noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap"></noscript>
-<link rel="stylesheet" href="css/style.css?v=v225">
+<link rel="stylesheet" href="css/style.css?v=v226">
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
 <style>
@@ -128,15 +128,15 @@
 </div>
 
 <div id="site-footer"></div>
-<script src="js/data-provider.js?v=v225"></script>
-<script src="js/ai-client.js?v=v225"></script>
-<script src="js/app.js?v=v225"></script>
-<script src="js/notify.js?v=v225"></script>
-<script src="js/live.js?v=v225"></script>
-<script src="js/ta.js?v=v225"></script>
-<script src="js/learn.js?v=v225"></script>
-<script src="js/discord.js?v=v225"></script>
-<script src="js/alerts-engine.js?v=v225"></script>
+<script src="js/data-provider.js?v=v226"></script>
+<script src="js/ai-client.js?v=v226"></script>
+<script src="js/app.js?v=v226"></script>
+<script src="js/notify.js?v=v226"></script>
+<script src="js/live.js?v=v226"></script>
+<script src="js/ta.js?v=v226"></script>
+<script src="js/learn.js?v=v226"></script>
+<script src="js/discord.js?v=v226"></script>
+<script src="js/alerts-engine.js?v=v226"></script>
 <script>buildNav('flow');</script>
 
 <script>
@@ -219,11 +219,13 @@
     if (typeof DataProvider !== 'undefined' && DataProvider.getOptionChain) {
       try {
         const chain = await DataProvider.getOptionChain(sym);
-        if (Array.isArray(chain) && chain.length) return chain;
+        if (Array.isArray(chain) && chain.length) { chain._real = true; return chain; }
       } catch (e) {}
     }
     const spot = (typeof QUOTES !== 'undefined' && QUOTES[sym]) ? QUOTES[sym].last : 100;
-    return buildSyntheticChain(sym, spot);
+    const syn = buildSyntheticChain(sym, spot);
+    syn._real = false;   // audit 2026-11-03: marked so nothing downstream treats it as data
+    return syn;
   }
 
   function detectUnusual(contracts, minVol, minVoi) {
@@ -238,6 +240,7 @@
   }
 
   let lastResults = [];
+  let lastResultsReal = false;   // true only when every scanned chain came from a real provider
 
   async function scan() {
     const symbols = (document.getElementById('symList').value || '').split(',').map(s => s.trim().toUpperCase()).filter(Boolean);
@@ -248,8 +251,10 @@
     document.getElementById('flowBody').innerHTML = '<div class="empty">Scanning ' + symbols.length + ' symbols…</div>';
 
     const all = [];
+    let allReal = symbols.length > 0;
     for (const sym of symbols) {
       const chain = await fetchChain(sym);
+      if (!chain || chain._real !== true) allReal = false;
       const detected = detectUnusual(chain, minVol, minVoi);
       detected.filter(c => c.unusual).forEach(c => all.push(c));
     }
@@ -258,6 +263,7 @@
     } else {
       lastResults = all;
     }
+    lastResultsReal = allReal;
     lastResults.sort((a, b) => b.score - a.score);
     render();
   }
@@ -296,6 +302,12 @@
   function feedToLearn() {
     if (!lastResults.length) {
       alert('Scan first — then feed.');
+      return;
+    }
+    // Audit 2026-11-03: this page has no real options feed (DataProvider.getOptionChain does not exist), so its
+    // chains are generated. Generated rows must never reach Learn, the alert engine or Discord.
+    if (!lastResultsReal) {
+      alert('Not fed: this scan used SAMPLE (generated) option chains, not market data. Nothing was sent to Learn, Alerts or Discord. Real daily options volume and open interest (CBOE, 15-min delayed) are on options-flow.html.');
       return;
     }
     const log = loadLog();

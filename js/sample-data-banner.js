@@ -38,7 +38,8 @@
     'algo-signals': 'this algorithmic signal feed (the live version is the Alpha Scanner)',
     'breadth-pro': 'market breadth (advance/decline, McClellan, new highs/lows)',
     'risk-radar': 'cross-asset risk gauges (skew, VVIX, credit spread)',
-    'candlestick-scanner': 'candlestick pattern detections'
+    'candlestick-scanner': 'candlestick pattern detections',
+    'iv-skew': 'the implied-volatility surface (this page always draws a modeled smile, never a real chain)'
   };
 
   function currentPage() {

@@ -407,6 +407,23 @@ function setDataMode(mode) {
   try { window.dispatchEvent(new CustomEvent('bpleone:data-mode', { detail: { mode } })); } catch (e) {}
 }
 
+// Pass 242 + audit 2026-11-03: the sample-data honesty banner loads IMMEDIATELY, not in the 5s-delayed
+// lazy batch below. Inside that batch the "illustrative, not live" notice appeared 5+ seconds after the
+// simulated numbers, so a quick visitor never saw the label. It is tiny and acts only on listed pages.
+document.addEventListener('DOMContentLoaded', () => {
+  try {
+    if (document.querySelector('script[src*="sample-data-banner.js"]')) return;
+    let LV = 'v218';
+    const me = [...document.querySelectorAll('script[src]')].map(x => x.src).find(u => /\/live\.js(\?|$)/.test(u)) || '';
+    const m = me.match(/[?&]v=([^&]+)/);
+    if (m && m[1]) LV = m[1];
+    const s = document.createElement('script');
+    s.src = 'js/sample-data-banner.js?v=' + LV;
+    s.async = true;
+    document.head.appendChild(s);
+  } catch (e) {}
+});
+
 // Lazy-load the auto-trainer (daily bar refresh) and the continuous-learner
 // (every-page-load capture + resolve loop). Both run in the background after
 // first paint so they never block the UI.
@@ -474,14 +491,7 @@ document.addEventListener('DOMContentLoaded', () => {
         s.async = true;
         document.head.appendChild(s);
       }
-      // Pass 242: sample-data honesty banner — stamps an "illustrative, not live"
-      // notice on the handful of pages that simulate paid-feed data.
-      if (!document.querySelector('script[src*="sample-data-banner.js"]')) {
-        const s = document.createElement('script');
-        s.src = 'js/sample-data-banner.js?v=' + LV;
-        s.async = true;
-        document.head.appendChild(s);
-      }
+      // (sample-data-banner.js loads immediately, below: see the audit 2026-11-03 note.)
       // Cross-source price agreement check — logs when 2+ sources disagree
       // on the same symbol within 60s. Catches cases where individual ticks
       // pass validation but ONE source is silently wrong.

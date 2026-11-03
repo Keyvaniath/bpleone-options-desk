@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" media="print" onload="this.media='all'"><noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap"></noscript>
-<link rel="stylesheet" href="css/style.css?v=v225">
+<link rel="stylesheet" href="css/style.css?v=v226">
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
 <style>
@@ -47,7 +47,7 @@
           <option value="last">price</option>
           <option value="changePct">% change today</option>
           <option value="volume">volume</option>
-          <option value="rsi">RSI</option>
+          <option value="rsi">RSI (14, daily)</option>
           <option value="brain-score">brain score</option>
         </select>
         <select id="ruleOp">
@@ -94,11 +94,11 @@
 
 <div id="site-footer"></div>
 
-<script src="js/data-provider.js?v=v225"></script>
-<script src="js/ai-client.js?v=v225"></script>
-<script src="js/app.js?v=v225"></script>
-<script src="js/notify.js?v=v225"></script>
-<script src="js/live.js?v=v225"></script>
+<script src="js/data-provider.js?v=v226"></script>
+<script src="js/ai-client.js?v=v226"></script>
+<script src="js/app.js?v=v226"></script>
+<script src="js/notify.js?v=v226"></script>
+<script src="js/live.js?v=v226"></script>
 <script>
 buildNav('alerts-builder');
 
@@ -106,28 +106,72 @@ const KEY = 'bpleone_alerts_builder_v1';
 
 function load() { try { return JSON.parse(localStorage.getItem(KEY) || '[]'); } catch (e) { return []; } }
 function save(a) { try { localStorage.setItem(KEY, JSON.stringify(a)); } catch (e) {} }
-function getQ(s) { return (typeof QUOTES !== 'undefined' && QUOTES[s]) ? QUOTES[s] : { last: 0, changePct: 0, volume: 0 }; }
+// Audit 2026-11-03: getQ returns null without a real print (pass-305b rule). The old {last:0} placeholder made
+// "price below X" alerts fire on a missing quote.
+function getQ(s) { const q = (typeof QUOTES !== 'undefined') ? QUOTES[s] : null; return (q && q.last > 0) ? q : null; }
 function loadFindings() { try { return JSON.parse(localStorage.getItem('bpleone_brain_findings_v1') || '{"items":[]}').items; } catch (e) { return []; } }
 
 let alerts = load();
 
+// Real RSI(14, Wilder) from the worker's daily bars. The old value was 50 + 5 x change%, which is not RSI.
+// Daily RSI on completed bars plus today's live print; null (alert skipped) when the symbol has no bar history.
+const WORKER = (window.WorkerBridge && WorkerBridge.getUrl && WorkerBridge.getUrl()) || 'https://bpleone-brain-worker.brandonpleone.workers.dev';
+const rsiBars = {};   // sym -> { closes:[...], ts }
+function wilderRsi(closes, n) {
+  if (!closes || closes.length < n + 1) return null;
+  let g = 0, l = 0;
+  for (let i = 1; i <= n; i++) { const d = closes[i] - closes[i - 1]; if (d > 0) g += d; else l -= d; }
+  g /= n; l /= n;
+  for (let i = n + 1; i < closes.length; i++) {
+    const d = closes[i] - closes[i - 1];
+    g = (g * (n - 1) + Math.max(d, 0)) / n; l = (l * (n - 1) + Math.max(-d, 0)) / n;
+  }
+  if (l === 0) return g === 0 ? 50 : 100;
+  return 100 - 100 / (1 + g / l);
+}
+function refreshRsiBars() {
+  const syms = [...new Set(alerts.filter(a => a.field === 'rsi').map(a => a.sym))].filter(s => !rsiBars[s] || Date.now() - rsiBars[s].ts > 30 * 60 * 1000);
+  if (!syms.length) return;
+  fetch(WORKER + '/brain/bars?syms=' + encodeURIComponent(syms.join(',')) + '&days=40', { cache: 'no-store' })
+    .then(r => r.ok ? r.json() : null).then(j => {
+      const bars = (j && (j.bars || j)) || {};
+      syms.forEach(s => {
+        const arr = Array.isArray(bars[s]) ? bars[s] : [];
+        rsiBars[s] = { closes: arr.map(b => +b.c).filter(c => c > 0), lastTs: arr.length ? arr[arr.length - 1].ts : 0, ts: Date.now() };
+      });
+      paint();
+    }).catch(() => {});
+}
+function liveRsi(sym, q) {
+  const b = rsiBars[sym];
+  if (!b || b.closes.length < 15) return null;
+  const closes = b.closes.slice();
+  // Append today's live print only when the stored series does not already contain today's bar.
+  const etDay = ts => new Date(ts).toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
+  if (q && q.last > 0 && etDay(b.lastTs) !== etDay(Date.now())) closes.push(q.last);
+  else if (q && q.last > 0) closes[closes.length - 1] = q.last;
+  return wilderRsi(closes, 14);
+}
+
 function getValue(sym, field) {
   const q = getQ(sym);
-  if (field === 'last') return q.last || 0;
-  if (field === 'changePct') return q.changePct || 0;
-  if (field === 'volume') return (q.volume || 0) / 1e6;
-  if (field === 'rsi') return 50 + (q.changePct || 0) * 5; // synthetic
   if (field === 'brain-score') {
     const f = loadFindings().filter(f => f.meta && f.meta.sym === sym && (Date.now() - f.ts) < 4 * 3600 * 1000);
     return Math.min(100, f.reduce((s, x) => s + (x.severity || 1) * 12, 0));
   }
-  return 0;
+  if (field === 'rsi') return liveRsi(sym, q);
+  if (!q) return null;
+  if (field === 'last') return q.last;
+  if (field === 'changePct') return (typeof q.changePct === 'number') ? q.changePct : null;
+  if (field === 'volume') return (q.volume > 0) ? q.volume / 1e6 : null;
+  return null;
 }
 
 function checkAlerts() {
   alerts.forEach((a, i) => {
     if (!a.enabled) return;
     const val = getValue(a.sym, a.field);
+    if (val == null || !isFinite(val)) return;   // no real value: never evaluate (or fire) on a placeholder
     const prev = a.prevVal != null ? a.prevVal : val;
     let triggered = false;
     if (a.op === 'gt' && val > a.value) triggered = true;
@@ -150,7 +194,8 @@ function checkAlerts() {
 }
 
 function fireAlert(a) {
-  const msg = a.sym + ' ' + a.field + ' ' + a.op + ' ' + a.value + ' (now ' + getValue(a.sym, a.field).toFixed(2) + ')';
+  const nowVal = getValue(a.sym, a.field);
+  const msg = a.sym + ' ' + a.field + ' ' + a.op + ' ' + a.value + ' (now ' + (nowVal == null ? 'n/a' : nowVal.toFixed(2)) + ')';
   if (a.action === 'popup' || a.action === 'all') {
     const pop = document.createElement('div');
     pop.style.cssText = 'position:fixed;bottom:30px;right:30px;padding:14px 20px;background:var(--bg-elevated);border:1px solid var(--accent);border-radius:10px;box-shadow:0 8px 32px rgba(0,212,255,0.3);z-index:9999;max-width:340px;';
@@ -183,7 +228,7 @@ function paint() {
       const currentVal = getValue(a.sym, a.field);
       card.innerHTML = '<div style="display:flex;justify-content:space-between;align-items:start;">'
         + '<div style="flex:1;"><div style="font-weight:700;font-size:14px;">' + a.sym + ' ' + a.field + ' ' + a.op + ' ' + a.value + '</div>'
-        + '<div style="font-size:12px;color:var(--text-muted);margin-top:4px;">→ ' + a.action + ' · ' + a.repeat + ' · current: ' + currentVal.toFixed(2) + (a.fireCount ? ' · fired ' + a.fireCount + 'x' : '') + '</div></div>'
+        + '<div style="font-size:12px;color:var(--text-muted);margin-top:4px;">→ ' + a.action + ' · ' + a.repeat + ' · current: ' + (currentVal == null ? (a.field === 'rsi' ? 'RSI n/a (no bar history yet)' : 'no live quote') : currentVal.toFixed(2)) + (a.fireCount ? ' · fired ' + a.fireCount + 'x' : '') + '</div></div>'
         + '<div style="display:flex;gap:6px;">'
         + '<button class="btn btn-ghost toggle" data-i="' + i + '" style="padding:4px 10px;font-size:11px;">' + (a.enabled ? '⏸' : '▶') + '</button>'
         + '<button class="btn btn-ghost del" data-i="' + i + '" style="padding:4px 10px;font-size:11px;color:var(--red);">🗑</button></div></div>';
@@ -205,7 +250,7 @@ function paint() {
 paint();
 
 document.getElementById('saveBtn').addEventListener('click', () => {
-  const sym = document.getElementById('ruleSym').value.toUpperCase().trim();
+  const sym = document.getElementById('ruleSym').value.toUpperCase().replace(/[^A-Z0-9.\-]/g, '').slice(0, 8);
   if (!sym) { alert('Symbol required'); return; }
   const a = {
     sym,
@@ -219,6 +264,7 @@ document.getElementById('saveBtn').addEventListener('click', () => {
   };
   alerts.push(a);
   save(alerts);
+  refreshRsiBars();
   paint();
   document.getElementById('ruleSym').value = '';
   document.getElementById('ruleVal').value = '';
@@ -230,6 +276,8 @@ document.getElementById('requestNotifyBtn').addEventListener('click', async () =
   if (perm === 'granted') alert('✓ Notifications enabled');
 });
 
+refreshRsiBars();
+setInterval(refreshRsiBars, 5 * 60 * 1000);
 setInterval(checkAlerts, 5000);
 </script>
 </body>

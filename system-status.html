@@ -1,0 +1,367 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>System Status — bpleone</title>
+<meta name="description" content="Backend health and data freshness for the options desk: worker cron, price snapshots, scheduled jobs, forward-test ledgers. Every row shows its source, its timestamp, its freshness target and whether the data is real-time, delayed or a daily batch.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600;700;800&display=swap" media="print" onload="this.media='all'"><noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600;700;800&display=swap"></noscript>
+<link rel="stylesheet" href="css/style.css?v=v226">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
+<link rel="canonical" href="https://options.bpleone.com/system-status.html">
+<style>
+.ss-verdict { padding:22px 26px;border-radius:14px;margin-bottom:20px;border:2px solid rgba(120,140,160,0.4);background:rgba(120,140,160,0.06); }
+.ss-verdict.ok { border-color:var(--green);background:rgba(16,185,129,0.07); }
+.ss-verdict.warn { border-color:var(--yellow);background:rgba(245,158,11,0.07); }
+.ss-verdict.bad { border-color:var(--red);background:rgba(220,38,38,0.07); }
+.ss-verdict .big { font-family:var(--font-mono);font-size:24px;font-weight:800; }
+.ss-verdict .sub { font-size:13px;color:var(--text-secondary);margin-top:8px;line-height:1.6; }
+.ss-wrap { overflow-x:auto; }
+table.ss { width:100%;border-collapse:collapse;font-size:12.5px; }
+table.ss th { text-align:left;padding:9px 10px;border-bottom:1px solid var(--bg-elevated);color:var(--text-muted);font-size:10.5px;text-transform:uppercase;letter-spacing:0.5px;font-weight:700;white-space:nowrap; }
+table.ss td { padding:8px 10px;border-bottom:1px solid rgba(255,255,255,0.04);vertical-align:top; }
+table.ss td.m { font-family:var(--font-mono);white-space:nowrap; }
+table.ss td.note { color:var(--text-muted);font-size:11.5px;line-height:1.5;min-width:220px;max-width:460px;white-space:normal;font-family:var(--font-sans, Inter, sans-serif); }
+.pill { display:inline-block;padding:2px 8px;border-radius:5px;font-size:10px;font-weight:800;letter-spacing:0.3px;white-space:nowrap; }
+.p-ok { background:rgba(16,185,129,0.18);color:var(--green); }
+.p-warn { background:rgba(245,158,11,0.18);color:var(--yellow); }
+.p-bad { background:rgba(220,38,38,0.18);color:var(--red); }
+.p-idle { background:rgba(120,140,160,0.14);color:var(--text-muted); }
+.k-rt { background:rgba(16,185,129,0.12);color:var(--green); }
+.k-del { background:rgba(245,158,11,0.12);color:var(--yellow); }
+.k-batch { background:rgba(0,212,255,0.10);color:var(--accent); }
+.ss-legend { font-size:12px;color:var(--text-secondary);line-height:1.8; }
+.ss-legend code { font-size:11px; }
+</style>
+</head>
+<body>
+<div id="site-nav"></div>
+<div class="container" id="main-content">
+  <div class="page-header">
+    <div>
+      <div class="page-title">System Status</div>
+      <div class="page-subtitle">Backend health and data freshness. Per-symbol quote freshness in your browser is on <a href="live-status.html" style="color:var(--accent);">Live Status</a>.</div>
+    </div>
+    <div><button class="btn btn-ghost" id="ss-refresh" type="button">Re-check</button></div>
+  </div>
+
+  <div id="ss-verdict" class="ss-verdict"><div class="big">Checking…</div><div class="sub">Reading the worker, the snapshot files and the scheduled-job history.</div></div>
+
+  <div class="card mb-24">
+    <div class="card-header"><div class="card-title">Data and services</div></div>
+    <div class="ss-wrap"><table class="ss">
+      <thead><tr><th>Component</th><th>Kind</th><th>As of (ET)</th><th>Age</th><th>Target</th><th>Status</th><th>Source / note</th></tr></thead>
+      <tbody id="ss-services"><tr><td colspan="7" class="note">loading…</td></tr></tbody>
+    </table></div>
+  </div>
+
+  <div class="card mb-24">
+    <div class="card-header"><div class="card-title">Scheduled jobs (GitHub Actions, last 24h)</div></div>
+    <div class="ss-wrap"><table class="ss">
+      <thead><tr><th>Job</th><th>Schedule (UTC)</th><th>Expected 24h</th><th>Ran 24h</th><th>Last run (ET)</th><th>Result</th><th>Status</th></tr></thead>
+      <tbody id="ss-jobs"><tr><td colspan="7" class="note">loading…</td></tr></tbody>
+    </table></div>
+    <div class="note" id="ss-jobs-note" style="font-size:11.5px;color:var(--text-muted);margin-top:10px;line-height:1.6;">GitHub runs scheduled workflows on a best-effort basis and can skip or delay them under load. "Expected" is what the cron line asks for; "Ran" is what GitHub actually started.</div>
+  </div>
+
+  <div class="card mb-24">
+    <div class="card-header"><div class="card-title">How to read this page</div></div>
+    <div class="ss-legend">
+      <div><span class="pill k-rt">REAL-TIME</span> streamed as it trades (only the Coinbase crypto WebSocket on this site).</div>
+      <div><span class="pill k-del">DELAYED</span> real prices that are not real-time: Yahoo last sale via the worker (Nasdaq-reported for US stocks, not the consolidated tape; indices and some listings ~15 min), CBOE option chains (15 min).</div>
+      <div><span class="pill k-batch">BATCH</span> computed on a schedule (daily or weekly). The age shown is time since the batch ran, not quote delay.</div>
+      <div style="margin-top:8px;"><span class="pill p-ok">OK</span> within target · <span class="pill p-warn">LATE</span> past target, a fallback or the next run should catch up · <span class="pill p-bad">DOWN</span> failing or missing · <span class="pill p-idle">IDLE</span> outside its operating hours, not stale.</div>
+      <div style="margin-top:8px;">Targets live in one table in this page's source (<code>TARGETS</code>) so they can be audited. Nothing here is cached by the page: every Re-check reads the live sources again (GitHub job history is held 5 minutes to stay inside GitHub's anonymous rate limit).</div>
+    </div>
+  </div>
+</div>
+<div id="site-footer"></div>
+
+<script src="js/data-provider.js?v=v226"></script>
+<script src="js/ai-client.js?v=v226"></script>
+<script src="js/app.js?v=v226"></script>
+<script src="js/notify.js?v=v226"></script>
+<script src="js/live.js?v=v226"></script>
+<script>buildNav('system-status');</script>
+<script>
+(function () {
+  // Audit 2026-11-03 (system-status): one page that answers "is the backend fresh?" with evidence.
+  // Read-only: public worker GETs, the site's own data files, and GitHub's public Actions API. No keys.
+  const WORKER = (window.WorkerBridge && WorkerBridge.getUrl && WorkerBridge.getUrl()) || 'https://bpleone-brain-worker.brandonpleone.workers.dev';
+  const REPO = 'Keyvaniath/bpleone-options-desk';
+  const EXPECTED_WORKER_VERSION = 'pass-317';   // bump with WORKER_VERSION in worker/src/index.js (and worker-setup.html)
+  const CONFLUENCE_CAP = 4000;                  // confluence_log_v1 retention cap in the worker
+
+  // Freshness targets, minutes. "hours" = when the target applies; outside it the row is IDLE, not stale.
+  const TARGETS = {
+    workerTick:   { min: 3,    hours: 'worker' },   // cron ticks every minute, 8am-5pm ET weekdays
+    workerQuote:  { min: 15,   hours: 'rth' },      // SWR serves up to 15 min old by design
+    snapQuotes:   { min: 30,   hours: 'rth' },      // = SNAP_MAX_AGE_MS in js/worker-quotes.js (fallback threshold)
+    snapSignals:  { min: 30,   hours: 'rth' },
+    calibration:  { min: 26 * 60, hours: 'weekday' }, // refit once per ET day
+    radar:        { min: 0,    hours: 'session' },  // must hold the last completed session (checked by date)
+    econ:         { min: 0,    hours: 'always' },   // file must cover the current week (checked by date)
+    edgeLab:      { min: 8 * 24 * 60, hours: 'always' },
+    congress:     { min: 26 * 60, hours: 'always' }  // daily job; checked via its sidecar / job history
+  };
+
+  const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const ET = { timeZone: 'America/New_York' };
+  function etParts(d) {
+    const p = new Intl.DateTimeFormat('en-US', Object.assign({ weekday: 'short', hour: 'numeric', minute: 'numeric', hour12: false }, ET)).formatToParts(d);
+    const g = t => (p.find(x => x.type === t) || {}).value;
+    return { wd: g('weekday'), h: (+g('hour')) % 24 + (+g('minute')) / 60 };
+  }
+  const etDay = d => new Date(d).toLocaleDateString('en-CA', ET);
+  const fmtET = ts => ts ? new Date(ts).toLocaleString('en-US', Object.assign({ month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }, ET)) : '—';
+  function fmtAge(ms) {
+    if (ms == null || !isFinite(ms)) return '—';
+    if (ms < 0) ms = 0;
+    if (ms < 90000) return Math.round(ms / 1000) + 's';
+    if (ms < 5400000) return Math.round(ms / 60000) + 'm';
+    if (ms < 172800000) return (ms / 3600000).toFixed(1) + 'h';
+    return Math.round(ms / 86400000) + 'd';
+  }
+  const fmtTarget = m => !m ? 'by date' : m < 120 ? '≤ ' + m + 'm' : m < 2880 ? '≤ ' + Math.round(m / 60) + 'h' : '≤ ' + Math.round(m / 1440) + 'd';
+  function inHours(kind) {
+    const { wd, h } = etParts(new Date());
+    const weekday = wd !== 'Sat' && wd !== 'Sun';
+    if (kind === 'always') return true;
+    if (kind === 'weekday') return weekday;
+    if (kind === 'worker') return weekday && h >= 8 && h < 17;
+    if (kind === 'rth') return weekday && h >= 9.5 && h < 16.25;
+    return weekday;
+  }
+  // Most recent weekday strictly before today (ET): the last COMPLETED session, holidays aside.
+  function lastSessionDay() {
+    const d = new Date();
+    for (let i = 1; i < 6; i++) {
+      const x = new Date(d.getTime() - i * 86400000);
+      const wd = etParts(x).wd;
+      if (wd !== 'Sat' && wd !== 'Sun') return etDay(x);
+    }
+    return etDay(d);
+  }
+  async function getJson(url, opts) {
+    try {
+      const r = await fetch(url, Object.assign({ cache: 'no-store' }, opts || {}));
+      if (!r.ok) return { _err: 'HTTP ' + r.status };
+      return await r.json();
+    } catch (e) { return { _err: (e && e.message) || 'network error' }; }
+  }
+  const pill = (cls, txt) => '<span class="pill ' + cls + '">' + esc(txt) + '</span>';
+  const KIND = { rt: pill('k-rt', 'REAL-TIME'), del: pill('k-del', 'DELAYED'), batch: pill('k-batch', 'BATCH'), state: pill('k-batch', 'STATE') };
+  const ST = { ok: pill('p-ok', 'OK'), warn: pill('p-warn', 'LATE'), bad: pill('p-bad', 'DOWN'), idle: pill('p-idle', 'IDLE') };
+
+  // Status from an age vs a target, honoring operating hours.
+  function ageStatus(ageMs, tgt) {
+    if (ageMs == null || !isFinite(ageMs)) return 'bad';
+    if (ageMs <= tgt.min * 60000) return 'ok';
+    return inHours(tgt.hours) ? 'warn' : 'idle';
+  }
+
+  async function services() {
+    const now = Date.now();
+    const [health, wq, sq, ss, picks, radar, conf, flow, econ, edge, congress, econMeta, edgeMeta] = await Promise.all([
+      getJson(WORKER + '/brain/health'),
+      getJson(WORKER + '/brain/quotes?syms=SPY'),
+      getJson('data/snap/quotes.json?cb=' + now),
+      getJson('data/snap/signals.json?cb=' + now),
+      getJson(WORKER + '/brain/picks'),
+      getJson(WORKER + '/brain/radar-log?n=1'),
+      getJson(WORKER + '/brain/confluence-score'),
+      getJson(WORKER + '/brain/flow-score'),
+      getJson('data/econ-calendar-thisweek.json?cb=' + now),
+      getJson('data/edge-lab.json?cb=' + now),
+      getJson('data/meta/congress-trades.json?cb=' + now),
+      getJson('data/meta/econ-calendar.json?cb=' + now),
+      getJson('data/meta/edge-lab.json?cb=' + now)
+    ]);
+    // Sidecars (data/meta/*.json, written by each daily job from 2026-11-03): checkedAt = last successful fetch.
+    const meta = m => (m && !m._err && m.checkedAt) ? m : null;
+    const checked = m => meta(m) ? ' Last checked ' + fmtET(Date.parse(m.checkedAt)) + ' ET, content last changed ' + fmtET(Date.parse(m.changedAt)) + ' ET.' : ' (No freshness sidecar yet: written from the next job run.)';
+    const rows = [];
+    const add = (name, kind, asOf, ageMs, target, status, note) => rows.push({ name, kind, asOf, ageMs, target, status, note });
+
+    // 1. Worker cron
+    if (health._err) add('Worker cron (brain)', KIND.state, null, null, fmtTarget(TARGETS.workerTick.min), 'bad', 'Worker /brain/health unreachable: ' + health._err);
+    else {
+      const age = (health.lastTickAgo != null) ? health.lastTickAgo * 1000 : null;
+      let st = ageStatus(age, TARGETS.workerTick);
+      if (health.healthy === false) st = inHours('worker') ? 'bad' : 'idle';
+      add('Worker cron (brain)', KIND.state, health.lastTick ? health.lastTick.ts : null, age, fmtTarget(TARGETS.workerTick.min), st,
+        'Ticks every minute 8am-5pm ET weekdays (idle otherwise by design). ' + (health.lastTick ? (health.lastTick.syms_updated + ' symbols last tick, ' + health.lastTick.errors + ' errors.') : ''));
+      const ver = health.worker_version || '?';
+      add('Worker version', KIND.state, null, null, EXPECTED_WORKER_VERSION, ver === EXPECTED_WORKER_VERSION ? 'ok' : 'warn',
+        'Deployed ' + ver + (ver === EXPECTED_WORKER_VERSION ? ' matches the site.' : ' does not match the site build (' + EXPECTED_WORKER_VERSION + '): redeploy or update the site.'));
+      const failed = (health.audit || []).filter(a => !a.pass).map(a => a.check + ': ' + a.detail);
+      add('Brain self-audit', KIND.state, null, null, 'all checks pass', health.audit_pass ? 'ok' : 'bad',
+        health.audit_pass ? (health.audit || []).length + ' checks pass. Passing means the machinery runs, not that the model has an edge (see Edge Scorecard).' : failed.join(' · '));
+    }
+
+    // 2. Prices
+    const spy = wq && wq.quotes && wq.quotes.SPY;
+    if (!spy) add('Worker quotes (SPY probe)', KIND.del, null, null, fmtTarget(TARGETS.workerQuote.min), 'bad', 'No quote returned' + (wq._err ? ': ' + wq._err : '.'));
+    else add('Worker quotes (SPY probe)', KIND.del, spy.ts, now - spy.ts, fmtTarget(TARGETS.workerQuote.min), ageStatus(now - spy.ts, TARGETS.workerQuote),
+      'Yahoo last sale fetched by the worker; the timestamp is when the worker fetched it (the exchange print time is not passed through). SPY $' + (+spy.last).toFixed(2) + '.');
+    if (sq._err || !sq.updatedAt) add('Price snapshot (CDN)', KIND.del, null, null, fmtTarget(TARGETS.snapQuotes.min), 'bad', 'data/snap/quotes.json unreadable' + (sq._err ? ': ' + sq._err : '.'));
+    else {
+      const st = ageStatus(now - sq.updatedAt, TARGETS.snapQuotes);
+      add('Price snapshot (CDN)', KIND.del, sq.updatedAt, now - sq.updatedAt, fmtTarget(TARGETS.snapQuotes.min), st,
+        sq.count + ' symbols. ' + (st === 'warn' ? 'Past 30 min, so pages skip it and read the worker directly (no stale prices shown); the snapshot job is behind (see Scheduled jobs).' : 'Pages read this first and fall back to the worker when it is older than 30 min.'));
+    }
+    if (ss._err || !ss.updatedAt) add('Signals snapshot (CDN)', KIND.batch, null, null, fmtTarget(TARGETS.snapSignals.min), 'bad', 'data/snap/signals.json unreadable.');
+    else add('Signals snapshot (CDN)', KIND.batch, ss.updatedAt, now - ss.updatedAt, fmtTarget(TARGETS.snapSignals.min), ageStatus(now - ss.updatedAt, TARGETS.snapSignals),
+      ss.count + ' names scored, regime ' + esc(ss.regime || '?') + '. A TA proxy, not options flow.');
+
+    // 3. Model state
+    const cal = picks && picks.calibration;
+    if (!cal || !cal.fitted) add('Live calibration refit', KIND.batch, null, null, fmtTarget(TARGETS.calibration.min), 'bad', 'No calibration on /brain/picks.');
+    else {
+      const t = Date.parse(cal.fitted);
+      add('Live calibration refit', KIND.batch, t, now - t, fmtTarget(TARGETS.calibration.min), ageStatus(now - t, TARGETS.calibration),
+        'Slope ' + (+cal.slope_a).toFixed(3) + ' on ' + cal.graded_calls + ' graded calls. ' + (cal.informative ? 'Informative: picks are published.' : 'Uninformative (slope ≤ 0.2): NO PLAY, so no pick is published. This is the honest state, not an outage.'));
+    }
+
+    // 4. Forward-test ledgers
+    if (radar._err || !radar.latest_day) add('Radar call ledger', KIND.batch, null, null, 'last session', 'bad', 'Unreadable' + (radar._err ? ': ' + radar._err : '.'));
+    else {
+      const want = lastSessionDay();
+      const today = radar.today || {};
+      const st = radar.latest_day >= want ? 'ok' : 'warn';
+      add('Radar call ledger', KIND.batch, Date.parse(radar.latest_day + 'T16:20:00-05:00'), null, 'holds ' + want, st,
+        'Latest session ' + radar.latest_day + ' (' + (today.captured != null ? today.captured + '/' + today.of + ' names' : '?') + '), ' + radar.days + ' sessions since ' + radar.first_day + '. Logged after 4:20pm ET; holidays show as LATE.');
+    }
+    if (conf._err || conf.total_logged == null) add('Confluence forward test', KIND.batch, null, null, '< cap', 'bad', 'Unreadable.');
+    else {
+      const atCap = conf.total_logged >= CONFLUENCE_CAP;
+      add('Confluence forward test', KIND.batch, null, null, '< ' + CONFLUENCE_CAP + ' rows', atCap ? 'warn' : 'ok',
+        conf.total_logged + ' logged, ' + conf.graded + ' graded, ' + conf.pending + ' pending. ' + (atCap ? 'AT THE RETENTION CAP: the oldest calls are dropped as new ones arrive and there is no archive yet, so the long-run record is not preserved.' : ''));
+    }
+    if (flow._err || !flow.verdict) add('Options-flow forward test', KIND.batch, null, null, '—', 'bad', 'Unreadable.');
+    else add('Options-flow forward test', KIND.batch, null, null, '—', 'ok',
+      flow.verdict.graded + ' graded, hit rate ' + (flow.verdict.hit_rate * 100).toFixed(1) + '% vs drift ' + (flow.verdict.drift_base_rate * 100).toFixed(1) + '%: ' + esc(flow.verdict.status) + '. Daily CBOE aggregates, not trade-level flow. Not yet overlap-corrected, so its n overstates independent observations.');
+
+    // 5. Batch files on the site
+    if (!Array.isArray(econ) || !econ.length) add('Economic calendar', KIND.batch, null, null, 'covers this week', 'bad', 'data/econ-calendar-thisweek.json unreadable or empty.');
+    else {
+      const days = econ.map(e => String(e.date || '').slice(0, 10)).filter(Boolean).sort();
+      const today = etDay(Date.now());
+      const covers = days[0] <= today && days[days.length - 1] >= today;
+      const wd = etParts(new Date()).wd;
+      const em = meta(econMeta), et = em ? Date.parse(em.checkedAt) : null;
+      add('Economic calendar', KIND.batch, et, et ? now - et : null, 'covers this week', covers ? 'ok' : ((wd === 'Sat' || wd === 'Sun') ? 'idle' : 'warn'),
+        econ.length + ' events, ' + days[0] + ' to ' + days[days.length - 1] + '. ForexFactory weekly file, refreshed daily ~6:20am ET.' + checked(econMeta));
+    }
+    if (edge._err || !edge.generated) add('Edge lab', KIND.batch, null, null, fmtTarget(TARGETS.edgeLab.min), 'bad', 'data/edge-lab.json unreadable.');
+    else {
+      const t = Date.parse(edge.generated + 'T12:40:00Z');
+      add('Edge lab', KIND.batch, t, now - t, fmtTarget(TARGETS.edgeLab.min), ageStatus(now - t, TARGETS.edgeLab), 'Weekly (Mondays). ' + (edge.signals || []).length + ' signals on ' + edge.universe_size + ' names.' + checked(edgeMeta));
+    }
+    if (congress && !congress._err && congress.fetchedAt) {
+      const t = Date.parse(congress.fetchedAt);
+      add('House PTR filings', KIND.batch, t, now - t, fmtTarget(TARGETS.congress.min), ageStatus(now - t, TARGETS.congress),
+        (congress.rows != null ? congress.rows + ' filings' + (congress.coverage ? ' filed ' + congress.coverage.first + ' to ' + congress.coverage.last : '') + '. ' : '') + 'House Clerk index; Senate not covered here. Disclosure lags the trade by up to 45 days by law.' + checked(congress));
+    } else {
+      add('House PTR filings', KIND.batch, null, null, fmtTarget(TARGETS.congress.min), 'warn',
+        'The file carries no fetch time; its freshness sidecar (data/meta/congress-trades.json) is written from the next job run. Until then, see the congress-ptr job below. Disclosure lags the trade by up to 45 days by law.');
+    }
+    return rows;
+  }
+
+  // ---- Scheduled jobs ----
+  const JOBS = [
+    { file: 'snapshots.yml', name: 'Price + signal snapshots', crons: ['*/15 13-21 * * 1-5', '0 * * * *'] },
+    { file: 'brain-health.yml', name: 'Brain health check', crons: ['*/30 * * * *'] },
+    { file: 'econ-calendar.yml', name: 'Economic calendar', crons: ['20 10 * * *'] },
+    { file: 'congress-ptr.yml', name: 'House PTR filings', crons: ['30 11 * * *'] },
+    { file: 'edge-lab.yml', name: 'Edge lab (weekly)', crons: ['40 12 * * 1'] }
+  ];
+  function cronField(f, v, lo) {
+    return f.split(',').some(part => {
+      let [range, step] = part.split('/');
+      step = step ? +step : 1;
+      let a, b;
+      if (range === '*') { a = lo; b = 99; } else if (range.indexOf('-') >= 0) { [a, b] = range.split('-').map(Number); } else { a = b = +range; }
+      return v >= a && v <= b && (v - a) % step === 0;
+    });
+  }
+  function cronMatch(expr, d) {
+    const [mi, h, dom, mo, dow] = expr.trim().split(/\s+/);
+    return cronField(mi, d.getUTCMinutes(), 0) && cronField(h, d.getUTCHours(), 0) && cronField(dom, d.getUTCDate(), 1) &&
+           cronField(mo, d.getUTCMonth() + 1, 1) && cronField(dow, d.getUTCDay(), 0);
+  }
+  function expectedRuns(crons, fromMs, toMs) {
+    let n = 0;
+    for (let t = Math.ceil(fromMs / 60000) * 60000; t < toMs; t += 60000) {
+      const d = new Date(t);
+      if (crons.some(c => cronMatch(c, d))) n++;
+    }
+    return n;
+  }
+  async function jobs() {
+    const CK = 'bpleone_system_status_jobs_v1';
+    try {
+      const c = JSON.parse(sessionStorage.getItem(CK) || 'null');
+      if (c && Date.now() - c.ts < 5 * 60000) return c.rows;
+    } catch (e) {}
+    const now = Date.now(), from = now - 86400000;
+    const rows = await Promise.all(JOBS.map(async j => {
+      const r = await getJson('https://api.github.com/repos/' + REPO + '/actions/workflows/' + j.file + '/runs?per_page=60', { headers: { Accept: 'application/vnd.github+json' } });
+      if (r._err || !Array.isArray(r.workflow_runs)) return { j, err: r._err || 'no data' };
+      const sched = r.workflow_runs.filter(x => x.event === 'schedule');
+      const ran24 = sched.filter(x => Date.parse(x.created_at) >= from).length;
+      const last = sched[0] || null;
+      const lastOk = sched.find(x => x.conclusion === 'success') || null;
+      return { j, ran24, expected: expectedRuns(j.crons, from, now), last: last && { t: Date.parse(last.created_at), status: last.status, conclusion: last.conclusion },
+               lastOk: lastOk && Date.parse(lastOk.created_at) };
+    }));
+    try { sessionStorage.setItem(CK, JSON.stringify({ ts: Date.now(), rows })); } catch (e) {}
+    return rows;
+  }
+  function jobStatus(r) {
+    if (r.err) return 'bad';
+    if (r.last && r.last.conclusion === 'failure') return 'bad';
+    if (!r.expected) return 'ok';
+    if (r.ran24 === 0) return 'bad';
+    return r.ran24 >= r.expected * 0.8 ? 'ok' : 'warn';
+  }
+
+  function paint(svc, jb) {
+    document.getElementById('ss-services').innerHTML = svc.map(r =>
+      '<tr><td><strong>' + esc(r.name) + '</strong></td><td>' + r.kind + '</td><td class="m">' + fmtET(r.asOf) + '</td><td class="m">' + fmtAge(r.ageMs) +
+      '</td><td class="m">' + esc(r.target) + '</td><td>' + ST[r.status] + '</td><td class="note">' + esc(r.note) + '</td></tr>').join('');
+    const limited = jb.some(r => r.err && /403|429/.test(r.err));
+    document.getElementById('ss-jobs').innerHTML = jb.map(r => r.err
+      ? '<tr><td><strong>' + esc(r.j.name) + '</strong></td><td class="m">' + esc(r.j.crons.join(' + ')) + '</td><td colspan="4" class="note">GitHub API: ' + esc(r.err) + '</td><td>' + ST.bad + '</td></tr>'
+      : '<tr><td><strong>' + esc(r.j.name) + '</strong></td><td class="m">' + esc(r.j.crons.join(' + ')) + '</td><td class="m">' + r.expected + '</td><td class="m">' + r.ran24 +
+        '</td><td class="m">' + (r.last ? fmtET(r.last.t) : '—') + '</td><td class="m">' + esc(r.last ? (r.last.conclusion || r.last.status) : '—') + '</td><td>' + ST[jobStatus(r)] + '</td></tr>').join('');
+    if (limited) document.getElementById('ss-jobs-note').textContent = 'GitHub limits anonymous API reads to 60 per hour per network. The job table will fill in on a later Re-check.';
+
+    const svcBad = svc.filter(r => r.status === 'bad'), svcWarn = svc.filter(r => r.status === 'warn');
+    const jobBad = jb.filter(r => !r.err && jobStatus(r) === 'bad'), jobWarn = jb.filter(r => !r.err && jobStatus(r) === 'warn');
+    const v = document.getElementById('ss-verdict');
+    const lvl = (svcBad.length || jobBad.length) ? 'bad' : (svcWarn.length || jobWarn.length) ? 'warn' : 'ok';
+    v.className = 'ss-verdict ' + lvl;
+    const parts = [];
+    svcBad.concat(svcWarn).forEach(r => parts.push(r.name + ' (' + (r.status === 'bad' ? 'down' : 'late') + ')'));
+    jobBad.concat(jobWarn).forEach(r => parts.push(r.j.name + ' job: ran ' + r.ran24 + ' of ' + r.expected + ' expected in 24h'));
+    v.innerHTML = '<div class="big">' + (lvl === 'ok' ? 'All systems within target' : lvl === 'warn' ? 'Degraded: some data is late' : 'Problem: something is down') + '</div>' +
+      '<div class="sub">' + (parts.length ? esc(parts.join(' · ')) : 'Every component is inside its freshness target.') + '<br>Checked ' + esc(fmtET(Date.now())) + ' ET.</div>';
+  }
+
+  async function run() {
+    document.getElementById('ss-verdict').querySelector('.big').textContent = 'Checking…';
+    const [svc, jb] = await Promise.all([services(), jobs()]);
+    paint(svc, jb);
+  }
+  document.getElementById('ss-refresh').addEventListener('click', () => { try { sessionStorage.removeItem('bpleone_system_status_jobs_v1'); } catch (e) {} run(); });
+  run();
+  setInterval(() => { if (!document.hidden) run(); }, 5 * 60000);
+})();
+</script>
+</body>
+</html>
