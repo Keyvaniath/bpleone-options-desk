@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>SPY Radar — the index, every day — bpleone / trade</title>
-<meta name="description" content="The daily SPY screen: today's implied move from the live options chain, real pivot levels and ATR context, the desk's honest 5-day lean, the week's implied range, and the econ events left this week. One click into strike ladders and play cards.">
+<meta name="description" content="The daily SPY screen: today's implied move from the live options chain, real pivot levels and ATR context, the desk's honest 5-day lean, the week's implied range, the econ events left this week, and a graded track record of every radar call across SPY, semis and tech.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" media="print" onload="this.media='all'"><noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap"></noscript>
@@ -24,6 +24,13 @@
 .rangebar { height:10px; border-radius:6px; background:rgba(255,255,255,0.08); overflow:hidden; position:relative; }
 .rangebar > span { display:block; height:100%; background:linear-gradient(90deg,var(--accent),#7c3aed); }
 @media (max-width:700px){ .imp-row,.imp-head { grid-template-columns: 90px 80px 100px 90px; } .imp-row > :nth-child(5),.imp-head > :nth-child(5){ display:none; } }
+.rec-row,.rec-head { display:grid; grid-template-columns: 92px 84px 128px 1fr 1fr 96px; gap:8px; padding:8px 12px; font-family:var(--font-mono); font-size:12px; align-items:center; border-bottom:1px solid rgba(255,255,255,0.04); }
+.rec-head { font-size:9.5px; text-transform:uppercase; letter-spacing:0.4px; color:var(--text-muted); border-bottom:1px solid var(--border); font-family:Inter,sans-serif; }
+.sym-row,.sym-head { display:grid; grid-template-columns: 70px 70px 60px 1fr 1fr 1fr; gap:8px; padding:7px 12px; font-family:var(--font-mono); font-size:12px; align-items:center; border-bottom:1px solid rgba(255,255,255,0.04); }
+.sym-head { font-size:9.5px; text-transform:uppercase; letter-spacing:0.4px; color:var(--text-muted); border-bottom:1px solid var(--border); font-family:Inter,sans-serif; }
+.ok-in { color:var(--green); } .ok-out { color:var(--red); }
+@media (max-width:700px){ .rec-row,.rec-head { grid-template-columns: 62px 1fr 1fr 58px; gap:6px; padding:8px 8px; font-size:11px; } .rec-row > :nth-child(2),.rec-head > :nth-child(2),.rec-row > :nth-child(5),.rec-head > :nth-child(5){ display:none; }
+  .sym-row,.sym-head { grid-template-columns: 64px 1fr 1fr 1fr; } .sym-row > :nth-child(2),.sym-head > :nth-child(2),.sym-row > :nth-child(3),.sym-head > :nth-child(3){ display:none; } }
 </style>
   <link rel="canonical" href="https://options.bpleone.com/spy-radar.html">
 </head>
@@ -77,6 +84,19 @@
     <div class="imp-head"><div>Expiry</div><div>DTE</div><div>ATM straddle</div><div>Implied move</div><div>IV</div></div>
     <div id="rImpBody"><div style="padding:18px;text-align:center;color:var(--text-muted);">Loading the live chain…</div></div>
     <div style="padding:10px 12px;font-size:11.5px;color:var(--text-muted);line-height:1.6;">Reading it: the straddle price is the market's break-even for a move in <em>either</em> direction by that expiry. A day where you expect more than the implied number is a day options are "cheap" to you; expecting less makes them "expensive." That judgment is yours — the desk has no proven edge on it.</div>
+  </div>
+
+  <!-- TRACK RECORD (pass 334 / worker pass-317): every radar call logged after the close, graded later -->
+  <div class="card mb-24" id="rRecCard">
+    <div class="card-header"><div class="card-title">📒 Track record: every radar call, logged and graded</div><div class="mono" style="font-size:11px;color:var(--text-muted);" id="rRecMeta"></div></div>
+    <div id="rRecHead" style="padding:8px 12px;font-size:12.5px;line-height:1.7;color:var(--text-secondary);">Loading the ledger…</div>
+    <div id="rRecTiles" class="grid grid-4" style="padding:4px 12px 12px;"></div>
+    <div class="rec-head"><div>Session</div><div>Close</div><div>5-day lean</div><div>Next-expiry range</div><div>Week range</div><div>Lean result</div></div>
+    <div id="rRecBody"><div style="padding:14px;text-align:center;color:var(--text-muted);">—</div></div>
+    <div style="padding:14px 12px 6px;font-size:10px;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);">Semis + tech: the same calls on every name in the ledger</div>
+    <div class="sym-head"><div>Name</div><div>Group</div><div>Calls</div><div>Lean hit (independent)</div><div>Inside next-expiry move</div><div>Realized / implied</div></div>
+    <div id="rRecSyms"><div style="padding:14px;text-align:center;color:var(--text-muted);">—</div></div>
+    <div style="padding:10px 12px;font-size:11.5px;color:var(--text-muted);line-height:1.6;" id="rRecNote"></div>
   </div>
 
   <!-- WEEK CALENDAR -->
@@ -219,8 +239,57 @@ buildNav('spy-radar');
     }
   }
 
+  // ---- Track record: /brain/radar-log (worker pass-317). Every string from the feed is escaped.
+  async function loadRecord() {
+    const r = await jget('/brain/radar-log?sym=SPY&n=12');
+    if (!r || !r.ok) {
+      $('rRecHead').innerHTML = '<span style="color:var(--text-muted);">Track record unreachable right now. Nothing fabricated in its place.</span>';
+      return;
+    }
+    const pct = (x, d) => x == null || isNaN(x) ? '—' : (x * 100).toFixed(d == null ? 1 : d) + '%';
+    const sgn = x => x == null || isNaN(x) ? '—' : (x >= 0 ? '+' : '') + (x * 100).toFixed(2) + '%';
+    const t = r.today;
+    $('rRecMeta').textContent = (r.first_day ? 'logging since ' + r.first_day + ' · ' : '') + r.days + ' session(s)'
+      + (t && t.day ? ' · ' + t.day + ': ' + t.captured + '/' + t.of + ' captured' + (t.trading === false ? ' (no session)' : '') : '');
+    $('rRecHead').innerHTML = '<b>' + esc(r.verdict && r.verdict.headline) + '</b>';
+    const g = (r.groups && r.groups.all) || {};
+    const L = g.lean_5d || {}, R1 = g.range_next_expiry || {}, R5 = g.range_week || {}, P = g.pivots_next_session || {};
+    const tile = (l, v, s) => '<div class="card kpi2" style="margin:0;"><div class="l">' + l + '</div><div class="v">' + v + '</div><div class="s">' + s + '</div></div>';
+    $('rRecTiles').innerHTML =
+      tile('5-day lean hit rate', pct(L.hit_rate), 'vs ' + pct(L.drift_null_rate) + ' market drift · ' + (L.n || 0) + ' graded, ' + (L.n_eff || 0) + ' independent')
+      + tile('Inside next-expiry move', pct(R1.contained_rate), 'a fair straddle ≈ 57.5% · n ' + (R1.n || 0) + (R1.median_realized_to_implied != null ? ' · realized/implied ' + Number(R1.median_realized_to_implied).toFixed(2) : ''))
+      + tile('Inside ~1-week move', pct(R5.contained_rate), 'a fair straddle ≈ 57.5% · n ' + (R5.n || 0) + (R5.median_realized_to_implied != null ? ' · realized/implied ' + Number(R5.median_realized_to_implied).toFixed(2) : ''))
+      + tile('Next session touched R1 or S1', pct(P.touched_either), 'R1 ' + pct(P.touched_R1) + ' · S1 ' + pct(P.touched_S1) + ' · n ' + (P.n || 0));
+    const rows = Array.isArray(r.recent) ? r.recent : [];
+    function rng(m, e, x, c) {
+      if (m == null) return '<span style="color:var(--text-muted);">no chain</span>';
+      let s = '±' + pct(m) + ' by ' + esc(String(e || '').slice(5));
+      if (x && c > 0) { const mv = x.c / c - 1, inside = Math.abs(mv) <= m; s += ' → ' + sgn(mv) + ' <span class="' + (inside ? 'ok-in">inside' : 'ok-out">outside') + '</span>'; }
+      else s += ' <span style="color:var(--text-muted);">· pending</span>';
+      return s;
+    }
+    $('rRecBody').innerHTML = rows.length ? rows.map(c => {
+      const lean = c.p == null ? '<span style="color:var(--text-muted);">no model lean</span>'
+        : '<span style="color:' + (c.p >= 0.5 ? 'var(--green)' : 'var(--red)') + ';">' + (c.p >= 0.5 ? 'UP ' : 'DOWN ') + Math.round(c.p * 100) + '%</span>' + (c.np ? ' <span style="color:var(--text-muted);">NO PLAY</span>' : '');
+      let res = '<span style="color:var(--text-muted);">pending</span>';
+      if (c.p != null && c.o5 && c.c > 0) { const mv = c.o5.c / c.c - 1, hit = (c.p >= 0.5) === (mv > 0); res = '<span class="' + (hit ? 'ok-in">right' : 'ok-out">wrong') + '</span> ' + sgn(mv); }
+      else if (c.p == null) res = '—';
+      return '<div class="rec-row"><div>' + esc(c.d) + '</div><div>' + money(c.c) + '</div><div>' + lean + '</div><div>' + rng(c.m1, c.e1, c.x1, c.c) + '</div><div>' + rng(c.m5, c.e5, c.x5, c.c) + '</div><div>' + res + '</div></div>';
+    }).join('') : '<div style="padding:14px;text-align:center;color:var(--text-muted);">The first SPY call logs after today\'s close; outcomes fill in over the next sessions.</div>';
+    const syms = r.symbols || {};
+    const order = Array.isArray(r.set) ? r.set : Object.keys(syms);
+    $('rRecSyms').innerHTML = order.map(s => {
+      const x = syms[s] || {};
+      return '<div class="sym-row"><div style="font-weight:800;">' + esc(s) + '</div><div style="font-family:Inter;font-size:11px;color:var(--text-muted);">' + esc(x.group || '') + '</div><div>' + (x.calls || 0) + '</div>'
+        + '<div>' + (x.lean_n ? pct(x.lean_hit_rate) + ' <span style="color:var(--text-muted);">(' + x.lean_n_eff + ')</span>' : '<span style="color:var(--text-muted);">' + (x.calls ? 'pending' : '—') + '</span>') + '</div>'
+        + '<div>' + (x.n_range ? pct(x.contained_next) : '<span style="color:var(--text-muted);">' + (x.calls ? 'pending' : '—') + '</span>') + '</div>'
+        + '<div>' + (x.realized_to_implied != null ? Number(x.realized_to_implied).toFixed(2) : '<span style="color:var(--text-muted);">—</span>') + '</div></div>';
+    }).join('');
+    $('rRecNote').innerHTML = esc(r.method || '') + ' ' + esc(r.honesty || '') + ' <a href="edge-scorecard.html">Edge scorecard →</a>';
+  }
   load();
-  $('refreshBtn').addEventListener('click', load);
+  loadRecord();
+  $('refreshBtn').addEventListener('click', function () { load(); loadRecord(); });
   setInterval(function () { if (!document.hidden) load(); }, 2 * 60 * 1000);
 })();
 </script>

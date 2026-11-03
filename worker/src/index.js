@@ -1,3 +1,4 @@
+import { RADAR_SET, RADAR_MAX_RECORDS, barsToDaily, buildCall, fillOutcomes, radarStats, etDateStr } from './radar.js';
 /* ===========================================
    BPLEONE Brain Worker — 24/7 server-side brain
    ---
@@ -38,7 +39,7 @@
 // Pass 200: version stamp so brain-proof.html + worker-setup.html can detect
 // when the deployed worker is behind the repo source. Bump on every meaningful
 // behavior change. Read via /brain/health → worker_version field.
-const WORKER_VERSION = 'pass-316';
+const WORKER_VERSION = 'pass-317';
 
 const UNIVERSE = [
   'SPY','QQQ','IWM','DIA','AAPL','NVDA','TSLA','MSFT','META','AMZN','GOOGL','AMD',
@@ -2000,36 +2001,7 @@ async function handleRequest(request, env, ctx) {
     // Pass 333: when the live self-calibration says the direction signal is
     // uninformative, cross-sectional ranks would turn noise (or exact ties) into
     // a full BUY/SELL spread. Every name is HOLD until the record earns it.
-    const sigNoPlay = !!(liveCalSig && liveCalSig.n >= 300 && !liveCalSig.informative);
-    let arr = Object.values(snap.signals || {})
-      .filter(s => s && (Date.now() - (s.ts || 0)) < 4 * 24 * 60 * 60 * 1000);  // ~4d retention
-
-    const withProb = arr.filter(s => typeof s.predProb === 'number');
-    const n = withProb.length;
-    const sorted = withProb.map(s => s.predProb).sort((a, b) => a - b);
-    const universeMean = n ? sorted.reduce((a, b) => a + b, 0) / n : 0.5;
-    const regime = n < 8 ? 'unknown' : (universeMean >= 0.52 ? 'bullish' : universeMean <= 0.48 ? 'bearish' : 'neutral');
-    if (n >= 8) {
-      for (const s of withProb) {
-        // Pass 333: mid-rank for ties (all-equal probabilities rank 0.5, not 0).
-        let below = 0, equal = 0; for (const q of sorted) { if (q < s.predProb) below++; else if (q === s.predProb) equal++; }
-        const rank = n > 1 ? (below + (equal - 1) / 2) / (n - 1) : 0.5;   // 0 = weakest .. 1 = strongest in universe
-        s.rel_rank = +rank.toFixed(3);
-        s.rel_excess = +(s.predProb - universeMean).toFixed(4);
-        const rv = s.rvol || 0;
-        const volNote = rv >= 1.5 ? ' + ' + rv.toFixed(1) + '× volume' : '';
-        // Rank drives the call (cross-sectional); volume is a conviction modifier.
-        if (rank >= 0.85) { s.signal = 'BUY'; s.reason = 'top ' + Math.max(1, Math.round((1 - rank) * 100)) + '% relative strength' + volNote; }
-        else if (rank <= 0.15) { s.signal = 'SELL'; s.reason = 'bottom ' + Math.max(1, Math.round(rank * 100)) + '% relative strength' + volNote; }
-        else if (rv >= 2.5) { s.signal = 'WATCH'; s.reason = rv.toFixed(1) + '× volume surge, mid-pack strength'; }
-        else if (rank >= 0.70) { s.signal = 'LEAN BUY'; s.reason = 'upper-third relative strength' + volNote; }
-        else if (rank <= 0.30) { s.signal = 'LEAN SELL'; s.reason = 'lower-third relative strength' + volNote; }
-        else { s.signal = 'HOLD'; s.reason = 'mid-pack relative strength'; }
-        if (sigNoPlay) { s.signal = 'HOLD'; s.reason = 'no play: live calibration says the direction signal is uninformative' + volNote; }
-        // Sort key: distance from the pack x a volume boost (so volume-confirmed extremes rank first).
-        s.rank = +(Math.abs(rank - 0.5) * 2 * (1 + Math.min(rv || 1, 4) / 4)).toFixed(4);
-      }
-    }
+    let { arr, universeMean, regime } = labelDisplayedSignals(snap.signals, liveCalSig);
     const wantSignal = (url.searchParams.get('signal') || '').toUpperCase();
     if (wantSignal) arr = arr.filter(s => s.signal === wantSignal);
     const minRvol = parseFloat(url.searchParams.get('min_rvol') || '0');
@@ -2700,6 +2672,20 @@ async function handleRequest(request, env, ctx) {
   // resolved by maybeFlowScorecard) with the same honest machinery as the
   // confluence scorer: hit-rate vs the per-direction drift null, profitability,
   // 95% bound. ready=false until >= 20 graded calls (accrues over weeks). =====
+  // ===== Pass 317: the radar call ledger, graded. Read-only (KV read cached 60s, response 300s).
+  // ?sym= picks the name for the recent-calls list (default SPY); ?n= its length (max 60).
+  if (path === '/brain/radar-log') {
+    const log = await kvGet(env, 'radar_log_v1', [], 60);
+    const state = await kvGet(env, 'radar_state_v1', null, 60);
+    const sym = (url.searchParams.get('sym') || 'SPY').toUpperCase().replace(/[^A-Z0-9.\-]/g, '').slice(0, 8);
+    const n = Math.max(1, Math.min(60, parseInt(url.searchParams.get('n') || '20', 10) || 20));
+    const stats = radarStats(log, sym, n);
+    return json(Object.assign({ ok: true, version: WORKER_VERSION, set: RADAR_SET,
+      today: state ? { day: state.day, trading: state.trading, captured: (state.done || []).length, of: RADAR_SET.length, gaps: state.gaps || [] } : null,
+      method: 'Logged each weekday after the close: the radar lean as displayed (live-calibrated 5-day P(up); lean = up when >= 50%), the ATM-straddle implied move to the next listed expiry and to ~1 week, and floor-trader pivots off the completed bar. Leans grade at 5 sessions against the market-drift null with the overlap correction (same-name same-direction calls within 9 days count once). Range calls grade against what a fair straddle contains (~57.5%): the implied move is the options market\'s forecast, not the desk\'s. Pivots report how often the next session touched R1 / S1.',
+      honesty: 'The lean is the brain\'s output, whose live record does not beat drift (see /brain/metrics and edge-scorecard.html). Nothing here is advice.' }, stats), 200, 300);
+  }
+
   if (path === '/brain/flow-score') {
     const log = await kvGet(env, 'flow_log_v1', [], 60);   // pass 298 (scale): per-colo cached read
     const resolved = log.filter(e => e && e.resolved && typeof e.ret === 'number');
@@ -4616,6 +4602,98 @@ async function maybeFlowScorecard(env) {
   } catch (e) { /* never let the flow scorecard break the cron */ }
 }
 
+// Pass 317: the radar call ledger. Each weekday after the close (16:20-23:59 ET) the worker logs,
+// per name in RADAR_SET (SPY + index/sector ETFs + semis + mega-cap tech), what the radar shows:
+// the 5-day lean as displayed, the straddle-implied move to the next expiry and to ~a week, and
+// the next session's pivots. The same visit fills earlier calls' outcomes from real bars. Bounded:
+// RADAR_BATCH names per tick (2 fetches each), each name attempted at most 3 times a day, and an
+// isolate-level done flag so finished days cost no KV reads. Read via GET /brain/radar-log.
+const RADAR_BATCH = 5;
+let RADAR_DONE_DAY = null;
+function etClock() {
+  const parts = new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', hour12: false,
+    weekday: 'short', hour: '2-digit', minute: '2-digit' }).formatToParts(new Date());
+  let dow = '', h = 0, m = 0;
+  for (const x of parts) { if (x.type === 'weekday') dow = x.value; if (x.type === 'hour') h = parseInt(x.value, 10) % 24; if (x.type === 'minute') m = parseInt(x.value, 10); }
+  return { dow, t: h + m / 60, day: etDateStr(Date.now()) };
+}
+// Pass 317: the displayed signal labels, shared by /brain/signals and the radar call ledger so
+// the ledger logs exactly what a visitor sees (cross-sectional rank labels + the pass-333 NO PLAY
+// override). Moved verbatim from the /brain/signals handler; mutates the signal objects it is given.
+function labelDisplayedSignals(signalsObj, liveCalSig) {
+  const sigNoPlay = !!(liveCalSig && liveCalSig.n >= 300 && !liveCalSig.informative);
+  const arr = Object.values(signalsObj || {})
+    .filter(s => s && (Date.now() - (s.ts || 0)) < 4 * 24 * 60 * 60 * 1000);  // ~4d retention
+
+  const withProb = arr.filter(s => typeof s.predProb === 'number');
+  const n = withProb.length;
+  const sorted = withProb.map(s => s.predProb).sort((a, b) => a - b);
+  const universeMean = n ? sorted.reduce((a, b) => a + b, 0) / n : 0.5;
+  const regime = n < 8 ? 'unknown' : (universeMean >= 0.52 ? 'bullish' : universeMean <= 0.48 ? 'bearish' : 'neutral');
+  if (n >= 8) {
+    for (const s of withProb) {
+      // Pass 333: mid-rank for ties (all-equal probabilities rank 0.5, not 0).
+      let below = 0, equal = 0; for (const q of sorted) { if (q < s.predProb) below++; else if (q === s.predProb) equal++; }
+      const rank = n > 1 ? (below + (equal - 1) / 2) / (n - 1) : 0.5;   // 0 = weakest .. 1 = strongest in universe
+      s.rel_rank = +rank.toFixed(3);
+      s.rel_excess = +(s.predProb - universeMean).toFixed(4);
+      const rv = s.rvol || 0;
+      const volNote = rv >= 1.5 ? ' + ' + rv.toFixed(1) + '× volume' : '';
+      // Rank drives the call (cross-sectional); volume is a conviction modifier.
+      if (rank >= 0.85) { s.signal = 'BUY'; s.reason = 'top ' + Math.max(1, Math.round((1 - rank) * 100)) + '% relative strength' + volNote; }
+      else if (rank <= 0.15) { s.signal = 'SELL'; s.reason = 'bottom ' + Math.max(1, Math.round(rank * 100)) + '% relative strength' + volNote; }
+      else if (rv >= 2.5) { s.signal = 'WATCH'; s.reason = rv.toFixed(1) + '× volume surge, mid-pack strength'; }
+      else if (rank >= 0.70) { s.signal = 'LEAN BUY'; s.reason = 'upper-third relative strength' + volNote; }
+      else if (rank <= 0.30) { s.signal = 'LEAN SELL'; s.reason = 'lower-third relative strength' + volNote; }
+      else { s.signal = 'HOLD'; s.reason = 'mid-pack relative strength'; }
+      if (sigNoPlay) { s.signal = 'HOLD'; s.reason = 'no play: live calibration says the direction signal is uninformative' + volNote; }
+      // Sort key: distance from the pack x a volume boost (so volume-confirmed extremes rank first).
+      s.rank = +(Math.abs(rank - 0.5) * 2 * (1 + Math.min(rv || 1, 4) / 4)).toFixed(4);
+    }
+  }
+  return { arr, n, universeMean, regime, sigNoPlay };
+}
+
+async function maybeRadarLog(env) {
+  try {
+    const clk = etClock();
+    if (clk.dow === 'Sat' || clk.dow === 'Sun' || clk.t < 16 + 20 / 60) return;   // after the close only
+    if (RADAR_DONE_DAY === clk.day) return;
+    const prev = await kvGet(env, 'radar_state_v1', null);
+    const state = (prev && prev.day === clk.day) ? prev : { day: clk.day, trading: null, done: [], tries: {}, gaps: [] };
+    if (state.trading === false || state.done.length >= RADAR_SET.length) { RADAR_DONE_DAY = clk.day; return; }
+    const todo = RADAR_SET.filter(sym => !state.done.includes(sym)).slice(0, RADAR_BATCH);
+    const [snap, liveCal] = await Promise.all([kvGet(env, KV_KEYS.SIGNALS, { signals: {} }), kvGet(env, KV_KEYS.LIVE_CAL, null)]);
+    const shown = {};
+    labelDisplayedSignals(snap.signals, liveCal).arr.forEach(x => { if (x && x.sym) shown[x.sym] = x; });
+    const log = await kvGet(env, 'radar_log_v1', []);
+    let dirty = false;
+    for (const sym of todo) {
+      state.tries[sym] = (state.tries[sym] || 0) + 1;
+      const daily = barsToDaily(await fetchYahooHistorical(sym, 90));
+      if (state.trading === null && sym === RADAR_SET[0]) {
+        if (!daily.length) { if (state.tries[sym] >= 3) state.trading = false; break; }   // retry next tick
+        state.trading = daily[daily.length - 1].d === clk.day;                         // holiday -> no bar today
+        if (!state.trading) break;
+      }
+      if (!daily.length) { if (state.tries[sym] >= 3) { state.done.push(sym); state.gaps.push(sym); } continue; }
+      if (fillOutcomes(log.filter(r => r.s === sym && !r.done), daily)) dirty = true;
+      if (log.some(r => r.s === sym && r.d === clk.day)) { state.done.push(sym); continue; }
+      const chain = await fetchOptionsChain(env, sym, null);
+      const sg = shown[sym];
+      const rec = buildCall(sym, daily, chain, sg, clk.day, !!(sg && (Date.now() - (sg.ts || 0)) < 12 * 3600 * 1000));
+      if (rec && (rec.m1 != null || state.tries[sym] >= 3)) {
+        log.push(rec); dirty = true; state.done.push(sym);
+      } else if (state.tries[sym] >= 3) {
+        state.done.push(sym); state.gaps.push(sym);
+      }
+    }
+    if (dirty) await kvPut(env, 'radar_log_v1', log.slice(-RADAR_MAX_RECORDS));
+    await kvPut(env, 'radar_state_v1', state);
+    if (state.trading === false || state.done.length >= RADAR_SET.length) RADAR_DONE_DAY = clk.day;
+  } catch (e) { /* never let the radar log break the cron */ }
+}
+
 async function maybeConfluenceScorecard(env) {
   try {
     const dayKey = etDayKeyNow();
@@ -4682,6 +4760,8 @@ export default {
     ctx.waitUntil(maybeConfluenceScorecard(env));
     // Pass 292: free options-flow forward-test (isolated; own log + try/catch)
     ctx.waitUntil(maybeFlowScorecard(env));
+    // Pass 317: radar call ledger (after the close; own log + try/catch)
+    ctx.waitUntil(maybeRadarLog(env));
     // Pass 257: daily delivery — post Pick of the Day to Discord (weekday AM, once)
     ctx.waitUntil(maybeDailyDigest(env));
   }
