@@ -67,7 +67,7 @@ t('single cache-bust version site-wide (' + [...versions].join(',') + ')', versi
 // 6b. Pick pages that rank with the browser model show the worker's NO PLAY gate first.
 const gate = read('js/no-play-gate.js');
 t('no-play gate reads /brain/picks and handles closed + unreachable', /\/brain\/picks/.test(gate) && /No qualifying setups today/.test(gate) && /Could not confirm/.test(gate));
-['trade-of-the-day', 'brain-bet', 'conviction-stack', 'morning-brief'].forEach(p =>
+['trade-of-the-day', 'brain-bet', 'conviction-stack', 'morning-brief', 'plays'].forEach(p =>
   t(p + ' loads the NO PLAY gate', read(p + '.html').indexOf('js/no-play-gate.js') >= 0 && gate.indexOf("'" + p + "'") >= 0));
 
 // 6c. Screenshot fixes (11/3 evening): crypto change vs Coinbase's 24h open, never the May seed; the nav pill

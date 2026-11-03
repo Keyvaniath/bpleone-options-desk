@@ -22,7 +22,7 @@ const CmdPalette = (function() {
 
   const PAGES = [
     { title: 'Dashboard', sub: 'Main market dashboard', url: 'dashboard.html', icon: '📊' },
-    { title: 'Plays of the Day', sub: 'Top-ranked setups', url: 'plays.html', icon: '⭐' },
+    { title: 'Plays of the Day', sub: 'Biggest movers today (not model picks)', url: 'plays.html', icon: '⭐' },
     { title: 'Trade of the Day', sub: 'Featured trade with thesis', url: 'trade-of-the-day.html', icon: '🎯' },
     { title: 'Pre-Market Brief', sub: '5:30 AM ET morning brief', url: 'pre-market.html', icon: '🌅' },
     { title: 'Live Signals', sub: 'Real-time signal feed', url: 'signals.html', icon: '⚡' },

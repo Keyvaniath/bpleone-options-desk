@@ -16,9 +16,12 @@
   if (typeof document === 'undefined') return;
   const WORKER = (window.WorkerBridge && WorkerBridge.getUrl && WorkerBridge.getUrl()) || 'https://bpleone-brain-worker.brandonpleone.workers.dev';
   // page -> the element holding the page's own pick output (dimmed when the gate is closed); null = banner only
-  const PAGES = { 'trade-of-the-day': '#content', 'brain-bet': '#bet', 'conviction-stack': null, 'morning-brief': null };
+  const PAGES = { 'trade-of-the-day': '#content', 'brain-bet': '#bet', 'conviction-stack': null, 'morning-brief': null, 'plays': '#playsGrid' };
   const page = ((location.pathname.split('/').pop() || '').toLowerCase().replace(/\.html$/, '')) || 'index';
   if (!(page in PAGES)) return;
+  // What the page's own output IS, so the label below it is accurate (plays.html ranks movers, it is not a model).
+  const WHAT = { 'plays': 'a list of today\'s biggest movers ranked by the size of the move' };
+  const what = WHAT[page] || 'this browser\'s own model output';
   const CK = 'bpleone_no_play_gate_v1';
 
   const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -43,16 +46,17 @@
         'The desk\'s live calibration, refit ' + esc(c.fitted ? new Date(c.fitted).toLocaleString('en-US', { timeZone: 'America/New_York', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) + ' ET' : 'daily') +
         ' on ' + esc(c.graded_calls != null ? c.graded_calls : '?') + ' graded 5-day calls, has slope ' + esc(c.slope_a != null ? (+c.slope_a).toFixed(3) : '?') +
         ' (needs > 0.2): the direction signal is uninformative, so the desk publishes <strong>no pick</strong>. ' +
-        'Anything below is this browser\'s own model output, shown for transparency. It is not a pick and not advice. ' +
+        'Anything below is ' + what + ', shown for transparency. It is not a pick and not advice. ' +
         '<a href="edge-scorecard.html" style="color:#fff;text-decoration:underline;">Live record</a> · <a href="system-status.html" style="color:#fff;text-decoration:underline;">System status</a>');
       const sel = PAGES[page];
       const target = sel && document.querySelector(sel);
       if (target) {
         target.style.opacity = '0.45';
-        target.setAttribute('aria-label', 'Raw browser-model output, not a pick (NO PLAY today)');
+        const tagText = (page === 'plays' ? 'Movers list' : 'Raw browser-model output') + ' · not a pick (NO PLAY today)';
+        target.setAttribute('aria-label', tagText);
         const tag = document.createElement('div');
         tag.style.cssText = 'font-size:11px;font-weight:800;letter-spacing:0.5px;color:#ef4444;text-transform:uppercase;margin:0 0 8px;';
-        tag.textContent = 'Raw browser-model output · not a pick (NO PLAY today)';
+        tag.textContent = tagText;
         target.parentNode.insertBefore(tag, target);
       }
     } else if (state.kind === 'open') {
