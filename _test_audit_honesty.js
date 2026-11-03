@@ -97,6 +97,7 @@ t('earnings-preview implied move is the CBOE straddle, no beta proxy or placehol
 t('expired expirations are skipped (tranches + chain)', /et\.hour >= 16\)\) continue/.test(read('options-tranches.html')) && /exp === today && closed\)\) continue/.test(chainPg));
 ['dashboard', 'pre-market', 'paper-trade', 'horizons', 'broadcast', 'pick-of-day', 'options-board', 'options-tranches'].forEach(p =>
   t(p + ' has no static LIVE badge', !/<span class="feat-badge feat-live"[^>]*>LIVE[^<]*<\/span>/.test(read(p + '.html'))));
+t('data pill re-evaluates on pages without data-provider.js (no permanent MOCK)', /window\.addEventListener\('bpleone:quotes', \(\) => render\(fallbackStatus\(\)\)\)/.test(read('js/app.js')));
 t('broadcast explains NO PLAY instead of blaming constraints', /picks && picks\.no_play\)\s*\n\s*\? 'NO PLAY today/.test(read('broadcast.html')));
 
 // 7. Worker sources parse strictly. `node --check` passed an ES-module file with an unescaped quote in a

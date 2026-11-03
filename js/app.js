@@ -492,15 +492,22 @@ function wireDataPill() {
   }
   // Fallback: page didn't import data-provider.js — read localStorage so we still
   // reflect user's configured state even without the module on this page.
-  try {
-    const raw = localStorage.getItem('bpleone_data_v1');
-    if (raw) {
-      const c = JSON.parse(raw);
-      render({ status: c.enabled && c.provider !== 'mock' ? 'connected' : 'mock', provider: c.provider, enabled: c.enabled });
-      return;
-    }
-  } catch (e) {}
-  render({ status: 'mock', provider: 'mock', enabled: false });
+  // Audit 2026-11-03: this rendered once at load, before the worker's prices landed, so
+  // these pages (options-chain among them) showed MOCK permanently over real delayed
+  // prices. Re-evaluate when quotes arrive and on the same 8s cadence as above.
+  const fallbackStatus = () => {
+    try {
+      const raw = localStorage.getItem('bpleone_data_v1');
+      if (raw) {
+        const c = JSON.parse(raw);
+        return { status: c.enabled && c.provider !== 'mock' ? 'connected' : 'mock', provider: c.provider, enabled: c.enabled };
+      }
+    } catch (e) {}
+    return { status: 'mock', provider: 'mock', enabled: false };
+  };
+  render(fallbackStatus());
+  window.addEventListener('bpleone:quotes', () => render(fallbackStatus()));
+  setInterval(() => render(fallbackStatus()), 8000);
 }
 
 function buildFooter() {
