@@ -5,7 +5,7 @@ const fs = require('fs');
 const path = require('path');
 const read = f => fs.readFileSync(path.join(__dirname, f), 'utf8');
 const src = read('worker/src/snapshots.js').replace(/^export (const|function)/gm, '$1');
-const S = new Function(src + '\nreturn { SNAPSHOT_REPO, SNAPSHOT_WORKFLOW, SNAPSHOT_SCHEDULE, etClock, snapshotDispatchDue, buildDispatchRequest };')();
+const S = new Function(src + '\nreturn { SNAPSHOT_REPO, SNAPSHOT_WORKFLOW, SNAPSHOT_SCHEDULE, etClock, snapshotDispatchDue, buildDispatchRequest, cleanToken, tokenShape };')();
 
 let fails = 0;
 function ok(cond, msg) { if (!cond) { fails++; console.log('FAIL: ' + msg); } }
@@ -43,6 +43,20 @@ ok(rq.init.method === 'POST' && rq.init.headers.Authorization === 'Bearer TEST-T
 ok(rq.init.headers['User-Agent'] && rq.init.headers['X-GitHub-Api-Version'], 'GitHub requires a User-Agent; API version pinned');
 ok(JSON.parse(rq.init.body).ref === 'main' && JSON.parse(S.buildDispatchRequest('x').init.body).ref === 'main', 'ref defaults to main');
 
+// Pass-322: a pasted secret can carry terminal junk; the token is pulled out of it, and the failure log
+// describes the secret without revealing it.
+const FG = 'github_pat_11ABCDEFG0aBcDeFgHiJkLmNoP_qRsTuVwXyZ0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQ';
+const CL = 'ghp_aBcDeFgHiJkLmNoPqRsTuVwXyZ0123456789';
+ok(S.cleanToken(FG) === FG && S.cleanToken(CL) === CL, 'clean tokens pass through unchanged');
+ok(S.cleanToken('\x1b[200~' + FG + '\x1b[201~') === FG, 'bracketed-paste escape codes stripped');
+ok(S.cleanToken(FG + '\r\n') === FG && S.cleanToken('  ' + CL + ' ') === CL, 'trailing CR/LF and spaces stripped');
+ok(S.cleanToken(' not-a-token ') === 'not-a-token', 'an unrecognized value is only trimmed');
+ok(S.cleanToken(undefined) === '', 'missing secret -> empty string');
+const shape = S.tokenShape('\x1b[200~' + FG + '\x1b[201~');
+ok(shape.indexOf('fine-grained token, ' + FG.length + ' chars') >= 0 && /extra characters were stripped/.test(shape), 'shape names the type, the length and the stripping (got: ' + shape + ')');
+ok(shape.indexOf(FG) < 0 && shape.indexOf(FG.slice(11, 20)) < 0, 'shape never contains the token or a piece of it');
+ok(/unrecognized/.test(S.tokenShape('hello world')) && /nothing stripped/.test(S.tokenShape(CL)), 'shape flags a non-token and a clean token');
+
 // Wiring.
 const toml = read('worker/wrangler.toml');
 const crons = (toml.match(/^crons\s*=\s*\[([^\]]*)\]/m) || [])[1] || '';
@@ -54,6 +68,7 @@ ok(disp > 0 && disp < sch.indexOf('tick(env)'), 'scheduled() awaits the dispatch
 const fnBody = idx.slice(idx.indexOf('async function maybeDispatchSnapshots'), idx.indexOf('// Cloudflare entry points'));
 ok(/^async function maybeDispatchSnapshots\(env, at\) \{\s*\n\s*try \{/.test(fnBody), 'the dispatch body is entirely inside try (it must never throw before the tick)');
 ok(/AbortSignal\.timeout\(5000\)/.test(fnBody), 'the dispatch fetch has a timeout');
+ok(/buildDispatchRequest\(cleanToken\(env\.GH_DISPATCH_TOKEN\)/.test(fnBody) && /tokenShape\(env\.GH_DISPATCH_TOKEN\)/.test(fnBody), 'the dispatch sends the cleaned token and a refusal logs only its shape');
 ok(!/console\.log\([^)]*GH_DISPATCH_TOKEN\s*[+)]/.test(fnBody) && !/console\.log\([^)]*init/.test(fnBody), 'no log line prints the token or the request');
 ok(/snapshot_dispatch: \{ configured: !!env\.GH_DISPATCH_TOKEN/.test(idx), 'health exposes a boolean, never the token');
 ok(/workflow_dispatch:/.test(read('.github/workflows/snapshots.yml')), 'snapshots.yml accepts workflow_dispatch');

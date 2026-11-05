@@ -1,7 +1,7 @@
 import { RADAR_SET, RADAR_MAX_RECORDS, barsToDaily, buildCall, fillOutcomes, radarStats, etDateStr } from './radar.js';
 import { overlapScore, splitForCap, archiveBuckets, appendUnique, sealRecord, lastHash, verifyChain, windowOf, horizonStats } from './grading.js';
 import { etDayKey, reconcileBars, overlayToday } from './bars.js';
-import { SNAPSHOT_SCHEDULE, snapshotDispatchDue, buildDispatchRequest } from './snapshots.js';
+import { SNAPSHOT_SCHEDULE, snapshotDispatchDue, buildDispatchRequest, cleanToken, tokenShape } from './snapshots.js';
 /* ===========================================
    BPLEONE Brain Worker — 24/7 server-side brain
    ---
@@ -42,7 +42,7 @@ import { SNAPSHOT_SCHEDULE, snapshotDispatchDue, buildDispatchRequest } from './
 // Pass 200: version stamp so brain-proof.html + worker-setup.html can detect
 // when the deployed worker is behind the repo source. Bump on every meaningful
 // behavior change. Read via /brain/health → worker_version field.
-const WORKER_VERSION = 'pass-321';
+const WORKER_VERSION = 'pass-322';
 
 const UNIVERSE = [
   'SPY','QQQ','IWM','DIA','AAPL','NVDA','TSLA','MSFT','META','AMZN','GOOGL','AMD',
@@ -4850,11 +4850,12 @@ async function maybeDispatchSnapshots(env, at) {
   try {
     if (!snapshotDispatchDue(at)) return;
     if (!env.GH_DISPATCH_TOKEN) { console.log('snapshot dispatch: skipped, GH_DISPATCH_TOKEN is not set'); return; }
-    const { url, init } = buildDispatchRequest(env.GH_DISPATCH_TOKEN, 'main');
+    const { url, init } = buildDispatchRequest(cleanToken(env.GH_DISPATCH_TOKEN), 'main');   // pass-322
     init.signal = AbortSignal.timeout(5000);   // a slow GitHub never holds up the tick
     const r = await fetch(url, init);
     if (r.status === 204) console.log('snapshot dispatch: accepted');
-    else console.log('snapshot dispatch: HTTP ' + r.status + ' ' + String(await r.text()).slice(0, 160));
+    // On a refusal, describe the stored secret (lengths and type only, never the value) so a bad paste is visible.
+    else console.log('snapshot dispatch: HTTP ' + r.status + ' ' + String(await r.text()).replace(/\s+/g, ' ').slice(0, 120) + ' | ' + tokenShape(env.GH_DISPATCH_TOKEN));
   } catch (e) {
     console.log('snapshot dispatch: error ' + (e && e.message));
   }

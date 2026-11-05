@@ -35,6 +35,24 @@ export function snapshotDispatchDue(ts) {
   return m === 0;
 }
 
+// Pass-322: the first token set through `wrangler secret put` drew 401 Bad credentials. A secret pasted
+// into a terminal's hidden prompt can carry junk (spaces, a trailing CR, bracketed-paste escape codes).
+// GitHub tokens are [A-Za-z0-9_] behind a known prefix, so pull the token out of whatever surrounds it.
+export function cleanToken(raw) {
+  const s = String(raw || '');
+  const m = s.match(/github_pat_[A-Za-z0-9_]+|gh[pousr]_[A-Za-z0-9]+/);
+  return m ? m[0] : s.trim();
+}
+
+// Describes the stored secret WITHOUT revealing it, for the failure log: lengths, the token type, and
+// whether cleaning stripped anything. A fine-grained token is 93 characters; a classic one is 40.
+export function tokenShape(raw) {
+  const s = String(raw || '');
+  const c = cleanToken(s);
+  const kind = /^github_pat_/.test(c) ? 'fine-grained' : /^gh[pousr]_/.test(c) ? 'classic' : 'unrecognized (no GitHub token prefix)';
+  return 'stored ' + s.length + ' chars; ' + kind + ' token, ' + c.length + ' chars' + (c !== s ? '; extra characters were stripped' : '; nothing stripped');
+}
+
 // The GitHub REST call. The token goes only in the Authorization header: never in the URL or a log.
 export function buildDispatchRequest(token, ref) {
   return {
