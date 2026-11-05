@@ -235,6 +235,13 @@ The whole site was swept so nothing fabricated reads as live. Three moves:
 
 **Honesty rule going forward:** never show a fabricated number as live. If a feed is free-derivable (Yahoo/Stooq/Binance) wire it real; if it needs a paid feed, show '—' or the SAMPLE banner.
 
+**Pass 336 invariants (2026-11-05, worker pass-320 — do NOT regress; guarded by `node _test_snapshot_dispatch.js`):**
+- **The Worker starts the snapshot job.** GitHub ran `snapshots.yml` on its schedule ~5 times a day instead of ~48. A second cron trigger (`*/15 * * * *`, `SNAPSHOT_CRON` in `worker/src/snapshots.js`, must match `wrangler.toml`) calls GitHub's `workflow_dispatch` API: every 15 min on weekdays 9:00-16:45 ET, hourly otherwise. The job stays the only publisher of `data/snap/*.json`; GitHub's schedule stays as a backup.
+- **`scheduled()` routes on `event.cron` and returns before the minute tick.** Both triggers fire at :00/:15/:30/:45; without the early return the tick runs twice. Any new trigger must route the same way.
+- **The token is the Worker secret `GH_DISPATCH_TOKEN`** (fine-grained, this repo only, Actions read/write). Brandon sets it with `wrangler secret put`; never put it in a file, URL or log. Without it the trigger logs a skip and does nothing. `/brain/health` exposes only `snapshot_dispatch.configured` (a boolean).
+- **brain-health.yml stays on GitHub's schedule on purpose:** it monitors the Worker, so a check the Worker triggered would stop exactly when the Worker fails.
+- Counting job runs (system-status, `_acceptance.js`): for snapshots.yml, count `schedule` + `workflow_dispatch`.
+
 **Pass 335 invariants (audit 2026-11-03, worker pass-318 — do NOT regress; guarded by `node _test_audit_honesty.js` + `node _test_grading.js`):**
 - **No generated value may reach a signal, alert, notification, plan or training feature.** Insider-cache readers (brain-loop, confluence-scanner) keep only entries with `real === true`; sample option chains never feed Learn/Alerts/Discord; alerts evaluate only real values (getQ null rule) and RSI is Wilder RSI(14) on `/brain/bars`; trade-coach ATR is ATR(14) from bars (fallback labeled); earnings-playbook's implied move is the CBOE ATM straddle, and a missing calendar shows an empty state, never invented dates; notification tests say TEST and carry no ticker or score; move notifications rank only real-feed quotes.
 - **Never print a hit rate, win rate or "edge" that this desk has not measured** (setup-library's 21 invented stat blocks were removed). Index labels (all-tools, jump-to, command palette) must say SAMPLE/demo for sample pages.

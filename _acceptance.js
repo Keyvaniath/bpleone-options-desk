@@ -43,6 +43,10 @@ async function getText(url) {
     const deployed = h.worker_version;
     const isNew = deployed === EXPECTED;
     rec('worker', 'deployed version = repo version (' + EXPECTED + ')', isNew ? 'PASS' : 'PENDING', 'deployed ' + deployed);
+    // Pass-320: the 15-min trigger starts the GitHub snapshot job; it needs the GH_DISPATCH_TOKEN secret.
+    const sd = h.snapshot_dispatch;
+    rec('worker', 'snapshot dispatch configured (15-min trigger)', sd && sd.configured ? 'PASS' : 'PENDING',
+      sd ? (sd.configured ? sd.schedule : 'deployed, but the GH_DISPATCH_TOKEN secret is not set') : 'needs the pass-320 deploy');
     const fsc = await getJson(WORKER + '/brain/flow-score');
     rec('worker', 'flow-score overlap-corrected (effective_n)', fsc.leg && fsc.leg.effective_n != null ? 'PASS' : (isNew ? 'FAIL' : 'PENDING'),
       fsc.leg ? ('n ' + fsc.leg.n + ', n_eff ' + fsc.leg.effective_n + ', z ' + fsc.leg.z_score_vs_drift + ' (raw ' + fsc.leg.z_score_vs_drift_raw + ')') : fsc._err);
@@ -88,11 +92,18 @@ async function getText(url) {
     rec('site', 'no generated insider trades', icf && !/function\s+syntheticTx/.test(icf) ? 'PASS' : 'PENDING');
 
     // ---- 4. Scheduled jobs (GitHub's public API; 60 anonymous reads/hour)
-    for (const [file, perDay] of [['snapshots.yml', 40], ['brain-health.yml', 40]]) {
-      const r = await getJson('https://api.github.com/repos/Keyvaniath/bpleone-options-desk/actions/workflows/' + file + '/runs?per_page=60');
-      const n = (r.workflow_runs || []).filter(x => x.event === 'schedule' && Date.parse(x.created_at) > now - 86400000).length;
+    // Pass-320: snapshots.yml is started by the Worker (workflow_dispatch) with GitHub's schedule as a backup,
+    // so both events count. brain-health.yml stays on GitHub's schedule on purpose: it watches the Worker, and
+    // a check the Worker triggered would stop exactly when the Worker fails.
+    for (const [file, perDay, events, why] of [
+      ['snapshots.yml', 40, ['schedule', 'workflow_dispatch'], 'GitHub cron starvation; the Worker trigger (pass-320) fixes it once deployed with its token'],
+      ['brain-health.yml', 40, ['schedule'], 'GitHub cron starvation; stays on GitHub on purpose (it monitors the Worker)']]) {
+      const r = await getJson('https://api.github.com/repos/Keyvaniath/bpleone-options-desk/actions/workflows/' + file + '/runs?per_page=100');
+      const day = (r.workflow_runs || []).filter(x => Date.parse(x.created_at) > now - 86400000);
+      const n = day.filter(x => events.indexOf(x.event) >= 0).length;
+      const nd = day.filter(x => x.event === 'workflow_dispatch').length;
       rec('jobs', file + ' ran on schedule (24h)', r._err ? 'WARN' : (n >= perDay * 0.8 ? 'PASS' : 'WARN'),
-        r._err || (n + ' runs in 24h vs ~' + perDay + '+ asked: GitHub cron starvation, needs a reliable scheduler (decision pending)'));
+        r._err || (n + ' runs in 24h vs ~' + perDay + '+ asked' + (events.length > 1 ? ' (' + nd + ' started by the Worker)' : '') + (n >= perDay * 0.8 ? '' : ': ' + why)));
     }
   }
 
