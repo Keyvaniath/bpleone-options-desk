@@ -3,12 +3,15 @@
 // events are delayed and dropped under load, while dispatched runs start right away. The job stays the
 // only publisher of data/snap/*.json (the free CDN copy the browser pollers read first), so the CDN
 // offload is unchanged; only the trigger moves. Pure logic here; the fetch lives in index.js.
+//
+// Pass-321 (2026-11-05): pass-320 used a second cron trigger ('*/15 * * * *'). Cloudflare never fired it:
+// when two triggers match the same minute it invokes the Worker ONCE, as the minute trigger (observed with
+// wrangler tail, 12:34-12:48 ET: one event per minute, the 12:45 one labeled '* * * * *'). The dispatch now
+// rides the minute tick, keyed on the tick's scheduledTime.
 
-// Must equal the second entry of [triggers].crons in wrangler.toml. scheduled() routes on it.
-export const SNAPSHOT_CRON = '*/15 * * * *';
 export const SNAPSHOT_REPO = 'Keyvaniath/bpleone-options-desk';
 export const SNAPSHOT_WORKFLOW = 'snapshots.yml';
-export const SNAPSHOT_SCHEDULE = 'every 15 min on weekdays 9:00-16:45 ET, hourly otherwise';
+export const SNAPSHOT_SCHEDULE = 'every 15 min on weekdays 9:00-16:15 ET, hourly otherwise (rides the minute tick)';
 
 const WD = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
 
@@ -20,13 +23,16 @@ export function etClock(ts) {
   return { wd: WD[g('weekday')], h: parseInt(g('hour'), 10) % 24, m: parseInt(g('minute'), 10) };
 }
 
-// The trigger fires at :00, :15, :30 and :45. Dispatch on every fire during weekday desk hours
-// (9:00-16:59 ET, which brackets the 9:30-16:00 session and the close), and on the :00 fire otherwise.
+// Called on every minute tick with the tick's scheduledTime. Due at :00/:15/:30/:45 on weekdays from 9:00
+// to 16:15 ET, and at :00 otherwise. 16:30 and 16:45 are skipped on purpose: that is when the radar ledger
+// and the bar finalizer spend the tick's subrequest budget; the 17:00 run carries the closing prices.
 // Market holidays run on the weekday schedule: harmless, the job commits only when the data changed.
 export function snapshotDispatchDue(ts) {
   const { wd, h, m } = etClock(ts);
-  if (wd >= 1 && wd <= 5 && h >= 9 && h < 17) return true;
-  return m < 15;
+  if (m % 15 !== 0) return false;
+  const weekday = wd >= 1 && wd <= 5;
+  if (weekday && ((h >= 9 && h < 16) || (h === 16 && m === 15))) return true;
+  return m === 0;
 }
 
 // The GitHub REST call. The token goes only in the Authorization header: never in the URL or a log.

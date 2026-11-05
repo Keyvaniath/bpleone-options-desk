@@ -235,10 +235,11 @@ The whole site was swept so nothing fabricated reads as live. Three moves:
 
 **Honesty rule going forward:** never show a fabricated number as live. If a feed is free-derivable (Yahoo/Stooq/Binance) wire it real; if it needs a paid feed, show '—' or the SAMPLE banner.
 
-**Pass 336 invariants (2026-11-05, worker pass-320 — do NOT regress; guarded by `node _test_snapshot_dispatch.js`):**
-- **The Worker starts the snapshot job.** GitHub ran `snapshots.yml` on its schedule ~5 times a day instead of ~48. A second cron trigger (`*/15 * * * *`, `SNAPSHOT_CRON` in `worker/src/snapshots.js`, must match `wrangler.toml`) calls GitHub's `workflow_dispatch` API: every 15 min on weekdays 9:00-16:45 ET, hourly otherwise. The job stays the only publisher of `data/snap/*.json`; GitHub's schedule stays as a backup.
-- **`scheduled()` routes on `event.cron` and returns before the minute tick.** Both triggers fire at :00/:15/:30/:45; without the early return the tick runs twice. Any new trigger must route the same way.
-- **The token is the Worker secret `GH_DISPATCH_TOKEN`** (fine-grained, this repo only, Actions read/write). Brandon sets it with `wrangler secret put`; never put it in a file, URL or log. Without it the trigger logs a skip and does nothing. `/brain/health` exposes only `snapshot_dispatch.configured` (a boolean).
+**Pass 336 invariants (2026-11-05, worker pass-321 — do NOT regress; guarded by `node _test_snapshot_dispatch.js`):**
+- **The Worker starts the snapshot job.** GitHub ran `snapshots.yml` on its schedule ~5 times a day instead of ~48. The minute tick calls GitHub's `workflow_dispatch` API (`worker/src/snapshots.js`): every 15 min on weekdays 9:00-16:15 ET, hourly otherwise (46 a weekday, 24 a weekend day). 16:30/16:45 are skipped (radar ledger + bar finalizer own that budget). The job stays the only publisher of `data/snap/*.json`; GitHub's schedule stays as a backup.
+- **Never add a second cron trigger that overlaps `* * * * *`.** Cloudflare invokes the Worker ONCE per minute, as the minute trigger, so the overlapping one never fires (pass-320's `*/15` trigger: observed dead with `wrangler tail` 11/5). Per-minute work keys on `event.scheduledTime`.
+- **`maybeDispatchSnapshots` is awaited FIRST in `scheduled()` and never throws** (whole body in try/catch, 5 s fetch timeout): its one fetch takes the first subrequest slot, and an exception there would otherwise stop the brain's minute.
+- **The token is the Worker secret `GH_DISPATCH_TOKEN`** (fine-grained, this repo only, Actions read/write). Set with `wrangler secret put`; never in a file, URL or log. Without it the due minutes log a skip. `/brain/health` exposes only `snapshot_dispatch.configured` (a boolean).
 - **brain-health.yml stays on GitHub's schedule on purpose:** it monitors the Worker, so a check the Worker triggered would stop exactly when the Worker fails.
 - Counting job runs (system-status, `_acceptance.js`): for snapshots.yml, count `schedule` + `workflow_dispatch`.
 

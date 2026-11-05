@@ -1,7 +1,7 @@
 import { RADAR_SET, RADAR_MAX_RECORDS, barsToDaily, buildCall, fillOutcomes, radarStats, etDateStr } from './radar.js';
 import { overlapScore, splitForCap, archiveBuckets, appendUnique, sealRecord, lastHash, verifyChain, windowOf, horizonStats } from './grading.js';
 import { etDayKey, reconcileBars, overlayToday } from './bars.js';
-import { SNAPSHOT_CRON, SNAPSHOT_SCHEDULE, snapshotDispatchDue, buildDispatchRequest } from './snapshots.js';
+import { SNAPSHOT_SCHEDULE, snapshotDispatchDue, buildDispatchRequest } from './snapshots.js';
 /* ===========================================
    BPLEONE Brain Worker — 24/7 server-side brain
    ---
@@ -42,7 +42,7 @@ import { SNAPSHOT_CRON, SNAPSHOT_SCHEDULE, snapshotDispatchDue, buildDispatchReq
 // Pass 200: version stamp so brain-proof.html + worker-setup.html can detect
 // when the deployed worker is behind the repo source. Bump on every meaningful
 // behavior change. Read via /brain/health → worker_version field.
-const WORKER_VERSION = 'pass-320';
+const WORKER_VERSION = 'pass-321';
 
 const UNIVERSE = [
   'SPY','QQQ','IWM','DIA','AAPL','NVDA','TSLA','MSFT','META','AMZN','GOOGL','AMD',
@@ -1902,8 +1902,8 @@ async function handleRequest(request, env, ctx) {
       audit_pass: auditPass,                           // pass 258: true only if every check passes
       issues,                                          // pass 251: human-readable problems (empty array = all good)
       worker_version: WORKER_VERSION,  // pass 200
-      // Pass-320: whether the 15-min trigger can start the GitHub snapshot job (a boolean, never the token)
-      snapshot_dispatch: { configured: !!env.GH_DISPATCH_TOKEN, cron: SNAPSHOT_CRON, schedule: SNAPSHOT_SCHEDULE },
+      // Pass-320/321: whether the minute tick can start the GitHub snapshot job (a boolean, never the token)
+      snapshot_dispatch: { configured: !!env.GH_DISPATCH_TOKEN, schedule: SNAPSHOT_SCHEDULE },
       auto_bootstrap_ts: autoTs || 0,  // pass 229
       auto_bootstrap_ago_h: autoTs ? +((Date.now() - autoTs) / 3600000).toFixed(2) : null,
       // Pass 233: data-liveness summary for the scanner status bar
@@ -4842,13 +4842,16 @@ async function maybeConfluenceScorecard(env) {
   } catch (e) { /* never let the scorecard break the cron */ }
 }
 
-// Pass-320: start the GitHub snapshot job (see snapshots.js). No KV write: GitHub's run list is the
+// Pass-320/321: start the GitHub snapshot job (see snapshots.js). No KV write: GitHub's run list is the
 // record, and the acceptance check counts the dispatched runs. Only the HTTP status is ever logged.
-async function maybeDispatchSnapshots(env) {
+// `at` is the minute tick's scheduledTime, so a late-starting tick still keys on its own minute.
+// Never throws: scheduled() awaits it before the tick, so an exception here would stop the brain's minute.
+async function maybeDispatchSnapshots(env, at) {
   try {
+    if (!snapshotDispatchDue(at)) return;
     if (!env.GH_DISPATCH_TOKEN) { console.log('snapshot dispatch: skipped, GH_DISPATCH_TOKEN is not set'); return; }
-    if (!snapshotDispatchDue(Date.now())) return;
     const { url, init } = buildDispatchRequest(env.GH_DISPATCH_TOKEN, 'main');
+    init.signal = AbortSignal.timeout(5000);   // a slow GitHub never holds up the tick
     const r = await fetch(url, init);
     if (r.status === 204) console.log('snapshot dispatch: accepted');
     else console.log('snapshot dispatch: HTTP ' + r.status + ' ' + String(await r.text()).slice(0, 160));
@@ -4865,9 +4868,11 @@ export default {
     return handleRequest(request, env, ctx);
   },
   async scheduled(event, env, ctx) {
-    // Pass-320: the 15-minute trigger only starts the snapshot job. It must return before the minute
-    // work below: at :00/:15/:30/:45 both triggers fire, and the tick would otherwise run twice.
-    if (event && event.cron === SNAPSHOT_CRON) { ctx.waitUntil(maybeDispatchSnapshots(env)); return; }
+    // Pass-321: the snapshot dispatch rides the minute tick (Cloudflare fires one invocation per minute even
+    // when a second trigger matches, so pass-320's '*/15' trigger never ran). Awaited FIRST, so its single
+    // fetch takes the first slot of this invocation's subrequest budget and never competes with the work below;
+    // it returns at once when not due.
+    await maybeDispatchSnapshots(env, (event && event.scheduledTime) || Date.now());
     // Cron-triggered tick — runs every minute
     ctx.waitUntil(tick(env));
     // Pass 228: weekly autonomous champion re-competition (gated; see above)
