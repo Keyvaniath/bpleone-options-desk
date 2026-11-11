@@ -18,7 +18,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" media="print" onload="this.media='all'"><noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap"></noscript>
-<link rel="stylesheet" href="css/style.css?v=v232">
+<link rel="stylesheet" href="css/style.css?v=v233">
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
@@ -299,12 +299,12 @@
 
 <div id="site-footer"></div>
 
-<script src="js/app.js?v=v232"></script>
-<script src="js/notify.js?v=v232"></script>
-<script src="js/charts.js?v=v232"></script>
-<script src="js/live.js?v=v232"></script>
+<script src="js/app.js?v=v233"></script>
+<script src="js/notify.js?v=v233"></script>
+<script src="js/charts.js?v=v233"></script>
+<script src="js/live.js?v=v233"></script>
 <!-- Auto-added direct loads (audit pass 2) -->
-<script src="js/money-tracker.js?v=v232"></script>
+<script src="js/money-tracker.js?v=v233"></script>
 <script>
   buildNav('home');
   document.addEventListener('DOMContentLoaded', () => {
@@ -313,19 +313,24 @@
   });
 
   // Show the live-data status card with the ACTUAL active data source.
-  // Stooq + Coinbase run by default (no key needed) — that's already "live data."
+  // Audit 2026-11-11: this card called the Stooq poll live data ("equities 12s polling") whenever the Stooq
+  // poller ran. A browser can never read Stooq (no CORS headers), so no equity price ever came from it; the real
+  // equity prices are the worker feed, delayed ~15 min. Equities are never "live" unless a real-time feed streams.
   // Finnhub/Polygon are optional real-time upgrades.
   function checkLiveData() {
     try {
       const cta = document.getElementById('home-live-cta');
-      if (!cta || typeof window.DataProvider === 'undefined') return;
-      const status = window.DataProvider.getStatus ? window.DataProvider.getStatus() : null;
-      const stooqStatus = window.DataProvider.getStooqStatus ? window.DataProvider.getStooqStatus() : null;
+      // The home page does not load data-provider.js, so this guard used to hide the card for good. The card now
+      // reports the real sources (worker feed + Coinbase) without it; a real-time provider shows only where loaded.
+      if (!cta) return;
+      const status = (window.DataProvider && window.DataProvider.getStatus) ? window.DataProvider.getStatus() : null;
+      const wq = (window.WorkerQuotes && window.WorkerQuotes.status) ? window.WorkerQuotes.status() : null;
+      const share = window.bpleoneLiveShare ? window.bpleoneLiveShare() : { real: 0, live: 0 };
       const headline = document.getElementById('home-live-headline');
       const body = document.getElementById('home-live-body');
       const source = document.getElementById('home-live-source');
 
-      const stooqLive = stooqStatus && (stooqStatus.polling || stooqStatus.lastFetchOk > 0);
+      const workerLive = !!(wq && wq.lastOk && Date.now() - wq.lastOk < 10 * 60000) || share.real > 0;
       const realtime = status && status.enabled && status.provider && status.provider !== 'mock' && status.provider !== 'stooq';
 
       // Sample a real symbol to confirm prices are flowing
@@ -333,33 +338,36 @@
       try {
         if (typeof window.QUOTES !== 'undefined' && window.QUOTES.SPY) {
           const q = window.QUOTES.SPY;
-          if (q.priceSource && q.priceSource !== 'stale-seed' && q.priceSource !== 'mock') {
+          if (q.priceSource && ['stale-seed', 'mock', 'demo-sim'].indexOf(q.priceSource) < 0) {
             liveSourceText = 'SPY $' + (q.last ? q.last.toFixed(2) : '—') + ' · source: ' + q.priceSource;
           }
         }
       } catch (e) {}
 
       cta.style.display = 'block';
-      if (realtime && status.status === 'connected') {
+      if (realtime && status.status === 'connected' && share.live > 0) {
         cta.style.background = 'linear-gradient(135deg,rgba(16,185,129,0.10),rgba(16,185,129,0.02))';
         cta.style.border = '1px solid rgba(16,185,129,0.4)';
-        headline.textContent = '✓ REAL-TIME — ' + status.provider.toUpperCase();
+        const all = share.live >= 0.9 * share.real;
+        headline.textContent = all ? '✓ REAL-TIME — ' + status.provider.toUpperCase()
+          : '✓ ' + share.live + ' OF ' + share.real + ' SYMBOLS REAL-TIME — ' + status.provider.toUpperCase();
         headline.style.color = '#10b981';
-        body.textContent = 'WebSocket streaming · sub-second equity ticks';
+        body.textContent = all ? 'WebSocket streaming · sub-second ticks'
+          : share.live + ' streaming over WebSocket · the other ' + (share.real - share.live) + ' are the worker feed, delayed ~15 min';
         source.textContent = liveSourceText;
-      } else if (stooqLive) {
+      } else if (workerLive) {
         cta.style.background = 'linear-gradient(135deg,rgba(16,185,129,0.10),rgba(16,185,129,0.02))';
         cta.style.border = '1px solid rgba(16,185,129,0.4)';
-        headline.textContent = '✓ LIVE DATA — STOOQ + COINBASE (free, zero-config)';
+        headline.textContent = '✓ REAL PRICES — EQUITIES DELAYED ~15 MIN (free, zero-config)';
         headline.style.color = '#10b981';
-        body.textContent = 'Real prices flowing · equities 12s polling (15-min delayed) · crypto realtime · upgrade to real-time anytime';
+        body.textContent = 'Equities from the desk\'s worker feed (Yahoo, ~15 min delayed) · crypto real-time from Coinbase · connect a real-time feed in Settings';
         source.textContent = liveSourceText;
       } else {
         cta.style.background = 'linear-gradient(135deg,rgba(245,158,11,0.10),rgba(239,68,68,0.05))';
         cta.style.border = '1px solid rgba(245,158,11,0.4)';
-        headline.textContent = '⚠ WARMING UP DATA';
+        headline.textContent = '⚠ LOADING PRICES';
         headline.style.color = '#f59e0b';
-        body.textContent = 'Stooq polling not yet started — first poll within 12s';
+        body.textContent = 'Waiting for the worker feed — the first prices usually land within a few seconds';
         source.textContent = '';
       }
     } catch (e) {}

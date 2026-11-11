@@ -239,57 +239,87 @@ const DataProvider = (function() {
   // CRITICAL: every page reads QUOTES synchronously on initial render. We
   // run this bootstrap, mark each symbol fresh, then fire Feed.publish('*')
   // so all pages re-render with real values.
+  // Audit 2026-11-11 (measured in Brandon's browser): this fired one REST /quote per symbol IN PARALLEL (~75 at
+  // once) on every connect and reconnect. Finnhub's free tier allows 60 calls a minute, so 111 of 149 calls came
+  // back 429 and 37 were cut off, while the worker feed had already supplied prevClose for every universe symbol.
+  // Now: only with a Finnhub key; skip symbols that already carry the worker's real baseline; pace the rest at
+  // FH_PACE_MS (under 60 a minute); stop for 10 minutes on a 429; re-run at most every 10 minutes unless forced.
+  const FH_PACE_MS = 1100;
+  const FH_COOLDOWN_MS = 600000;
+  let fhBootstrapAt = 0, fh429Until = 0, fhBootstrapRunning = false;
+  function coveredByWorker(sym) {
+    const q = (typeof QUOTES !== 'undefined') ? QUOTES[sym] : null;
+    return !!(q && q.priceSource === 'worker-yahoo' && q.prevClose > 0);
+  }
   async function bootstrapFinnhub(opts) {
-    if (typeof QUOTES === 'undefined') return;
+    if (typeof QUOTES === 'undefined') return [];
+    if (config.provider !== 'finnhub' || !config.apiKey) return [];   // no key: never call Finnhub
     opts = opts || {};
-    // ALL mode bootstraps every symbol in QUOTES — used by "Refresh all data" buttons
-    // so macro/international symbols (not subscribed via WS) still get fresh /quote
+    const now = Date.now();
+    if (fhBootstrapRunning || now < fh429Until) return [];
+    if (!opts.force && now - fhBootstrapAt < FH_COOLDOWN_MS) return [];
+    fhBootstrapRunning = true;
+    fhBootstrapAt = now;
+    // ALL mode covers every symbol in QUOTES (macro/international names not on the WS) — but only those the
+    // worker feed has not already priced with a real previous close.
     const syms = opts.all ? Object.keys(QUOTES) : symbolsToSubscribe();
     const updated = [];
-    await Promise.all(syms.map(async sym => {
-      try {
-        const fhSym = toFinnhub(sym);
-        const r = await fetchT('https://finnhub.io/api/v1/quote?symbol=' + encodeURIComponent(fhSym) + '&token=' + encodeURIComponent(config.apiKey));
-        if (!r.ok) return;
-        const j = await r.json();
-        if (!QUOTES[sym]) return;
-        // Finnhub: c=current, pc=previous close, o=open, h=high, l=low, t=timestamp
-        if (typeof j.pc === 'number' && j.pc > 0) QUOTES[sym].prevClose = j.pc;
-        if (typeof j.c === 'number' && j.c > 0) {
-          QUOTES[sym].last = j.c;
-          QUOTES[sym].fresh = true;          // mark as confirmed-from-feed
-          QUOTES[sym].source = 'finnhub';
-          // CRITICAL FIX (pass 174 — live-verified bug): continuous-learner's
-          // isLiveQuote() requires BOTH priceSource (string, not 'stale-seed'/'mock')
-          // AND liveAt (recent timestamp). Without these the brain rejects every
-          // Finnhub-fed quote and never captures anything to train on.
-          // Verified live in browser: 8695 Finnhub messages received but
-          // ContinuousLearner.captureRound() returned 0 captures.
-          QUOTES[sym].priceSource = 'finnhub';
-          QUOTES[sym].liveAt = Date.now();
-          if (typeof j.h === 'number') QUOTES[sym].dayHigh = j.h;
-          if (typeof j.l === 'number') QUOTES[sym].dayLow = j.l;
-          if (typeof j.o === 'number') QUOTES[sym].dayOpen = j.o;
-          if (typeof computeDerived === 'function') computeDerived(QUOTES[sym]);
-          if (typeof Feed !== 'undefined') Feed.publish(sym, QUOTES[sym]);
-          updated.push(sym);
-        }
-      } catch (e) {}
-    }));
+    let calls = 0, skipped = 0, limited = false;
+    try {
+      // Let the worker feed land first (it prices the universe in one request), so fewer symbols need REST.
+      if (opts.delayMs) await new Promise(res => setTimeout(res, opts.delayMs));
+      for (const sym of syms) {
+        if (coveredByWorker(sym)) { skipped++; continue; }
+        if (calls > 0) await new Promise(res => setTimeout(res, FH_PACE_MS));
+        calls++;
+        try {
+          const fhSym = toFinnhub(sym);
+          const r = await fetchT('https://finnhub.io/api/v1/quote?symbol=' + encodeURIComponent(fhSym) + '&token=' + encodeURIComponent(config.apiKey));
+          if (r.status === 429) { fh429Until = Date.now() + FH_COOLDOWN_MS; limited = true; break; }
+          if (!r.ok) continue;
+          const j = await r.json();
+          if (!QUOTES[sym]) continue;
+          // Finnhub: c=current, pc=previous close, o=open, h=high, l=low, t=timestamp
+          if (typeof j.pc === 'number' && j.pc > 0) QUOTES[sym].prevClose = j.pc;
+          if (typeof j.c === 'number' && j.c > 0) {
+            QUOTES[sym].last = j.c;
+            QUOTES[sym].fresh = true;          // mark as confirmed-from-feed
+            QUOTES[sym].source = 'finnhub';
+            // CRITICAL FIX (pass 174 — live-verified bug): continuous-learner's
+            // isLiveQuote() requires BOTH priceSource (string, not 'stale-seed'/'mock')
+            // AND liveAt (recent timestamp). Without these the brain rejects every
+            // Finnhub-fed quote and never captures anything to train on.
+            // Verified live in browser: 8695 Finnhub messages received but
+            // ContinuousLearner.captureRound() returned 0 captures.
+            QUOTES[sym].priceSource = 'finnhub';
+            QUOTES[sym].liveAt = Date.now();
+            if (typeof j.h === 'number') QUOTES[sym].dayHigh = j.h;
+            if (typeof j.l === 'number') QUOTES[sym].dayLow = j.l;
+            if (typeof j.o === 'number') QUOTES[sym].dayOpen = j.o;
+            if (typeof computeDerived === 'function') computeDerived(QUOTES[sym]);
+            if (typeof Feed !== 'undefined') Feed.publish(sym, QUOTES[sym]);
+            updated.push(sym);
+          }
+        } catch (e) {}
+      }
+    } finally {
+      fhBootstrapRunning = false;
+    }
     // Fire wildcard so every page subscribed to '*' re-renders with the
     // freshly-bootstrapped data.
-    if (typeof Feed !== 'undefined' && typeof QUOTES !== 'undefined') {
+    if (updated.length && typeof Feed !== 'undefined' && typeof QUOTES !== 'undefined') {
       Feed.publish('*', QUOTES);
     }
-    console.log('[DataProvider] Finnhub bootstrap done — fresh for ' + updated.length + '/' + syms.length + ': ' + updated.join(','));
+    console.log('[DataProvider] Finnhub bootstrap: ' + calls + ' REST calls, ' + updated.length + ' fresh, ' + skipped +
+      ' already priced by the worker feed' + (limited ? '; Finnhub rate limit (429), paused 10 min' : ''));
     return updated;
   }
 
   function connectFinnhub() {
     if (!config.apiKey) throw new Error('Finnhub requires an API key');
-    // Fire bootstrap REST calls for ALL symbols (don't await — let WS connect in parallel)
-    // This ensures macro/intl symbols (unsubscribed via WS) still get fresh /quote data
-    bootstrapFinnhub({ all: true });
+    // Bootstrap REST snapshots in the background (paced; see bootstrapFinnhub) while the WS connects. The 4 s delay
+    // lets the worker feed price the universe first, so REST only fills what it does not cover.
+    bootstrapFinnhub({ all: true, delayMs: 4000 });
     ws = new WebSocket('wss://ws.finnhub.io?token=' + encodeURIComponent(config.apiKey));
     ws.onopen = () => {
       // Finnhub's FREE WS tier rejects subscribing to more than ~50 symbols with
@@ -768,6 +798,14 @@ const DataProvider = (function() {
   }
 
   async function stooqPollOnce() {
+    // Audit 2026-11-11: RETIRED. A browser can never read Stooq: it sends no CORS headers ("Failed to fetch" from
+    // both stooq.com and stooq.pl on https://options.bpleone.com, checked live), so this poll fired ~30 failed
+    // requests a minute from every open tab and never landed a price. Had it landed one, the code below would have
+    // computed change% against the stale SEED prevClose and invented a bid/ask of last +/- 0.01. Equity prices come
+    // from the worker feed (js/worker-quotes.js: real prevClose, no synthetic spread). Kept as a no-op so the
+    // exported API (DataProvider.stooqPollOnce) does not break callers.
+    return;
+    // eslint-disable-next-line no-unreachable
     // Client visibility gating: skip the network poll while the tab is hidden.
     // The visibilitychange listener in startStooqFallback catches up on return.
     if (typeof document !== 'undefined' && document.hidden) return;
@@ -849,20 +887,14 @@ const DataProvider = (function() {
     }
   }
 
+  let zeroKeyStarted = false;
   function startStooqFallback() {
-    if (stooqPollTimer) return;
-    // First poll immediately, then every 12s. Stooq has no documented rate limit but
-    // ~5 requests/sec is a polite ceiling. 12s × 3-4 chunks = ~3 req/poll cycle.
-    stooqPollOnce();
-    stooqPollTimer = setInterval(stooqPollOnce, 12000);
-    // Catch up immediately when the tab becomes visible again — the interval poll
-    // skips itself while document.hidden, so refresh on return to avoid stale prices.
-    if (typeof document !== 'undefined') {
-      document.addEventListener('visibilitychange', function() {
-        if (!document.hidden) stooqPollOnce();
-      });
-    }
-    // Also start Coinbase realtime crypto feed — free, CORS, no key.
+    // Audit 2026-11-11: the browser Stooq poll is retired (see stooqPollOnce: CORS-blocked, it never landed a
+    // price). The zero-key path is now the worker feed for equities (js/worker-quotes.js, loaded on every page by
+    // live.js) plus Coinbase for crypto, which allows browser requests and streams in real time.
+    if (zeroKeyStarted) return;
+    zeroKeyStarted = true;
+    // Coinbase realtime crypto feed — free, CORS, no key.
     startCoinbaseCrypto();
     // Belt-and-suspenders: Coinbase REST poll as fallback if WS drops.
     startCoinbaseRestPoll();
@@ -1082,8 +1114,21 @@ const DataProvider = (function() {
     getStatus,
     onStatus,
     getHistorical,
-    // Force a fresh /quote pull for every symbol in QUOTES (incl. unsubscribed macro/intl)
-    refreshAll: () => bootstrapFinnhub({ all: true }),
+    // "Refresh all data": re-poll the worker feed (one request prices the universe), then let Finnhub fill only
+    // what the worker does not cover, paced in the background (audit 2026-11-11: this used to fire ~75 parallel
+    // Finnhub calls, and fired them unauthenticated for visitors with no key). Returns the symbols holding a real
+    // price from the last 2 minutes.
+    refreshAll: async () => {
+      try { if (typeof window !== 'undefined' && window.WorkerQuotes && typeof window.WorkerQuotes.pollQuotes === 'function') await window.WorkerQuotes.pollQuotes(); } catch (e) {}
+      bootstrapFinnhub({ all: true, force: true });
+      if (typeof QUOTES === 'undefined') return [];
+      const t = Date.now();
+      return Object.keys(QUOTES).filter(s => {
+        const q = QUOTES[s];
+        return q && q.priceSource && q.priceSource !== 'stale-seed' && q.priceSource !== 'mock' &&
+          ((q.ts && t - q.ts < 120000) || (q.liveAt && t - q.liveAt < 120000));
+      });
+    },
     // Real-data helpers (Finnhub)
     getInsiderTransactions,
     getInsiderSentiment,

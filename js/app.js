@@ -441,6 +441,28 @@ function buildMobileTabs(activePage) {
   bar.innerHTML = tabs.map(t => `<a href="${t.url}" class="${t.key === activePage ? 'active' : ''}"><span class="icon">${t.icon}</span><span>${t.label}</span></a>`).join('');
 }
 
+// Audit 2026-11-11: how much of the page is actually streaming. A symbol is "live" when its canonical price came from
+// a real-time source (provider WS or Coinbase) within the last 2 minutes; "real" is any non-seed, non-mock price
+// (the worker feed is real but delayed ~15 min). Shared by the nav pill, the home page and connect-live-data.
+const LIVE_PRICE_SOURCES = ['finnhub', 'polygon', 'alpaca', 'tradier', 'coinbase', 'coinbase-ws', 'coinbase-refresh'];
+// Not real prices: the seed, the mock walk, and demo mode's labeled simulation.
+const NOT_REAL_SOURCES = ['stale-seed', 'mock', 'demo-sim'];
+function liveShare() {
+  let real = 0, live = 0;
+  const now = Date.now();
+  try {
+    const Q = (typeof QUOTES !== 'undefined') ? QUOTES : {};
+    for (const k in Q) {
+      const q = Q[k];
+      if (!q || !q.priceSource || NOT_REAL_SOURCES.indexOf(q.priceSource) >= 0) continue;
+      real++;
+      if (LIVE_PRICE_SOURCES.indexOf(q.priceSource) >= 0 && q.liveAt && now - q.liveAt < 120000) live++;
+    }
+  } catch (e) {}
+  return { real, live };
+}
+if (typeof window !== 'undefined') window.bpleoneLiveShare = liveShare;
+
 function wireDataPill() {
   const pill = document.getElementById('dataStatusPill');
   if (!pill) return;
@@ -452,20 +474,34 @@ function wireDataPill() {
       const Q = (typeof QUOTES !== 'undefined') ? QUOTES : {};
       return ['SPY', 'QQQ', 'DIA', 'IWM', 'BTC', 'ETH'].some(k => {
         const q = Q[k];
-        return q && q.priceSource && q.priceSource !== 'stale-seed' && q.priceSource !== 'mock';
+        return q && q.priceSource && NOT_REAL_SOURCES.indexOf(q.priceSource) < 0;
       });
     } catch (e) { return false; }
   };
   const render = (s) => {
     s = s || {};
-    let cls = 'mock', label = 'MOCK';
+    let cls = 'mock', label = 'MOCK', tip = '';
     const sess = (typeof detectSession === 'function') ? detectSession() : 'open';
     if (s.status === 'connected') {
       // A connected WS streams crypto in real time, but equities are only live in
       // regular US hours; outside them the printed equity price is last-close. Gate
       // on the ET clock (detectSession), not a racy liveAt age.
       if (sess !== 'open') { cls = 'connecting'; label = 'DELAYED · LAST CLOSE'; }
-      else { cls = 'live'; label = 'LIVE · ' + (s.provider || '').toUpperCase(); }
+      else {
+        // Audit 2026-11-11: a connected provider does not make the page live. In Brandon's browser this read
+        // "LIVE · FINNHUB" while 12 of 72 symbols streamed from Finnhub (its free WS caps at 45) and 60 were the
+        // worker's ~15-min delayed quotes. Say LIVE only for what is actually streaming.
+        const prov = (s.provider || '').toUpperCase();
+        const ls = liveShare();
+        if (ls.live && ls.live >= 0.9 * ls.real) { cls = 'live'; label = 'LIVE · ' + prov; }
+        else if (ls.live) {
+          cls = 'connecting'; label = 'LIVE ' + ls.live + '/' + ls.real + ' · ' + prov;
+          tip = ls.live + ' of ' + ls.real + ' symbols are streaming live from ' + prov + '; the other ' + (ls.real - ls.live) + ' are delayed ~15 min (worker feed).';
+        } else {
+          cls = 'connecting'; label = 'DELAYED ~15 MIN';
+          tip = prov + ' is connected but nothing has streamed in the last 2 minutes; prices are the worker feed, delayed ~15 min.';
+        }
+      }
     }
     else if (s.status === 'connecting') { cls = 'connecting'; label = 'CONNECTING'; }
     else if (s.status === 'reconnecting') { cls = 'connecting'; label = 'RECONNECTING'; }
@@ -478,6 +514,7 @@ function wireDataPill() {
     }
     else if (s.status === 'disconnected' && s.enabled) { cls = 'mock'; label = 'OFFLINE'; }
     pill.className = 'data-pill data-pill-' + cls;
+    pill.title = tip;
     const lab = pill.querySelector('.data-pill-label');
     if (lab) lab.textContent = label;
   };
@@ -495,12 +532,16 @@ function wireDataPill() {
   // Audit 2026-11-03: this rendered once at load, before the worker's prices landed, so
   // these pages (options-chain among them) showed MOCK permanently over real delayed
   // prices. Re-evaluate when quotes arrive and on the same 8s cadence as above.
+  // Audit 2026-11-11: this fallback reported 'connected' whenever a provider was SAVED in settings, so for a user
+  // with a Finnhub key these pages read "LIVE · FINNHUB" with no Finnhub connection on the page at all (the module
+  // that opens it is not loaded here). A page without data-provider.js has no live feed: never 'connected'; the
+  // render below labels it by the real (delayed) prices that are actually present.
   const fallbackStatus = () => {
     try {
       const raw = localStorage.getItem('bpleone_data_v1');
       if (raw) {
         const c = JSON.parse(raw);
-        return { status: c.enabled && c.provider !== 'mock' ? 'connected' : 'mock', provider: c.provider, enabled: c.enabled };
+        return { status: 'mock', provider: c.provider, enabled: false };
       }
     } catch (e) {}
     return { status: 'mock', provider: 'mock', enabled: false };

@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" media="print" onload="this.media='all'"><noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap"></noscript>
-<link rel="stylesheet" href="css/style.css?v=v232">
+<link rel="stylesheet" href="css/style.css?v=v233">
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
 <style>
@@ -72,12 +72,12 @@
 
 <div id="site-footer"></div>
 
-<script src="js/data-provider.js?v=v232"></script>
-<script src="js/ai-client.js?v=v232"></script>
-<script src="js/app.js?v=v232"></script>
-<script src="js/notify.js?v=v232"></script>
-<script src="js/live.js?v=v232"></script>
-<script src="js/model.js?v=v232"></script>
+<script src="js/data-provider.js?v=v233"></script>
+<script src="js/ai-client.js?v=v233"></script>
+<script src="js/app.js?v=v233"></script>
+<script src="js/notify.js?v=v233"></script>
+<script src="js/live.js?v=v233"></script>
+<script src="js/model.js?v=v233"></script>
 <script>
 buildNav('brain-health');
 
@@ -99,7 +99,7 @@ function audit() {
   const mode = window.BPLEONE_DATA_MODE || 'mock';
   const isLive = mode === 'live';
   if (isLive) { html += checkRow('pass', 'Site data mode', 'Global data mode is "live". Site is configured to accept real prices.', 'LIVE'); checks.pass++; }
-  else { html += checkRow('fail', 'Site data mode', 'Global data mode is "mock". Stooq fallback may not have responded yet (or is blocked by CORS in your network).', 'MOCK'); checks.fail++; }
+  else { html += checkRow('fail', 'Site data mode', 'Global data mode is "mock". The worker price feed has not answered yet (or the worker is unreachable from your network).', 'MOCK'); checks.fail++; }
 
   // Count symbols with real prices
   let liveSymCount = 0, totalSyms = 0, freshSymCount = 0;
@@ -119,12 +119,11 @@ function audit() {
   else if (freshSymCount >= 1) { html += checkRow('warn', 'Freshness', 'Only ' + freshSymCount + ' symbols have fresh updates. Provider may be slow or rate-limited.', freshSymCount + ' fresh'); checks.warn++; }
   else { html += checkRow('fail', 'Freshness', 'No symbols updated recently. Provider is not pushing data.', '0 fresh'); checks.fail++; }
 
-  // Stooq status
-  const stooqStatus = (typeof DataProvider !== 'undefined' && DataProvider.getStooqStatus) ? DataProvider.getStooqStatus() : null;
-  if (stooqStatus && stooqStatus.polling) {
-    if (stooqStatus.lastFetchOk && (Date.now() - stooqStatus.lastFetchOk) < 60000) { html += checkRow('pass', 'Stooq fallback', 'Polling every 12s. Last successful fetch ' + Math.floor((Date.now() - stooqStatus.lastFetchOk) / 1000) + 's ago.', 'POLLING'); checks.pass++; }
-    else { html += checkRow('warn', 'Stooq fallback', 'Polling but no successful fetch in the last 60s. CORS may be blocking the response.', 'NO FETCHES'); checks.warn++; }
-  } else { html += checkRow('warn', 'Stooq fallback', 'Not polling. Either disabled or another provider is configured.', 'OFF'); checks.warn++; }
+  // Worker price feed (audit 2026-11-11: replaces the Stooq row; the browser Stooq poll is retired because a
+  // browser can never read Stooq: no CORS headers, it never landed a price).
+  const wqStatus = (window.WorkerQuotes && window.WorkerQuotes.status) ? window.WorkerQuotes.status() : null;
+  if (wqStatus && wqStatus.lastOk && (Date.now() - wqStatus.lastOk) < 10 * 60000) { html += checkRow('pass', 'Worker price feed', 'Real equity prices (Yahoo via the desk worker, delayed ~15 min). Last update ' + Math.floor((Date.now() - wqStatus.lastOk) / 1000) + 's ago.', 'OK'); checks.pass++; }
+  else { html += checkRow('warn', 'Worker price feed', 'No update from the worker feed in the last 10 minutes; equity prices may be seed values.', 'STALE'); checks.warn++; }
 
   document.getElementById('dataChecks').innerHTML = html;
 

@@ -111,6 +111,23 @@ const acc = read('_acceptance.js');
 t('acceptance judges the snapshot job by runs, not by a configured flag', /deskSlots\(now - 86400000, now\)/.test(acc) && !/sd && sd\.configured \? 'PASS'/.test(acc));
 t('system-status counts chained runs against desk-hour slots', /deskSlots: true/.test(ss) && /j\.deskSlots \? deskSlots\(from, now\)/.test(ss) && /x\.conclusion !== 'cancelled'/.test(ss));
 
+// 6f. Audit 2026-11-11 (Brandon's browser, production): Finnhub REST fired ~75 calls in parallel (111 of 149 came
+//     back 429), the pill said LIVE with 12 of 72 symbols streaming, the home page called the CORS-dead Stooq poll
+//     "LIVE DATA", and the no-data-provider fallback read a SAVED provider as connected. Behavior is pinned by
+//     _test_data_provider.js; these guard the wording and wiring.
+const dprov = read('js/data-provider.js');
+t('browser Stooq poll is retired (no 12 s interval; stooqPollOnce is a no-op)', !/setInterval\(stooqPollOnce/.test(dprov) && /async function stooqPollOnce\(\) \{\s*\n(\s*\/\/[^\n]*\n)*\s*return;/.test(dprov));
+t('Finnhub bootstrap needs a key, is paced and stops on 429', /config\.provider !== 'finnhub' \|\| !config\.apiKey\) return \[\]/.test(dprov) && /FH_PACE_MS = 1100/.test(dprov) && /r\.status === 429\) \{ fh429Until/.test(dprov) && !/await Promise\.all\(syms\.map\(async sym/.test(dprov));
+t('refreshAll re-polls the worker feed first', /refreshAll: async \(\) => \{\s*\n\s*try \{ if \(typeof window !== 'undefined' && window\.WorkerQuotes/.test(dprov));
+t('stale-refresh no longer fetches Stooq', !/await _refreshStooq\(/.test(read('js/stale-refresh.js')) && /_refreshEquitiesViaWorker\(staleEquities\)/.test(read('js/stale-refresh.js')));
+t('pill says LIVE only for what streams (live share), never for demo-sim', /function liveShare\(\)/.test(appjs) && /ls\.live >= 0\.9 \* ls\.real/.test(appjs) && /NOT_REAL_SOURCES = \['stale-seed', 'mock', 'demo-sim'\]/.test(appjs));
+t('no-data-provider fallback never reports a saved provider as connected', /return \{ status: 'mock', provider: c\.provider, enabled: false \};/.test(appjs) && !/status: c\.enabled && c\.provider !== 'mock' \? 'connected'/.test(appjs));
+['index', 'connect-live-data', 'brain-health', 'trade-of-the-day', 'live-status', 'about', 'start-here'].forEach(p => {
+  const h = read(p + '.html');
+  t(p + ' makes no Stooq live-price claim', !/LIVE DATA — STOOQ|Stooq polls equities|Stooq polling not yet started|Stooq fallback is polling|with Stooq as a fallback|give Stooq a moment|Yahoo\/Stooq/.test(h));
+});
+t('start-here does not promise Finnhub streaming to every visitor', !/stream from a real market feed \(Finnhub\)/.test(read('start-here.html')));
+
 // 7. Worker sources parse strictly. `node --check` passed an ES-module file with an unescaped quote in a
 //    string (found 2026-11-03), so parse the bodies as scripts with imports/exports stripped.
 ['worker/src/index.js', 'worker/src/grading.js', 'worker/src/radar.js', 'worker/src/bars.js', 'worker/src/snapshots.js'].forEach(f => {

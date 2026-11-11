@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" media="print" onload="this.media='all'"><noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap"></noscript>
-<link rel="stylesheet" href="css/style.css?v=v232">
+<link rel="stylesheet" href="css/style.css?v=v233">
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
 <style>
@@ -56,7 +56,7 @@
   <div class="grid grid-4 mb-24" id="status-grid"></div>
 
   <div style="padding:14px 18px;background:rgba(16,185,129,0.08);border-left:3px solid var(--green);border-radius:6px;margin-bottom:14px;font-size:13px;color:var(--text-secondary);line-height:1.6;">
-    <strong style="color:var(--green);">✓ You already have free real prices running.</strong> Stooq polls equities every 12s (15-min delayed) and Coinbase streams crypto realtime via WebSocket — both with zero config. The optional providers below upgrade equities to <strong>real-time</strong> (no delay) which matters if you trade options at the open or scalp intraday moves.
+    <strong style="color:var(--green);">✓ You already have free real prices running.</strong> The desk's worker feed prices equities (Yahoo, ~15 min delayed) and Coinbase streams crypto in real time — both with zero config. The optional providers below upgrade equities to <strong>real-time</strong> (no delay) which matters if you trade options at the open or scalp intraday moves.
   </div>
 
   <div class="action-card">
@@ -103,11 +103,11 @@
 
 <div id="site-footer"></div>
 
-<script src="js/data-provider.js?v=v232"></script>
-<script src="js/ai-client.js?v=v232"></script>
-<script src="js/app.js?v=v232"></script>
-<script src="js/notify.js?v=v232"></script>
-<script src="js/live.js?v=v232"></script>
+<script src="js/data-provider.js?v=v233"></script>
+<script src="js/ai-client.js?v=v233"></script>
+<script src="js/app.js?v=v233"></script>
+<script src="js/notify.js?v=v233"></script>
+<script src="js/live.js?v=v233"></script>
 <script>
 buildNav('connect-live-data');
 
@@ -117,30 +117,35 @@ function render() {
   const card = document.getElementById('status-card');
   const grid = document.getElementById('status-grid');
 
-  // Detect what data is ACTUALLY flowing — Stooq runs by default, no key needed.
-  // Real-time WebSocket providers (Finnhub/Polygon/etc) override Stooq when configured.
-  const stooqRunning = stooqStatus.polling || stooqStatus.lastFetchOk > 0;
+  // Detect what data is ACTUALLY flowing. Audit 2026-11-11: the default is the worker feed (equities, delayed ~15
+  // min) plus Coinbase (crypto, real-time); the browser Stooq poll is retired (CORS-blocked, it never landed a
+  // price). Real-time WebSocket providers (Finnhub/Polygon/etc) stream on top when configured.
+  const wq = (window.WorkerQuotes && window.WorkerQuotes.status) ? window.WorkerQuotes.status() : null;
+  const share = window.bpleoneLiveShare ? window.bpleoneLiveShare() : { real: 0, live: 0 };
+  const workerRunning = !!(wq && wq.lastOk && Date.now() - wq.lastOk < 10 * 60000) || share.real > 0;
   const realtimeConfigured = status.provider && status.provider !== 'mock' && status.enabled && status.provider !== 'stooq';
 
   let cardClass = 'big-card';
   let icon, msg, sub;
   if (realtimeConfigured && status.status === 'connected') {
-    icon = '🟢'; msg = 'REAL-TIME STREAMING'; sub = 'WebSocket: ' + status.provider + ' · ' + (status.messagesReceived || 0) + ' ticks';
+    const all = share.live > 0 && share.live >= 0.9 * share.real;
+    icon = all ? '🟢' : '🟡'; msg = all ? 'REAL-TIME STREAMING' : 'REAL-TIME FOR ' + share.live + ' OF ' + share.real + ' SYMBOLS';
+    sub = 'WebSocket: ' + status.provider + ' · ' + (status.messagesReceived || 0) + ' ticks' + (all ? '' : ' · the rest are the worker feed, delayed ~15 min');
   } else if (status.status === 'connecting') {
     cardClass += ' disconnected';
     icon = '🟡'; msg = 'CONNECTING…'; sub = 'Connecting to ' + status.provider;
   } else if (status.status === 'error') {
     cardClass += ' error';
-    icon = '🔴'; msg = 'WEBSOCKET ERROR — Stooq fallback still active'; sub = status.lastError || 'Unknown error';
-  } else if (stooqRunning) {
-    // This is the DEFAULT state — real prices from Stooq + Coinbase, no key needed
-    icon = '🟢'; msg = 'LIVE DATA — STOOQ + COINBASE (free)'; sub = 'Real prices · stocks 12s polling (15-min delayed) · crypto realtime WebSocket · zero config';
+    icon = '🔴'; msg = 'WEBSOCKET ERROR — worker feed (delayed ~15 min) still active'; sub = status.lastError || 'Unknown error';
+  } else if (workerRunning) {
+    // The DEFAULT state: real prices with no key. Equities are delayed, so this is never called "live".
+    icon = '🟢'; msg = 'REAL PRICES — EQUITIES DELAYED ~15 MIN (free)'; sub = 'Equities from the desk\'s worker feed (Yahoo, ~15 min delayed) · crypto real-time from Coinbase · zero config';
   } else if (status.enabled === false || status.provider === 'mock') {
     cardClass += ' disconnected';
-    icon = '⚠'; msg = 'MOCK DATA ONLY'; sub = 'Stooq fallback isn\'t polling — check browser console for fetch errors';
+    icon = '⚠'; msg = 'NO REAL PRICES YET'; sub = 'The worker feed has not answered; prices on the page are seed values until it does';
   } else {
     cardClass += ' disconnected';
-    icon = '⚫'; msg = 'WARMING UP'; sub = 'First Stooq poll completes within 12s of page load';
+    icon = '⚫'; msg = 'LOADING'; sub = 'Waiting for the worker feed — the first prices usually land within a few seconds';
   }
   card.className = cardClass;
   card.innerHTML = '<div class="icon">' + icon + '</div>'

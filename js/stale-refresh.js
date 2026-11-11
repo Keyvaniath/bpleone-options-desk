@@ -3,10 +3,11 @@
    ---
    When DataReliability flags a symbol as STALE (>5 min equity RTH,
    >2 min crypto), this module proactively triggers a fresh single-symbol
-   fetch instead of waiting for the next 12s Stooq poll cycle.
+   fetch instead of waiting for the next feed cycle.
 
    For crypto stale symbols → force a Coinbase REST poll
-   For equity stale symbols → force a Stooq single-symbol fetch
+   For equity stale symbols → one worker-feed poll (audit 2026-11-11: was a
+   Stooq fetch, which a browser can never read: no CORS headers)
 
    Throttled to avoid refresh storms: max 1 refresh attempt per symbol
    per 30 seconds. Tracks attempt + success counts.
@@ -138,6 +139,22 @@
     }
   }
 
+  // Audit 2026-11-11: equities no longer refresh from Stooq. A browser can never read Stooq (no CORS headers:
+  // "Failed to fetch" from options.bpleone.com, checked live), so _refreshStooq failed every attempt; had it
+  // succeeded it would have computed change% against the stale seed prevClose. Stale equities now trigger ONE
+  // worker-feed poll (js/worker-quotes.js prices the whole universe with a real prevClose in one request).
+  let _lastWorkerPoll = 0;
+  async function _refreshEquitiesViaWorker(symbols) {
+    if (!symbols.length) return 0;
+    if (!window.WorkerQuotes || typeof window.WorkerQuotes.pollQuotes !== 'function') return 0;
+    if (Date.now() - _lastWorkerPoll < MIN_SECONDS_BETWEEN_REFRESH * 1000) return 0;
+    _lastWorkerPoll = Date.now();
+    const before = Date.now();
+    try { await window.WorkerQuotes.pollQuotes(); } catch (e) { return 0; }
+    const Q = window.QUOTES || {};
+    return symbols.filter(s => Q[s] && Q[s].priceSource === 'worker-yahoo' && Q[s].ts >= before).length;
+  }
+
   let _running = false;
   async function checkOnce() {
     if (typeof window === 'undefined' || !window.DataReliability) return { attempted: 0, refreshed: 0 };
@@ -152,6 +169,7 @@
       const staleList = window.DataReliability.staleSymbols();
       const state = load();
       let attempted = 0, refreshed = 0;
+      const staleEquities = [];
       for (const s of staleList) {
         const symbol = s.symbol;
         const lastAttempt = state.attempts[symbol] || 0;
@@ -162,17 +180,15 @@
         save(state);
         attempted++;
         state.totalAttempted = (state.totalAttempted || 0) + 1;
-        let ok = false;
-        if (s.isCrypto) {
-          ok = await _refreshCoinbase(symbol);
-        } else {
-          ok = await _refreshStooq(symbol);
-        }
-        if (ok) {
+        if (!s.isCrypto) { staleEquities.push(symbol); continue; }   // batched into one worker poll below
+        if (await _refreshCoinbase(symbol)) {
           refreshed++;
           state.totalRefreshed = (state.totalRefreshed || 0) + 1;
         }
       }
+      const eqOk = await _refreshEquitiesViaWorker(staleEquities);
+      refreshed += eqOk;
+      state.totalRefreshed = (state.totalRefreshed || 0) + eqOk;
       save(state);
       return { attempted, refreshed, totalChecked: staleList.length };
     } finally {
