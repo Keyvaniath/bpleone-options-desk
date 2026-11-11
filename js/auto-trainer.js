@@ -1,18 +1,21 @@
 /* ===========================================
    BPLEONE — Daily background auto-trainer
    ---
-   Runs once per day in the background. Fetches the latest bar from Stooq
-   for each symbol in the universe, generates a training example from real
+   Runs in the background at most every 6 hours. Fetches recent daily bars
+   for each symbol in the universe, generates training examples from real
    bar features, and incrementally updates the model. Tags every row
    dataSource='live' so it's accepted by the strict trainer.
 
-   Fires on DOMContentLoaded + 60s delay so it doesn't block page load.
-   Only runs if last training was > 20 hours ago.
+   Fires 60s after page load so it doesn't block render. Pass 339: the only
+   browser-readable source deep enough is Finnhub's paid /stock/candle, so
+   without a key that can read it the run makes no network call at all.
+   (live.js lazy-loads this file after DOMContentLoaded; the old listener
+   therefore never fired, so the trigger now checks readyState.)
    =========================================== */
 
 (function () {
   const LAST_KEY = 'bpleone_auto_train_ts_v1';
-  // Audit pass 70: 20h → 6h. Stooq updates daily bars once per US session
+  // Audit pass 70: 20h → 6h. Daily bars update once per US session
   // close, but at 20h the trainer only catches the latest bar every-other
   // day in many timezones. 6h means we always pick up the new daily bar
   // within 6h of close. Each run only trains on bars NEWER than the last
@@ -119,66 +122,54 @@
     return f;
   }
 
-  async function fetchStooqHistory(sym) {
-    const stooqSym = sym.toLowerCase() + '.us';
-    const url = 'https://stooq.com/q/d/l/?s=' + stooqSym + '&i=d';
-    // Audit pass 16: add 10s abort timeout so a hung Stooq response can't
-    // block the auto-trainer indefinitely.
-    const ctrl = (typeof AbortController !== 'undefined') ? new AbortController() : null;
-    const timeoutId = ctrl ? setTimeout(() => ctrl.abort(), 10000) : null;
-    let res;
-    try {
-      res = await fetch(url, { method: 'GET', cache: 'no-cache', signal: ctrl ? ctrl.signal : undefined });
-    } finally {
-      if (timeoutId) clearTimeout(timeoutId);
-    }
-    if (!res.ok) throw new Error('HTTP ' + res.status);
-    const text = await res.text();
-    const lines = text.trim().split(/\r?\n/);
-    if (lines.length < 30) return [];
-    const header = lines[0].split(',').map(s => s.trim().toLowerCase());
-    const iDate = header.indexOf('date');
-    const iOpen = header.indexOf('open');
-    const iHigh = header.indexOf('high');
-    const iLow = header.indexOf('low');
-    const iClose = header.indexOf('close');
-    const iVol = header.indexOf('volume');
-    const bars = [];
-    for (let i = 1; i < lines.length; i++) {
-      const c = lines[i].split(',');
-      if (c.length < 5) continue;
-      const close = parseFloat(c[iClose]);
-      if (!isFinite(close) || close <= 0) continue;
-      bars.push({
-        date: c[iDate],
-        open: parseFloat(c[iOpen]),
-        high: parseFloat(c[iHigh]),
-        low: parseFloat(c[iLow]),
-        close: close,
-        volume: parseInt(c[iVol]) || 0
-      });
-    }
-    return bars;
+  // Audit 2026-11-11 (pass 339): this used to read Stooq's daily CSV, which a browser can never read (no CORS
+  // headers), so every run made 44 failed requests and trained nothing. It needs 60+ sessions of OHLCV (MA50,
+  // ATR, 20-day labels); the Worker keeps 40, so the one browser-readable source deep enough is Finnhub's
+  // /stock/candle, a paid endpoint. HistoricalBootstrap owns that fetch (and parks it for 7 days after a
+  // 401/403). Returns bars, null (no data), or 'stop' (refused: make no further calls this run).
+  async function fetchHistory(sym) {
+    const HB = window.HistoricalBootstrap;
+    if (!HB || typeof HB.fetchCandles !== 'function') return 'stop';
+    return HB.fetchCandles(sym, 120);
   }
 
+  // Pass 339: the lock is released in a finally (it used to stay set after any exception in the training block,
+  // and historical-bootstrap now defers to it). Only the invocation that claimed it releases it.
   async function runAutoTrain() {
-    if (typeof window.Model === 'undefined' || typeof window.ModelStore === 'undefined') return;
+    let claimed = false;
+    try {
+      return await runAutoTrainInner(() => { claimed = true; });
+    } finally {
+      if (claimed) window._autoTrainerRunning = false;
+    }
+  }
+
+  async function runAutoTrainInner(onClaim) {
+    // Pass 339: every exit says why, so train-now.html reports what happened instead of "completed".
+    if (typeof window.Model === 'undefined' || typeof window.ModelStore === 'undefined') return { skipped: 'model-not-loaded' };
     const last = getLast();
-    if (Date.now() - last < MIN_INTERVAL_MS) return;
+    if (Date.now() - last < MIN_INTERVAL_MS) return { skipped: 'cooldown' };
     // Avoid running while a manual training session is happening
-    if (window._historicalTrainerRunning) return;
-    if (window._autoTrainerRunning) return;  // also block self-overlap
+    if (window._historicalTrainerRunning) return { skipped: 'bootstrap-running' };
+    if (window._autoTrainerRunning) return { skipped: 'already-running' };  // also block self-overlap
     // Pass 199: defer when WorkerBridge is the authoritative brain. The
     // Cloudflare Worker runs its own bootstrap + minutely tick training
     // and is the source of truth. Browser-side auto-train would be wasted
     // work (next worker sync overwrites it) AND would double-count any
     // historical bars the worker already trained on.
-    if (window.WorkerBridge && typeof window.WorkerBridge.isEnabled === 'function' && window.WorkerBridge.isEnabled()) return;
+    if (window.WorkerBridge && typeof window.WorkerBridge.isEnabled === 'function' && window.WorkerBridge.isEnabled()) return { skipped: 'worker-bridge-authoritative' };
+    // Pass 339: without a Finnhub key that can read daily candles there is no history to train on; make no calls.
+    const HB = window.HistoricalBootstrap;
+    if (!HB || typeof HB.candleAccess !== 'function' || !HB.candleAccess()) {
+      window.AutoTrainer && (window.AutoTrainer.lastSkip = { at: Date.now(), reason: 'no-history-source' });
+      return { skipped: 'no-history-source' };
+    }
     setLast(Date.now());  // claim the slot immediately to prevent concurrent runs
     // Audit pass 169: also set this flag so continuous-learner defers its own
     // save() during our async fetch window. Without it, CL's 30s tick saves
     // during our Phase 1 fetches could be overwritten by our Phase 2 save.
     window._autoTrainerRunning = true;
+    onClaim();
 
     // Audit pass 168 (CRITICAL race condition fix): the original implementation
     // loaded the model BEFORE the async Stooq fetch loop. Each loop iteration
@@ -200,13 +191,14 @@
     try { alreadyTrained = JSON.parse(localStorage.getItem('bpleone_auto_train_seen_v1') || '{}'); } catch (e) {}
 
     // Phase 1 (async): gather all training examples into memory. No model
-    // mutations yet. This is the slow part — Stooq fetches + parsing.
+    // mutations yet. This is the slow part: paced candle fetches + parsing.
     const pendingExamples = [];  // { features, label, weight, horizon, sym, date }
 
     for (const sym of UNIVERSE) {
       try {
-        const bars = await fetchStooqHistory(sym);
-        if (bars.length < 60) continue;
+        const bars = await fetchHistory(sym);
+        if (bars === 'stop') break;               // refused (401/403/429): no further calls this run
+        if (!bars || bars.length < 60) { await new Promise(r => setTimeout(r, 1100)); continue; }
         symsFetched++;
         const seen = alreadyTrained[sym] || '';
         const startIdx = 50;
@@ -236,7 +228,7 @@
           });
           alreadyTrained[sym] = bars[i].date;
         }
-        await new Promise(r => setTimeout(r, 300));  // be polite to Stooq
+        await new Promise(r => setTimeout(r, 1100));  // Finnhub free/basic budget is 60 calls a minute
       } catch (e) {
         // network error or CORS — skip silently in background
       }
@@ -267,7 +259,7 @@
           sym: ex.sym,
           setup: 'auto-train-' + ex.date,
           dataSource: 'live',
-          priceSource: 'stooq',
+          priceSource: 'finnhub-candle',
           historical: true,
           autoTrained: true,
           horizon: ex.horizon,
@@ -296,21 +288,24 @@
           ts: Date.now(),
           type: 'train',
           title: 'Auto-train: ' + trained + ' new bars',
-          body: 'Fetched latest Stooq bars across ' + symsFetched + ' symbols. Trained ' + trained + ' main rows. Avg loss: ' + (lossSum / trained).toFixed(3) + horizonStr,
+          body: 'Fetched latest daily bars (Finnhub) across ' + symsFetched + ' symbols. Trained ' + trained + ' main rows. Avg loss: ' + (lossSum / trained).toFixed(3) + horizonStr,
           meta: { trained, symsFetched, source: 'auto-train', trainedHorizons }
         });
         localStorage.setItem('bpleone_brain_changelog_v1', JSON.stringify(log.slice(0, 200)));
       } catch (e) {}
     }
-    // Release the lock so continuous-learner can resume its 30s save cycle.
+    // Release the lock so continuous-learner can resume its 30s save cycle (the wrapper's finally does it too).
     window._autoTrainerRunning = false;
+    return { trained, symsFetched, trainedHorizons };
   }
 
   // Fire 60s after page load so we never block initial render
   if (typeof document !== 'undefined') {
-    document.addEventListener('DOMContentLoaded', () => {
+    if (document.readyState === 'complete' || document.readyState === 'interactive') {
       setTimeout(runAutoTrain, 60000);
-    });
+    } else {
+      document.addEventListener('DOMContentLoaded', () => { setTimeout(runAutoTrain, 60000); });
+    }
   }
 
   // Expose for manual trigger from console / brain-monitor

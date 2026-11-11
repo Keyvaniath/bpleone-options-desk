@@ -4,8 +4,8 @@
    Problem: the brain learns only from going-forward live ticks. It takes
    WEEKS for BSS to become meaningful because we accumulate trades slowly.
 
-   Fix: on first visit (or manual trigger), fetch 30+ days of daily OHLC
-   bars from Stooq for every symbol, reconstruct features and outcomes
+   Fix: on first visit (or manual trigger), fetch daily OHLC bars for
+   every symbol, reconstruct features and outcomes
    from those bars, and pre-train ModelStore + Calibrator + BSS + Sharpe
    etc. before live trading even begins.
 
@@ -19,9 +19,12 @@
    examples on day one. BSS converges within minutes of opening the site,
    not weeks.
 
-   Stooq historical CSV format:
-     https://stooq.com/q/d/l/?s=SPY.US&i=d
-     -> Date,Open,High,Low,Close,Volume
+   Sources (audit 2026-11-11, pass 339; a browser can never read Stooq):
+     1. Finnhub /stock/candle, only for a key that passed a one-call probe
+        (a free key gets 403: the endpoint is parked for 7 days);
+     2. the Worker's /brain/bars: real daily OHLCV for every equity in one
+        request (~40 finished sessions);
+     3. Coinbase daily candles for BTC/ETH.
 
    Runs ONCE per browser (gated by localStorage flag). Manual trigger
    available via HistoricalBootstrap.run({ force: true }).
@@ -41,42 +44,26 @@
   // symbol from ~46 (60 days minus warmup + look-ahead) to ~236, so total
   // examples grow from ~660 → ~11,000 across the expanded universe below.
   const BOOTSTRAP_DAYS = 250;
-  const FETCH_DELAY_MS = 350;      // 350ms × 47 symbols ≈ 16s total
-  const STOOQ_HOST = 'stooq.com';
 
-  // Symbol → Stooq ticker (Stooq uses lowercase suffixes)
   // Audit pass 69: expanded from 25 → 47 symbols across sectors, factors,
   // bonds, vol, international, and crypto so the brain sees a wide regime
   // surface during bootstrap. Bonds + vol + dollar are especially helpful
-  // for the regime classifier.
-  const STOOQ_MAP = {
-    // Broad indices
-    SPY: 'spy.us', QQQ: 'qqq.us', IWM: 'iwm.us', DIA: 'dia.us',
-    // Mega-tech
-    AAPL: 'aapl.us', MSFT: 'msft.us', GOOGL: 'googl.us', META: 'meta.us', AMZN: 'amzn.us',
-    NFLX: 'nflx.us', ORCL: 'orcl.us',
-    // Semis
-    NVDA: 'nvda.us', AMD: 'amd.us', SMCI: 'smci.us', AVGO: 'avgo.us', MU: 'mu.us',
-    // Software / growth
-    TSLA: 'tsla.us', PLTR: 'pltr.us', CRM: 'crm.us', SHOP: 'shop.us', COIN: 'coin.us',
-    // Financials
-    JPM: 'jpm.us', BAC: 'bac.us', GS: 'gs.us',
-    // Sector ETFs
-    XLE: 'xle.us', XLF: 'xlf.us', XLK: 'xlk.us', XLV: 'xlv.us', XLY: 'xly.us',
-    XLP: 'xlp.us', XLI: 'xli.us', XLU: 'xlu.us',
-    // Commodities + metals
-    GLD: 'gld.us', SLV: 'slv.us', USO: 'uso.us',
-    // Bonds + rates
-    TLT: 'tlt.us', IEF: 'ief.us', HYG: 'hyg.us', LQD: 'lqd.us',
-    // Volatility
-    VIX: '^vix', VXX: 'vxx.us',
-    // International
-    BABA: 'baba.us', FXI: 'fxi.us', EWJ: 'ewj.us', INDA: 'inda.us',
-    // Gig / consumer
-    UBER: 'uber.us',
-    // Crypto
-    BTC: 'btcusd', ETH: 'ethusd'
-  };
+  // for the regime classifier. (Pass 339: was a Stooq ticker map; every
+  // equity here is in the Worker UNIVERSE, so /brain/bars serves them all.)
+  const SYMBOLS = [
+    'SPY', 'QQQ', 'IWM', 'DIA',                                   // broad indices
+    'AAPL', 'MSFT', 'GOOGL', 'META', 'AMZN', 'NFLX', 'ORCL',      // mega-tech
+    'NVDA', 'AMD', 'SMCI', 'AVGO', 'MU',                          // semis
+    'TSLA', 'PLTR', 'CRM', 'SHOP', 'COIN',                        // software / growth
+    'JPM', 'BAC', 'GS',                                           // financials
+    'XLE', 'XLF', 'XLK', 'XLV', 'XLY', 'XLP', 'XLI', 'XLU',       // sector ETFs
+    'GLD', 'SLV', 'USO',                                          // commodities + metals
+    'TLT', 'IEF', 'HYG', 'LQD',                                   // bonds + rates
+    'VIX', 'VXX',                                                 // volatility
+    'BABA', 'FXI', 'EWJ', 'INDA',                                 // international
+    'UBER',                                                       // gig / consumer
+    'BTC', 'ETH'                                                  // crypto (Coinbase)
+  ];
 
   function load() {
     if (typeof localStorage === 'undefined') return defaultState();
@@ -102,12 +89,22 @@
     try { localStorage.setItem(STATE_KEY, JSON.stringify(state)); } catch (e) {}
   }
 
-  // CRITICAL FIX (pass 177 — live-verified bug): Stooq is CORS-blocked from
-  // browsers (Failed to fetch). historical-bootstrap was returning 0 examples
-  // for all users because Stooq is its ONLY historical source. Verified live
-  // in Chrome: 48 fetches, 48 errors. Fix: when a Finnhub API key is
-  // configured, use Finnhub's /stock/candle endpoint instead. Stooq stays
-  // as fallback for users without a key.
+  // Audit 2026-11-11 (pass 339): the browser can read neither of the old history sources. Stooq sends no CORS
+  // headers ("Failed to fetch" from options.bpleone.com, checked live; pass 177 saw 48 of 48 fail), and Finnhub's
+  // /stock/candle is a paid endpoint (a free key gets 403). Every run fired ~48 failed Stooq requests, plus ~48
+  // refused Finnhub calls for a keyed visitor that spent the same 60-a-minute budget the quote feed needs, and
+  // WeeklyRefresh retried the whole run every hour because it never trained a row. Sources now, in order:
+  //   1. Finnhub /stock/candle, only for a key whose first call succeeded (401/403 parks the endpoint 7 days;
+  //      429 stops the run), paced 1.1 s a call;
+  //   2. the Worker's /brain/bars: real daily OHLCV for every equity in ONE request (about 40 sessions; an
+  //      unfinished bar for today is dropped);
+  //   3. Coinbase daily candles for BTC/ETH (public, CORS-enabled; today's open candle is dropped).
+  const FH_CANDLE_KEY = 'bpleone_fh_candle_v1';
+  const FH_CANDLE_PARK_MS = 7 * 24 * 3600 * 1000;
+  const FH_PACE_MS = 1100;
+  const DEFAULT_WORKER = 'https://bpleone-brain-worker.brandonpleone.workers.dev';
+  const COINBASE_PAIRS = { BTC: 'BTC-USD', ETH: 'ETH-USD' };
+  const sleep = ms => new Promise(r => setTimeout(r, ms));
 
   function getFinnhubKey() {
     try {
@@ -118,97 +115,168 @@
     } catch (e) { return null; }
   }
 
+  function candleParked() {
+    try {
+      const j = JSON.parse(localStorage.getItem(FH_CANDLE_KEY) || 'null');
+      return !!(j && j.deniedAt && Date.now() - j.deniedAt < FH_CANDLE_PARK_MS);
+    } catch (e) { return false; }
+  }
+  function parkCandle(status) {
+    try { localStorage.setItem(FH_CANDLE_KEY, JSON.stringify({ deniedAt: Date.now(), status })); } catch (e) {}
+  }
+  // True when a Finnhub key is saved and its candle access has not been refused in the last 7 days.
+  function candleAccess() { return !!getFinnhubKey() && !candleParked(); }
+
+  function recordFetch(src, ok, t0) {
+    try { if (typeof window.DataReliability !== 'undefined') window.DataReliability.recordFetch(src, ok, Date.now() - t0); } catch (e) {}
+  }
+
+  async function timedFetch(url, ms) {
+    const ctrl = (typeof AbortController !== 'undefined') ? new AbortController() : null;
+    const timeoutId = ctrl ? setTimeout(() => ctrl.abort(), ms || 10000) : null;
+    try {
+      return await fetch(url, { method: 'GET', signal: ctrl ? ctrl.signal : undefined });
+    } finally {
+      if (timeoutId) clearTimeout(timeoutId);
+    }
+  }
+
+  // ET calendar day (YYYY-MM-DD) of a timestamp: bars are ET sessions.
+  function etDay(ts) {
+    try { return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York' }).format(new Date(ts)); }
+    catch (e) { return new Date(ts).toISOString().slice(0, 10); }
+  }
+
+  // Bars for one symbol from Finnhub /stock/candle; null when it has no data; 'stop' when Finnhub refused
+  // (401/403: parked for 7 days; 429: rate limit) or no key is usable, so the caller makes no further calls.
+  // One pace for every candle call on the page (this module and auto-trainer.js share this function), so two
+  // trainers running back to back never put more than ~55 calls in a minute.
+  let lastCandleAt = 0;
   async function fetchFinnhubHistorical(sym, days) {
     const key = getFinnhubKey();
-    if (!key) return null;
+    if (!key || candleParked()) return 'stop';
+    const wait = lastCandleAt + FH_PACE_MS - Date.now();
+    if (wait > 0) await sleep(wait);
+    lastCandleAt = Date.now();
     days = days || 250;
     const now = Math.floor(Date.now() / 1000);
-    const from = now - days * 86400;
-    // Finnhub /stock/candle: resolution D = daily
+    const from = now - Math.ceil(days * 1.5) * 86400;   // calendar days for ~`days` sessions
     const fhSym = sym === 'BTC' ? 'BINANCE:BTCUSDT' : sym === 'ETH' ? 'BINANCE:ETHUSDT' : sym;
     const url = 'https://finnhub.io/api/v1/stock/candle?symbol=' + encodeURIComponent(fhSym) + '&resolution=D&from=' + from + '&to=' + now + '&token=' + encodeURIComponent(key);
-    const startTs = Date.now();
+    const t0 = Date.now();
     try {
-      const ctrl = (typeof AbortController !== 'undefined') ? new AbortController() : null;
-      const timeoutId = ctrl ? setTimeout(() => ctrl.abort(), 10000) : null;
-      const res = await fetch(url, { method: 'GET', signal: ctrl ? ctrl.signal : undefined });
-      if (timeoutId) clearTimeout(timeoutId);
-      if (typeof window.DataReliability !== 'undefined') {
-        window.DataReliability.recordFetch('finnhub-hist', res.ok, Date.now() - startTs);
-      }
+      const res = await timedFetch(url, 10000);
+      recordFetch('finnhub-hist', res.ok, t0);
+      if (res.status === 401 || res.status === 403) { parkCandle(res.status); return 'stop'; }
+      if (res.status === 429) return 'stop';
       if (!res.ok) return null;
       const j = await res.json();
       if (j.s !== 'ok' || !Array.isArray(j.c) || j.c.length === 0) return null;
       // Finnhub format: { c:[closes], h:[highs], l:[lows], o:[opens], t:[timestamps], v:[volumes] }
       const out = [];
+      const today = etDay(Date.now());
       for (let i = 0; i < j.c.length; i++) {
-        const close = j.c[i];
-        if (!isFinite(close) || close <= 0) continue;
-        const d = new Date(j.t[i] * 1000);
-        const date = d.toISOString().slice(0, 10);
-        out.push({
-          date,
-          open: j.o[i] || close,
-          high: j.h[i] || close,
-          low: j.l[i] || close,
-          close,
-          volume: j.v[i] || 0
-        });
+        const o = j.o[i], h = j.h[i], l = j.l[i], c = j.c[i];
+        if (!(c > 0 && o > 0 && h > 0 && l > 0)) continue;   // never fill a missing field with another one
+        const ts = j.t[i] * 1000;
+        if (etDay(ts) === today) continue;                   // today's bar is not a finished session
+        out.push({ date: etDay(ts), ts, open: o, high: h, low: l, close: c, volume: j.v[i] || 0 });
       }
-      return out;
+      return out.slice(-days);
     } catch (e) {
-      if (typeof window.DataReliability !== 'undefined') {
-        window.DataReliability.recordFetch('finnhub-hist', false, Date.now() - startTs);
-      }
+      recordFetch('finnhub-hist', false, t0);
       return null;
     }
   }
 
-  // Fetch CSV: Date,Open,High,Low,Close,Volume — daily bars (Stooq fallback)
-  async function fetchHistorical(stooqSym) {
-    // Pass 177: try Finnhub first if key configured. Stooq is CORS-blocked from
-    // browser so it's effectively dead for any user fetch.
-    const fhResult = await fetchFinnhubHistorical(stooqSym.replace('.us', '').toUpperCase());
-    if (fhResult && fhResult.length > 0) return fhResult;
-
-    const url = 'https://' + STOOQ_HOST + '/q/d/l/?s=' + encodeURIComponent(stooqSym) + '&i=d';
-    const startTs = Date.now();
+  function workerUrl() {
     try {
-      const ctrl = (typeof AbortController !== 'undefined') ? new AbortController() : null;
-      const timeoutId = ctrl ? setTimeout(() => ctrl.abort(), 10000) : null;
-      const res = await fetch(url, { method: 'GET', cache: 'no-cache', signal: ctrl ? ctrl.signal : undefined });
-      if (timeoutId) clearTimeout(timeoutId);
-      if (typeof window.DataReliability !== 'undefined') {
-        window.DataReliability.recordFetch('stooq-hist', res.ok, Date.now() - startTs);
+      if (window.WorkerBridge && typeof window.WorkerBridge.getUrl === 'function') {
+        const u = window.WorkerBridge.getUrl();
+        if (u && /^https:\/\//.test(u)) return u.replace(/\/$/, '');
       }
-      if (!res.ok) return null;
-      const text = await res.text();
-      return parseCsv(text);
-    } catch (e) {
-      if (typeof window.DataReliability !== 'undefined') {
-        window.DataReliability.recordFetch('stooq-hist', false, Date.now() - startTs);
-      }
-      return null;
-    }
+    } catch (e) {}
+    return DEFAULT_WORKER;
   }
 
-  function parseCsv(text) {
-    const lines = text.trim().split(/\r?\n/);
-    if (lines.length < 2) return [];
-    const out = [];
-    for (let i = 1; i < lines.length; i++) {
-      const cols = lines[i].split(',');
-      if (cols.length < 5) continue;
-      const date = cols[0];
-      const open = parseFloat(cols[1]);
-      const high = parseFloat(cols[2]);
-      const low = parseFloat(cols[3]);
-      const close = parseFloat(cols[4]);
-      const volume = parseInt(cols[5]) || 0;
-      if (!isFinite(close) || close <= 0) continue;
-      out.push({ date, open, high, low, close, volume });
+  // Real daily OHLCV for many equities in one request. Drops today's bar unless the Worker has finalized it
+  // (fin=1): before the evening finalize it is a morning snapshot overlaid with a delayed quote.
+  async function fetchWorkerBars(syms) {
+    const out = {};
+    if (!syms.length) return out;
+    const t0 = Date.now();
+    try {
+      const res = await timedFetch(workerUrl() + '/brain/bars?days=40&syms=' + syms.join(','), 15000);
+      recordFetch('worker-bars', res.ok, t0);
+      if (!res.ok) return out;
+      const j = await res.json();
+      const all = (j && j.bars) || {};
+      const today = etDay(Date.now());
+      for (const sym of syms) {
+        const rows = Array.isArray(all[sym]) ? all[sym] : [];
+        const bars = [];
+        for (const b of rows) {
+          if (!b || !(b.c > 0 && b.o > 0 && b.h > 0 && b.l > 0) || !b.ts) continue;
+          if (etDay(b.ts) === today && !b.fin) continue;
+          bars.push({ date: etDay(b.ts), ts: b.ts, open: b.o, high: b.h, low: b.l, close: b.c, volume: b.v || 0 });
+        }
+        if (bars.length) out[sym] = bars;
+      }
+    } catch (e) {
+      recordFetch('worker-bars', false, t0);
     }
     return out;
+  }
+
+  // Coinbase daily candles: [[time, low, high, open, close, volume], ...], newest first, up to 300.
+  async function fetchCoinbaseDaily(sym) {
+    const pair = COINBASE_PAIRS[sym];
+    if (!pair) return null;
+    const t0 = Date.now();
+    try {
+      const res = await timedFetch('https://api.exchange.coinbase.com/products/' + pair + '/candles?granularity=86400', 10000);
+      recordFetch('coinbase-hist', res.ok, t0);
+      if (!res.ok) return null;
+      const rows = await res.json();
+      if (!Array.isArray(rows)) return null;
+      const todayUtc = new Date().toISOString().slice(0, 10);   // Coinbase days are UTC
+      return rows
+        .filter(r => Array.isArray(r) && r[1] > 0 && r[2] > 0 && r[3] > 0 && r[4] > 0)
+        .map(r => ({ date: new Date(r[0] * 1000).toISOString().slice(0, 10), ts: r[0] * 1000, open: r[3], high: r[2], low: r[1], close: r[4], volume: r[5] || 0 }))
+        .filter(b => b.date !== todayUtc)
+        .sort((a, b) => a.ts - b.ts);
+    } catch (e) {
+      recordFetch('coinbase-hist', false, t0);
+      return null;
+    }
+  }
+
+  // Every symbol's history, fetched up front. Returns { bars: {SYM: [...]}, sources: {SYM: 'finnhub-candle' |
+  // 'worker-bars' | 'coinbase'}, requests }.
+  async function fetchAllHistory(syms) {
+    const bars = {}, sources = {};
+    let requests = 0;
+    if (candleAccess()) {
+      for (let k = 0; k < syms.length; k++) {
+        const r = await fetchFinnhubHistorical(syms[k], BOOTSTRAP_DAYS);
+        requests++;
+        if (r === 'stop') break;
+        if (r && r.length) { bars[syms[k]] = r; sources[syms[k]] = 'finnhub-candle'; }   // paced inside the fetch
+      }
+    }
+    const missing = syms.filter(s => !bars[s] && !COINBASE_PAIRS[s]);
+    if (missing.length) {
+      const wb = await fetchWorkerBars(missing);
+      requests++;
+      for (const s of Object.keys(wb)) { bars[s] = wb[s]; sources[s] = 'worker-bars'; }
+    }
+    for (const s of syms) {
+      if (bars[s] || !COINBASE_PAIRS[s]) continue;
+      const cb = await fetchCoinbaseDaily(s);
+      requests++;
+      if (cb && cb.length) { bars[s] = cb; sources[s] = 'coinbase'; }
+    }
+    return { bars, sources, requests };
   }
 
   // RSI(14) from a series of closes
@@ -308,6 +376,12 @@
     if (state.runningAt && Date.now() - state.runningAt < 5 * 60 * 1000) {
       return { skipped: true, reason: 'already-running', state };
     }
+    // Pass 339: never overlap the auto-trainer (even when forced). It already defers to this run; without the
+    // reverse check the two could train the same model at once (the pass-168 race) and, with a Finnhub key,
+    // run two paced candle loops side by side at twice the per-minute budget.
+    if (typeof window !== 'undefined' && window._autoTrainerRunning) {
+      return { skipped: true, reason: 'auto-trainer-running', state };
+    }
     // Pass 199: defer when WorkerBridge is the authoritative brain. The
     // Cloudflare Worker's /brain/bootstrap endpoint already trained on 250-day
     // Yahoo Finance history server-side; running this browser-side bootstrap
@@ -346,9 +420,9 @@
       return { error: 'Model not available' };
     }
 
-    // Fetch SPY first for market context
-    const spyBars = await fetchHistorical(STOOQ_MAP.SPY);
-    await new Promise(r => setTimeout(r, FETCH_DELAY_MS));
+    // Pass 339: fetch every symbol's history up front (one Worker request on the zero-key path), then train.
+    const hist = await fetchAllHistory(SYMBOLS);
+    const spyBars = hist.bars.SPY || null;
 
     // Persist SPY bars for the Brain-vs-SPY benchmark module. Lightweight
     // (60 bars × {ts, close}) so it fits comfortably in localStorage.
@@ -361,10 +435,11 @@
 
     let symbolsFetched = 0, trainingExamples = 0, errors = [];
 
-    for (const [sym, stooqSym] of Object.entries(STOOQ_MAP)) {
+    for (const sym of SYMBOLS) {
       try {
-        const bars = (sym === 'SPY') ? spyBars : await fetchHistorical(stooqSym);
-        if (sym !== 'SPY') await new Promise(r => setTimeout(r, FETCH_DELAY_MS));
+        let bars = hist.bars[sym];
+        // Crypto trades every day: keep no more bars than SPY has, so the SPY-context offset stays >= 0.
+        if (bars && COINBASE_PAIRS[sym] && spyBars) bars = bars.slice(-spyBars.length);
         if (!bars || bars.length < 20) {
           errors.push({ sym, reason: 'insufficient-data' });
           continue;
@@ -463,7 +538,9 @@
     state.lastRunAt = Date.now();
     state.symbolsFetched = symbolsFetched;
     state.trainingExamples = trainingExamples;
-    state.lastRunResult = { symbolsFetched, trainingExamples, errorCount: errors.length };
+    const sourceCounts = {};
+    Object.values(hist.sources).forEach(src => { sourceCounts[src] = (sourceCounts[src] || 0) + 1; });
+    state.lastRunResult = { symbolsFetched, trainingExamples, errorCount: errors.length, sources: sourceCounts, requests: hist.requests };
     save(state);
     // Release the model-training lock so continuous-learner can resume saving.
     window._historicalTrainerRunning = false;
@@ -484,6 +561,8 @@
       trained: trainingExamples,
       symbolsFetched,
       trainingExamples,
+      sources: sourceCounts,
+      requests: hist.requests,
       errors
     };
   }
@@ -507,7 +586,8 @@
     }, 8000);
   }
 
-  window.HistoricalBootstrap = { run, status, reset, autoTrigger };
+  // fetchCandles/candleAccess are shared with auto-trainer.js (the one place it can get 60+ sessions of OHLCV).
+  window.HistoricalBootstrap = { run, status, reset, autoTrigger, fetchCandles: fetchFinnhubHistorical, candleAccess, SYMBOLS };
 
   if (typeof document !== 'undefined') {
     if (document.readyState === 'complete' || document.readyState === 'interactive') {

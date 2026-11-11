@@ -86,6 +86,12 @@
       return { ranNow: false, reason: 'HistoricalBootstrap not loaded', lastSuccessAt: state.lastSuccessAt, nextRefreshDue: nextRefreshDue(state) };
     }
     if (!opts.force) {
+      // Audit 2026-11-11 (pass 339): this calls HistoricalBootstrap.run({ force: true }), which also skips the
+      // pass-199 gate, so the "weekly" refresh re-trained the local model while the Worker was the authoritative
+      // brain (and, with no readable history source, retried every hour). Respect the gate here.
+      if (window.WorkerBridge && typeof window.WorkerBridge.isEnabled === 'function' && window.WorkerBridge.isEnabled()) {
+        return { ranNow: false, reason: 'worker-bridge-authoritative', lastSuccessAt: state.lastSuccessAt, nextRefreshDue: nextRefreshDue(state) };
+      }
       if (!dueNow(state)) {
         return { ranNow: false, reason: 'not-due', lastSuccessAt: state.lastSuccessAt, nextRefreshDue: nextRefreshDue(state), daysSince: state.lastSuccessAt ? (Date.now() - state.lastSuccessAt) / (24 * 60 * 60 * 1000) : null };
       }

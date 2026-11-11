@@ -10,7 +10,7 @@
 > 3. **Default action when Brandon says "continue":** find next thing to audit/build (the audit-log will hint), wire into `js/app.js` nav, add to `sitemap.xml`, lint, commit, push. No questions asked.
 > 4. **Do NOT** ls the project to figure out what exists — use `Glob '*.html'` and `git log`. The page count is current at the top of this doc, not a stale enumerated list.
 > 5. **Do NOT** propose a "fresh start" — everything is wired.
-> 6. **The ML brain stack:** see `js/model.js` (Adam logistic engine), `js/brain-loop.js` (background ticks), `js/continuous-learner.js` (capture/resolve/train every 30s), `js/historical-bootstrap.js` (250-day Stooq warmup × 47 symbols), `js/auto-trainer.js` (6h cadence), `js/multi-horizon.js` + `js/bootstrap-ensemble.js` + `js/knn-recall.js` + `js/unified-predictor.js` (composes everything).
+> 6. **The ML brain stack:** see `js/model.js` (Adam logistic engine), `js/brain-loop.js` (background ticks), `js/continuous-learner.js` (capture/resolve/train every 30s), `js/historical-bootstrap.js` (warmup on real daily bars × 48 symbols: the Worker's /brain/bars, Coinbase for crypto), `js/auto-trainer.js` (6h cadence; paid Finnhub candles only), `js/multi-horizon.js` + `js/bootstrap-ensemble.js` + `js/knn-recall.js` + `js/unified-predictor.js` (composes everything).
 >
 > Now continue reading.
 
@@ -69,7 +69,7 @@ Don't trust any list of named pages — it goes stale. Instead, the nav grouping
 All 111 JS modules attach to the global window. Most pages load this baseline:
 
 ```html
-<script src="js/data-provider.js"></script>  <!-- WS/CSV adapter; Stooq fallback default -->
+<script src="js/data-provider.js"></script>  <!-- provider WS adapter + Coinbase; zero-key equities come from js/worker-quotes.js -->
 <script src="js/ai-client.js"></script>      <!-- Claude API wrapper (browser-direct) -->
 <script src="js/app.js"></script>            <!-- nav, footer, ticker, clock, hub pill -->
 <script src="js/notify.js"></script>         <!-- browser push -->
@@ -85,8 +85,8 @@ All 111 JS modules attach to the global window. Most pages load this baseline:
 |---|---|---|
 | `model.js` | Logistic regression w/ Adam optimizer, 22-feature vectors, NaN-safe sigmoid | `bpleone_model_v1` |
 | `continuous-learner.js` | Captures predictions every 30s, resolves at 1d/5d/20d horizons, trains the brain | `bpleone_pred_journal_v1` |
-| `historical-bootstrap.js` | 250-day × 47-symbol warmup from Stooq on first visit | `bpleone_hist_bootstrap_v2` |
-| `auto-trainer.js` | 6h cadence: pulls latest Stooq bars, trains main + per-horizon models | `bpleone_auto_train_ts_v1` |
+| `historical-bootstrap.js` | Warmup on first visit: one /brain/bars request (~40 finished sessions × 46 equities) + Coinbase daily candles for BTC/ETH; ~250 days only with paid Finnhub candles (pass 339) | `bpleone_hist_bootstrap_v2` |
+| `auto-trainer.js` | 6h cadence: trains main + per-horizon models; needs 60+ sessions, so runs only with paid Finnhub candles (no request otherwise, pass 339) | `bpleone_auto_train_ts_v1` |
 | `weekly-refresh.js` | Every 3d: re-runs the historical bootstrap to ingest fresh history | `bpleone_weekly_refresh_v1` |
 | `multi-horizon.js` | 3 logistic models (short/mid/long) with per-regime accuracy weighting | `bpleone_model_h_*_v1` |
 | `bootstrap-ensemble.js` | K=5 logistic models trained via online bagging (P=0.6 inclusion) | `bpleone_bootstrap_model_k_*_v1` |
@@ -118,16 +118,16 @@ All 111 JS modules attach to the global window. Most pages load this baseline:
 
 ---
 
-## Data layer — Stooq + Coinbase
+## Data layer — worker feed + Coinbase
 
 **Default (no config required):**
-- `js/data-provider.js` boots a Stooq CSV poll for 47 symbols every 12s
+- `js/worker-quotes.js` prices the universe from the Worker (CDN snapshot first, then `/brain/quotes`): Yahoo, delayed ~15 min, real prevClose. (The browser Stooq poll was retired in pass 338: a browser can never read Stooq.)
 - `Coinbase` WS gives real-time BTC/ETH with exponential-backoff reconnect (pass-43)
 - `DataReliability` validates every price (30% jump cap, 5min equity / 2min crypto stale)
 - `SourcePreference` ranks fresh updates from multiple sources
 
 **With user API key (settings.html → Save):**
-- Finnhub / Polygon / Tradier / Alpaca via real WS — overrides Stooq, mock pauses
+- Finnhub / Polygon / Tradier / Alpaca via real WS — streams what the key covers; the pill says LIVE only when >= 90% of priced symbols stream (pass 338)
 
 Every `data-live="SYM:field"` element auto-updates via `Feed.subscribe`. All pages share the same `QUOTES` global.
 
@@ -235,8 +235,15 @@ The whole site was swept so nothing fabricated reads as live. Three moves:
 
 **Honesty rule going forward:** never show a fabricated number as live. If a feed is free-derivable (Yahoo/Stooq/Binance) wire it real; if it needs a paid feed, show '—' or the SAMPLE banner.
 
+**Pass 339 invariants (2026-11-11, browser trainers' history sources — do NOT regress; guarded by `node _test_history_sources.js` + honesty test section 6g):**
+- **No browser module fetches Stooq.** The bootstrap's history comes from, in order: Finnhub `/stock/candle` only for a key whose first call succeeded (401/403 parks it 7 days in `bpleone_fh_candle_v1`; 429 stops the run), the Worker's `/brain/bars` for every other equity in ONE request (~40 finished sessions; today's bar is dropped unless `fin=1`), and Coinbase daily candles for BTC/ETH (today's UTC candle dropped). A missing OHLC field drops the bar; it is never filled from another field.
+- **Every candle call on a page shares one 1.1 s pace** (`fetchFinnhubHistorical` in historical-bootstrap.js; auto-trainer.js calls it through `HistoricalBootstrap.fetchCandles`). Before this, a free key cost ~48 refused candle calls per run (96 in a minute when two trainers met), on the same 60-a-minute budget the quote feed uses.
+- **The auto-trainer needs 60+ sessions, so without candle access it makes no request** and returns `{ skipped: 'no-history-source' }`. Its trigger now fires when live.js lazy-loads it (the old DOMContentLoaded listener never fired), and its lock is released in a finally.
+- **The trainers never overlap:** the bootstrap skips while `_autoTrainerRunning` (even when forced) and the auto-trainer skips while `_historicalTrainerRunning`. **WeeklyRefresh respects the pass-199 Worker-authoritative gate** (it calls `run({ force: true })`, which bypasses the gate, so the check lives in `WeeklyRefresh.check`).
+- train-now.html reports what each step did: zero rows is a failure, a skip says why, never a blanket "completed".
+
 **Pass 338 invariants (2026-11-11, live-data honesty — do NOT regress; guarded by `node _test_data_provider.js` + honesty test section 6f):**
-- **The browser Stooq poll is retired.** A browser can never read Stooq (no CORS headers: "Failed to fetch" from options.bpleone.com, checked live), so `data-provider.js` fired ~30 failed requests a minute per tab and never landed a price; `stale-refresh.js` did the same per stale symbol. The zero-key data layer is the worker feed (`js/worker-quotes.js`, Yahoo via the Worker, delayed ~15 min, real prevClose) plus Coinbase for crypto. `stooqPollOnce` stays as an exported no-op. The browser trainers' Stooq daily history (`historical-bootstrap.js`, `auto-trainer.js`) is the same dead path, not yet retired (the Worker is the authoritative brain).
+- **The browser Stooq poll is retired.** A browser can never read Stooq (no CORS headers: "Failed to fetch" from options.bpleone.com, checked live), so `data-provider.js` fired ~30 failed requests a minute per tab and never landed a price; `stale-refresh.js` did the same per stale symbol. The zero-key data layer is the worker feed (`js/worker-quotes.js`, Yahoo via the Worker, delayed ~15 min, real prevClose) plus Coinbase for crypto. `stooqPollOnce` stays as an exported no-op. The browser trainers' Stooq daily history was the same dead path; pass 339 retired it.
 - **Finnhub REST is paced.** `bootstrapFinnhub` needs a key, skips symbols the worker already priced (`priceSource === 'worker-yahoo'` with a prevClose), waits 4 s for the worker, paces at 1.1 s a call, stops 10 min on a 429 and re-runs at most every 10 min. It used to fire ~75 calls in parallel per connect (111 of 149 came back 429 in Brandon's browser) and fired unauthenticated for keyless visitors who clicked Refresh.
 - **LIVE means streaming.** The nav pill counts `liveShare()` (real-time source within 2 min vs any real price; `demo-sim` is never real): LIVE only at >= 90% streaming, "LIVE n/m · PROVIDER" when partial, DELAYED otherwise. A page without `data-provider.js` has no live feed and never reports a saved provider as connected. Equities from the worker feed are always "delayed ~15 min", never "live" (home card, connect-live-data, brain-health, about, start-here).
 

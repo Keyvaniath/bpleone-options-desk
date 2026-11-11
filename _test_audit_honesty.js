@@ -128,6 +128,21 @@ t('no-data-provider fallback never reports a saved provider as connected', /retu
 });
 t('start-here does not promise Finnhub streaming to every visitor', !/stream from a real market feed \(Finnhub\)/.test(read('start-here.html')));
 
+// 6g. Pass 339 (2026-11-11): the browser trainers' history. Stooq's daily CSV is as CORS-dead as its quote poll,
+//     and Finnhub's /stock/candle refuses a free key. Behavior is pinned by _test_history_sources.js.
+const hbs = read('js/historical-bootstrap.js'), ats = read('js/auto-trainer.js'), wrs = read('js/weekly-refresh.js');
+['js/historical-bootstrap.js', 'js/auto-trainer.js', 'js/stale-refresh.js', 'js/weekly-refresh.js'].forEach(f =>
+  t(f + ' never fetches Stooq', !/fetch\([^)]*stooq|stooq\.com\/q\/d\/l|STOOQ_HOST \+/.test(read(f).replace(/^\s*\/\/.*$/gm, '').replace(/\/\*[\s\S]*?\*\//g, '')) ));
+t('bootstrap reads the Worker bars in one request and parks a refused candle endpoint', /\/brain\/bars\?days=40&syms=' \+ syms\.join/.test(hbs) && /res\.status === 401 \|\| res\.status === 403\) \{ parkCandle/.test(hbs) && /lastCandleAt \+ FH_PACE_MS - Date\.now\(\)/.test(hbs));
+t('bootstrap drops an unfinished bar and never fills a missing OHLC field', /etDay\(b\.ts\) === today && !b\.fin\) continue/.test(hbs) && !/open: j\.o\[i\] \|\| close/.test(hbs));
+t('auto-trainer makes no request without candle access', /!HB\.candleAccess\(\)\) \{/.test(ats) && /return \{ skipped: 'no-history-source' \}/.test(ats) && !/fetchStooqHistory/.test(ats));
+t('auto-trainer lock is released in a finally', /finally \{\s*\n\s*if \(claimed\) window\._autoTrainerRunning = false;/.test(ats));
+t('trainers never overlap', /window\._autoTrainerRunning\) \{\s*\n\s*return \{ skipped: true, reason: 'auto-trainer-running'/.test(hbs) && /_historicalTrainerRunning\) return \{ skipped: 'bootstrap-running' \}/.test(ats));
+t('weekly refresh respects the Worker-authoritative gate', /reason: 'worker-bridge-authoritative'/.test(wrs));
+['historical-bootstrap', 'train-now', 'brain-debug'].forEach(p =>
+  t(p + ' promises no Stooq history', !/bars from Stooq|Stooq bars|Stooq data|latest Stooq/.test(read(p + '.html'))));
+t('train-now never reports a blanket "completed" for the auto-trainer', !/completed · main model \+ multi-horizon ensembles updated/.test(read('train-now.html')) && /if \(!n\) s\.err\(/.test(read('train-now.html')));
+
 // 7. Worker sources parse strictly. `node --check` passed an ES-module file with an unescaped quote in a
 //    string (found 2026-11-03), so parse the bodies as scripts with imports/exports stripped.
 ['worker/src/index.js', 'worker/src/grading.js', 'worker/src/radar.js', 'worker/src/bars.js', 'worker/src/snapshots.js'].forEach(f => {

@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" media="print" onload="this.media='all'"><noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap"></noscript>
-<link rel="stylesheet" href="css/style.css?v=v233">
+<link rel="stylesheet" href="css/style.css?v=v234">
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
 <style>
@@ -44,11 +44,11 @@
   <div class="card mb-24" style="text-align:center;padding:32px;">
     <div style="font-size:14px;color:var(--text-secondary);margin-bottom:20px;max-width:640px;margin-left:auto;margin-right:auto;line-height:1.6;">
       Runs every training path the brain has in sequence:
-      <strong>Historical Bootstrap</strong> (250d × 47 syms) →
-      <strong>Auto-Trainer</strong> (latest Stooq bars, daily) →
+      <strong>Historical Bootstrap</strong> (real daily bars × 48 syms) →
+      <strong>Auto-Trainer</strong> (only with paid Finnhub daily candles) →
       <strong>Continuous-Learner resolve</strong> (settles any pending journal entries) →
       <strong>Calibrator + IsotonicCalibrator + RegimeCalibrator fits</strong>.
-      <br><br>Expect ~30 seconds total. Network use: ~50&nbsp;KB of CSV. Safe to re-run anytime.
+      <br><br>Without a key this is one request to the desk's Worker plus two to Coinbase, a few seconds in all. With paid Finnhub candle access, about a minute (paced to stay under 60 calls a minute). Safe to re-run anytime.
     </div>
     <button id="goBtn" class="bigbtn" onclick="runAll()">▶ TRAIN NOW</button>
     <div id="overall" style="margin-top:18px;font-family:var(--font-mono);font-size:13px;color:var(--text-muted);"></div>
@@ -59,8 +59,8 @@
   <div class="card">
     <div class="card-header"><div class="card-title">📚 What each step does</div></div>
     <div style="font-size:13px;color:var(--text-secondary);line-height:1.7;">
-      <strong>1. Historical Bootstrap</strong> — pulls 250 daily bars × 47 symbols from Stooq, reconstructs 22-feature vectors per (sym, day), labels by next-day direction, feeds the global model + every calibrator. Expected output: ~11,000 training rows.<br><br>
-      <strong>2. Auto-Trainer</strong> — pulls only the freshest Stooq bars and trains on rows we haven't seen yet (deduped by date). Picks up everything that happened since the bootstrap ran. Trains main model + per-horizon ensemble (short/mid/long).<br><br>
+      <strong>1. Historical Bootstrap</strong> — pulls real daily bars for 48 symbols (no key: the Worker's ~40 finished sessions per equity in one request, Coinbase for BTC/ETH; a Finnhub key with paid candle access: ~250 days), reconstructs 22-feature vectors per (sym, day), labels by 5-day direction (±1%), feeds the global model + every calibrator. Expected output: several hundred rows on the Worker bars, up to ~11,000 with paid candles. (A browser can never read Stooq, which sends no CORS headers; pass 339 retired it.)<br><br>
+      <strong>2. Auto-Trainer</strong> — needs 60+ sessions of OHLCV, which only Finnhub's paid daily candles provide in a browser; without them it makes no request and says so. With them it trains on rows not seen yet (deduped by date): main model + per-horizon ensemble (short/mid/long).<br><br>
       <strong>3. Continuous-Learner resolve</strong> — walks the captured-but-unresolved journal, resolves any entries whose horizon has elapsed, trains on the freshly-labeled pairs.<br><br>
       <strong>4. Calibrators</strong> — refits Platt (Calibrator), Isotonic PAV (IsotonicCalibrator), and per-regime calibration (RegimeCalibrator) on the populated (predicted, actual) pools so the next prediction is honest immediately.
     </div>
@@ -69,20 +69,20 @@
 
 <div id="site-footer"></div>
 
-<script src="js/data-provider.js?v=v233"></script>
-<script src="js/ai-client.js?v=v233"></script>
-<script src="js/app.js?v=v233"></script>
-<script src="js/notify.js?v=v233"></script>
-<script src="js/live.js?v=v233"></script>
-<script src="js/model.js?v=v233"></script>
-<script src="js/multi-horizon.js?v=v233"></script>
-<script src="js/calibrator.js?v=v233"></script>
-<script src="js/regime-calibrator.js?v=v233"></script>
-<script src="js/isotonic-calibrator.js?v=v233"></script>
-<script src="js/outlier-detector.js?v=v233"></script>
-<script src="js/historical-bootstrap.js?v=v233"></script>
-<script src="js/auto-trainer.js?v=v233"></script>
-<script src="js/continuous-learner.js?v=v233"></script>
+<script src="js/data-provider.js?v=v234"></script>
+<script src="js/ai-client.js?v=v234"></script>
+<script src="js/app.js?v=v234"></script>
+<script src="js/notify.js?v=v234"></script>
+<script src="js/live.js?v=v234"></script>
+<script src="js/model.js?v=v234"></script>
+<script src="js/multi-horizon.js?v=v234"></script>
+<script src="js/calibrator.js?v=v234"></script>
+<script src="js/regime-calibrator.js?v=v234"></script>
+<script src="js/isotonic-calibrator.js?v=v234"></script>
+<script src="js/outlier-detector.js?v=v234"></script>
+<script src="js/historical-bootstrap.js?v=v234"></script>
+<script src="js/auto-trainer.js?v=v234"></script>
+<script src="js/continuous-learner.js?v=v234"></script>
 <script>
 buildNav('train-now');
 
@@ -133,17 +133,21 @@ async function runAll() {
 
   // 1. Historical Bootstrap
   {
-    const s = step('1. Historical Bootstrap · 250d × 47 symbols');
+    const s = step('1. Historical Bootstrap · real daily bars × 48 symbols');
     try {
       if (!window.HistoricalBootstrap) { s.err('HistoricalBootstrap module not loaded'); }
       else {
         const r = await window.HistoricalBootstrap.run({ force: true });
         if (r && r.error) { s.err('error: ' + r.error); }
+        else if (r && r.skipped) { s.err('skipped: ' + r.reason); }
         else {
           const n = (r && (r.trainingExamples || r.trained)) || 0;
           const syms = (r && (r.symbolsFetched || r.fetched)) || 0;
           const errs = r && r.errors ? r.errors.length : 0;
-          s.ok(`trained ${n.toLocaleString()} rows across ${syms} symbols${errs ? ' · ' + errs + ' fetch errors' : ''}`);
+          const src = r && r.sources ? Object.keys(r.sources).map(k => k + ' ' + r.sources[k]).join(', ') : '';
+          // Pass 339: zero rows is a failure, never a green check (the pass-178 rule on historical-bootstrap.html).
+          if (!n) s.err(`no history arrived · 0 rows trained${errs ? ' · ' + errs + ' fetch errors' : ''}`);
+          else s.ok(`trained ${n.toLocaleString()} rows across ${syms} symbols${src ? ' · ' + src : ''}${errs ? ' · ' + errs + ' fetch errors' : ''}`);
         }
       }
     } catch (e) { s.err('threw: ' + (e && e.message || e)); }
@@ -152,14 +156,23 @@ async function runAll() {
 
   // 2. Auto-trainer (force-reset cooldown + run)
   {
-    const s = step('2. Auto-Trainer · latest Stooq bars');
+    const s = step('2. Auto-Trainer · paid Finnhub daily candles only');
     try {
       // Bypass the 6h gate
       try { localStorage.removeItem('bpleone_auto_train_ts_v1'); } catch (e) {}
       if (!window.AutoTrainer) { s.err('AutoTrainer module not loaded'); }
       else {
-        await window.AutoTrainer.runNow();
-        s.ok('completed · main model + multi-horizon ensembles updated');
+        const r = await window.AutoTrainer.runNow();
+        const why = {
+          'no-history-source': 'no history source in the browser (needs a Finnhub key with paid daily-candle access); the Worker trains the brain',
+          'worker-bridge-authoritative': 'the Worker is the authoritative brain on this browser',
+          'bootstrap-running': 'the bootstrap is still running',
+          'already-running': 'already running',
+          'model-not-loaded': 'model modules not loaded'
+        };
+        if (r && r.skipped) s.ok('skipped · ' + (why[r.skipped] || r.skipped));
+        else if (r && r.trained > 0) s.ok(`trained ${r.trained.toLocaleString()} new rows across ${r.symsFetched} symbols · main model + multi-horizon ensembles`);
+        else s.ok('no new rows (' + ((r && r.symsFetched) || 0) + ' symbols fetched, nothing unseen)');
       }
     } catch (e) { s.err('threw: ' + (e && e.message || e)); }
     paintKpis();
