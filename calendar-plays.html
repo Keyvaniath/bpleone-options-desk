@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" media="print" onload="this.media='all'"><noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap"></noscript>
-<link rel="stylesheet" href="css/style.css?v=v234">
+<link rel="stylesheet" href="css/style.css?v=v235">
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
 <style>
@@ -99,13 +99,14 @@
 </div>
 
 <div id="site-footer"></div>
-<script src="js/data-provider.js?v=v234"></script>
-<script src="js/ai-client.js?v=v234"></script>
-<script src="js/app.js?v=v234"></script>
-<script src="js/notify.js?v=v234"></script>
-<script src="js/live.js?v=v234"></script>
-<script src="js/ta.js?v=v234"></script>
-<script src="js/learn.js?v=v234"></script>
+<script src="js/data-provider.js?v=v235"></script>
+<script src="js/ai-client.js?v=v235"></script>
+<script src="js/app.js?v=v235"></script>
+<script src="js/notify.js?v=v235"></script>
+<script src="js/live.js?v=v235"></script>
+<script src="js/ta.js?v=v235"></script>
+<script src="js/learn.js?v=v235"></script>
+<script src="js/econ-feed.js?v=v235"></script>
 <script>buildNav('seasonality');</script>
 
 <script>
@@ -137,22 +138,25 @@
     } catch (e) { return []; }
   }
 
+  // Pass 340: Finnhub's /calendar/economic is a premium endpoint (a free key gets 403, checked 11/11), so these
+  // rows were always empty. The desk's calendar (EconFeed: the daily ForexFactory file, then the Worker) needs no
+  // key; it covers the current week only, so later days show earnings and seasonality without macro rows.
+  const escH = v => String(v == null ? '' : v).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   async function fetchMacro(from, to) {
-    const key = getFinnhubKey();
-    if (!key) return [];
     try {
-      const url = `https://finnhub.io/api/v1/calendar/economic?from=${from}&to=${to}&token=${key}`;
-      const res = await fetch(url); if (!res.ok) return [];
-      const j = await res.json();
-      return (j.economicCalendar || []).filter(e => e.country === 'US' && (e.impact === 'high' || e.impact === 'medium')).map(e => ({
-        type: /fed|fomc|powell/i.test(e.event || '') ? 'fed' : 'macro',
-        date: (e.time || '').slice(0, 10),
-        time: (e.time || '').slice(11, 16),
-        event: e.event,
-        impact: e.impact,
-        estimate: e.estimate,
-        prev: e.prev
-      }));
+      const feed = await EconFeed.load();
+      if (!feed.ok) return [];
+      return EconFeed.us(feed.events, { impacts: ['high', 'medium'] })
+        .filter(e => { const d = EconFeed.etDay(Date.parse(e.date)); return d >= from && d <= to; })
+        .map(e => ({
+          type: /fed|fomc|powell/i.test(e.title || '') ? 'fed' : 'macro',
+          date: EconFeed.etDay(Date.parse(e.date)),
+          time: EconFeed.etTime(Date.parse(e.date)),
+          event: escH(e.title),
+          impact: String(e.impact || '').toLowerCase(),
+          estimate: e.forecast ? escH(e.forecast) : null,
+          prev: e.previous ? escH(e.previous) : null
+        }));
     } catch (e) { return []; }
   }
 

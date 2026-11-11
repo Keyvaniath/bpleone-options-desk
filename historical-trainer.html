@@ -4,14 +4,13 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Historical Trainer — bpleone / trade</title>
-<meta name="description" content="Train the brain on REAL past market history pulled from Stooq. Real features, real outcomes. No synthetic seeds.">
+<meta name="description" content="Merged into Historical Bootstrap 11/11/2026: pre-train the browser model on real daily bars from the desk's Worker with the 5-day label.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" media="print" onload="this.media='all'"><noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap"></noscript>
-<link rel="stylesheet" href="css/style.css?v=v234">
+<link rel="stylesheet" href="css/style.css?v=v235">
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <style>
 .intro { background:linear-gradient(135deg,rgba(124,58,237,0.06),transparent);border:1px solid rgba(124,58,237,0.25);padding:24px;border-radius:14px;margin-bottom:24px; }
 .stat-tile { padding:18px;background:var(--bg-elevated);border-radius:10px;text-align:center; }
@@ -32,379 +31,34 @@
   <div class="page-header">
     <div>
       <div class="page-title">🎓 Historical Trainer</div>
-      <div class="page-subtitle">Train the brain on REAL past market data · pulled from Stooq · honest features and outcomes · <span id="market-clock">--</span></div>
+      <div class="page-subtitle">Merged into Historical Bootstrap 11/11/2026 · real daily bars from the desk's Worker · <span id="market-clock">--</span></div>
     </div>
   </div>
 
-  <div class="intro">
-    <div style="font-size:15px;color:var(--text-primary);line-height:1.7;">
-      <strong>What this does:</strong> Fetches multi-year daily OHLC bars for every symbol from Stooq (free, no key). For each historical day computes 22 features from REAL bars (RSI from real closes, ATR from real ranges, MA distances, etc.). Labels: did next-day return exceed 0.3×ATR%? Splits data 80/20 train/test (last 14 days = test). Trains 3 epochs of SGD. Reports HELD-OUT accuracy and compares to a majority-class baseline.
-      <br><br>
-      <strong>Why honest reporting matters:</strong> The original auto-seed generated 200 random rows and the model 'looked smart' from minute one — but its 'training loss' was meaningless because the labels were also random. This version reports test accuracy on a held-out period the model never saw. If accuracy doesn't beat baseline, there's no edge and the dashboard will say so.
-      <br><br>
-      <strong>Cost:</strong> 22 HTTP requests to Stooq. ~6 seconds. Run weekly to refresh on new bars.
-    </div>
+  <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:10px;padding:20px 22px;margin-bottom:18px;font-size:14px;line-height:1.7;color:var(--text-secondary);">
+    <div style="font-weight:700;color:var(--text-primary);margin-bottom:8px;">Why this page no longer runs</div>
+    It read Stooq's daily history, which a browser can never load (Stooq sends no CORS headers), so it never trained a row. Had it run, it would have replaced the browser model with one trained on a next-day label, while every other trainer and the Worker brain use the 5-day ±1% label (pass 218), and it ignored the setting that makes the Worker the authoritative brain.
   </div>
-
-  <div class="grid grid-4 mb-24">
-    <div class="stat-tile"><div class="lbl">Symbols available</div><div class="val" id="kSyms">22</div></div>
-    <div class="stat-tile"><div class="lbl">Bars fetched</div><div class="val" id="kBars" style="color:var(--accent);">0</div></div>
-    <div class="stat-tile"><div class="lbl">Training examples</div><div class="val" id="kRows" style="color:var(--green);">0</div></div>
-    <div class="stat-tile"><div class="lbl">Test accuracy</div><div class="val" id="kLoss">—</div></div>
-  </div>
-
-  <div class="card mb-24" style="text-align:center;padding:32px;">
-    <button class="btn btn-primary btn-big" id="goBtn">🚀 Train brain on 90 days of real history</button>
-    <div style="font-size:11px;color:var(--text-muted);margin-top:14px;">~5 seconds. Tags every row dataSource='live' so the live-only trainer accepts them.</div>
-  </div>
-
-  <div class="grid grid-2 mb-24">
-    <div class="card">
-      <div class="card-header"><div class="card-title">📊 Training loss curve</div></div>
-      <canvas id="lossChart" height="220"></canvas>
-    </div>
-    <div class="card">
-      <div class="card-header"><div class="card-title">📋 Log</div></div>
-      <div id="log" style="max-height:300px;overflow:auto;font-family:var(--font-mono);"></div>
-    </div>
-  </div>
-
-  <div class="card">
-    <div class="card-header"><div class="card-title">🔬 What the model learns</div></div>
-    <div style="font-size:13px;color:var(--text-secondary);line-height:1.7;">
-      For each historical day per symbol, we compute:
-      <br>• <strong>RSI(14)</strong> from real close history<br>
-      • <strong>ATR%</strong> from real daily ranges<br>
-      • <strong>Distance from 20/50 MAs</strong> from rolling averages<br>
-      • <strong>Price-relative-to-prevClose %</strong><br>
-      • <strong>Day range / body / wick</strong> as % of ATR<br>
-      <br>The label is the simplest possible signal: <strong>did the close 5 trading days later exceed today's close?</strong> Yes = label 1 (win), No = label 0 (loss). The brain learns which feature combinations predict that.
-      <br><br>
-      After training, the brain has real ground-truth knowledge of "what RSI + MA distance combinations preceded next-week winners over the last 90 days" — actual signal from actual market behavior.
+  <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:10px;padding:20px 22px;margin-bottom:18px;font-size:14px;line-height:1.7;color:var(--text-secondary);">
+    <div style="font-weight:700;color:var(--text-primary);margin-bottom:8px;">Use instead</div>
+    <strong>Historical Bootstrap</strong> pre-trains the browser model on real daily bars: one request to the desk's Worker (about 40 finished sessions for each of 46 equities) plus Coinbase daily candles for BTC/ETH, with the 5-day label. <strong>Train Now</strong> runs every training step and reports what each one did. The authoritative brain is the Worker's, graded on the Proof page.
+    <div class="flex gap-8" style="margin-top:14px;flex-wrap:wrap;">
+      <a class="btn btn-primary" href="historical-bootstrap.html">Historical Bootstrap →</a>
+      <a class="btn btn-ghost" href="train-now.html">Train Now →</a>
+      <a class="btn btn-ghost" href="proof.html">Proof →</a>
     </div>
   </div>
 </div>
 
 <div id="site-footer"></div>
 
-<script src="js/data-provider.js?v=v234"></script>
-<script src="js/ai-client.js?v=v234"></script>
-<script src="js/app.js?v=v234"></script>
-<script src="js/notify.js?v=v234"></script>
-<script src="js/live.js?v=v234"></script>
-<script src="js/model.js?v=v234"></script>
+<script src="js/data-provider.js?v=v235"></script>
+<script src="js/ai-client.js?v=v235"></script>
+<script src="js/app.js?v=v235"></script>
+<script src="js/notify.js?v=v235"></script>
+<script src="js/live.js?v=v235"></script>
 <script>
 buildNav('historical-trainer');
-
-const UNIVERSE = ['SPY','QQQ','IWM','DIA','AAPL','NVDA','TSLA','MSFT','META','AMZN','GOOGL','AMD','PLTR','SMCI','COIN','BABA','SHOP','CRM','UBER','XLE','GLD','SLV'];
-
-function log(msg, cls) {
-  const wrap = document.getElementById('log');
-  const row = document.createElement('div');
-  row.className = 'log-row ' + (cls || '');
-  row.textContent = '[' + new Date().toLocaleTimeString() + '] ' + msg;
-  wrap.insertBefore(row, wrap.firstChild);
-  while (wrap.children.length > 200) wrap.removeChild(wrap.lastChild);
-}
-
-async function fetchStooqHistory(sym) {
-  const stooqSym = sym.toLowerCase() + '.us';
-  const url = 'https://stooq.com/q/d/l/?s=' + stooqSym + '&i=d';
-  const res = await fetch(url, { method: 'GET', cache: 'no-cache' });
-  if (!res.ok) throw new Error('HTTP ' + res.status);
-  const text = await res.text();
-  return parseStooqHistory(text);
-}
-
-function parseStooqHistory(text) {
-  const lines = text.trim().split(/\r?\n/);
-  if (lines.length < 30) return [];
-  const header = lines[0].split(',').map(s => s.trim().toLowerCase());
-  const iDate = header.indexOf('date');
-  const iOpen = header.indexOf('open');
-  const iHigh = header.indexOf('high');
-  const iLow = header.indexOf('low');
-  const iClose = header.indexOf('close');
-  const iVol = header.indexOf('volume');
-  const bars = [];
-  for (let i = 1; i < lines.length; i++) {
-    const c = lines[i].split(',');
-    if (c.length < 5) continue;
-    bars.push({
-      date: c[iDate],
-      open: parseFloat(c[iOpen]),
-      high: parseFloat(c[iHigh]),
-      low: parseFloat(c[iLow]),
-      close: parseFloat(c[iClose]),
-      volume: parseInt(c[iVol]) || 0
-    });
-  }
-  return bars.filter(b => isFinite(b.close) && b.close > 0);
-}
-
-// --- Technical indicators on real bars ---
-function ema(arr, n) {
-  const out = [];
-  const k = 2 / (n + 1);
-  let e = arr[0];
-  for (let i = 0; i < arr.length; i++) {
-    e = i === 0 ? arr[0] : arr[i] * k + e * (1 - k);
-    out.push(e);
-  }
-  return out;
-}
-function sma(arr, n) {
-  const out = [];
-  for (let i = 0; i < arr.length; i++) {
-    if (i < n - 1) { out.push(null); continue; }
-    let s = 0;
-    for (let j = 0; j < n; j++) s += arr[i - j];
-    out.push(s / n);
-  }
-  return out;
-}
-function rsi14(closes) {
-  const out = [];
-  if (closes.length < 15) return closes.map(() => 50);
-  let gains = 0, losses = 0;
-  for (let i = 1; i <= 14; i++) {
-    const d = closes[i] - closes[i - 1];
-    if (d >= 0) gains += d; else losses += -d;
-  }
-  let avgG = gains / 14, avgL = losses / 14;
-  for (let i = 0; i < 15; i++) out.push(50);
-  for (let i = 15; i < closes.length; i++) {
-    const d = closes[i] - closes[i - 1];
-    const g = d >= 0 ? d : 0;
-    const l = d < 0 ? -d : 0;
-    avgG = (avgG * 13 + g) / 14;
-    avgL = (avgL * 13 + l) / 14;
-    const rs = avgL === 0 ? 100 : avgG / avgL;
-    out.push(100 - 100 / (1 + rs));
-  }
-  return out;
-}
-function atr14(bars) {
-  const out = [];
-  for (let i = 0; i < bars.length; i++) {
-    if (i === 0) { out.push(bars[0].high - bars[0].low); continue; }
-    const tr = Math.max(bars[i].high - bars[i].low, Math.abs(bars[i].high - bars[i - 1].close), Math.abs(bars[i].low - bars[i - 1].close));
-    if (i < 14) { out.push(tr); continue; }
-    out.push((out[i - 1] * 13 + tr) / 14);
-  }
-  return out;
-}
-
-function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
-
-function buildFeaturesForBar(sym, bars, i) {
-  // We use 22 features matching the model's FEATURES array.
-  const f = new Array(22).fill(0);
-  const closes = bars.map(b => b.close);
-  const rsi = rsi14(closes);
-  const atr = atr14(bars);
-  const ma20 = sma(closes, 20);
-  const ma50 = sma(closes, 50);
-  const close = bars[i].close;
-  const prev = i > 0 ? bars[i - 1].close : close;
-  const dayRange = bars[i].high - bars[i].low;
-  const chgPct = ((close - prev) / prev) * 100;
-  const atrPct = (atr[i] / close) * 100;
-  // 0: RSI/100
-  f[0] = clamp(rsi[i] / 100, 0, 1);
-  // 1: ATR%/10
-  f[1] = clamp(atrPct / 10, 0, 1);
-  // 2: relative volume vs 20-day avg
-  let avgVol = 0;
-  for (let k = Math.max(0, i - 19); k <= i; k++) avgVol += bars[k].volume;
-  avgVol = avgVol / Math.min(20, i + 1);
-  f[2] = clamp(avgVol > 0 ? bars[i].volume / avgVol / 4 : 0.5, 0, 1);
-  // 3: dist from 20MA, signed
-  f[3] = clamp(ma20[i] != null ? (close - ma20[i]) / ma20[i] * 10 : 0, -1, 1);
-  // 4: dist from 50MA
-  f[4] = clamp(ma50[i] != null ? (close - ma50[i]) / ma50[i] * 10 : 0, -1, 1);
-  // 5: today's % change vs prev close, normalized to ±5%
-  f[5] = clamp(chgPct / 5, -1, 1);
-  // 6-7: sector + beta — no per-symbol data here, leave neutral
-  f[6] = 0; f[7] = 0.5;
-  // 8: spread (no real spread in daily bars) — neutral
-  f[8] = 0.5;
-  // 9: IV — no source, neutral
-  f[9] = 0.5;
-  // 10: severity — based on |chgPct| as a stand-in
-  f[10] = clamp(Math.abs(chgPct) / 5, 0, 1);
-  // 11-15: setup type — derive from technicals
-  f[11] = chgPct > 0 ? 1 : 0;  // bullish today
-  f[12] = chgPct < 0 ? 1 : 0;  // bearish today
-  f[13] = (ma20[i] != null && close > ma20[i] && ma50[i] != null && ma20[i] > ma50[i]) ? 1 : 0;  // trend
-  f[14] = (rsi[i] < 30 || rsi[i] > 70) ? 1 : 0;  // reversal candidate
-  f[15] = (i >= 20 && close === Math.max(...closes.slice(i - 19, i + 1))) ? 1 : 0;  // 20-day high (breakout)
-  // 16-21: leave neutral (no real data source)
-  f[16] = 0.5; f[17] = 0.5; f[18] = 0.5; f[19] = 0.5;
-  // 20: hour-of-session: not meaningful for daily bars, default 0.5
-  f[20] = 0.5;
-  f[21] = 1;  // bias term
-  return f;
-}
-
-async function runTraining() {
-  if (!window.Model || !window.ModelStore) { log('Model not loaded yet — retry in 1s', 'fail'); return; }
-  const goBtn = document.getElementById('goBtn');
-  goBtn.disabled = true;
-  goBtn.textContent = '⏳ Fetching bars...';
-  let totalBars = 0;
-  let lossHistory = [];
-  // Fresh model — start from default weights so the historical data drives everything
-  const model = new Model();
-
-  // Collect ALL training examples first, split train/test, then train.
-  // This way we can report test accuracy honestly.
-  const allExamples = [];  // {features, label, sym, date, isTest}
-
-  // Collect from every symbol
-  for (let s = 0; s < UNIVERSE.length; s++) {
-    const sym = UNIVERSE[s];
-    try {
-      log('→ Fetching ' + sym + '.us from Stooq...');
-      const bars = await fetchStooqHistory(sym);
-      if (bars.length < 60) { log('   skip — only ' + bars.length + ' bars', 'warn'); continue; }
-      log('   ✓ ' + bars.length + ' bars (' + bars[bars.length - 1].date + ')', 'ok');
-      totalBars += bars.length;
-
-      // Walk forward. Need 50 bars context (for MA50), 3 forward bars (for label).
-      // Label: did close 1 day later exceed today by more than 0.3 × ATR%?
-      // This is a meaningful 1-day directional signal — not just random noise.
-      const startIdx = 50;
-      const endIdx = bars.length - 4;
-      // Reserve last 14 days as TEST set; rest is TRAIN.
-      const testCutoff = bars.length - 14;
-      let symRows = 0;
-      for (let i = startIdx; i < endIdx; i++) {
-        const features = buildFeaturesForBar(sym, bars, i);
-        const atr = (function() {
-          let s = 0;
-          for (let k = Math.max(0, i - 13); k <= i; k++) s += bars[k].high - bars[k].low;
-          return s / Math.min(14, i + 1);
-        })();
-        const atrPct = atr / bars[i].close;
-        const ret1d = (bars[i + 1].close - bars[i].close) / bars[i].close;
-        const label = ret1d > 0.3 * atrPct ? 1 : 0;
-        allExamples.push({
-          features,
-          label,
-          sym,
-          date: bars[i].date,
-          isTest: i >= testCutoff
-        });
-        symRows++;
-      }
-      log('   collected ' + symRows + ' examples for ' + sym, 'ok');
-      document.getElementById('kBars').textContent = totalBars.toLocaleString();
-      document.getElementById('kRows').textContent = allExamples.length.toLocaleString();
-      await new Promise(r => setTimeout(r, 250));
-    } catch (e) {
-      log('   ✗ ' + sym + ' failed: ' + e.message, 'fail');
-    }
-  }
-
-  if (allExamples.length < 100) {
-    log('Not enough examples to train. Aborting.', 'fail');
-    goBtn.disabled = false;
-    goBtn.textContent = '🚀 Train brain on real history';
-    return;
-  }
-
-  // Split
-  const trainSet = allExamples.filter(e => !e.isTest);
-  const testSet = allExamples.filter(e => e.isTest);
-  log('Train set: ' + trainSet.length + ' · Test set (last 14 days held out): ' + testSet.length, 'ok');
-
-  // Shuffle train set for SGD
-  for (let i = trainSet.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    const tmp = trainSet[i]; trainSet[i] = trainSet[j]; trainSet[j] = tmp;
-  }
-
-  // Train (3 epochs)
-  log('Training 3 epochs of SGD on ' + trainSet.length + ' examples...');
-  for (let epoch = 0; epoch < 3; epoch++) {
-    for (let i = 0; i < trainSet.length; i++) {
-      const { loss } = model.train(trainSet[i].features, trainSet[i].label);
-      lossHistory.push(loss);
-    }
-    log('   epoch ' + (epoch + 1) + ' complete · loss ' + lossHistory.slice(-100).reduce((a,b)=>a+b,0) / 100, 'ok');
-  }
-
-  // Save training rows (tagged for the live-only trainer)
-  trainSet.forEach(e => {
-    ModelStore.addTrainingRow(e.features, e.label, {
-      sym: e.sym,
-      setup: 'historical-' + e.date,
-      dataSource: 'live',
-      priceSource: 'stooq',
-      historical: true
-    });
-  });
-
-  // Evaluate on held-out test set
-  let testCorrect = 0;
-  let testPosCorrect = 0, testPosTotal = 0;
-  let testNegCorrect = 0, testNegTotal = 0;
-  testSet.forEach(e => {
-    const pred = model.predict(e.features);
-    const guess = pred.prob >= 0.5 ? 1 : 0;
-    if (guess === e.label) testCorrect++;
-    if (e.label === 1) { testPosTotal++; if (guess === 1) testPosCorrect++; }
-    else { testNegTotal++; if (guess === 0) testNegCorrect++; }
-  });
-  const testAcc = testCorrect / testSet.length;
-
-  // Baseline: always predict majority class
-  const trainPosRate = trainSet.filter(e => e.label === 1).length / trainSet.length;
-  const baseline = Math.max(trainPosRate, 1 - trainPosRate);
-
-  // Save the trained model
-  model.n_trained = trainSet.length * 3;
-  ModelStore.save(model);
-  ModelStore.saveVersion(model, 'historical-stooq-' + new Date().toISOString().slice(0,10));
-
-  const avgLoss = lossHistory.length > 0 ? lossHistory.slice(-500).reduce((a,b)=>a+b,0) / Math.min(500, lossHistory.length) : 0;
-  document.getElementById('kLoss').textContent = avgLoss.toFixed(3);
-
-  // Loss chart
-  const sampled = [];
-  const step = Math.max(1, Math.floor(lossHistory.length / 200));
-  for (let i = 0; i < lossHistory.length; i += step) {
-    const slice = lossHistory.slice(i, i + step);
-    sampled.push(slice.reduce((a,b)=>a+b,0) / slice.length);
-  }
-  if (window._lossChart) window._lossChart.destroy();
-  window._lossChart = new Chart(document.getElementById('lossChart'), {
-    type: 'line',
-    data: { labels: sampled.map((_, i) => i * step), datasets: [{ data: sampled, borderColor: '#00d4ff', backgroundColor: 'rgba(0,212,255,0.1)', tension:0.3, fill:true, pointRadius:0, borderWidth:2 }] },
-    options: { responsive:true, maintainAspectRatio:false, plugins:{legend:{display:false}}, scales:{x:{ticks:{color:'#888'},grid:{color:'#222'},title:{display:true,text:'Training step',color:'#888'}},y:{ticks:{color:'#888'},grid:{color:'#222'},title:{display:true,text:'Cross-entropy loss',color:'#888'}}} }
-  });
-
-  log('═══ TRAINING COMPLETE ═══', 'ok');
-  log('Total bars: ' + totalBars + ' · Train rows: ' + trainSet.length + ' · Test rows: ' + testSet.length, 'ok');
-  log('Final training loss: ' + avgLoss.toFixed(3), 'ok');
-  log('Held-out test accuracy: ' + (testAcc * 100).toFixed(1) + '% (vs majority-class baseline ' + (baseline * 100).toFixed(1) + '%)', testAcc > baseline ? 'ok' : 'warn');
-  log('Test breakdown: ' + testPosCorrect + '/' + testPosTotal + ' wins called right · ' + testNegCorrect + '/' + testNegTotal + ' losses called right', 'ok');
-  if (testAcc > baseline + 0.02) log('✓ Model beats baseline by ' + ((testAcc - baseline) * 100).toFixed(1) + 'pp — real signal detected.', 'ok');
-  else if (testAcc < baseline - 0.02) log('⚠ Model worse than baseline. Features may not be predictive for this label.', 'warn');
-  else log('≈ Model roughly matches baseline. No clear edge yet.', 'warn');
-  log('Model saved. Brain is now grounded in real historical price action.', 'ok');
-
-  // Update test-accuracy KPI
-  const kLoss = document.getElementById('kLoss');
-  kLoss.textContent = (testAcc * 100).toFixed(1) + '%';
-  kLoss.style.color = testAcc > baseline + 0.02 ? 'var(--green)' : testAcc < baseline - 0.02 ? 'var(--red)' : 'var(--yellow)';
-
-  goBtn.disabled = false;
-  goBtn.textContent = '✓ Done — train again';
-}
-
-document.getElementById('goBtn').addEventListener('click', runTraining);
 </script>
 </body>
 </html>

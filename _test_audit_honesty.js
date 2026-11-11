@@ -143,6 +143,33 @@ t('weekly refresh respects the Worker-authoritative gate', /reason: 'worker-brid
   t(p + ' promises no Stooq history', !/bars from Stooq|Stooq bars|Stooq data|latest Stooq/.test(read(p + '.html'))));
 t('train-now never reports a blanket "completed" for the auto-trainer', !/completed · main model \+ multi-horizon ensembles updated/.test(read('train-now.html')) && /if \(!n\) s\.err\(/.test(read('train-now.html')));
 
+// 6h. Pass 340 (2026-11-11): data sources a US browser can actually read. Checked from Brandon's machine:
+//     Binance futures + spot answer 451 ("restricted location"), Stooq sends no CORS headers, and a free Finnhub
+//     key gets 403 on /calendar/economic, /stock/social-sentiment and /news-sentiment. Behavior is pinned by
+//     _test_live_sources.js.
+const fs6h = require('fs');
+const allSrc = fs6h.readdirSync(__dirname).filter(f => f.endsWith('.html')).map(f => [f, read(f)])
+  .concat(fs6h.readdirSync(__dirname + '/js').filter(f => f.endsWith('.js')).map(f => ['js/' + f, read('js/' + f)]));
+const strip = t => t.replace(/<!--[\s\S]*?-->/g, '').replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+const hits = re => allSrc.filter(([f, t]) => re.test(strip(t))).map(([f]) => f);
+t('no page or module calls Binance (451 from the US)', hits(/fapi\.binance\.com|api\.binance\.com/).length === 0);
+t('no page or module fetches Stooq (no CORS)', hits(/https:\/\/stooq\.com\/q/).length === 0);
+t('no page calls Finnhub /calendar/economic (premium)', hits(/finnhub\.io\/api\/v1\/calendar\/economic/).length === 0);
+t('crypto pages read OKX via okx-perps.js and poll only when visible', ['crypto-derivatives', 'crypto-basis'].every(p => {
+  const h = read(p + '.html'); return /js\/okx-perps\.js\?v=/.test(h) && /if \(!document\.hidden\)/.test(h) && !/LIVE · BINANCE|live · Binance/.test(h); }));
+t('SPY Radar and the options board read the calendar through EconFeed', ['spy-radar', 'options-board'].every(p => {
+  const h = read(p + '.html'); return /EconFeed\.load\(\)/.test(h) && !/jget\('\/brain\/econ'\)/.test(h); }));
+t('SPY Radar never calls the week clear from a feed that does not cover it', !/calendar risk is behind you/.test(read('spy-radar.html')) && /This is not an all-clear/.test(read('spy-radar.html')));
+t('econ-feed refuses a calendar that does not cover today', /function covers\(cov, now\)/.test(read('js/econ-feed.js')) && /reason: tried\.length \? 'out-of-date' : 'unreachable'/.test(read('js/econ-feed.js')));
+t('sentiment parks a refused premium endpoint and never bursts a batch', /res\.status === 401 \|\| res\.status === 403\) park\('social-sentiment'\)/.test(read('js/sentiment.js')) && !/await Promise\.all\(symbols\.map/.test(read('js/sentiment.js')));
+t('the retired walk-forward page makes no edge claim', !/vMsg = '✓ REAL ALPHA'|runBacktest/.test(read('walk-forward-backtest.html')) && /href="proof\.html"/.test(read('walk-forward-backtest.html')));
+t('no invented bid/ask: computeDerived sets none, real ones carry bidAskTs', (() => {
+  const lv = read('js/live.js'); const cd = lv.slice(lv.indexOf('function computeDerived(q)'), lv.indexOf('function hasRealBidAsk'));
+  return cd.length > 0 && !/q\.(bid|ask) =/.test(cd) && /q\.bidAskTs = Date\.now\(\)/.test(read('js/data-provider.js')); })());
+t('the model spread feature uses only a real bid/ask', /spreadBps: \(isReal && q\.bid > 0 && q\.ask > 0 && q\.bidAskTs/.test(read('js/model.js')));
+t('ticker and data-live show "—" for a seed, never its price', /<span class="ticker-price">—<\/span>/.test(appjs) && /priceEl\.textContent = seed \? '—'/.test(appjs) && /ps === 'stale-seed' \|\| ps === 'mock'\) \{\s*\n\s*el\.textContent = '—';/.test(read('js/live.js')));
+t('the retired historical trainer cannot overwrite the model', !/ModelStore\.save\(/.test(read('historical-trainer.html')) && /href="historical-bootstrap\.html"/.test(read('historical-trainer.html')));
+
 // 7. Worker sources parse strictly. `node --check` passed an ES-module file with an unescaped quote in a
 //    string (found 2026-11-03), so parse the bodies as scripts with imports/exports stripped.
 ['worker/src/index.js', 'worker/src/grading.js', 'worker/src/radar.js', 'worker/src/bars.js', 'worker/src/snapshots.js'].forEach(f => {

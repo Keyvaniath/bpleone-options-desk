@@ -42,7 +42,7 @@
   function getLast() { try { return parseInt(localStorage.getItem(LAST_KEY) || '0'); } catch (e) { return 0; } }
   function setLast(ts) { try { localStorage.setItem(LAST_KEY, String(ts)); } catch (e) {} }
 
-  // Indicator math (same as historical-trainer)
+  // Indicator math (the retired historical-trainer page used the same)
   function sma(arr, n) {
     const out = [];
     for (let i = 0; i < arr.length; i++) {

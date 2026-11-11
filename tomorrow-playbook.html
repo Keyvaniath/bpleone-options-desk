@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" media="print" onload="this.media='all'"><noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap"></noscript>
-<link rel="stylesheet" href="css/style.css?v=v234">
+<link rel="stylesheet" href="css/style.css?v=v235">
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
 <style>
@@ -149,7 +149,7 @@
   <!-- Macro events tomorrow -->
   <div class="section">
     <h3>🏦 Macro calendar tomorrow (Fed / CPI / NFP / FOMC)</h3>
-    <div class="help">Key macro releases pulled from Finnhub economic calendar. High-impact events move SPY hard.</div>
+    <div class="help">Key US releases from the desk's economic calendar (ForexFactory, refreshed daily; no key needed). High-impact events move SPY hard.</div>
     <div id="macroList"></div>
   </div>
 
@@ -161,15 +161,16 @@
 </div>
 
 <div id="site-footer"></div>
-<script src="js/data-provider.js?v=v234"></script>
-<script src="js/ai-client.js?v=v234"></script>
-<script src="js/app.js?v=v234"></script>
-<script src="js/notify.js?v=v234"></script>
-<script src="js/live.js?v=v234"></script>
-<script src="js/ta.js?v=v234"></script>
-<script src="js/learn.js?v=v234"></script>
-<script src="js/discord.js?v=v234"></script>
-<script src="js/alerts-engine.js?v=v234"></script>
+<script src="js/data-provider.js?v=v235"></script>
+<script src="js/ai-client.js?v=v235"></script>
+<script src="js/app.js?v=v235"></script>
+<script src="js/notify.js?v=v235"></script>
+<script src="js/live.js?v=v235"></script>
+<script src="js/ta.js?v=v235"></script>
+<script src="js/learn.js?v=v235"></script>
+<script src="js/discord.js?v=v235"></script>
+<script src="js/alerts-engine.js?v=v235"></script>
+<script src="js/econ-feed.js?v=v235"></script>
 <script>buildNav('learn');</script>
 
 <script>
@@ -240,18 +241,22 @@
     } catch (e) { return []; }
   }
 
+  // Pass 340: Finnhub's /calendar/economic is premium (a free key gets 403, checked 11/11), so this list was
+  // always empty. The desk's calendar (EconFeed) needs no key and covers the current week; macroNote says when
+  // tomorrow falls outside it, so an empty list is never read as a quiet day.
+  let macroNote = '';
+  const escH = v => String(v == null ? '' : v).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   async function fetchMacroEvents(date) {
-    const key = getFinnhubKey();
-    if (!key) return [];
+    macroNote = '';
     try {
-      const url = `https://finnhub.io/api/v1/calendar/economic?from=${date}&to=${date}&token=${encodeURIComponent(key)}`;
-      const res = await fetch(url);
-      if (!res.ok) return [];
-      const j = await res.json();
-      const list = j.economicCalendar || [];
-      // Filter US high-impact events
-      return list.filter(e => e.country === 'US' && (e.impact === 'high' || e.impact === 'medium')).slice(0, 12);
-    } catch (e) { return []; }
+      const feed = await EconFeed.load();
+      if (!feed.ok) { macroNote = 'The economic calendar is ' + (feed.reason === 'out-of-date' ? 'out of date' : 'unreachable') + ', so tomorrow\'s releases are unknown here: check economic-events.'; return []; }
+      if (date > feed.coverage.last) { macroNote = 'Tomorrow (' + date + ') is past this week\'s calendar (it runs through ' + feed.coverage.last + '); next week\'s appears after the weekend refresh.'; return []; }
+      return EconFeed.us(feed.events, { impacts: ['high', 'medium'] })
+        .filter(e => EconFeed.etDay(Date.parse(e.date)) === date)
+        .slice(0, 12)
+        .map(e => ({ time: EconFeed.etTime(Date.parse(e.date)), impact: String(e.impact || '').toLowerCase(), event: escH(e.title), estimate: e.forecast ? escH(e.forecast) : null, prev: e.previous ? escH(e.previous) : null }));
+    } catch (e) { macroNote = 'The economic calendar could not be read.'; return []; }
   }
 
   function computeKelly(sym, setup, stopPct, account, riskPct) {
@@ -498,7 +503,7 @@ Write a brief covering: (1) what dominates tomorrow's session (catalyst-driven, 
         <div class="mono" style="text-align:right;color:var(--text-muted);">prev ${m.prev || '—'}</div>
         <div style="font-size:11px;color:var(--text-muted);">${m.country || ''}</div>
       </div>`;
-    }).join('') : '<div class="empty">No macro events tomorrow (or no Finnhub key).</div>';
+    }).join('') : '<div class="empty">' + (macroNote || 'No US high/medium-impact releases tomorrow in the desk calendar.') + '</div>';
 
     // Watchlist
     document.getElementById('watchlist').innerHTML = r.setups.slice(0, 8).map(s => `<div class="row" style="grid-template-columns:80px 90px 80px 90px 1fr 100px;">

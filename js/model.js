@@ -187,7 +187,8 @@ const FeatureExtractor = {
         sectorChg: 0,
         beta: 1.0,
         // Spread: bid-ask from real source if available; else neutral 5bps.
-        spreadBps: (isReal && q.bid && q.ask) ? Math.max(1, ((q.ask - q.bid) / q.last) * 10000) : 5,
+        // Pass 340: only a real bid/ask (bidAskTs) counts; the old invented last +/- $0.01 made this ~1 bp for every quote.
+        spreadBps: (isReal && q.bid > 0 && q.ask > 0 && q.bidAskTs && Date.now() - q.bidAskTs < 120000) ? Math.max(1, ((q.ask - q.bid) / q.last) * 10000) : 5,
         ivPct: 50,
         brainWeight: (learn.symbols && learn.symbols[sym] && learn.symbols[sym].w) || 1.0,
         regimeScore: state.regimeScore || 50,

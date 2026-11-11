@@ -25,16 +25,6 @@
   const POLL_INTERVAL_MS = 30 * 1000;
   const MIN_SECONDS_BETWEEN_REFRESH = 30;
 
-  // Reuse the same Stooq symbol mapping the historical bootstrap uses
-  const STOOQ_MAP = {
-    SPY: 'spy.us', QQQ: 'qqq.us', IWM: 'iwm.us', DIA: 'dia.us',
-    AAPL: 'aapl.us', MSFT: 'msft.us', GOOGL: 'googl.us', META: 'meta.us', AMZN: 'amzn.us',
-    NVDA: 'nvda.us', AMD: 'amd.us', SMCI: 'smci.us',
-    TSLA: 'tsla.us', PLTR: 'pltr.us', CRM: 'crm.us', SHOP: 'shop.us',
-    COIN: 'coin.us',
-    XLE: 'xle.us', GLD: 'gld.us', SLV: 'slv.us',
-    BABA: 'baba.us', UBER: 'uber.us'
-  };
   const COINBASE_PAIRS = { BTC: 'BTC-USD', ETH: 'ETH-USD' };
 
   function load() {
@@ -48,52 +38,6 @@
   function save(state) {
     if (typeof localStorage === 'undefined') return;
     try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) {}
-  }
-
-  async function _refreshStooq(symbol) {
-    const stooqSym = STOOQ_MAP[symbol];
-    if (!stooqSym) return false;
-    const url = 'https://stooq.com/q/l/?s=' + encodeURIComponent(stooqSym) + '&f=sd2t2ohlcv&h&e=csv';
-    try {
-      const ctrl = (typeof AbortController !== 'undefined') ? new AbortController() : null;
-      const timeoutId = ctrl ? setTimeout(() => ctrl.abort(), 5000) : null;
-      const res = await fetch(url, { method: 'GET', cache: 'no-cache', signal: ctrl ? ctrl.signal : undefined });
-      if (timeoutId) clearTimeout(timeoutId);
-      if (!res.ok) return false;
-      const text = await res.text();
-      const lines = text.trim().split(/\r?\n/);
-      if (lines.length < 2) return false;
-      const cols = lines[1].split(',');
-      const close = parseFloat(cols[6]);
-      if (!isFinite(close) || close <= 0) return false;
-      // Validate + apply
-      if (typeof window.DataReliability !== 'undefined') {
-        const v = window.DataReliability.validate(symbol, close, 'stooq-refresh', Date.now());
-        window.DataReliability.recordFetch('stooq-refresh', v.ok, 0);
-        if (!v.ok) return false;
-      }
-      if (typeof window.CrossSourceCheck !== 'undefined') {
-        try { window.CrossSourceCheck.record(symbol, 'stooq-refresh', close); } catch (e) {}
-      }
-      if (typeof window.QUOTES !== 'undefined' && window.QUOTES[symbol]) {
-        const q = window.QUOTES[symbol];
-        // Audit pass 14: preserve seed prevClose (yesterday's close).
-        q.last = close;
-        if (q.prevClose > 0) {
-          q.change = q.last - q.prevClose;
-          q.changePct = (q.change / q.prevClose) * 100;
-        }
-        q.source = 'stooq-refresh';
-        q.priceSource = 'stooq-refresh';
-        q.liveAt = Date.now();
-        q.ts = Date.now();
-        try { if (typeof window.Feed !== 'undefined') window.Feed.publish(symbol, q); } catch (e) {}
-      }
-      return true;
-    } catch (e) {
-      if (typeof window.DataReliability !== 'undefined') window.DataReliability.recordFetch('stooq-refresh', false, 0);
-      return false;
-    }
   }
 
   async function _refreshCoinbase(symbol) {
@@ -140,8 +84,8 @@
   }
 
   // Audit 2026-11-11: equities no longer refresh from Stooq. A browser can never read Stooq (no CORS headers:
-  // "Failed to fetch" from options.bpleone.com, checked live), so _refreshStooq failed every attempt; had it
-  // succeeded it would have computed change% against the stale seed prevClose. Stale equities now trigger ONE
+  // "Failed to fetch" from options.bpleone.com, checked live), so the old _refreshStooq failed every attempt
+  // (removed in pass 340); had it succeeded it would have computed change% against the stale seed prevClose. Stale equities now trigger ONE
   // worker-feed poll (js/worker-quotes.js prices the whole universe with a real prevClose in one request).
   let _lastWorkerPoll = 0;
   async function _refreshEquitiesViaWorker(symbols) {

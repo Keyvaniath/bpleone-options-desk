@@ -126,11 +126,13 @@ function buildTicker() {
   const html = [...list, ...list].map(t => {
     // Seed = a symbol no live feed has touched. Rendering a confident change% for
     // it fabricates a market move that never happened (e.g. the VIX seed showing
-    // "-2.88%"). Show the symbol but suppress the fake % until a real tick lands.
+    // "-2.88%"). Pass 340: the seed PRICE is not a last-known value either: live.js
+    // seeds are months-old hardcoded numbers (BTC $96,420 and SPY $619.40 while the
+    // market was at ~$74,600 and ~$760 on 11/11), so a seed shows "—" until a real tick lands.
     if (t.seed) {
-      return '<span class="ticker-item" data-ticker-sym="' + t.sym + '" style="opacity:0.4;" title="No live feed yet - last-known value, not a current quote">'
+      return '<span class="ticker-item" data-ticker-sym="' + t.sym + '" style="opacity:0.4;" title="Waiting for the first real quote">'
         + '<span class="ticker-symbol">' + t.sym + '</span>'
-        + '<span class="ticker-price">$' + t.px.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2}) + '</span>'
+        + '<span class="ticker-price">—</span>'
         + '<span class="ticker-change" style="color:var(--text-muted);">&middot;</span>'
         + '</span>';
     }
@@ -166,7 +168,7 @@ function updateTickerItem(sym, q) {
   document.querySelectorAll('[data-ticker-sym="' + sym + '"]').forEach(el => {
     const priceEl = el.querySelector('.ticker-price');
     const chgEl = el.querySelector('.ticker-change');
-    if (priceEl) priceEl.textContent = '$' + q.last.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    if (priceEl) priceEl.textContent = seed ? '—' : '$' + q.last.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
     if (chgEl) {
       if (seed) {
         // still no real feed for this symbol - keep the honest muted marker, never

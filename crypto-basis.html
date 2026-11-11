@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" media="print" onload="this.media='all'"><noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap"></noscript>
-<link rel="stylesheet" href="css/style.css?v=v234">
+<link rel="stylesheet" href="css/style.css?v=v235">
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
@@ -68,13 +68,13 @@
 
   <!-- Funding rate history -->
   <div class="chart-card">
-    <div style="font-weight:700;font-size:14px;margin-bottom:8px;">📊 Funding rate history (last 30 days · 8h periods)</div>
+    <div style="font-weight:700;font-size:14px;margin-bottom:8px;">📊 Funding rate history (last 30 days · OKX settlements)</div>
     <div style="height:280px;"><canvas id="fundingChart"></canvas></div>
   </div>
 
   <!-- Basis term structure -->
   <div class="chart-card">
-    <div style="font-weight:700;font-size:14px;margin-bottom:8px;">📈 Annualized funding APY by asset (Binance perps · real)</div>
+    <div style="font-weight:700;font-size:14px;margin-bottom:8px;">📈 Annualized funding APY by asset (OKX perps · real)</div>
     <div style="height:240px;"><canvas id="basisChart"></canvas></div>
   </div>
 
@@ -93,39 +93,39 @@
 </div>
 
 <div id="site-footer"></div>
-<script src="js/data-provider.js?v=v234"></script>
-<script src="js/ai-client.js?v=v234"></script>
-<script src="js/app.js?v=v234"></script>
-<script src="js/notify.js?v=v234"></script>
-<script src="js/live.js?v=v234"></script>
-<script src="js/ta.js?v=v234"></script>
-<script src="js/learn.js?v=v234"></script>
+<script src="js/data-provider.js?v=v235"></script>
+<script src="js/ai-client.js?v=v235"></script>
+<script src="js/app.js?v=v235"></script>
+<script src="js/notify.js?v=v235"></script>
+<script src="js/live.js?v=v235"></script>
+<script src="js/ta.js?v=v235"></script>
+<script src="js/learn.js?v=v235"></script>
+<script src="js/okx-perps.js?v=v235"></script>
 <script>buildNav('crypto');</script>
 
 <script>
 (function () {
-  // 100% real Binance USDS-M futures public API (no key, CORS-enabled). No
-  // synthetic fallback - if Binance is unreachable the page shows '-' honestly.
-  const FAPI = 'https://fapi.binance.com';
+  // Audit 2026-11-11 (pass 340): was Binance USDS-M futures, which answers HTTP 451 to every US visitor
+  // ("restricted location"), so the page always said "unreachable". Real OKX public data now (js/okx-perps.js:
+  // no key, CORS-enabled, reachable from the US). No synthetic fallback: if OKX is unreachable the page shows '-'.
   const BASKET = ['BTC', 'ETH', 'SOL', 'DOGE', 'XRP'];
-  let fundingChart = null, basisChart = null;
+  const PERIODS_30D = 90;   // 30 days of 8 h settlements (OKX's majors settle every 8 h)
+  let fundingChart = null, basisChart = null, intervalH = 8;
 
-  async function bj(path) {
-    try { const r = await fetch(FAPI + path, { cache: 'no-store' }); if (!r.ok) return null; return await r.json(); } catch (e) { return null; }
-  }
-  async function fetchFundingHistory(symbol) {
-    const data = await bj('/fapi/v1/fundingRate?symbol=' + symbol + '&limit=90');
+  async function fetchFundingHistory(asset) {
+    const data = await OkxPerps.fundingHistory(asset, PERIODS_30D);
     if (!Array.isArray(data)) return null;
-    return data.map(d => ({ ts: +d.fundingTime, rate: parseFloat(d.fundingRate) * 100 }));
+    return data.map(d => ({ ts: d.ts, rate: d.rate * 100 }));   // % per period
   }
   async function fetchBasketAPY() {
     return Promise.all(BASKET.map(async a => {
-      const pi = await bj('/fapi/v1/premiumIndex?symbol=' + a + 'USDT');
-      const f = (pi && pi.lastFundingRate != null && pi.lastFundingRate !== '') ? parseFloat(pi.lastFundingRate) : null;
-      return { asset: a, apy: f == null ? null : f * 3 * 365 * 100 };
+      const d = await OkxPerps.snapshot(a);
+      if (a === 'BTC' && d.intervalH) intervalH = d.intervalH;
+      return { asset: a, apy: OkxPerps.annualizedPct(d.funding, d.intervalH) };
     }));
   }
-  function annualizedFromFunding(rate8h) { return rate8h * 3 * 365; } // rate8h already in %
+  // Settled rate (% per period) to % a year, at the contract's own funding interval.
+  function annualizedFromFunding(ratePct) { return ratePct * (365 * 24 / intervalH); }
 
   function readout(btcFundLast, ethFundLast, btcBasisAnnualized) {
     if (btcFundLast < -0.05) return '🎯 Capitulation · contrarian long';
@@ -135,22 +135,24 @@
     return 'Neutral positioning';
   }
 
+  let lastLoad = 0;
   async function refresh() {
+    lastLoad = Date.now();
     const btn = document.getElementById('btnRefresh');
     btn.disabled = true; btn.textContent = 'Fetching…';
-    document.getElementById('status').textContent = 'pulling Binance funding rates…';
+    document.getElementById('status').textContent = 'pulling OKX funding rates…';
     const [btcFund, ethFund, basket] = await Promise.all([
-      fetchFundingHistory('BTCUSDT'),
-      fetchFundingHistory('ETHUSDT'),
+      fetchFundingHistory('BTC'),
+      fetchFundingHistory('ETH'),
       fetchBasketAPY()
     ]);
     btn.disabled = false; btn.textContent = '🔄 Refresh data';
     if (!btcFund || !btcFund.length) {
-      document.getElementById('status').textContent = 'Binance API unreachable from this network — no synthetic data shown.';
+      document.getElementById('status').textContent = 'OKX API unreachable from this network — no synthetic data shown.';
       ['kBtcFunding', 'kBtcBasis', 'kEthFunding', 'kEthBasis', 'kRead'].forEach(id => { document.getElementById(id).textContent = '—'; });
       return;
     }
-    document.getElementById('status').textContent = 'live · Binance';
+    document.getElementById('status').textContent = 'live · OKX · last settled funding (' + intervalH + 'h periods)';
     render(btcFund, ethFund, basket);
   }
 
@@ -188,7 +190,7 @@
       options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { labels: { color: '#999', font: { size: 10 } } } }, scales: { x: { ticks: { color: '#666', font: { size: 9 }, maxTicksLimit: 10 }, grid: { display: false } }, y: { ticks: { color: '#999', font: { family: 'JetBrains Mono', size: 10 }, callback: v => v.toFixed(3) + '%' }, grid: { color: 'rgba(255,255,255,0.05)' } } } }
     });
 
-    // Annualized funding APY by asset (REAL, Binance perps) - replaces the old
+    // Annualized funding APY by asset (REAL, OKX perps, current period) - replaces the old
     // synthetic "quarterly futures" curve which just scaled funding by 1.05/1.15/1.30.
     const valid = (basket || []).filter(b => b.apy != null);
     const ctx2 = document.getElementById('basisChart').getContext('2d');
@@ -226,7 +228,9 @@
 
   document.getElementById('btnRefresh').addEventListener('click', refresh);
   refresh();
-  setInterval(refresh, 120000);
+  // Visibility-gated (pass 299): a background tab does not poll; it catches up when shown.
+  setInterval(() => { if (!document.hidden) refresh(); }, 120000);
+  document.addEventListener('visibilitychange', () => { if (!document.hidden && Date.now() - lastLoad > 30000) refresh(); });
 })();
 </script>
 </body>

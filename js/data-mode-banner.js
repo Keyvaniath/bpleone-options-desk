@@ -97,8 +97,8 @@ const DataModeBanner = (function () {
       return { mode: 'mock', color: 'var(--yellow)', bg: 'rgba(245,158,11,0.10)', border: 'rgba(245,158,11,0.35)', icon: '⚠', text: 'SYNTHETIC earnings data — no Finnhub key. <a href="settings.html" style="color:var(--accent);text-decoration:underline;">Configure for real earnings →</a>' };
     }
     if (needs === 'crypto-funding') {
-      // Binance API is public — no key needed
-      return { mode: 'live', color: 'var(--green)', bg: 'rgba(16,185,129,0.08)', border: 'rgba(16,185,129,0.3)', icon: '✓', text: 'LIVE · Pulling funding rates directly from Binance public API (no key required). Synthetic fallback only if Binance blocked by network.' };
+      // OKX public API, no key (pass 340: Binance answers 451 to US visitors). No page sets this need today.
+      return { mode: 'live', color: 'var(--green)', bg: 'rgba(16,185,129,0.08)', border: 'rgba(16,185,129,0.3)', icon: '✓', text: 'LIVE · Funding rates from the OKX public API (no key required). No synthetic fallback: dashes if OKX is unreachable.' };
     }
     return null;
   }

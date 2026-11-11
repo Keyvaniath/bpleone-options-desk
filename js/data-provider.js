@@ -173,6 +173,7 @@ const DataProvider = (function() {
     const q = QUOTES[sym];
     if (bid) q.bid = +bid;
     if (ask) q.ask = +ask;
+    if (bid > 0 && ask > 0) q.bidAskTs = Date.now();   // pass 340: a real quote message, not an invented spread
     if (bid && ask) {
       const mid = (bid + ask) / 2;
       if (mid > 0) {
@@ -849,9 +850,7 @@ const DataProvider = (function() {
           q.last = r.close;
           q.change = q.last - q.prevClose;
           q.changePct = q.prevClose > 0 ? (q.change / q.prevClose) * 100 : 0;
-          q.bid = +(q.last - 0.01).toFixed(2);
-          q.ask = +(q.last + 0.01).toFixed(2);
-          q.volume = r.volume || q.volume;
+          q.volume = r.volume || q.volume;   // (pass 340: no invented bid/ask; this retired path never runs)
           q.dayHigh = r.high;
           q.dayLow = r.low;
           // Mark this quote as REAL — UI and TOTD scoring trust this flag.
@@ -951,6 +950,7 @@ const DataProvider = (function() {
           if (isFinite(open24) && open24 > 0) { q.prevClose = open24; q.changeBasis = '24h'; }
           q.bid = parseFloat(m.best_bid) || q.bid;
           q.ask = parseFloat(m.best_ask) || q.ask;
+          if (parseFloat(m.best_bid) > 0 && parseFloat(m.best_ask) > 0) q.bidAskTs = Date.now();
           q.volume = parseFloat(m.volume_24h) || q.volume;
           q.dayHigh = parseFloat(m.high_24h) || q.dayHigh;
           q.dayLow = parseFloat(m.low_24h) || q.dayLow;

@@ -139,14 +139,19 @@ const QUOTES = {
 // window.QUOTES gets undefined.
 if (typeof window !== 'undefined') { window.QUOTES = QUOTES; }
 
+// Pass 340: no invented bid/ask. This used to set bid = last - $0.01 and ask = last + $0.01 on every quote,
+// which (a) overwrote the REAL bid/ask applyQuote had just stored, (b) stuck to Worker-fed quotes (the Worker
+// has no bid/ask) and (c) fed model.js a fabricated ~1 bp spread feature. bid/ask now exist only when a real
+// quote message set them, stamped with bidAskTs.
 function computeDerived(q) {
   q.change = q.last - q.prevClose;
   q.changePct = (q.change / q.prevClose) * 100;
-  q.bid = +(q.last - 0.01).toFixed(2);
-  q.ask = +(q.last + 0.01).toFixed(2);
   q.ts = Date.now();
   return q;
 }
+// A real bid/ask from the last 2 minutes (a Finnhub/Polygon quote message or Coinbase best bid/ask).
+function hasRealBidAsk(q) { return !!(q && q.bid > 0 && q.ask > 0 && q.bidAskTs && Date.now() - q.bidAskTs < 120000); }
+if (typeof window !== 'undefined') window.hasRealBidAsk = hasRealBidAsk;
 // CRITICAL: every quote starts as stale-seed (not real). priceSource flips to
 // 'stooq' or 'finnhub' / etc. once the live provider returns a real value for
 // that symbol. UI code that displays prices MUST check this — never render a
@@ -226,6 +231,16 @@ function bindLive() {
     const [sym, field] = el.dataset.live.split(':');
     const fmt = el.dataset.fmt || (field === 'changePct' ? 'pct' : field === 'change' ? 'signed' : 'num');
     const update = q => {
+      // Pass 340: a seed is not a quote (live.js seeds are months-old hardcoded numbers), so a bound field
+      // shows "—" until a real feed has priced the symbol, the same rule as the nav ticker.
+      const ps = q && q.priceSource;
+      if (!q || !ps || ps === 'stale-seed' || ps === 'mock') {
+        el.textContent = '—';
+        el.classList.remove('green-text', 'red-text');
+        delete el.dataset.prev;
+        return;
+      }
+      if ((field === 'bid' || field === 'ask') && !hasRealBidAsk(q)) { el.textContent = '—'; delete el.dataset.prev; return; }
       let val;
       switch (field) {
         case 'last': val = q.last; break;

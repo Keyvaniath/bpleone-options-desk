@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" media="print" onload="this.media='all'"><noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap"></noscript>
-<link rel="stylesheet" href="css/style.css?v=v234">
+<link rel="stylesheet" href="css/style.css?v=v235">
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
 <style>
@@ -108,11 +108,12 @@
 
 <div id="site-footer"></div>
 
-<script src="js/data-provider.js?v=v234"></script>
-<script src="js/ai-client.js?v=v234"></script>
-<script src="js/app.js?v=v234"></script>
-<script src="js/notify.js?v=v234"></script>
-<script src="js/live.js?v=v234"></script>
+<script src="js/data-provider.js?v=v235"></script>
+<script src="js/ai-client.js?v=v235"></script>
+<script src="js/app.js?v=v235"></script>
+<script src="js/notify.js?v=v235"></script>
+<script src="js/live.js?v=v235"></script>
+<script src="js/econ-feed.js?v=v235"></script>
 <script>
 buildNav('spy-radar');
 (function () {
@@ -129,7 +130,7 @@ buildNav('spy-radar');
       jget('/brain/bars?syms=SPY&days=40'),
       jget('/brain/options-chain?sym=SPY'),
       jget('/brain/signals'),
-      jget('/brain/econ')
+      EconFeed.load()
     ]);
 
     const q = quotes && quotes.quotes && quotes.quotes.SPY;
@@ -226,16 +227,23 @@ buildNav('spy-radar');
     }
 
     // ---- Week's remaining US high-impact events.
-    if (econ && econ.ok && Array.isArray(econ.events)) {
+    // Pass 340: from EconFeed (the daily calendar file first, then the Worker), and only when the feed covers
+    // today. The Worker's copy sat on the week of 10/18 into November, so this card said "the calendar risk is
+    // behind you" during a PPI week.
+    if (econ && econ.ok) {
       const now = Date.now();
-      const evs = econ.events.filter(e => e.country === 'USD' && /high/i.test(e.impact) && new Date(e.date).getTime() > now - 3600000);
-      $('rEvMeta').textContent = (econ.stale ? 'last-good copy · ' : '') + evs.length + ' remaining';
+      const evs = EconFeed.us(econ.events, { impacts: ['high'], fromTs: now - 3600000 });
+      $('rEvMeta').textContent = (econ.lastGood ? 'last-good copy · ' : '') + evs.length + ' remaining · through ' + econ.coverage.last;
       $('rEvBody').innerHTML = evs.length ? evs.slice(0, 10).map(e => {
         const d = new Date(e.date);
         return '<div class="ev-row"><div>' + d.toLocaleString('en-US', { timeZone: 'America/New_York', weekday: 'short', month: 'numeric', day: 'numeric', hour: 'numeric', minute: '2-digit' }) + '</div><div style="font-family:Inter;">' + esc(e.title) + '</div><div style="color:var(--text-muted);">fcst ' + esc(e.forecast || '—') + '</div><div style="color:var(--text-muted);">prev ' + esc(e.previous || '—') + '</div></div>';
-      }).join('') : '<div style="padding:16px;text-align:center;color:var(--text-muted);">No US high-impact events left this week — the calendar risk is behind you.</div>';
+      }).join('') : '<div style="padding:16px;text-align:center;color:var(--text-muted);">No US high-impact events left in this week\'s calendar (it runs through ' + esc(econ.coverage.last) + ').</div>';
     } else {
-      $('rEvBody').innerHTML = '<div style="padding:16px;text-align:center;color:var(--text-muted);">Calendar feed unreachable — check <a href="economic-events.html">economic events</a>.</div>';
+      const cov = econ && econ.tried && econ.tried.length ? econ.tried.map(t => t.coverage ? t.coverage.first + ' to ' + t.coverage.last : '?').join(', ') : '';
+      $('rEvMeta').textContent = econ && econ.reason === 'out-of-date' ? 'calendar out of date' : 'calendar unreachable';
+      $('rEvBody').innerHTML = '<div style="padding:16px;text-align:center;color:var(--text-muted);">' + (econ && econ.reason === 'out-of-date'
+        ? 'The calendar feeds on hand do not cover this week (' + esc(cov) + '), so no events are listed. This is not an all-clear: check <a href="economic-events.html">economic events</a>.'
+        : 'Calendar feed unreachable — check <a href="economic-events.html">economic events</a>.') + '</div>';
     }
   }
 

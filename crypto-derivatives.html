@@ -4,11 +4,11 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Crypto Derivatives — bpleone / trade</title>
-<meta name="description" content="Live Binance perp funding rates, perp basis, open interest, 24h volume and funding history for BTC/ETH and majors.">
+<meta name="description" content="Live OKX perp funding rates, perp basis, open interest, 24h volume and funding history for BTC/ETH and majors.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" media="print" onload="this.media='all'"><noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap"></noscript>
-<link rel="stylesheet" href="css/style.css?v=v234">
+<link rel="stylesheet" href="css/style.css?v=v235">
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
@@ -28,7 +28,7 @@
   <div class="page-header">
     <div>
       <div class="page-title">⚡ Crypto Derivatives</div>
-      <div class="page-subtitle">Binance perps · live funding · basis · OI · 24h vol · <span id="market-clock">--</span></div>
+      <div class="page-subtitle">OKX perps · live funding · basis · OI · 24h vol · <span id="market-clock">--</span></div>
     </div>
     <div class="flex gap-8">
       <button class="btn btn-secondary" id="refreshBtn">🔄</button>
@@ -49,7 +49,7 @@
 
   <!-- FUNDING RATES TABLE -->
   <div class="card mb-24" style="padding:0;">
-    <div class="card-header" style="padding:14px 16px;"><div class="card-title">💸 Binance Perp Funding by Asset (8h · annualized)</div><div class="badge" style="background:rgba(16,185,129,0.12);color:var(--green);">LIVE · BINANCE</div></div>
+    <div class="card-header" style="padding:14px 16px;"><div class="card-title">💸 OKX Perp Funding by Asset (current period · annualized)</div><div class="badge" style="background:rgba(16,185,129,0.12);color:var(--green);">LIVE · OKX</div></div>
     <div class="func-row" style="background:var(--bg-elevated);font-size:9px;color:var(--text-muted);font-weight:800;letter-spacing:0.5px;">
       <div>EXCH</div><div>ASSET</div><div>FUNDING</div><div>ANNUALIZED</div><div>OI ($M)</div><div>VOL (24h)</div><div>REGIME</div>
     </div>
@@ -59,14 +59,14 @@
   <!-- 24h LIQUIDATIONS + TERM STRUCTURE -->
   <div class="grid grid-12">
     <div class="card col-6">
-      <div class="card-header"><div class="card-title">💸 BTC Funding Rate — last 30 periods (real)</div></div>
+      <div class="card-header"><div class="card-title">💸 BTC Funding Rate — last 30 periods (real, OKX)</div></div>
       <canvas id="liqChart" height="220"></canvas>
       <div class="mono mt-12" style="font-size:11px;color:var(--text-muted);">
-        Positive = longs pay shorts (crowded long); negative = shorts pay longs. Live Binance 8h funding. (Liquidation feeds need a paid aggregator.)
+        Positive = longs pay shorts (crowded long); negative = shorts pay longs. Settled OKX funding, one point per funding period. (Liquidation feeds need a paid aggregator.)
       </div>
     </div>
     <div class="card col-6">
-      <div class="card-header"><div class="card-title">📈 ETH Funding Rate — last 30 periods (real)</div></div>
+      <div class="card-header"><div class="card-title">📈 ETH Funding Rate — last 30 periods (real, OKX)</div></div>
       <canvas id="termChart" height="220"></canvas>
       <div class="mono mt-12" style="font-size:11px;color:var(--text-muted);" id="termBody">--</div>
     </div>
@@ -94,21 +94,21 @@
 
 <div id="site-footer"></div>
 
-<script src="js/data-provider.js?v=v234"></script>
-<script src="js/ai-client.js?v=v234"></script>
-<script src="js/app.js?v=v234"></script>
-<script src="js/notify.js?v=v234"></script>
-<script src="js/live.js?v=v234"></script>
-<script src="js/charts.js?v=v234"></script>
+<script src="js/data-provider.js?v=v235"></script>
+<script src="js/ai-client.js?v=v235"></script>
+<script src="js/app.js?v=v235"></script>
+<script src="js/notify.js?v=v235"></script>
+<script src="js/live.js?v=v235"></script>
+<script src="js/charts.js?v=v235"></script>
+<script src="js/okx-perps.js?v=v235"></script>
 <script>
 buildNav('crypto-derivatives');
 
-// All data from Binance USDS-M Futures public API (no key, CORS-enabled).
-// Funding, mark/index, OI, 24h volume, long/short ratio, funding history - real.
-const FAPI = 'https://fapi.binance.com';
-async function bj(path) {
-  try { const r = await fetch(FAPI + path, { cache: 'no-store' }); if (!r.ok) return null; return await r.json(); } catch (e) { return null; }
-}
+// Audit 2026-11-11 (pass 340): this page read Binance USDS-M futures, which answers HTTP 451 to every US
+// visitor ("restricted location"), so it showed only dashes. All data now comes from OKX's public API via
+// js/okx-perps.js (no key, CORS-enabled, reachable from the US): funding, mark/index, OI, 24h volume and
+// settled funding history - real. No long/short ratio: OKX's ratio endpoint sends no CORS header.
+const ASSETS = ['BTC', 'ETH', 'SOL', 'DOGE', 'XRP'];
 function fmtUsd(v) {
   if (v == null || !isFinite(v)) return '—';
   if (v >= 1e9) return '$' + (v / 1e9).toFixed(1) + 'B';
@@ -116,73 +116,60 @@ function fmtUsd(v) {
   if (v >= 1e3) return '$' + (v / 1e3).toFixed(1) + 'K';
   return '$' + Math.round(v);
 }
-function annualizePct(rate8h) { return rate8h == null ? null : rate8h * 3 * 365 * 100; } // 3 fundings/day
-
-async function loadAsset(sym) {
-  const s = sym + 'USDT';
-  const [pi, oi, tk, ls] = await Promise.all([
-    bj('/fapi/v1/premiumIndex?symbol=' + s),
-    bj('/fapi/v1/openInterest?symbol=' + s),
-    bj('/fapi/v1/ticker/24hr?symbol=' + s),
-    bj('/futures/data/globalLongShortAccountRatio?symbol=' + s + '&period=1h&limit=1')
-  ]);
-  const mark = pi && +pi.markPrice > 0 ? +pi.markPrice : null;
-  const index = pi && +pi.indexPrice > 0 ? +pi.indexPrice : null;
-  const funding = pi && pi.lastFundingRate != null && pi.lastFundingRate !== '' ? +pi.lastFundingRate : null;
-  const chgPct = tk && tk.priceChangePercent != null ? +tk.priceChangePercent : null;
-  const oiCoins = oi && oi.openInterest != null ? +oi.openInterest : null;
-  const oiUsd = (oiCoins != null && mark != null) ? oiCoins * mark : null;
-  const vol24 = tk && tk.quoteVolume != null ? +tk.quoteVolume : null;
-  const lsr = (Array.isArray(ls) && ls[0] && ls[0].longShortRatio != null) ? +ls[0].longShortRatio : null;
-  const basis = (mark != null && index != null && index > 0) ? (mark - index) / index * 100 : null;
-  return { sym, mark, index, funding, chgPct, oiUsd, vol24, lsr, basis };
+const annual = d => OkxPerps.annualizedPct(d.funding, d.intervalH);
+// Colour on the annualized rate (+33%/yr is +0.03% per 8 h; -11%/yr is -0.01% per 8 h), so a 4 h or 1 h contract reads the same.
+const fundColor = ann => ann == null ? 'var(--text-primary)' : ann > 33 ? 'var(--red)' : ann < -11 ? 'var(--green)' : 'var(--text-primary)';
+function untilEt(ts) {
+  if (!ts) return { v: '—', s: '' };
+  const mins = Math.max(0, Math.round((ts - Date.now()) / 60000));
+  const at = new Date(ts).toLocaleTimeString('en-US', { timeZone: 'America/New_York', hour: 'numeric', minute: '2-digit' });
+  return { v: Math.floor(mins / 60) + 'h ' + (mins % 60) + 'm', s: 'settles ' + at + ' ET' };
 }
 
 function renderGrid(id, d) {
-  const fundCol = d.funding == null ? 'var(--text-primary)' : d.funding > 0.0003 ? 'var(--red)' : d.funding < -0.0001 ? 'var(--green)' : 'var(--text-primary)';
-  const ann = annualizePct(d.funding);
+  const ann = annual(d);
+  const nf = untilEt(d.nextFundingTime);
+  const per = d.intervalH ? d.intervalH + 'h' : 'period';
   const cards = [
-    { l: 'PERP MARK', v: d.mark != null ? '$' + d.mark.toLocaleString(undefined, { maximumFractionDigits: 0 }) : '—', s: d.chgPct != null ? (d.chgPct >= 0 ? '+' : '') + d.chgPct.toFixed(2) + '% 24h' : '', col: d.chgPct == null ? 'var(--text-primary)' : d.chgPct >= 0 ? 'var(--green)' : 'var(--red)' },
-    { l: 'FUNDING (8h)', v: d.funding != null ? (d.funding * 100).toFixed(4) + '%' : '—', s: ann != null ? 'Annual ' + ann.toFixed(1) + '%' : '', col: fundCol },
-    { l: 'PERP BASIS', v: d.basis != null ? (d.basis >= 0 ? '+' : '') + d.basis.toFixed(3) + '%' : '—', s: 'mark vs index', col: 'var(--accent)' },
-    { l: 'OPEN INTEREST', v: fmtUsd(d.oiUsd), s: 'Binance perp', col: 'var(--text-primary)' },
-    { l: '24h VOL', v: fmtUsd(d.vol24), s: 'Binance perp', col: 'var(--text-primary)' },
-    { l: 'L/S RATIO', v: d.lsr != null ? d.lsr.toFixed(2) : '—', s: 'Top accounts', col: d.lsr == null ? 'var(--text-primary)' : d.lsr > 1.2 ? 'var(--red)' : d.lsr < 0.85 ? 'var(--green)' : 'var(--text-primary)' }
+    { l: 'PERP MARK', v: d.mark != null ? '$' + d.mark.toLocaleString(undefined, { maximumFractionDigits: d.mark < 10 ? 4 : 0 }) : '—', s: d.chgPct != null ? (d.chgPct >= 0 ? '+' : '') + d.chgPct.toFixed(2) + '% 24h' : '', col: d.chgPct == null ? 'var(--text-primary)' : d.chgPct >= 0 ? 'var(--green)' : 'var(--red)' },
+    { l: 'FUNDING (' + per + ')', v: d.funding != null ? (d.funding * 100).toFixed(4) + '%' : '—', s: ann != null ? 'Annual ' + ann.toFixed(1) + '%' : '', col: fundColor(ann) },
+    { l: 'PERP BASIS', v: d.basisPct != null ? (d.basisPct >= 0 ? '+' : '') + d.basisPct.toFixed(3) + '%' : '—', s: 'mark vs index', col: 'var(--accent)' },
+    { l: 'OPEN INTEREST', v: fmtUsd(d.oiUsd), s: 'OKX USDT perp', col: 'var(--text-primary)' },
+    { l: '24h VOL', v: fmtUsd(d.vol24Usd), s: 'OKX USDT perp', col: 'var(--text-primary)' },
+    { l: 'NEXT FUNDING', v: nf.v, s: nf.s, col: 'var(--text-primary)' }
   ];
   document.getElementById(id).innerHTML = cards.map(c =>
     '<div class="cr-card"><div class="l">' + c.l + '</div><div class="v" style="color:' + (c.col || 'var(--text-primary)') + ';">' + c.v + '</div><div class="s" style="color:var(--text-muted);">' + c.s + '</div></div>'
   ).join('');
 }
 
-async function loadFundingTable() {
-  const ASSETS = ['BTC', 'ETH', 'SOL', 'DOGE', 'XRP'];
-  const rows = await Promise.all(ASSETS.map(a => loadAsset(a)));
+function renderFundingTable(rows) {
   const fb = document.getElementById('fundBody');
   fb.innerHTML = '';
   rows.forEach(d => {
-    const ann = annualizePct(d.funding);
+    const ann = annual(d);
     const regime = ann == null ? '—' : ann > 30 ? 'OVERHEATED' : ann < -5 ? 'CAPITULATION' : 'NEUTRAL';
     const col = ann == null ? 'var(--text-muted)' : ann > 30 ? 'var(--red)' : ann < -5 ? 'var(--green)' : 'var(--accent)';
     const row = document.createElement('div');
     row.className = 'func-row';
-    row.innerHTML = '<div>Binance</div>'
-      + '<div><strong>' + d.sym + '</strong></div>'
+    row.innerHTML = '<div>OKX</div>'
+      + '<div><strong>' + d.asset + '</strong></div>'
       + '<div style="color:' + col + ';">' + (d.funding != null ? (d.funding * 100).toFixed(4) + '%' : '—') + '</div>'
       + '<div style="color:' + col + ';">' + (ann != null ? (ann >= 0 ? '+' : '') + ann.toFixed(1) + '%' : '—') + '</div>'
       + '<div>' + fmtUsd(d.oiUsd) + '</div>'
-      + '<div>' + fmtUsd(d.vol24) + '</div>'
+      + '<div>' + fmtUsd(d.vol24Usd) + '</div>'
       + '<div style="color:' + col + ';font-weight:700;font-size:9px;">' + regime + '</div>';
     fb.appendChild(row);
   });
 }
 
 async function paintFundingChart(sym, canvasId, store, color) {
-  const hist = await bj('/fapi/v1/fundingRate?symbol=' + sym + 'USDT&limit=30');
+  const hist = await OkxPerps.fundingHistory(sym, 30);
   const ctx = document.getElementById(canvasId).getContext('2d');
   if (window[store]) window[store].destroy();
   if (!Array.isArray(hist) || !hist.length) return;
-  const labels = hist.map(h => { const d = new Date(h.fundingTime); return (d.getMonth() + 1) + '/' + d.getDate(); });
-  const data = hist.map(h => +(+h.fundingRate * 100).toFixed(4));
+  const labels = hist.map(h => new Date(h.ts).toLocaleDateString('en-US', { timeZone: 'America/New_York', month: 'numeric', day: 'numeric' }));
+  const data = hist.map(h => +(h.rate * 100).toFixed(4));
   window[store] = new Chart(ctx, {
     type: 'line',
     data: { labels, datasets: [{ label: sym + ' funding %', data, borderColor: color, backgroundColor: 'rgba(0,212,255,0.08)', fill: true, tension: 0.25, pointRadius: 0, borderWidth: 2 }] },
@@ -190,27 +177,33 @@ async function paintFundingChart(sym, canvasId, store, color) {
   });
 }
 
+let lastLoad = 0;
 async function loadAll() {
-  const [btc, eth] = await Promise.all([loadAsset('BTC'), loadAsset('ETH')]);
+  lastLoad = Date.now();
+  // One snapshot per asset (5 small OKX calls each, well inside OKX's per-IP limits), reused by the grids and the table.
+  const rows = await Promise.all(ASSETS.map(a => OkxPerps.snapshot(a)));
+  const btc = rows[0], eth = rows[1];
   if (btc.mark == null && eth.mark == null) {
-    document.getElementById('btcGrid').innerHTML = '<div style="color:var(--text-muted);font-size:12px;padding:10px;">Binance API unreachable from this network. Funding / OI / basis are live when reachable.</div>';
+    document.getElementById('btcGrid').innerHTML = '<div style="color:var(--text-muted);font-size:12px;padding:10px;">OKX API unreachable from this network. No synthetic data is shown; funding / OI / basis appear when it answers.</div>';
     document.getElementById('ethGrid').innerHTML = '';
   } else {
     renderGrid('btcGrid', btc);
     renderGrid('ethGrid', eth);
   }
-  await loadFundingTable();
+  renderFundingTable(rows);
   await paintFundingChart('BTC', 'liqChart', '_liq', 'rgba(247,147,26,1)');
   await paintFundingChart('ETH', 'termChart', '_term', 'rgba(0,212,255,1)');
-  const ethAnn = annualizePct(eth.funding);
+  const ethAnn = annual(eth);
   document.getElementById('termBody').textContent = ethAnn != null
-    ? 'ETH 8h funding annualizes to ' + (ethAnn >= 0 ? '+' : '') + ethAnn.toFixed(1) + '% - ' + (ethAnn > 30 ? 'crowded longs' : ethAnn < -5 ? 'crowded shorts' : 'balanced positioning')
-    : 'Waiting for Binance funding...';
+    ? 'ETH funding annualizes to ' + (ethAnn >= 0 ? '+' : '') + ethAnn.toFixed(1) + '% - ' + (ethAnn > 30 ? 'crowded longs' : ethAnn < -5 ? 'crowded shorts' : 'balanced positioning')
+    : 'Waiting for OKX funding...';
 }
 
 loadAll();
 document.getElementById('refreshBtn').addEventListener('click', loadAll);
-setInterval(loadAll, 60000);
+// Visibility-gated (pass 299): a background tab does not poll; it catches up when shown.
+setInterval(() => { if (!document.hidden) loadAll(); }, 60000);
+document.addEventListener('visibilitychange', () => { if (!document.hidden && Date.now() - lastLoad > 30000) loadAll(); });
 </script>
 </body>
 </html>
