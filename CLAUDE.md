@@ -235,6 +235,11 @@ The whole site was swept so nothing fabricated reads as live. Three moves:
 
 **Honesty rule going forward:** never show a fabricated number as live. If a feed is free-derivable (Yahoo/Stooq/Binance) wire it real; if it needs a paid feed, show '—' or the SAMPLE banner.
 
+**Pass 341 invariants (2026-11-11, worker pass-323 — do NOT regress; guarded by `node _test_econ_worker.js`):**
+- **`/brain/econ` never serves a week that does not cover today.** Sources in order: ForexFactory live (x2; it rejects Cloudflare egress most of the time), then the desk calendar file the econ-calendar Action commits (`ECON_DESK_FILE`, served by GitHub Pages), then the KV last-good copy ONLY while it covers today (`econCovers`, 36 h slack). Otherwise `ok: false` with `out_of_date: {first, last}`. The response names its `source`. Pure helpers live in `worker/src/econ.js`.
+- **A missing transcript is a 404** (`notFound`), not a 502 (the pass-305 rule).
+- Deploy order: Brandon deploys the Worker (`wrangler deploy`), THEN the site push carries `EXPECTED_WORKER_VERSION = 'pass-323'`; pages already tolerate the old Worker (EconFeed refuses its stale week).
+
 **Pass 340 invariants (2026-11-11, data sources a US browser can read — do NOT regress; guarded by `node _test_live_sources.js` + honesty test section 6h):**
 - **Test every external data host from a US network before wiring it.** Checked from Brandon's machine 11/11: Binance futures AND spot answer HTTP 451 ("restricted location"); Bybit 403 (CloudFront geo-block); Stooq sends no CORS headers; OKX, Deribit, Kraken Futures, Hyperliquid and dYdX answer with CORS. A free Finnhub key gets 403 on `/calendar/economic`, `/stock/social-sentiment` and `/news-sentiment` (premium); 200 on earnings calendar, company-news, insider transactions/sentiment, stock/earnings, profile2, metric.
 - **Crypto derivatives come from OKX via `js/okx-perps.js`** (crypto-derivatives, crypto-basis). Funding annualizes at the contract's own interval (`nextFundingTime - fundingTime`), never an assumed 8 h. No long/short ratio (OKX's endpoint has no CORS header). Pollers are visibility-gated with a 30 s floor.

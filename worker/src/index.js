@@ -2,6 +2,7 @@ import { RADAR_SET, RADAR_MAX_RECORDS, barsToDaily, buildCall, fillOutcomes, rad
 import { overlapScore, splitForCap, archiveBuckets, appendUnique, sealRecord, lastHash, verifyChain, windowOf, horizonStats } from './grading.js';
 import { etDayKey, reconcileBars, overlayToday } from './bars.js';
 import { SNAPSHOT_SCHEDULE, snapshotDispatchDue, buildDispatchRequest, cleanToken, tokenShape } from './snapshots.js';
+import { ECON_DESK_FILE, normalizeEconEvents, econCoverage, econCovers } from './econ.js';
 /* ===========================================
    BPLEONE Brain Worker — 24/7 server-side brain
    ---
@@ -42,7 +43,7 @@ import { SNAPSHOT_SCHEDULE, snapshotDispatchDue, buildDispatchRequest, cleanToke
 // Pass 200: version stamp so brain-proof.html + worker-setup.html can detect
 // when the deployed worker is behind the repo source. Bump on every meaningful
 // behavior change. Read via /brain/health → worker_version field.
-const WORKER_VERSION = 'pass-322';
+const WORKER_VERSION = 'pass-323';
 
 const UNIVERSE = [
   'SPY','QQQ','IWM','DIA','AAPL','NVDA','TSLA','MSFT','META','AMZN','GOOGL','AMD',
@@ -1705,7 +1706,7 @@ function extractTranscriptText(html) {
 
 async function fetchFoolTranscript(ticker) {
   const found = await findFoolTranscriptUrl(ticker);
-  if (!found) return { ok: false, error: 'No Motley Fool transcript found for ' + ticker + ' (they may not have published a recent call yet).' };
+  if (!found) return { ok: false, notFound: true, error: 'No Motley Fool transcript found for ' + ticker + ' (they may not have published a recent call yet).' };
   let html;
   try {
     const r = await fetch(found.url, { headers: { 'User-Agent': SCRAPE_UA } });
@@ -2315,31 +2316,43 @@ async function handleRequest(request, env, ctx) {
         const r = await fetch('https://nfs.faireconomy.media/ff_calendar_' + week + '.json',
           { headers: { 'User-Agent': 'Mozilla/5.0' } });
         if (!r.ok) return null;
-        const arr = await r.json();
-        if (!Array.isArray(arr)) return null;
-        return arr.map(e => ({
-          title: e.title || '',
-          country: e.country || '',
-          date: e.date || '',
-          impact: e.impact || '',
-          forecast: e.forecast || '',
-          previous: e.previous || ''
-        }));
+        return normalizeEconEvents(await r.json());
       } catch (e) { return null; }
     }
+    // Pass-323: the calendar file the econ-calendar GitHub Action commits daily, served by GitHub Pages (the
+    // Action fetches ForexFactory from GitHub's runners, which ForexFactory does not block).
+    async function fetchDeskFile() {
+      try {
+        const r = await fetch(ECON_DESK_FILE, { cf: { cacheTtl: 300 } });
+        if (!r.ok) return null;
+        return normalizeEconEvents(await r.json());
+      } catch (e) { return null; }
+    }
+    const nowE = Date.now();
     let raw = await fetchFF();
     if (!raw) raw = await fetchFF();   // one retry: lifts success from ~1/3 to ~5/9 per request
-    let staleServed = false, fetchedAt = Date.now();
+    let source = 'forexfactory';
+    let staleServed = false, fetchedAt = nowE, outOfDate = null;
+    if (!raw && week === 'thisweek') {
+      const desk = await fetchDeskFile();
+      if (desk && econCovers(desk, nowE)) { raw = desk; source = 'desk-calendar-file'; }
+    }
     if (raw && week === 'thisweek') {
       // Refresh the last-good copy at most twice an hour.
       const stored = await kvGet(env, KV_KEYS.ECON_CACHE, null);
-      if (!stored || (Date.now() - (stored.fetchedAt || 0)) > 30 * 60 * 1000) {
-        ctx.waitUntil(kvPut(env, KV_KEYS.ECON_CACHE, { fetchedAt: Date.now(), events: raw }));
+      if (!stored || (nowE - (stored.fetchedAt || 0)) > 30 * 60 * 1000) {
+        ctx.waitUntil(kvPut(env, KV_KEYS.ECON_CACHE, { fetchedAt: nowE, events: raw }));
       }
     } else if (!raw && week === 'thisweek') {
       const stored = await kvGet(env, KV_KEYS.ECON_CACHE, null);
       if (stored && Array.isArray(stored.events)) {
-        raw = stored.events; staleServed = true; fetchedAt = stored.fetchedAt || 0;
+        // Pass-323: a last-good copy is served only while it still covers today. The old rule served the week of
+        // 10/18 into November, and SPY Radar read its empty future as "the calendar risk is behind you".
+        if (econCovers(stored.events, nowE)) {
+          raw = stored.events; staleServed = true; fetchedAt = stored.fetchedAt || 0; source = 'last-good-copy';
+        } else {
+          outOfDate = econCoverage(stored.events);
+        }
       }
     }
     let events = raw;
@@ -2349,13 +2362,16 @@ async function handleRequest(request, env, ctx) {
     }
     const resp = json({
       ok: Array.isArray(events),
-      source: 'forexfactory',
+      source,
       week,
       count: Array.isArray(events) ? events.length : 0,
       updatedAt: fetchedAt,
       stale: staleServed || undefined,
       events: events || [],
-      note: !Array.isArray(events) ? 'calendar feed unreachable (and no cached copy yet)'
+      out_of_date: outOfDate ? { first: outOfDate.first, last: outOfDate.last } : undefined,
+      note: !Array.isArray(events) ? (outOfDate
+          ? 'calendar feeds unreachable, and the last good copy (' + outOfDate.first + ' to ' + outOfDate.last + ') does not cover this week: no events served rather than an out-of-date week'
+          : 'calendar feed unreachable (and no cached copy yet)')
         : staleServed ? 'Live calendar feed unreachable right now - serving the last good copy (see updatedAt). Event dates/forecasts change rarely intraday.'
         : undefined
     });
@@ -2383,7 +2399,9 @@ async function handleRequest(request, env, ctx) {
     let result;
     try { result = await fetchFoolTranscript(sym); }
     catch (e) { result = { ok: false, error: 'transcript fetch failed: ' + ((e && e.message) || e) }; }
-    const resp = json(result, result.ok ? 200 : 502);
+    // Pass-323: "no transcript published" is a client-side miss (404), not an upstream failure (502), which
+    // false-alarms uptime checks (the pass-305 rule for /brain/history).
+    const resp = json(result, result.ok ? 200 : (result.notFound ? 404 : 502));
     if (result.ok) {
       resp.headers.set('Cache-Control', 'public, max-age=21600'); // transcripts are immutable once published - cache 6h
       ctx.waitUntil(cache.put(cacheKey, resp.clone()));
