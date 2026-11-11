@@ -168,6 +168,21 @@ t('no invented bid/ask: computeDerived sets none, real ones carry bidAskTs', (()
   return cd.length > 0 && !/q\.(bid|ask) =/.test(cd) && /q\.bidAskTs = Date\.now\(\)/.test(read('js/data-provider.js')); })());
 t('the model spread feature uses only a real bid/ask', /spreadBps: \(isReal && q\.bid > 0 && q\.ask > 0 && q\.bidAskTs/.test(read('js/model.js')));
 t('ticker and data-live show "—" for a seed, never its price', /<span class="ticker-price">—<\/span>/.test(appjs) && /priceEl\.textContent = seed \? '—'/.test(appjs) && /ps === 'stale-seed' \|\| ps === 'mock'\) \{\s*\n\s*el\.textContent = '—';/.test(read('js/live.js')));
+t('the pill never says MOCK outside demo mode (first paint is LOADING)', /data-pill-label">LOADING<\/span>/.test(appjs) && !/data-pill-label">MOCK</.test(appjs) && /label = demo \? 'MOCK' : 'LOADING'/.test(appjs));
+// Pass 341 (page smoke sweep 11/11): execution, portfolio-builder, position-sizing and vol-cone called charts.js
+// helpers without loading charts.js (execution threw on load); dark-pool(-pro) prefilled 20-30 prints through an
+// unguarded appendPrint(generatePrint()) although generatePrint() returns null by design (pass 308).
+const chartFns = ['baseOptions', 'renderPriceChart', 'renderPriceWithMAChart', 'renderRSIChart', 'renderVolumeChart', 'renderSectorChart', 'renderFlowDonut', 'renderPerfChart', 'renderIVSmile', 'renderOIByStrike', 'renderMACD', 'generateSeries', 'timeLabels'];
+const missCharts = allSrc.filter(([f]) => f.endsWith('.html') && !f.startsWith('_')).filter(([f, h]) => {
+  const code = strip(h);
+  const uses = chartFns.some(fn => new RegExp('\\b' + fn + '\\(').test(code) && !new RegExp('function ' + fn + '\\b').test(code));
+  return uses && !/js\/charts\.js/.test(h);
+}).map(([f]) => f);
+t('every page that calls a charts.js helper loads charts.js' + (missCharts.length ? ' (missing: ' + missCharts.join(', ') + ')' : ''), missCharts.length === 0);
+t('dark-pool pages ignore a null print', ['dark-pool', 'dark-pool-pro'].every(p => /function appendPrint\(p\) \{\s*\n\s*if \(!p\) return;/.test(read(p + '.html'))));
+t('model-what-if writes no hand-labeled scenario into training rows', !/bpleone_train_v1/.test(strip(read('model-what-if.html'))) && !/id="saveBtn"/.test(read('model-what-if.html')));
+t('model-what-if uses the model\'s real features and its own predict()', /ALL_FEATURES\.filter\(n => n !== 'bias'\)/.test(read('model-what-if.html')) && /m\.predict\(x\)/.test(read('model-what-if.html')) && !/'macd_hist','vol_z'/.test(read('model-what-if.html')));
+t('potd-backtest logs picks from real prints only and never formats a null level', /\['stale-seed', 'mock', 'demo-sim'\]\.indexOf\(ps\) >= 0\) return null/.test(read('potd-backtest.html')) && /\$\{lv\(p\.entry\)\}/.test(read('potd-backtest.html')));
 t('the retired historical trainer cannot overwrite the model', !/ModelStore\.save\(/.test(read('historical-trainer.html')) && /href="historical-bootstrap\.html"/.test(read('historical-trainer.html')));
 
 // 7. Worker sources parse strictly. `node --check` passed an ES-module file with an unescaped quote in a

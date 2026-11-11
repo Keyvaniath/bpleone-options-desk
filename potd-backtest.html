@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" media="print" onload="this.media='all'"><noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap"></noscript>
-<link rel="stylesheet" href="css/style.css?v=v235">
+<link rel="stylesheet" href="css/style.css?v=v236">
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
@@ -103,13 +103,13 @@
 </div>
 
 <div id="site-footer"></div>
-<script src="js/data-provider.js?v=v235"></script>
-<script src="js/ai-client.js?v=v235"></script>
-<script src="js/app.js?v=v235"></script>
-<script src="js/notify.js?v=v235"></script>
-<script src="js/live.js?v=v235"></script>
-<script src="js/ta.js?v=v235"></script>
-<script src="js/learn.js?v=v235"></script>
+<script src="js/data-provider.js?v=v236"></script>
+<script src="js/ai-client.js?v=v236"></script>
+<script src="js/app.js?v=v236"></script>
+<script src="js/notify.js?v=v236"></script>
+<script src="js/live.js?v=v236"></script>
+<script src="js/ta.js?v=v236"></script>
+<script src="js/learn.js?v=v236"></script>
 <script>buildNav('learn');</script>
 
 <script>
@@ -132,20 +132,29 @@
     POPULAR.forEach(s => {
       const q = QUOTES[s];
       if (!q || !q.last || !q.changePct) return;
+      if (!q.priceSource || ['stale-seed', 'mock', 'demo-sim'].indexOf(q.priceSource) >= 0) return;   // pass 341: real prints only
       const m = Math.abs(q.changePct);
       if (m > bestMagnitude) { bestMagnitude = m; best = s; }
     });
     return best;
   }
 
+  // Pass 341: older log rows can hold null levels (see buildTotdPick); show a dash, never throw.
+  const lv = v => (v != null && isFinite(v)) ? '$' + (+v).toFixed(2) : '—';
+
   function buildTotdPick() {
     const sym = pickTotdSym();
     if (!sym) return null;
     const q = QUOTES[sym];
-    if (!q || !q.last) return null;
+    // Pass 341: only a real, current print becomes a logged pick (a stale-seed/demo price used to qualify), and the
+    // range uses the day's high/low only when both exist: dayHigh - dayLow was NaN for quotes without them, which
+    // made every level NaN, stored as null, and the log table threw on null.toFixed.
+    const ps = q && q.priceSource;
+    if (!q || !(q.last > 0) || !ps || ['stale-seed', 'mock', 'demo-sim'].indexOf(ps) >= 0) return null;
     const spot = q.last;
     const bias = q.changePct >= 0 ? 'bull' : 'bear';
-    const atr = Math.max(q.dayHigh - q.dayLow, spot * 0.015);
+    const range = (q.dayHigh > 0 && q.dayLow > 0 && q.dayHigh >= q.dayLow) ? q.dayHigh - q.dayLow : 0;
+    const atr = Math.max(range, spot * 0.015);
     const stopDist = atr * 1.2;
     const stop = bias === 'bull' ? spot - stopDist : spot + stopDist;
     const t1 = bias === 'bull' ? spot + stopDist * 1.5 : spot - stopDist * 1.5;
@@ -310,7 +319,7 @@
         <div class="mono" style="font-size:11px;color:var(--text-muted);">${new Date(p.snappedTs).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</div>
         <div class="mono" style="font-weight:700;">${p.sym}</div>
         <div><span class="tag ${p.bias}">${p.bias === 'bull' ? '▲ LONG' : '▼ SHORT'}</span></div>
-        <div class="mono" style="font-size:11px;">$${p.entry.toFixed(2)} → $${p.stop.toFixed(2)} → $${p.t1.toFixed(2)} → $${p.t2.toFixed(2)}</div>
+        <div class="mono" style="font-size:11px;">${lv(p.entry)} → ${lv(p.stop)} → ${lv(p.t1)} → ${lv(p.t2)}</div>
         <div class="mono ${r1hCls}" style="text-align:right;">${r1h}</div>
         <div class="mono ${r1dCls}" style="text-align:right;">${r1d}</div>
         <div class="mono ${r1wCls}" style="text-align:right;">${r1w}</div>

@@ -323,7 +323,7 @@ function buildNav(activePage) {
     + '</div></li>'
     + '</ul>'
     + '<div class="nav-actions">'
-    + '<a id="dataStatusPill" href="settings.html" title="Data feed status — click to configure" aria-label="Data feed status — click to configure" class="data-pill data-pill-mock"><span class="data-pill-dot"></span><span class="data-pill-label">MOCK</span></a>'
+    + '<a id="dataStatusPill" href="settings.html" title="Data feed status — click to configure" aria-label="Data feed status — click to configure" class="data-pill data-pill-connecting"><span class="data-pill-dot"></span><span class="data-pill-label">LOADING</span></a>'
     + '<form id="navSearchForm" class="nav-search" role="search" style="display:flex;align-items:center;gap:4px;background:var(--bg-elevated);border:1px solid var(--border);border-radius:8px;padding:3px 4px 3px 10px;"><span aria-hidden="true" style="font-size:12px;color:var(--text-muted);">🔍</span><input id="navSearch" aria-label="Search symbol or page" placeholder="Search symbol or page…" autocomplete="off" style="background:transparent;border:none;outline:none;color:var(--text-primary);font-size:12px;width:160px;font-family:inherit;text-transform:uppercase;"></form>'
     + '<button id="cmdkBtn" title="Search & navigate (⌘K)" aria-label="Open search and navigation palette" class="btn btn-ghost" style="padding:6px 10px;font-size:11px;font-family:var(--font-mono);">⌘K</button>'
     + '<button id="refreshDataBtn" title="Refresh all market data" aria-label="Refresh all market data" class="btn btn-ghost" style="padding:6px 10px;color:var(--accent);">🔄</button>'
@@ -482,7 +482,11 @@ function wireDataPill() {
   };
   const render = (s) => {
     s = s || {};
-    let cls = 'mock', label = 'MOCK', tip = '';
+    // Pass 341: the default is LOADING, not MOCK. Keyless visitors get real (delayed) prices from the worker feed
+    // within a second or two, so "MOCK" on first paint called real data fake. MOCK is kept for demo mode only
+    // (live.js isDemoMode: synthetic ticks a visitor never gets by default).
+    const demo = (typeof isDemoMode === 'function') && isDemoMode();
+    let cls = demo ? 'mock' : 'connecting', label = demo ? 'MOCK' : 'LOADING', tip = demo ? 'Demo mode: simulated prices' : 'Waiting for the first real quote';
     const sess = (typeof detectSession === 'function') ? detectSession() : 'open';
     if (s.status === 'connected') {
       // A connected WS streams crypto in real time, but equities are only live in

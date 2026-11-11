@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" media="print" onload="this.media='all'"><noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap"></noscript>
-<link rel="stylesheet" href="css/style.css?v=v235">
+<link rel="stylesheet" href="css/style.css?v=v236">
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
@@ -37,7 +37,6 @@
       <button class="btn btn-ghost" id="resetBtn">↺ Reset to neutral</button>
       <button class="btn btn-ghost" id="bullBtn">↑ Pure bull setup</button>
       <button class="btn btn-ghost" id="bearBtn">↓ Pure bear setup</button>
-      <button class="btn btn-primary" id="saveBtn">💾 Save as training row</button>
     </div>
   </div>
 
@@ -74,40 +73,42 @@
 
 <div id="site-footer"></div>
 
-<script src="js/data-provider.js?v=v235"></script>
-<script src="js/ai-client.js?v=v235"></script>
-<script src="js/app.js?v=v235"></script>
-<script src="js/notify.js?v=v235"></script>
-<script src="js/live.js?v=v235"></script>
-<script src="js/model.js?v=v235"></script>
+<script src="js/data-provider.js?v=v236"></script>
+<script src="js/ai-client.js?v=v236"></script>
+<script src="js/app.js?v=v236"></script>
+<script src="js/notify.js?v=v236"></script>
+<script src="js/live.js?v=v236"></script>
+<script src="js/model.js?v=v236"></script>
 <script>
 buildNav('model-what-if');
 
-const FEATURES = (window.FEATURES || []).slice();
-if (FEATURES.length === 0) {
-  // Fallback if model.js features aren't exposed
-  ['rsi','macd_hist','vol_z','atr_pct','price_z','dist_ma20','dist_ma50','trend_score','breadth','vix_level','put_call','setup_strength','sector_rs','beta','liq_score','hour_norm','dow','severity_score','recency','prior_hit','dist_high','momentum'].forEach(n => FEATURES.push({ name: n, min: 0, max: 1 }));
-}
-
+// Pass 341 (page smoke sweep 11/11): this page declared its own `const FEATURES`, which collides with model.js's
+// top-level `const FEATURES` (one global lexical scope), so the whole script was a SyntaxError and the page was
+// dead. Its fallback was also wrong: 22 invented names (rsi, macd_hist, vol_z...) paired with the model's weights
+// BY POSITION, so every contribution was credited to the wrong feature, and the intercept was counted twice. The
+// dials are now model.js's real features in the model's own order; 'bias' is the constant intercept (always 1),
+// not a dial; the prediction is the model's own predict().
+const ALL_FEATURES = Array.isArray(window.FEATURES) ? window.FEATURES.slice() : [];
+const WI_FEATURES = ALL_FEATURES.filter(n => n !== 'bias').map(n => ({ name: n }));
 let values = {};
-FEATURES.forEach(f => { values[f.name] = 0.5; });
+WI_FEATURES.forEach(f => { values[f.name] = 0.5; });
 
 function neutral() {
-  FEATURES.forEach(f => { values[f.name] = 0.5; });
+  WI_FEATURES.forEach(f => { values[f.name] = 0.5; });
   render();
 }
 function bull() {
-  FEATURES.forEach(f => {
-    if (['rsi','macd_hist','trend_score','momentum','setup_strength','sector_rs','breadth','prior_hit','severity_score'].includes(f.name)) values[f.name] = 0.85;
-    else if (['vix_level','put_call'].includes(f.name)) values[f.name] = 0.25;
+  WI_FEATURES.forEach(f => {
+    if (['rsi14_norm','dist_50ma','dist_200ma','spy_chg_norm','sector_strength','is_bull_setup','is_momentum','is_breakout','brain_weight_norm','regime_score_norm','severity_norm'].includes(f.name)) values[f.name] = 0.85;
+    else if (['vix_norm','is_bear_setup','iv_pct_norm'].includes(f.name)) values[f.name] = 0.25;
     else values[f.name] = 0.55;
   });
   render();
 }
 function bear() {
-  FEATURES.forEach(f => {
-    if (['rsi','macd_hist','trend_score','momentum','setup_strength','sector_rs','breadth','prior_hit'].includes(f.name)) values[f.name] = 0.15;
-    else if (['vix_level','put_call','severity_score'].includes(f.name)) values[f.name] = 0.85;
+  WI_FEATURES.forEach(f => {
+    if (['rsi14_norm','dist_50ma','dist_200ma','spy_chg_norm','sector_strength','is_bull_setup','is_momentum','brain_weight_norm','regime_score_norm'].includes(f.name)) values[f.name] = 0.15;
+    else if (['vix_norm','is_bear_setup','iv_pct_norm','severity_norm'].includes(f.name)) values[f.name] = 0.85;
     else values[f.name] = 0.45;
   });
   render();
@@ -126,20 +127,12 @@ function getModel() {
 function predict() {
   const m = getModel();
   if (!m) return null;
-  // Build feature vector in canonical order
-  const x = FEATURES.map(f => values[f.name]);
-  // Simple logistic regression: sum(w_i * x_i) + bias, then sigmoid
-  if (m.weights && m.weights.length) {
-    const w = m.weights;
-    let z = 0;
-    for (let i = 0; i < x.length; i++) {
-      const wi = w[i] || 0;
-      z += wi * x[i];
-    }
-    z += (m.bias || w[w.length - 1] || 0);
-    const prob = 1 / (1 + Math.exp(-z));
-    const contribs = x.map((v, i) => ({ name: FEATURES[i].name, c: (w[i] || 0) * v, w: w[i] || 0, val: v }));
-    return { prob, z, contribs };
+  // The model's own math: x in model.js order, the intercept input fixed at 1.
+  const x = ALL_FEATURES.map(n => n === 'bias' ? 1 : (values[n] != null ? values[n] : 0.5));
+  if (typeof m.predict === 'function' && m.weights && m.weights.length === x.length) {
+    const r = m.predict(x);
+    const contribs = (r.contributions || []).filter(c => c.feature !== 'bias').map(c => ({ name: c.feature, c: c.contrib, w: c.weight, val: c.value }));
+    return { prob: r.prob, z: r.z, contribs };
   }
   return null;
 }
@@ -149,7 +142,7 @@ function render() {
   dials.innerHTML = '';
   const pred = predict();
 
-  FEATURES.forEach(f => {
+  WI_FEATURES.forEach(f => {
     const row = document.createElement('div');
     row.className = 'feat-row';
     const v = values[f.name];
@@ -211,20 +204,11 @@ function render() {
 document.getElementById('resetBtn').addEventListener('click', neutral);
 document.getElementById('bullBtn').addEventListener('click', bull);
 document.getElementById('bearBtn').addEventListener('click', bear);
-document.getElementById('saveBtn').addEventListener('click', () => {
-  const lbl = prompt('Label this scenario (W = win, L = loss):');
-  if (!lbl) return;
-  const y = lbl.toLowerCase().startsWith('w') ? 1 : 0;
-  try {
-    const train = JSON.parse(localStorage.getItem('bpleone_train_v1') || '[]');
-    const x = FEATURES.map(f => values[f.name]);
-    train.push({ id: 'wif-' + Date.now(), ts: Date.now(), x, y, source: 'what-if', meta: { sym: 'WHAT-IF', setup: 'manual' } });
-    localStorage.setItem('bpleone_train_v1', JSON.stringify(train));
-    alert('✓ Saved as ' + (y === 1 ? 'WIN' : 'LOSS') + '. Run a retrain on the Training Center to incorporate.');
-  } catch (e) { alert('Save failed: ' + e.message); }
-});
+// Pass 341: no "save as training row". A hand-set scenario labeled WIN/LOSS by hand is not a market outcome;
+// it went into bpleone_train_v1, which 29 stats pages read (hit rates, cohorts, hall of fame).
 
-render();
+if (!ALL_FEATURES.length) document.getElementById('dials').innerHTML = '<div style="padding:16px;color:var(--text-muted);">The model\'s feature list did not load (js/model.js), so there is nothing to vary.</div>';
+else render();
 </script>
 </body>
 </html>
