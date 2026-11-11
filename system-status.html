@@ -278,9 +278,11 @@ table.ss td.note { color:var(--text-muted);font-size:11.5px;line-height:1.5;min-
 
   // ---- Scheduled jobs ----
   const JOBS = [
-    { file: 'snapshots.yml', name: 'Price + signal snapshots', crons: ['*/15 13-21 * * 1-5', '0 * * * *'],
-      dispatch: 'started by the Worker every 15 min, weekdays 9:00-16:15 ET; hourly otherwise' },   // pass-320/321
-    { file: 'brain-health.yml', name: 'Brain health check', crons: ['*/30 * * * *'] },
+    // Pass 337: the snapshot job chains itself (each run starts the next) on weekdays 8:30-17:00 ET; its crons only
+    // (re)start the chain, so "expected" is the desk-hour quarter-hours, and chained/dispatched runs count.
+    { file: 'snapshots.yml', name: 'Price + signal snapshots', crons: ['7,22,37,52 12-14 * * 1-5', '41 */2 * * *'],
+      dispatch: 'each run starts the next, every 15 min, weekdays 8:30-17:00 ET', deskSlots: true },
+    { file: 'brain-health.yml', name: 'Brain health check', crons: ['13,43 * * * *'] },
     { file: 'econ-calendar.yml', name: 'Economic calendar', crons: ['20 10 * * *'] },
     { file: 'congress-ptr.yml', name: 'House PTR filings', crons: ['30 11 * * *'] },
     { file: 'edge-lab.yml', name: 'Edge lab (weekly)', crons: ['40 12 * * 1'] }
@@ -299,6 +301,17 @@ table.ss td.note { color:var(--text-muted);font-size:11.5px;line-height:1.5;min-
     return cronField(mi, d.getUTCMinutes(), 0) && cronField(h, d.getUTCHours(), 0) && cronField(dom, d.getUTCDate(), 1) &&
            cronField(mo, d.getUTCMonth() + 1, 1) && cronField(dow, d.getUTCDay(), 0);
   }
+  // Weekday 8:30-17:00 ET quarter-hours in [from, to): what the snapshot chain should fill (34 a full weekday).
+  function deskSlots(fromMs, toMs) {
+    let n = 0;
+    for (let t = Math.ceil(fromMs / 900000) * 900000; t < toMs; t += 900000) {
+      const p = new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', hour12: false, weekday: 'short', hour: '2-digit', minute: '2-digit' }).formatToParts(new Date(t));
+      const g = k => (p.find(x => x.type === k) || {}).value;
+      const hm = (parseInt(g('hour'), 10) % 24) * 100 + parseInt(g('minute'), 10);
+      if (['Mon', 'Tue', 'Wed', 'Thu', 'Fri'].includes(g('weekday')) && hm >= 830 && hm < 1700) n++;
+    }
+    return n;
+  }
   function expectedRuns(crons, fromMs, toMs) {
     let n = 0;
     for (let t = Math.ceil(fromMs / 60000) * 60000; t < toMs; t += 60000) {
@@ -315,14 +328,15 @@ table.ss td.note { color:var(--text-muted);font-size:11.5px;line-height:1.5;min-
     } catch (e) {}
     const now = Date.now(), from = now - 86400000;
     const rows = await Promise.all(JOBS.map(async j => {
-      const r = await getJson('https://api.github.com/repos/' + REPO + '/actions/workflows/' + j.file + '/runs?per_page=60', { headers: { Accept: 'application/vnd.github+json' } });
+      const r = await getJson('https://api.github.com/repos/' + REPO + '/actions/workflows/' + j.file + '/runs?per_page=' + (j.deskSlots ? 100 : 60), { headers: { Accept: 'application/vnd.github+json' } });
       if (r._err || !Array.isArray(r.workflow_runs)) return { j, err: r._err || 'no data' };
-      // Pass-320: a job the Worker starts (workflow_dispatch) counts those runs too.
-      const sched = r.workflow_runs.filter(x => x.event === 'schedule' || (j.dispatch && x.event === 'workflow_dispatch'));
+      // Pass-320/337: a job started by workflow_dispatch (the chain, the Worker) counts those runs too; a cancelled
+      // pending run (replaced by a newer one in the concurrency group) never ran, so it does not count.
+      const sched = r.workflow_runs.filter(x => (x.event === 'schedule' || (j.dispatch && x.event === 'workflow_dispatch')) && x.conclusion !== 'cancelled');
       const ran24 = sched.filter(x => Date.parse(x.created_at) >= from).length;
       const last = sched[0] || null;
       const lastOk = sched.find(x => x.conclusion === 'success') || null;
-      return { j, ran24, expected: expectedRuns(j.crons, from, now), last: last && { t: Date.parse(last.created_at), status: last.status, conclusion: last.conclusion },
+      return { j, ran24, expected: j.deskSlots ? deskSlots(from, now) : expectedRuns(j.crons, from, now), last: last && { t: Date.parse(last.created_at), status: last.status, conclusion: last.conclusion },
                lastOk: lastOk && Date.parse(lastOk.created_at) };
     }));
     try { sessionStorage.setItem(CK, JSON.stringify({ ts: Date.now(), rows })); } catch (e) {}

@@ -100,6 +100,17 @@ t('expired expirations are skipped (tranches + chain)', /et\.hour >= 16\)\) cont
 t('data pill re-evaluates on pages without data-provider.js (no permanent MOCK)', /window\.addEventListener\('bpleone:quotes', \(\) => render\(fallbackStatus\(\)\)\)/.test(read('js/app.js')));
 t('broadcast explains NO PLAY instead of blaming constraints', /picks && picks\.no_play\)\s*\n\s*\? 'NO PLAY today/.test(read('broadcast.html')));
 
+// 6e. Pass 337 (11/11): GitHub started the snapshot job ~5 times a day, so the job chains itself. Each run starts
+//     the next with GITHUB_TOKEN (needs actions: write) inside weekday 8:30-17:00 ET, behind an off switch, and the
+//     checks judge it by runs that happened, never by a configured flag.
+const snapWf = read('.github/workflows/snapshots.yml');
+t('snapshot job can start its successor (actions: write + gh workflow run)', /actions: write/.test(snapWf) && /gh workflow run snapshots\.yml --ref main/.test(snapWf));
+t('snapshot chain is bounded to weekday 8:30-17:00 ET and has an off switch', /"\$dow" -gt 5 \] \|\| \[ "\$hm" -lt 830 \] \|\| \[ "\$hm" -ge 1700 \]/.test(snapWf) && /vars\.SNAPSHOT_CHAIN != 'off'/.test(snapWf) && /timeout-minutes: 30/.test(snapWf));
+t('snapshot crons avoid the top of the hour', !/cron: '\*\/15|cron: '0 \*/.test(snapWf) && !/cron: '\*\/30/.test(read('.github/workflows/brain-health.yml')));
+const acc = read('_acceptance.js');
+t('acceptance judges the snapshot job by runs, not by a configured flag', /deskSlots\(now - 86400000, now\)/.test(acc) && !/sd && sd\.configured \? 'PASS'/.test(acc));
+t('system-status counts chained runs against desk-hour slots', /deskSlots: true/.test(ss) && /j\.deskSlots \? deskSlots\(from, now\)/.test(ss) && /x\.conclusion !== 'cancelled'/.test(ss));
+
 // 7. Worker sources parse strictly. `node --check` passed an ES-module file with an unescaped quote in a
 //    string (found 2026-11-03), so parse the bodies as scripts with imports/exports stripped.
 ['worker/src/index.js', 'worker/src/grading.js', 'worker/src/radar.js', 'worker/src/bars.js', 'worker/src/snapshots.js'].forEach(f => {

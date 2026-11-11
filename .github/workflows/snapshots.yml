@@ -8,29 +8,37 @@ name: Publish read snapshots (CDN offload)
 # so the free tier serves effectively unlimited read clients (cost scales with
 # writes/cron, not readers). Data is ~15-min delayed and this refreshes ~every
 # 15 min, so the CDN copy is current-enough; the worker remains the fresh fallback.
-
 #
-# Pass-320 (2026-11-05): GitHub ran this schedule ~5 times a day instead of ~48 (scheduled events are
-# delayed and dropped under load). The Worker now starts this job through workflow_dispatch from its
-# minute tick (worker/src/snapshots.js, pass-321: every 15 min on weekdays 9:00-16:15 ET, hourly
-# otherwise). The schedule below stays as a backup in case the Worker's token is missing or expired.
+# Pass 337 (2026-11-11): THE CHAIN. GitHub started this job about 5 times a day for weeks (scheduled
+# events start hours late at random minutes or never), and the Worker's dispatch (pass-320/322) needs a
+# GitHub token the Worker does not have. So each run starts its own successor: publish, wait out the
+# 15 minutes, then `gh workflow run` with the job's own GITHUB_TOKEN (workflow_dispatch is the one
+# event that token may trigger). The chain runs on weekdays 8:30-17:00 ET; the run after 17:00 makes
+# the closing pass and stops. The schedule below only (re)starts it: morning kicks at off-peak minutes,
+# plus a pass every two hours that also re-ignites a broken chain during desk hours.
+# Off switch: set the repository variable SNAPSHOT_CHAIN to "off" (Settings > Secrets and variables >
+# Actions > Variables); runs then publish once and never start a successor.
 on:
   schedule:
-    - cron: '*/15 13-21 * * 1-5'   # ~every 15 min during US market hours (UTC), weekdays
-    - cron: '0 * * * *'            # hourly otherwise, so snapshots never go far stale
-  workflow_dispatch: {}            # the Worker's trigger (and manual runs)
+    - cron: '7,22,37,52 12-14 * * 1-5'   # morning kicks: 7:07-9:52 ET in winter, 8:07-10:52 ET in summer
+    - cron: '41 */2 * * *'               # every two hours: off-hours freshness + chain restart in desk hours
+  workflow_dispatch: {}                  # the chain's successors, the Worker's dispatch, manual runs
 
 permissions:
   contents: write
+  actions: write   # to start the successor run (workflow_dispatch via GITHUB_TOKEN)
 
 concurrency:
   group: read-snapshots
-  cancel-in-progress: false
+  cancel-in-progress: false   # at most one running + one pending; a newer pending replaces an older one
 
 jobs:
   snapshots:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
+      - name: Mark the start
+        run: echo "RUN_T0=$(date +%s)" >> "$GITHUB_ENV"
       - uses: actions/checkout@v4
       - name: Fetch worker read endpoints + write snapshots
         run: |
@@ -71,6 +79,28 @@ jobs:
             echo "no data change — nothing to commit"
           else
             git commit -m "data: read snapshots [skip ci]"
-            # Another data job may have pushed since checkout: rebase onto it once and retry.
-            git push || { git pull --rebase origin main && git push; }
+            # Another data job may have pushed since checkout: rebase onto it and retry (twice).
+            for i in 1 2 3; do
+              git push && break
+              [ "$i" = 3 ] && { echo "::warning::snapshot push failed 3 times"; break; }
+              git pull --rebase origin main
+            done
           fi
+      - name: Start the next run (the chain; weekdays 8:30-17:00 ET)
+        if: ${{ vars.SNAPSHOT_CHAIN != 'off' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          dow=$(TZ=America/New_York date +%u)                  # 1 = Monday ... 7 = Sunday
+          hm=$((10#$(TZ=America/New_York date +%H%M)))         # base 10: 0830 is not octal
+          if [ "$dow" -gt 5 ] || [ "$hm" -lt 830 ] || [ "$hm" -ge 1700 ]; then
+            echo "Outside weekday 8:30-17:00 ET ($(TZ=America/New_York date '+%a %H:%M')): the chain stops here."
+            exit 0
+          fi
+          wait=$(( 900 - ($(date +%s) - RUN_T0) - 30 ))        # ~15 min run to run; the successor needs ~30 s to start
+          [ "$wait" -gt 0 ] && sleep "$wait"
+          for i in 1 2 3; do
+            gh workflow run snapshots.yml --ref main --repo "$GITHUB_REPOSITORY" && { echo "Started the next run."; exit 0; }
+            sleep 20
+          done
+          echo "::warning::could not start the next run; the two-hourly pass restarts the chain"

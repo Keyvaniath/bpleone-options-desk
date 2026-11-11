@@ -29,6 +29,17 @@ async function getJson(url) {
   try { const r = await fetch(url, { cache: 'no-store' }); return r.ok ? await r.json() : { _err: 'HTTP ' + r.status }; }
   catch (e) { return { _err: e.message }; }
 }
+// Weekday 8:30-17:00 ET quarter-hours in [from, to): the slots the snapshot chain should fill (34 a full weekday).
+function deskSlots(from, to) {
+  let n = 0;
+  for (let t = Math.ceil(from / 900000) * 900000; t < to; t += 900000) {
+    const p = new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', hour12: false, weekday: 'short', hour: '2-digit', minute: '2-digit' }).formatToParts(new Date(t));
+    const g = k => (p.find(x => x.type === k) || {}).value;
+    const hm = (parseInt(g('hour'), 10) % 24) * 100 + parseInt(g('minute'), 10);
+    if (['Mon', 'Tue', 'Wed', 'Thu', 'Fri'].includes(g('weekday')) && hm >= 830 && hm < 1700) n++;
+  }
+  return n;
+}
 async function getText(url) {
   try { const r = await fetch(url, { cache: 'no-store' }); return r.ok ? await r.text() : null; } catch (e) { return null; }
 }
@@ -43,10 +54,10 @@ async function getText(url) {
     const deployed = h.worker_version;
     const isNew = deployed === EXPECTED;
     rec('worker', 'deployed version = repo version (' + EXPECTED + ')', isNew ? 'PASS' : 'PENDING', 'deployed ' + deployed);
-    // Pass-320: the 15-min trigger starts the GitHub snapshot job; it needs the GH_DISPATCH_TOKEN secret.
+    // Pass-320/322: the Worker can also start the snapshot job (minute tick, GH_DISPATCH_TOKEN). Since pass 337
+    // the job chains itself, so this path is an optional backup. Judged by runs it actually started (section 4),
+    // never by the configured flag: on 11/5-11/11 the flag read true while GitHub rejected the stored token (401).
     const sd = h.snapshot_dispatch;
-    rec('worker', 'snapshot dispatch configured (15-min trigger)', sd && sd.configured ? 'PASS' : 'PENDING',
-      sd ? (sd.configured ? sd.schedule : 'deployed, but the GH_DISPATCH_TOKEN secret is not set') : 'needs the pass-320 deploy');
     const fsc = await getJson(WORKER + '/brain/flow-score');
     rec('worker', 'flow-score overlap-corrected (effective_n)', fsc.leg && fsc.leg.effective_n != null ? 'PASS' : (isNew ? 'FAIL' : 'PENDING'),
       fsc.leg ? ('n ' + fsc.leg.n + ', n_eff ' + fsc.leg.effective_n + ', z ' + fsc.leg.z_score_vs_drift + ' (raw ' + fsc.leg.z_score_vs_drift_raw + ')') : fsc._err);
@@ -92,24 +103,32 @@ async function getText(url) {
     rec('site', 'no generated insider trades', icf && !/function\s+syntheticTx/.test(icf) ? 'PASS' : 'PENDING');
 
     // ---- 4. Scheduled jobs (GitHub's public API; 60 anonymous reads/hour)
-    // Pass-320: snapshots.yml is started by the Worker (workflow_dispatch) with GitHub's schedule as a backup,
-    // so both events count. brain-health.yml stays on GitHub's schedule on purpose: it watches the Worker, and
-    // a check the Worker triggered would stop exactly when the Worker fails.
-    for (const [file, perDay, events, why] of [
-      ['snapshots.yml', 40, ['schedule', 'workflow_dispatch'], 'GitHub cron starvation; the Worker trigger (pass-320) fixes it once deployed with its token'],
-      ['brain-health.yml', 40, ['schedule'], 'GitHub cron starvation; stays on GitHub on purpose (it monitors the Worker)']]) {
-      const r = await getJson('https://api.github.com/repos/Keyvaniath/bpleone-options-desk/actions/workflows/' + file + '/runs?per_page=100');
-      const day = (r.workflow_runs || []).filter(x => Date.parse(x.created_at) > now - 86400000);
-      const n = day.filter(x => events.indexOf(x.event) >= 0).length;
-      const nd = day.filter(x => x.event === 'workflow_dispatch').length;
-      rec('jobs', file + ' ran on schedule (24h)', r._err ? 'WARN' : (n >= perDay * 0.8 ? 'PASS' : 'WARN'),
-        r._err || (n + ' runs in 24h vs ~' + perDay + '+ asked' + (events.length > 1 ? ' (' + nd + ' started by the Worker)' : '') + (n >= perDay * 0.8 ? '' : ': ' + why)));
+    // Pass 337: snapshots.yml chains itself (each run starts the next with GITHUB_TOKEN) on weekdays 8:30-17:00 ET.
+    // Judge it by the runs that happened, split by who started them, against the desk-hour quarter-hours in the
+    // last 24h. brain-health.yml stays on GitHub's schedule on purpose (it monitors the Worker).
+    {
+      const r = await getJson('https://api.github.com/repos/Keyvaniath/bpleone-options-desk/actions/workflows/snapshots.yml/runs?per_page=100');
+      const day = (r.workflow_runs || []).filter(x => Date.parse(x.created_at) > now - 86400000 && x.conclusion !== 'cancelled');
+      const by = x => x.event === 'schedule' ? 'schedule' : ((x.triggering_actor || x.actor || {}).login === 'github-actions[bot]' ? 'chain' : 'other');
+      const n = { chain: 0, schedule: 0, other: 0 }; day.forEach(x => n[by(x)]++);
+      const total = day.length, slots = deskSlots(now - 86400000, now);
+      const ok = slots === 0 ? total > 0 : total >= slots * 0.8;
+      rec('jobs', 'snapshots.yml ran through desk hours (24h)', r._err ? 'WARN' : (ok ? 'PASS' : 'WARN'),
+        r._err || (total + ' runs vs ' + slots + ' weekday 8:30-17:00 ET quarter-hours (chain ' + n.chain + ', GitHub schedule ' + n.schedule + ', Worker/manual ' + n.other + ')' + (ok ? '' : ': the chain broke or never started; the two-hourly pass restarts it')));
+      rec('worker', 'snapshot dispatch (optional backup path)', 'INFO',
+        sd ? ('configured ' + !!sd.configured + '; ' + n.other + ' Worker/manual runs in 24h' + (sd.configured && !n.other ? ' (configured but starting nothing: on 11/5 GitHub rejected the stored token, 401; delete or replace the secret)' : '')) : 'not on this Worker build');
+    }
+    {
+      const r = await getJson('https://api.github.com/repos/Keyvaniath/bpleone-options-desk/actions/workflows/brain-health.yml/runs?per_page=60');
+      const n = (r.workflow_runs || []).filter(x => x.event === 'schedule' && Date.parse(x.created_at) > now - 86400000).length;
+      rec('jobs', 'brain-health.yml ran on schedule (24h)', r._err ? 'WARN' : (n >= 48 * 0.8 ? 'PASS' : 'WARN'),
+        r._err || (n + ' runs in 24h vs ~48 asked' + (n >= 48 * 0.8 ? '' : ': GitHub cron starvation; stays on GitHub on purpose (it monitors the Worker); off-peak minutes since pass 337')));
     }
   }
 
   const w = Math.max(...rows.map(r => (r.area + ' ' + r.item).length));
   for (const r of rows) console.log((r.status + '       ').slice(0, 8) + (r.area + ' ' + r.item).padEnd(w) + '  ' + r.detail);
   const c = s => rows.filter(r => r.status === s).length;
-  console.log('\n' + c('PASS') + ' pass · ' + c('PENDING') + ' pending (needs deploy) · ' + c('WARN') + ' warn · ' + c('FAIL') + ' fail');
+  console.log('\n' + c('PASS') + ' pass · ' + c('PENDING') + ' pending (needs deploy) · ' + c('WARN') + ' warn · ' + c('FAIL') + ' fail' + (c('INFO') ? ' · ' + c('INFO') + ' info' : ''));
   process.exit(c('FAIL') ? 1 : 0);
 })();
