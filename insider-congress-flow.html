@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" media="print" onload="this.media='all'"><noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap"></noscript>
-<link rel="stylesheet" href="css/style.css?v=v237">
+<link rel="stylesheet" href="css/style.css?v=v238">
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
 <style>
@@ -120,13 +120,13 @@
 </div>
 
 <div id="site-footer"></div>
-<script src="js/data-provider.js?v=v237"></script>
-<script src="js/ai-client.js?v=v237"></script>
-<script src="js/app.js?v=v237"></script>
-<script src="js/notify.js?v=v237"></script>
-<script src="js/live.js?v=v237"></script>
-<script src="js/ta.js?v=v237"></script>
-<script src="js/learn.js?v=v237"></script>
+<script src="js/data-provider.js?v=v238"></script>
+<script src="js/ai-client.js?v=v238"></script>
+<script src="js/app.js?v=v238"></script>
+<script src="js/notify.js?v=v238"></script>
+<script src="js/live.js?v=v238"></script>
+<script src="js/ta.js?v=v238"></script>
+<script src="js/learn.js?v=v238"></script>
 <script>buildNav('smart-money');</script>
 
 <script>
@@ -151,10 +151,27 @@
     return 'OTHER';
   }
 
+  // Pass 343: (1) keyless visitors get the same SEC Form 4 filings through the desk's worker (/brain/insider) instead
+  // of no data at all; (2) only open-market trades (code P / S) are a 'buy' or 'sell'. Every positive share change used
+  // to count as a buy, so grants, awards and option exercises fed this page's totals and confluence-scanner's insider
+  // signal (it reads this cache). Everything else is 'other'.
+  const sideOf = (code, change) => (code === 'P' || code === 'S') ? (change > 0 ? 'buy' : 'sell') : 'other';
   async function fetchInsiderTx(sym) {
     const key = getFinnhubKey();
-    if (!key) return [];
     try {
+      if (!key) {
+        const W = (window.WorkerBridge && WorkerBridge.getUrl && WorkerBridge.getUrl()) || 'https://bpleone-brain-worker.brandonpleone.workers.dev';
+        const r = await fetch(W + '/brain/insider?symbol=' + encodeURIComponent(sym), { cache: 'no-store' });
+        if (!r.ok) return [];
+        const j = await r.json();
+        const cutoff = Date.now() - 60 * 86400000;
+        return (j && j.ok && Array.isArray(j.transactions) ? j.transactions : []).map(d => ({
+          sym, name: d.name, ts: new Date(d.transactionDate || d.filingDate).getTime(),
+          shares: d.change, price: d.transactionPrice, value: Math.abs(d.change || 0) * (d.transactionPrice || 0),
+          type: d.openMarket ? (d.change > 0 ? 'buy' : 'sell') : 'other', code: d.transactionCode || '',
+          title: '', role: 'OTHER'
+        })).filter(t => t.ts >= cutoff);
+      }
       const to = new Date().toISOString().slice(0, 10);
       const from = new Date(Date.now() - 60 * 86400000).toISOString().slice(0, 10);
       const url = `https://finnhub.io/api/v1/stock/insider-transactions?symbol=${sym}&from=${from}&to=${to}&token=${key}`;
@@ -164,7 +181,7 @@
       return (j.data || []).map(d => ({
         sym, name: d.name, ts: new Date(d.transactionDate || d.filingDate).getTime(),
         shares: d.change, price: d.transactionPrice, value: Math.abs(d.change) * (d.transactionPrice || 0),
-        type: d.change > 0 ? 'buy' : 'sell',
+        type: sideOf(d.transactionCode, d.change), code: d.transactionCode || '',
         title: d.title || '',
         role: classifyRole(d.title || '')
       }));
@@ -198,17 +215,17 @@
     const key = getFinnhubKey();
     document.getElementById('btnPull').disabled = true;
     document.getElementById('btnPull').textContent = 'Pulling…';
-    document.getElementById('status').textContent = (key ? 'fetching Finnhub data…' : 'no Finnhub key: no insider data (set a key in Settings; SEC Form 4 data is on insider-live.html)');
+    document.getElementById('status').textContent = (key ? 'fetching Finnhub data…' : 'fetching SEC Form 4 filings through the desk worker…');
     const cache = loadCache();
     // drop any entry not marked real (older versions of this page cached generated data here)
-    Object.keys(cache.tx || {}).forEach(k => { if (!cache.tx[k] || cache.tx[k].real !== true) delete cache.tx[k]; });
+    Object.keys(cache.tx || {}).forEach(k => { if (!cache.tx[k] || cache.tx[k].real !== true || cache.tx[k].v !== 2) delete cache.tx[k]; });
     for (let i = 0; i < universe.length; i++) {
       const sym = universe[i];
       document.getElementById('status').textContent = `${i + 1}/${universe.length}: ${sym}`;
       if (cache.tx[sym] && cache.tx[sym].real === true && Date.now() - cache.tx[sym].ts < TTL) continue;
-      if (!key) continue;
       const tx = await fetchInsiderTx(sym);
-      cache.tx[sym] = { ts: Date.now(), data: tx, real: true, source: 'finnhub' };
+      // v2: only open-market P/S rows are typed buy/sell (older cached rows counted grants as buys).
+      cache.tx[sym] = { ts: Date.now(), data: tx, real: true, v: 2, source: key ? 'finnhub' : 'worker-sec-form4' };
       const sent = key ? await fetchSentiment(sym) : null;
       if (sent) cache.sent[sym] = { ts: Date.now(), data: sent };
     }
@@ -259,17 +276,17 @@
       const roleTag = `<span class="tag ${t.role === 'CEO' ? 'ceo' : t.role === 'CFO' ? 'cfo' : 'director'}">${t.role}</span>`;
       return `<div class="row">
         <div class="mono" style="font-weight:700;">${t.sym}</div>
-        <div><span class="tag ${t.type}">${t.type.toUpperCase()}</span></div>
+        <div><span class="tag ${t.type}">${t.type === 'other' ? (t.code ? 'CODE ' + t.code : 'OTHER') : t.type.toUpperCase()}</span></div>
         <div>${roleTag}</div>
         <div style="font-size:11px;">${(t.name || '').slice(0, 24)}</div>
         <div class="mono" style="text-align:right;">${Math.abs(t.shares || 0).toLocaleString()}</div>
         <div class="mono" style="text-align:right;">${t.price ? '$' + t.price.toFixed(2) : '—'}</div>
-        <div class="mono" style="text-align:right;font-weight:700;color:${t.type === 'buy' ? 'var(--green)' : 'var(--red)'};">${'$' + (t.value / 1000).toFixed(0) + 'k'}</div>
+        <div class="mono" style="text-align:right;font-weight:700;color:${t.type === 'buy' ? 'var(--green)' : t.type === 'sell' ? 'var(--red)' : 'var(--text-muted)'};">${'$' + (t.value / 1000).toFixed(0) + 'k'}</div>
         <div class="mono" style="font-size:11px;color:var(--text-muted);">${time}</div>
         <div style="font-size:11px;display:flex;gap:6px;">
           <a href="trade-ticket.html?sym=${t.sym}" style="color:var(--accent);">🎯</a>
           <a href="live-train.html?sym=${t.sym}" style="color:var(--text-muted);">🎓</a>
-          <a href="hypothetical.html?sym=${t.sym}&bias=${t.type === 'buy' ? 'bull' : 'bear'}&source=signals&note=${encodeURIComponent('Insider ' + t.type + ' by ' + t.role)}" style="color:var(--accent);">📝</a>
+          <a href="hypothetical.html?sym=${t.sym}&bias=${t.type === 'buy' ? 'bull' : t.type === 'sell' ? 'bear' : 'neutral'}&source=signals&note=${encodeURIComponent('Insider ' + t.type + ' by ' + t.role)}" style="color:var(--accent);">📝</a>
         </div>
       </div>`;
     }).join('');

@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" media="print" onload="this.media='all'"><noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap"></noscript>
-<link rel="stylesheet" href="css/style.css?v=v237">
+<link rel="stylesheet" href="css/style.css?v=v238">
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
 <style>
@@ -123,13 +123,13 @@
 </div>
 
 <div id="site-footer"></div>
-<script src="js/data-provider.js?v=v237"></script>
-<script src="js/ai-client.js?v=v237"></script>
-<script src="js/app.js?v=v237"></script>
-<script src="js/notify.js?v=v237"></script>
-<script src="js/live.js?v=v237"></script>
-<script src="js/ta.js?v=v237"></script>
-<script src="js/learn.js?v=v237"></script>
+<script src="js/data-provider.js?v=v238"></script>
+<script src="js/ai-client.js?v=v238"></script>
+<script src="js/app.js?v=v238"></script>
+<script src="js/notify.js?v=v238"></script>
+<script src="js/live.js?v=v238"></script>
+<script src="js/ta.js?v=v238"></script>
+<script src="js/learn.js?v=v238"></script>
 <script>buildNav('earnings');</script>
 
 <script>
@@ -199,14 +199,25 @@
     } catch (e) { return null; }
   }
 
+  // Pass 343: past REPORT dates (with bmo/amc timing) from the desk's worker, keyless. This used Finnhub's
+  // /stock/earnings, whose `period` is the fiscal quarter END, as the report date, so every "past post-earnings move"
+  // was a price change around quarter end, weeks before the actual report. It also needed a browser key.
+  const EP_W = (window.WorkerBridge && WorkerBridge.getUrl && WorkerBridge.getUrl()) || 'https://bpleone-brain-worker.brandonpleone.workers.dev';
   async function fetchHistoricalEarnings(sym) {
-    const key = getFinnhubKey();
-    if (!key) return null;
     try {
-      const url = `https://finnhub.io/api/v1/stock/earnings?symbol=${encodeURIComponent(sym)}&token=${encodeURIComponent(key)}`;
-      const res = await fetch(url);
+      const res = await fetch(EP_W + '/brain/earnings-history?symbol=' + encodeURIComponent(sym), { cache: 'no-store' });
       if (!res.ok) return null;
-      return await res.json();
+      const j = await res.json();
+      return (j && j.ok && Array.isArray(j.earnings)) ? j.earnings : null;
+    } catch (e) { return null; }
+  }
+  // ~1 year of real daily closes (worker /brain/history). The 40-session daily bars reached at most one past report.
+  async function fetchDailyCloses(sym) {
+    try {
+      const res = await fetch(EP_W + '/brain/history?sym=' + encodeURIComponent(sym), { cache: 'no-store' });
+      if (!res.ok) return null;
+      const j = await res.json();
+      return (j && j.ok && Array.isArray(j.closes)) ? j.closes.filter(x => x && x.c > 0 && x.t) : null;
     } catch (e) { return null; }
   }
 
@@ -252,30 +263,30 @@
       const dir = strat.tag === 'directional-long' ? 'up' : 'down';
       return `Past ${n} earnings reactions: ${movesTxt}. Average ${dir === 'up' ? '+' : '-'}${Math.abs(biasScore).toFixed(1)}% with ${(biasConsistency * 100).toFixed(0)}% same-direction. A consistent pattern over ${n} prints, too few to call an edge. Consider ${dir === 'up' ? 'long calls (slightly ITM, 2-4 weeks DTE)' : 'long puts'} sized to risk only 1× the implied move on the trade.`;
     }
-    if (n < 2) return `No prior earnings-reaction history loaded (it needs a Finnhub key in Settings), so no strategy is proposed. ${impliedMove != null ? 'The options market prices a ' + impliedMove.toFixed(1) + '% move through the ' + analysis.implied.exp + ' expiry.' : ''}`;
+    if (n < 2) return `Fewer than two past earnings reactions could be measured (report dates or daily history unavailable for this name), so no strategy is proposed. ${impliedMove != null ? 'The options market prices a ' + impliedMove.toFixed(1) + '% move through the ' + analysis.implied.exp + ' expiry.' : ''}`;
     return `Past ${n} moves were noisy or mixed (${movesTxt}). No clear pattern. Stand aside unless you have a strong fundamental thesis.`;
   }
 
   function analyzeSymbol(sym, earningsDate, historicalEarnings, recentBars, implied) {
     // Find past EPS surprise data (last 4)
     const past4 = (historicalEarnings || []).slice(0, 4);
-    // Approximate past post-earnings moves: find the bar at/after each past report date
+    // Past post-earnings reactions, close to close around each REAL report date (pass 343):
+    //   after the close (amc): close of the next session vs the report day's close;
+    //   before the open (bmo): the report day's close vs the prior session's close;
+    //   timing not stated: next session's close vs the prior session's close (spans both).
     const pastMoves = [];
+    const etDay = t => new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York' }).format(new Date(t));
+    const closes = (recentBars || []).map(b => ({ d: etDay(b.t), c: b.c }));
     past4.forEach(e => {
-      const reportDate = new Date(e.period).getTime();
-      if (!recentBars) return;
-      // Find day-of-report bar and next-day close
-      const idx = recentBars.findIndex(b => {
-        const t = (b.t * 1000 || b.t);
-        return Math.abs(t - reportDate) < 86400000 * 2;
-      });
-      if (idx === -1 || idx + 1 >= recentBars.length) return;
-      const before = recentBars[idx].o;
-      const after = recentBars[idx + 1].c;
-      if (before && after) {
-        const move = ((after - before) / before) * 100;
-        pastMoves.push(+move.toFixed(2));
-      }
+      if (!closes.length || !e.date) return;
+      const i = closes.findIndex(x => x.d === e.date);
+      if (i === -1) return;
+      const hour = (e.hour || '').toLowerCase();
+      let before = null, after = null;
+      if (hour === 'amc') { before = closes[i].c; after = closes[i + 1] && closes[i + 1].c; }
+      else if (hour === 'bmo') { before = closes[i - 1] && closes[i - 1].c; after = closes[i].c; }
+      else { before = closes[i - 1] && closes[i - 1].c; after = closes[i + 1] && closes[i + 1].c; }
+      if (before > 0 && after > 0) pastMoves.push(+(((after - before) / before) * 100).toFixed(2));
     });
     const n = pastMoves.length;
     const avgAbsMove = n ? pastMoves.reduce((a, x) => a + Math.abs(x), 0) / n : null;
@@ -316,7 +327,7 @@
         if (typeof TA !== 'undefined') await TA.warmup(e.symbol);
         const to = Date.now();
         const from = to - 400 * 86400000;
-        const bars = await fetchDailyBars(e.symbol, from, to);
+        const bars = await fetchDailyCloses(e.symbol);
         const hist = await fetchHistoricalEarnings(e.symbol);
         const implied = await fetchImpliedMove(e.symbol, e.date, e.hour);
         const analysis = analyzeSymbol(e.symbol, e.date, hist, bars, implied);

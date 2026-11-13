@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" media="print" onload="this.media='all'"><noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap"></noscript>
-<link rel="stylesheet" href="css/style.css?v=v237">
+<link rel="stylesheet" href="css/style.css?v=v238">
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
 <style>
@@ -64,7 +64,7 @@
     <div style="font-size:11px;color:var(--text-muted);margin-top:6px;line-height:1.6;">
       Reports drop after 4 PM ET → AH trading spikes → tomorrow's open inherits the IV crush.
       We pull tonight's AMC reports + tomorrow's BMO from Finnhub, enrich with live AH price action, suggest plays.
-      <strong>Hit "Pull" to refresh — Brandon's Finnhub key is auto-detected.</strong>
+      <strong>Hit "Pull" to refresh. The calendar comes from Finnhub through the desk's worker: no key needed.</strong>
     </div>
   </div>
 
@@ -94,14 +94,14 @@
 </div>
 
 <div id="site-footer"></div>
-<script src="js/data-provider.js?v=v237"></script>
-<script src="js/ai-client.js?v=v237"></script>
-<script src="js/app.js?v=v237"></script>
-<script src="js/notify.js?v=v237"></script>
-<script src="js/live.js?v=v237"></script>
-<script src="js/ta.js?v=v237"></script>
-<script src="js/learn.js?v=v237"></script>
-<script src="js/discord.js?v=v237"></script>
+<script src="js/data-provider.js?v=v238"></script>
+<script src="js/ai-client.js?v=v238"></script>
+<script src="js/app.js?v=v238"></script>
+<script src="js/notify.js?v=v238"></script>
+<script src="js/live.js?v=v238"></script>
+<script src="js/ta.js?v=v238"></script>
+<script src="js/learn.js?v=v238"></script>
+<script src="js/discord.js?v=v238"></script>
 <script>buildNav('earnings');</script>
 
 <script>
@@ -129,27 +129,29 @@
     document.getElementById('btnPull').textContent = 'Pulling…';
     document.getElementById('status').textContent = 'fetching calendar…';
 
-    const key = getFinnhubKey();
-    if (!key) {
-      document.getElementById('status').innerHTML = '⚠ <a href="settings.html" style="color:var(--accent);">Need Finnhub key in Settings</a>';
-      document.getElementById('btnPull').disabled = false;
-      document.getElementById('btnPull').textContent = '🔄 Pull latest earnings';
-      return;
-    }
-
+    // Pass 343: this stopped at "Need Finnhub key in Settings" for every visitor without a key, although the desk's
+    // worker serves the same Finnhub earnings calendar with no key (/brain/earnings). Dates are ET calendar days
+    // (toISOString() gave the UTC date, a day ahead every evening).
+    const etDay = d => new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York' }).format(d);
     const today = nowET();
-    const todayStr = today.toISOString().slice(0, 10);
+    const todayStr = etDay(new Date());
     const tomorrow = new Date(today);
     do { tomorrow.setDate(tomorrow.getDate() + 1); } while (tomorrow.getDay() === 0 || tomorrow.getDay() === 6);
-    const tomorrowStr = tomorrow.toISOString().slice(0, 10);
+    const tomorrowStr = tomorrow.getFullYear() + '-' + String(tomorrow.getMonth() + 1).padStart(2, '0') + '-' + String(tomorrow.getDate()).padStart(2, '0');
+    const W = (window.WorkerBridge && WorkerBridge.getUrl && WorkerBridge.getUrl()) || 'https://bpleone-brain-worker.brandonpleone.workers.dev';
 
     let calendar = [];
     try {
-      const url = `https://finnhub.io/api/v1/calendar/earnings?from=${todayStr}&to=${tomorrowStr}&token=${encodeURIComponent(key)}`;
-      const res = await fetch(url);
+      const res = await fetch(W + '/brain/earnings?days=5', { cache: 'no-store' });
       if (res.ok) {
         const j = await res.json();
-        calendar = j.earningsCalendar || [];
+        calendar = (j && j.ok && Array.isArray(j.earnings)) ? j.earnings : [];
+      }
+      if (!res.ok || !calendar.length) {
+        document.getElementById('status').textContent = 'Earnings calendar unavailable right now; nothing fabricated. Try again in a minute.';
+        document.getElementById('btnPull').disabled = false;
+        document.getElementById('btnPull').textContent = '🔄 Pull latest earnings';
+        return;
       }
     } catch (e) {
       document.getElementById('status').textContent = 'fetch failed: ' + e.message;
@@ -169,6 +171,8 @@
       const ahChg = q && q.prevClose ? ((q.last - q.prevClose) / q.prevClose) * 100 : null;
       const beat = (e.epsActual != null && e.epsEstimate != null) ? (e.epsActual > e.epsEstimate ? 'beat' : e.epsActual < e.epsEstimate ? 'miss' : 'inline') : 'pending';
       const snap = typeof TA !== 'undefined' ? TA.snapshot(e.symbol) : null;
+      // Pass 343: an ATR-based ESTIMATE (ATR% x 1.7), not what the options market charges; labeled as such. The real
+      // implied move is the CBOE ATM straddle on earnings-playbook.html.
       const impliedPct = snap && snap.atrPct ? +(snap.atrPct * 1.7).toFixed(2) : null;
       // Surprise %
       let surprisePct = null;
@@ -194,8 +198,8 @@
     const ahCls = e.ahChg > 0 ? 'r-pos' : e.ahChg < 0 ? 'r-neg' : 'r-warn';
     const stratHint = (() => {
       if (isBmo) {
-        if (e.impliedPct != null && e.impliedPct > 3) return 'High implied move — IV crush short-premium candidate';
-        if (e.impliedPct != null && e.impliedPct < 1.5) return 'Low implied — long-vol straddle/strangle';
+        if (e.impliedPct != null && e.impliedPct > 3) return 'Large typical move (ATR estimate) — check the real straddle price before any premium trade';
+        if (e.impliedPct != null && e.impliedPct < 1.5) return 'Small typical move (ATR estimate) — check the real straddle price';
         return 'Standard — wait for reaction';
       }
       if (e.beat === 'beat' && e.ahChg != null && e.ahChg < 0) return 'Beat but selling — fade open if continues';
@@ -221,7 +225,7 @@
         <div class="metric"><div class="lab">EPS actual</div><div class="val">${e.epsActual != null ? '$' + (+e.epsActual).toFixed(2) : '—'}</div></div>
         <div class="metric"><div class="lab">EPS est</div><div class="val">${e.epsEstimate != null ? '$' + (+e.epsEstimate).toFixed(2) : '—'}</div></div>
         <div class="metric"><div class="lab">Surprise</div><div class="val ${e.surprisePct > 0 ? 'r-pos' : e.surprisePct < 0 ? 'r-neg' : ''}">${surpriseTxt}</div></div>
-        <div class="metric"><div class="lab">Implied</div><div class="val">${e.impliedPct != null ? '±' + e.impliedPct.toFixed(2) + '%' : '—'}</div></div>
+        <div class="metric"><div class="lab" title="ATR% x 1.7: an estimate from recent ranges, not the options market's implied move">Est. move (ATR)</div><div class="val">${e.impliedPct != null ? '±' + e.impliedPct.toFixed(2) + '%' : '—'}</div></div>
       </div>
       <div style="font-size:12px;color:var(--text-muted);margin-bottom:10px;line-height:1.5;"><strong style="color:var(--text-primary);">Strategy:</strong> ${stratHint}</div>
       <div class="actions">

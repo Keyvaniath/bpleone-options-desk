@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" media="print" onload="this.media='all'"><noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap"></noscript>
-<link rel="stylesheet" href="css/style.css?v=v237">
+<link rel="stylesheet" href="css/style.css?v=v238">
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
 <style>
@@ -111,7 +111,7 @@
       <div>EPS est</div>
       <div>Last close</div>
       <div style="text-align:right;">Past 4 avg</div>
-      <div style="text-align:right;">Implied %</div>
+      <div style="text-align:right;" title="ATR% x 1.7: an estimate from recent ranges, not the options market's implied move">Est. move (ATR)</div>
       <div>Strategy hint</div>
     </div>
     <div id="bmoList"></div>
@@ -161,16 +161,16 @@
 </div>
 
 <div id="site-footer"></div>
-<script src="js/data-provider.js?v=v237"></script>
-<script src="js/ai-client.js?v=v237"></script>
-<script src="js/app.js?v=v237"></script>
-<script src="js/notify.js?v=v237"></script>
-<script src="js/live.js?v=v237"></script>
-<script src="js/ta.js?v=v237"></script>
-<script src="js/learn.js?v=v237"></script>
-<script src="js/discord.js?v=v237"></script>
-<script src="js/alerts-engine.js?v=v237"></script>
-<script src="js/econ-feed.js?v=v237"></script>
+<script src="js/data-provider.js?v=v238"></script>
+<script src="js/ai-client.js?v=v238"></script>
+<script src="js/app.js?v=v238"></script>
+<script src="js/notify.js?v=v238"></script>
+<script src="js/live.js?v=v238"></script>
+<script src="js/ta.js?v=v238"></script>
+<script src="js/learn.js?v=v238"></script>
+<script src="js/discord.js?v=v238"></script>
+<script src="js/alerts-engine.js?v=v238"></script>
+<script src="js/econ-feed.js?v=v238"></script>
 <script>buildNav('learn');</script>
 
 <script>
@@ -229,15 +229,15 @@
     return 'neutral';
   }
 
+  // Pass 343: keyless via the desk's worker (/brain/earnings serves the same Finnhub calendar); this returned
+  // nothing at all for a visitor without a key.
   async function fetchEarningsCalendar(from, to) {
-    const key = getFinnhubKey();
-    if (!key) return [];
+    const W = (window.WorkerBridge && WorkerBridge.getUrl && WorkerBridge.getUrl()) || 'https://bpleone-brain-worker.brandonpleone.workers.dev';
     try {
-      const url = `https://finnhub.io/api/v1/calendar/earnings?from=${from}&to=${to}&token=${encodeURIComponent(key)}`;
-      const res = await fetch(url);
+      const res = await fetch(W + '/brain/earnings?days=6', { cache: 'no-store' });
       if (!res.ok) return [];
       const j = await res.json();
-      return j.earningsCalendar || [];
+      return (j && j.ok && Array.isArray(j.earnings) ? j.earnings : []).filter(e => e.date >= from && e.date <= to);
     } catch (e) { return []; }
   }
 
@@ -452,7 +452,8 @@ Write a brief covering: (1) what dominates tomorrow's session (catalyst-driven, 
 
     // BMO
     document.getElementById('bmoList').innerHTML = r.bmo.length ? r.bmo.map(e => {
-      const stratHint = e.impliedPct != null && e.impliedPct > 3 ? 'high IV — consider IV crush' : e.impliedPct != null && e.impliedPct < 1.5 ? 'low IV — consider long-vol straddle' : '—';
+      // Pass 343: impliedPct is an ATR estimate, not implied volatility, so it cannot say "high IV".
+      const stratHint = e.impliedPct != null && e.impliedPct > 3 ? 'large typical move (ATR est.) — price the real straddle first' : e.impliedPct != null && e.impliedPct < 1.5 ? 'small typical move (ATR est.) — price the real straddle first' : '—';
       return `<div class="row">
         <div class="mono" style="font-weight:700;">${e.sym}</div>
         <div class="mono" style="text-align:right;">${e.epsEstimate != null ? '$' + (+e.epsEstimate).toFixed(2) : '—'}</div>

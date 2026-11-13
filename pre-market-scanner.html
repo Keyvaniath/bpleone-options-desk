@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" media="print" onload="this.media='all'"><noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap"></noscript>
-<link rel="stylesheet" href="css/style.css?v=v237">
+<link rel="stylesheet" href="css/style.css?v=v238">
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
 <style>
@@ -130,15 +130,15 @@
 </div>
 
 <div id="site-footer"></div>
-<script src="js/data-provider.js?v=v237"></script>
-<script src="js/ai-client.js?v=v237"></script>
-<script src="js/app.js?v=v237"></script>
-<script src="js/notify.js?v=v237"></script>
-<script src="js/live.js?v=v237"></script>
-<script src="js/ta.js?v=v237"></script>
-<script src="js/learn.js?v=v237"></script>
-<script src="js/discord.js?v=v237"></script>
-<script src="js/alerts-engine.js?v=v237"></script>
+<script src="js/data-provider.js?v=v238"></script>
+<script src="js/ai-client.js?v=v238"></script>
+<script src="js/app.js?v=v238"></script>
+<script src="js/notify.js?v=v238"></script>
+<script src="js/live.js?v=v238"></script>
+<script src="js/ta.js?v=v238"></script>
+<script src="js/learn.js?v=v238"></script>
+<script src="js/discord.js?v=v238"></script>
+<script src="js/alerts-engine.js?v=v238"></script>
 <script>buildNav('learn');</script>
 
 <script>
@@ -194,26 +194,23 @@
     } catch (e) { return null; }
   }
 
+  // Pass 343: keyless via the desk's worker (/brain/news?symbol= serves the same Finnhub company news). This returned
+  // nothing for a visitor without a key ("need Finnhub key in Settings").
+  // Pass 343: feed strings are escaped before innerHTML (pass 299).
+  const pmsEsc = v => String(v == null ? '' : v).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   async function fetchHeadlines() {
-    const key = getFinnhubKey();
-    if (!key) return [];
-    const today = new Date().toISOString().slice(0, 10);
-    const yesterday = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
+    const W = (window.WorkerBridge && WorkerBridge.getUrl && WorkerBridge.getUrl()) || 'https://bpleone-brain-worker.brandonpleone.workers.dev';
+    const ms = t => (t > 1e12 ? t : t * 1000);
+    const lists = await Promise.all(UNIVERSE.slice(0, 12).map(sym =>
+      fetch(W + '/brain/news?symbol=' + encodeURIComponent(sym), { cache: 'no-store' })
+        .then(r => r.ok ? r.json() : null).then(j => ({ sym, items: (j && j.ok && Array.isArray(j.items)) ? j.items : [] }))
+        .catch(() => ({ sym, items: [] }))));
     const out = [];
-    for (const sym of UNIVERSE.slice(0, 12)) {
-      try {
-        const url = `https://finnhub.io/api/v1/company-news?symbol=${sym}&from=${yesterday}&to=${today}&token=${key}`;
-        const res = await fetch(url);
-        if (!res.ok) continue;
-        const list = await res.json();
-        if (Array.isArray(list)) {
-          list.slice(0, 3).forEach(n => {
-            if (n.datetime * 1000 < Date.now() - 12 * 60 * 60 * 1000) return; // last 12h only
-            out.push({ sym, ts: n.datetime * 1000, headline: n.headline, url: n.url, source: n.source });
-          });
-        }
-      } catch (e) {}
-    }
+    lists.forEach(({ sym, items }) => items.slice(0, 3).forEach(n => {
+      const ts = ms(n.datetime || 0);
+      if (ts < Date.now() - 12 * 60 * 60 * 1000) return;   // last 12h only
+      out.push({ sym, ts, headline: n.headline, url: /^https?:\/\//i.test(n.url || '') ? n.url : '', source: n.source });
+    }));
     return out.sort((a, b) => b.ts - a.ts);
   }
 
@@ -375,10 +372,10 @@
       return `<div class="news-row">
         <div class="mono" style="font-size:11px;color:var(--text-muted);">${time}</div>
         <div class="mono" style="font-weight:700;">${n.sym}</div>
-        <div><a href="${n.url || '#'}" target="_blank" rel="noopener" style="color:var(--text-primary);text-decoration:none;">${(n.headline || '').slice(0, 110)}</a></div>
+        <div><a href="${pmsEsc(n.url || '#')}" target="_blank" rel="noopener" style="color:var(--text-primary);text-decoration:none;">${pmsEsc((n.headline || '').slice(0, 110))}</a></div>
         <div><span class="tag ${cls.bias}">${cls.cat}</span></div>
       </div>`;
-    }).join('') : '<div class="empty">No headlines pulled (need Finnhub key in Settings).</div>';
+    }).join('') : '<div class="empty">No headlines in the last 12 hours for these names.</div>';
 
     // Watchlist
     document.getElementById('watchlist').innerHTML = r.watchlist.length ? r.watchlist.map(w => `<div class="gapper-row" style="grid-template-columns:80px 90px 80px 1fr 90px;">

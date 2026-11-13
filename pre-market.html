@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" media="print" onload="this.media='all'"><noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap"></noscript>
-<link rel="stylesheet" href="css/style.css?v=v237">
+<link rel="stylesheet" href="css/style.css?v=v238">
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
 <style>
@@ -45,7 +45,7 @@
 
   <div class="live-banner">
     <span class="icon">🌅</span>
-    <div>Pulled from your live Finnhub feed: index futures levels, biggest gappers (vs prior close), today's economic events, and top market headlines from the last 12 hours.</div>
+    <div>Index ETFs (SPY, QQQ, IWM) and VIX, the biggest gaps against the prior close, today's earnings and the latest market headlines: real data through the desk's worker, equities delayed ~15 min, no key needed.</div>
   </div>
 
   <!-- Index futures -->
@@ -99,11 +99,11 @@
 
 <div id="site-footer"></div>
 
-<script src="js/data-provider.js?v=v237"></script>
-<script src="js/ai-client.js?v=v237"></script>
-<script src="js/app.js?v=v237"></script>
-<script src="js/notify.js?v=v237"></script>
-<script src="js/live.js?v=v237"></script>
+<script src="js/data-provider.js?v=v238"></script>
+<script src="js/ai-client.js?v=v238"></script>
+<script src="js/app.js?v=v238"></script>
+<script src="js/notify.js?v=v238"></script>
+<script src="js/live.js?v=v238"></script>
 <script>
 buildNav('pre-market');
 const $ = id => document.getElementById(id);
@@ -175,40 +175,45 @@ function renderGappers() {
   }).join('') : '<tr><td colspan="9" style="text-align:center;color:var(--text-muted);padding:30px;">No data — open <a href="settings.html" style="color:var(--accent);">Settings</a> and connect Finnhub.</td></tr>';
 }
 
+// Pass 343: both cards said "Connect Finnhub" to every visitor without a key, although the desk's worker serves the
+// same Finnhub headlines (/brain/news) and earnings calendar (/brain/earnings) with no key. Links are checked to be
+// http(s) (pass 299); "today" is the ET calendar day (toISOString() gave the UTC date).
+const PM_W = (window.WorkerBridge && WorkerBridge.getUrl && WorkerBridge.getUrl()) || 'https://bpleone-brain-worker.brandonpleone.workers.dev';
+const pmMs = t => (t > 1e12 ? t : t * 1000);
 async function loadNews() {
-  if (typeof DataProvider === 'undefined' || DataProvider.getConfig().provider !== 'finnhub' || !DataProvider.getConfig().apiKey) {
-    $('newsList').innerHTML = '<div style="padding:30px;text-align:center;color:var(--text-muted);">Connect Finnhub in <a href="settings.html" style="color:var(--accent);">Settings</a>.</div>';
-    return;
-  }
   try {
-    const items = await DataProvider.getMarketNews('general');
-    if (!items.length) { $('newsList').innerHTML = '<div style="padding:30px;text-align:center;color:var(--text-muted);">No headlines.</div>'; return; }
-    items.sort((a, b) => b.datetime - a.datetime);
-    $('newsList').innerHTML = items.slice(0, 15).map(n => `<div class="news-row">
-      <a href="${n.url}" target="_blank" rel="noopener">${escapeHtml(n.headline)}</a>
-      <div class="src">${escapeHtml(n.source || '')} · ${new Date(n.datetime).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}</div>
-    </div>`).join('');
+    const r = await fetch(PM_W + '/brain/news', { cache: 'no-store' });
+    const j = r.ok ? await r.json() : null;
+    const items = (j && j.ok && Array.isArray(j.items)) ? j.items.slice() : [];
+    if (!items.length) { $('newsList').innerHTML = '<div style="padding:30px;text-align:center;color:var(--text-muted);">Headlines unavailable right now; nothing fabricated.</div>'; return; }
+    items.sort((a, b) => pmMs(b.datetime || 0) - pmMs(a.datetime || 0));
+    $('newsList').innerHTML = items.slice(0, 15).map(n => {
+      const url = /^https?:\/\//i.test(n.url || '') ? n.url : '';
+      const head = escapeHtml(n.headline);
+      return `<div class="news-row">
+      ${url ? `<a href="${escapeHtml(url)}" target="_blank" rel="noopener">${head}</a>` : head}
+      <div class="src">${escapeHtml(n.source || '')} · ${n.datetime ? new Date(pmMs(n.datetime)).toLocaleTimeString('en-US', { timeZone: 'America/New_York', hour: 'numeric', minute: '2-digit' }) + ' ET' : ''}</div>
+    </div>`; }).join('');
   } catch (e) {
-    $('newsList').innerHTML = '<div style="padding:30px;text-align:center;color:var(--red);">' + e.message + '</div>';
+    $('newsList').innerHTML = '<div style="padding:30px;text-align:center;color:var(--text-muted);">Headlines unavailable right now; nothing fabricated.</div>';
   }
 }
 
 async function loadEarnings() {
-  if (typeof DataProvider === 'undefined' || DataProvider.getConfig().provider !== 'finnhub' || !DataProvider.getConfig().apiKey) {
-    $('earnList').innerHTML = '<div style="padding:30px;text-align:center;color:var(--text-muted);">Connect Finnhub.</div>';
-    return;
-  }
   try {
-    const items = await DataProvider.getEarningsCalendar(Date.now(), Date.now() + 86400000);
-    const today = new Date().toISOString().slice(0, 10);
+    const r = await fetch(PM_W + '/brain/earnings?days=2', { cache: 'no-store' });
+    const j = r.ok ? await r.json() : null;
+    const items = (j && j.ok && Array.isArray(j.earnings)) ? j.earnings : null;
+    if (!items) { $('earnList').innerHTML = '<div style="padding:30px;text-align:center;color:var(--text-muted);">Earnings calendar unavailable right now; nothing fabricated.</div>'; return; }
+    const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York' }).format(new Date());
     const filtered = items.filter(i => i.date === today);
     if (!filtered.length) { $('earnList').innerHTML = '<div style="padding:30px;text-align:center;color:var(--text-muted);">No earnings today.</div>'; return; }
     $('earnList').innerHTML = filtered.slice(0, 20).map(i => `<div class="news-row" style="display:flex;justify-content:space-between;align-items:center;">
-      <span><strong class="mono">${i.symbol}</strong> ${escapeHtml(i.name || '')}</span>
-      <span style="font-size:11px;color:var(--text-muted);font-family:var(--font-mono);">${(i.hour || 'DMH').toUpperCase()}${i.epsEstimate != null ? ' · EPS est $' + (+i.epsEstimate).toFixed(2) : ''}</span>
-    </div>`).join('');
+      <span><strong class="mono">${escapeHtml(i.symbol)}</strong> ${escapeHtml(i.name || '')}</span>
+      <span style="font-size:11px;color:var(--text-muted);font-family:var(--font-mono);">${escapeHtml((i.hour || 'time n/a').toUpperCase())}${i.epsEstimate != null ? ' · EPS est $' + (+i.epsEstimate).toFixed(2) : ''}</span>
+    </div>`).join('') + (filtered.length > 20 ? '<div class="news-row" style="color:var(--text-muted);font-size:11px;">+' + (filtered.length - 20) + ' more on the <a href="earnings-calendar.html" style="color:var(--accent);">earnings calendar</a></div>' : '');
   } catch (e) {
-    $('earnList').innerHTML = '<div style="padding:30px;text-align:center;color:var(--red);">' + e.message + '</div>';
+    $('earnList').innerHTML = '<div style="padding:30px;text-align:center;color:var(--text-muted);">Earnings calendar unavailable right now; nothing fabricated.</div>';
   }
 }
 

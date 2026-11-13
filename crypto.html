@@ -4,11 +4,11 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Crypto Desk — bpleone / trade</title>
-<meta name="description" content="Live BTC + ETH + crypto-adjacent equities (MARA / COIN / SMCI / MSTR). Real Finnhub WS data.">
+<meta name="description" content="Real-time BTC + ETH (Coinbase) and crypto-exposed equities (COIN, MARA), delayed ~15 min.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" media="print" onload="this.media='all'"><noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap"></noscript>
-<link rel="stylesheet" href="css/style.css?v=v237">
+<link rel="stylesheet" href="css/style.css?v=v238">
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
@@ -31,7 +31,7 @@
   <div class="page-header">
     <div>
       <div class="page-title">Crypto Desk <span class="feat-badge feat-live">LIVE</span></div>
-      <div class="page-subtitle">BTC + ETH from Finnhub WS · crypto-adjacent equities · <span id="market-clock">--</span></div>
+      <div class="page-subtitle">BTC + ETH real-time (Coinbase; Finnhub with a key) · crypto-exposed equities, delayed ~15 min · <span id="market-clock">--</span></div>
     </div>
     <div class="flex gap-8">
       <a href="settings.html" class="btn btn-ghost">⚙ Settings</a>
@@ -41,14 +41,14 @@
   <!-- Big BTC + ETH -->
   <div class="grid grid-2 mb-24" style="gap:14px;">
     <div class="crypto-card" id="btcCard" onclick="location.href='ticker.html?sym=BTC'">
-      <div class="name">Bitcoin · BINANCE:BTCUSDT</div>
+      <div class="name">Bitcoin · BTC-USD</div>
       <div class="sym">BTC</div>
       <div class="price mono" id="btcPrice">—</div>
       <div class="chg mono" id="btcChg">—</div>
       <canvas id="btcSpark" height="50" style="margin-top:8px;"></canvas>
     </div>
     <div class="crypto-card" id="ethCard" onclick="location.href='ticker.html?sym=ETH'">
-      <div class="name">Ethereum · BINANCE:ETHUSDT</div>
+      <div class="name">Ethereum · ETH-USD</div>
       <div class="sym">ETH</div>
       <div class="price mono" id="ethPrice">—</div>
       <div class="chg mono" id="ethChg">—</div>
@@ -71,7 +71,7 @@
   <div class="card">
     <div class="card-header"><div class="card-title">🔗 BTC vs Crypto Equities — Today's Move</div></div>
     <canvas id="corrChart" height="200"></canvas>
-    <div style="font-size:12px;color:var(--text-muted);margin-top:8px;line-height:1.5;">When MSTR / MARA / COIN / SMCI track BTC's move, beta-correlation is intact. When they diverge significantly, watch for mean-reversion in the lagging name. (For a real correlation matrix see <a href="correlation.html" style="color:var(--accent);">Correlation Matrix</a>.)</div>
+    <div style="font-size:12px;color:var(--text-muted);margin-top:8px;line-height:1.5;">When MARA / COIN track BTC's move, beta-correlation is intact. When they diverge significantly, watch for mean-reversion in the lagging name. (For a real correlation matrix see <a href="correlation.html" style="color:var(--accent);">Correlation Matrix</a>.)</div>
   </div>
 
   <div class="related-bar mt-24">
@@ -85,20 +85,20 @@
 
 <div id="site-footer"></div>
 
-<script src="js/data-provider.js?v=v237"></script>
-<script src="js/ai-client.js?v=v237"></script>
-<script src="js/app.js?v=v237"></script>
-<script src="js/notify.js?v=v237"></script>
-<script src="js/live.js?v=v237"></script>
+<script src="js/data-provider.js?v=v238"></script>
+<script src="js/ai-client.js?v=v238"></script>
+<script src="js/app.js?v=v238"></script>
+<script src="js/notify.js?v=v238"></script>
+<script src="js/live.js?v=v238"></script>
 <script>
 buildNav('crypto');
 const $ = id => document.getElementById(id);
 const HIST = { BTC: [], ETH: [] };
+// Pass 343: only genuinely crypto-exposed names the desk prices. Palantir was labeled a "BTC treasury" company (it is
+// not) and Super Micro "crypto-adjacent" (an AI-server maker); both are gone.
 const EQ_SYMS = [
   { sym: 'COIN', name: 'Coinbase', type: 'Exchange' },
-  { sym: 'MARA', name: 'Marathon Digital', type: 'Miner' },
-  { sym: 'SMCI', name: 'Super Micro', type: 'Crypto-adjacent' },
-  { sym: 'PLTR', name: 'Palantir', type: 'BTC treasury' }
+  { sym: 'MARA', name: 'Marathon Digital', type: 'Miner' }
 ];
 
 let btcSpark, ethSpark, corrChart;
@@ -124,7 +124,7 @@ function renderBigCard(sym, priceId, chgId, sparkChart, sparkId) {
   const q = QUOTES[sym];
   if (!q || !q.fresh) {
     $(priceId).textContent = '—';
-    $(chgId).textContent = (typeof DataProvider !== 'undefined' && DataProvider.getConfig().provider === 'finnhub' && DataProvider.getConfig().apiKey) ? 'Waiting for tick…' : 'Connect Finnhub in Settings';
+    $(chgId).textContent = 'Waiting for the first tick…';   // pass 343: Coinbase streams BTC/ETH with no key
     return sparkChart;
   }
   $(priceId).textContent = fmt$(q.last);
@@ -188,7 +188,7 @@ function renderCorr() {
 }
 
 function render() {
-  ['BTC','ETH','COIN','MARA','SMCI','PLTR'].forEach(s => track(s));
+  ['BTC','ETH','COIN','MARA'].forEach(s => track(s));
   btcSpark = renderBigCard('BTC', 'btcPrice', 'btcChg', btcSpark, 'btcSpark');
   ethSpark = renderBigCard('ETH', 'ethPrice', 'ethChg', ethSpark, 'ethSpark');
   renderEquities();

@@ -2565,6 +2565,42 @@ async function handleRequest(request, env, ctx) {
     return resp;
   }
 
+  // Pass-324: past earnings REPORT dates for one symbol (Finnhub /calendar/earnings filtered to the symbol, the last
+  // ~400 days), keyless for the browser. earnings-playbook.html used /stock/earnings, whose `period` is the fiscal
+  // quarter END, as the report date, so its "past post-earnings moves" were price changes around quarter end, weeks
+  // before the actual report. Each row: { date (report day, ET), hour ('bmo' | 'amc' | ''), epsActual, epsEstimate,
+  // quarter, year }, newest first.
+  if (path === '/brain/earnings-history') {
+    const raw = (url.searchParams.get('symbol') || url.searchParams.get('sym') || '').toUpperCase().trim();
+    const sym = raw.replace(/[^A-Z0-9.\-]/g, '').slice(0, 8);
+    if (!/^[A-Z][A-Z0-9.\-]{0,7}$/.test(sym)) return json({ ok: false, error: 'symbol required (e.g. ?symbol=NVDA)' }, 400);
+    if (!env.FINNHUB_API_KEY) return json({ ok: false, error: 'worker has no Finnhub key' }, 503);
+    const cache = caches.default;
+    const cacheKey = new Request(url.toString(), { method: 'GET' });
+    const hit = await cache.match(cacheKey);
+    if (hit) return hit;
+    const today = new Date(), from = new Date(Date.now() - 400 * 86400000);
+    const ymd = d => d.toISOString().slice(0, 10);
+    let rows = null;
+    try {
+      const r = await fetch('https://finnhub.io/api/v1/calendar/earnings?from=' + ymd(from) + '&to=' + ymd(today) +
+        '&symbol=' + encodeURIComponent(sym) + '&token=' + encodeURIComponent(env.FINNHUB_API_KEY));
+      if (r.ok) {
+        const j = await r.json();
+        rows = (j && Array.isArray(j.earningsCalendar) ? j.earningsCalendar : [])
+          .filter(e => e && e.symbol === sym && /^\d{4}-\d{2}-\d{2}$/.test(e.date || '') && e.date <= ymd(today))
+          .map(e => ({ date: e.date, hour: e.hour || '', epsActual: e.epsActual, epsEstimate: e.epsEstimate, quarter: e.quarter, year: e.year }))
+          .sort((a, b) => b.date.localeCompare(a.date));
+      }
+    } catch (e) {}
+    const resp = json({ ok: Array.isArray(rows), source: 'finnhub/calendar-earnings', symbol: sym, count: rows ? rows.length : 0, earnings: rows || [],
+      note: Array.isArray(rows) ? 'Past report dates (ET) with timing: bmo = before the open, amc = after the close, blank = not stated.' : 'Finnhub did not answer; nothing cached.' });
+    // Past report dates change only when a new report lands - cache 12h. Pass 308: failures are not cached.
+    resp.headers.set('Cache-Control', 'public, max-age=' + (Array.isArray(rows) ? 43200 : 60));
+    if (Array.isArray(rows)) ctx.waitUntil(cache.put(cacheKey, resp.clone()));
+    return resp;
+  }
+
   // Pass 300: company profile (Finnhub /stock/profile2), worker-proxied so the
   // per-symbol pages render keyless. Accepts ?symbol= or ?sym=.
   if (path === '/brain/profile') {

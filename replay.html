@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" media="print" onload="this.media='all'"><noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap"></noscript>
-<link rel="stylesheet" href="css/style.css?v=v237">
+<link rel="stylesheet" href="css/style.css?v=v238">
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
@@ -135,11 +135,11 @@
 
 <div id="site-footer"></div>
 
-<script src="js/data-provider.js?v=v237"></script>
-<script src="js/ai-client.js?v=v237"></script>
-<script src="js/app.js?v=v237"></script>
-<script src="js/notify.js?v=v237"></script>
-<script src="js/live.js?v=v237"></script>
+<script src="js/data-provider.js?v=v238"></script>
+<script src="js/ai-client.js?v=v238"></script>
+<script src="js/app.js?v=v238"></script>
+<script src="js/notify.js?v=v238"></script>
+<script src="js/live.js?v=v238"></script>
 <script>
 buildNav('replay');
 
@@ -175,9 +175,13 @@ async function load() {
   $('kBarStatus').textContent = 'Loading…';
   $('barBody').innerHTML = '<tr><td colspan="6" style="color:var(--text-muted);padding:20px;text-align:center;">Loading…</td></tr>';
 
-  if (typeof DataProvider === 'undefined' || DataProvider.getConfig().provider !== 'finnhub' || !DataProvider.getConfig().apiKey) {
-    $('kBarStatus').textContent = 'Need Finnhub key';
-    $('barBody').innerHTML = '<tr><td colspan="6" style="text-align:center;padding:20px;"><a href="settings.html" style="color:var(--accent);">Connect Finnhub →</a></td></tr>';
+  // Pass 343: intraday replay needs intraday bars, and there is no free source for them: the desk's worker keeps daily
+  // bars only, and Finnhub's candle endpoint is a paid tier (a free key gets 403, checked 11/11). Say so plainly
+  // instead of "Connect Finnhub" (which would not have worked either).
+  const cfg = (typeof DataProvider !== 'undefined' && DataProvider.getConfig) ? DataProvider.getConfig() : {};
+  if (!cfg.apiKey || !/polygon|alpaca|tradier|finnhub/i.test(cfg.provider || '')) {
+    $('kBarStatus').textContent = 'Needs an intraday data provider';
+    $('barBody').innerHTML = '<tr><td colspan="6" style="text-align:center;padding:20px;color:var(--text-muted);">Intraday replay needs intraday bars, which no free feed provides: add a Polygon, Alpaca or Tradier key (or a paid Finnhub plan) in <a href="settings.html" style="color:var(--accent);">Settings</a>. Nothing is simulated in their place.</td></tr>';
     return;
   }
 
@@ -186,8 +190,8 @@ async function load() {
   try {
     bars = await DataProvider.getHistorical(symbol, res, fromMs, toMs);
     if (!bars || !bars.length) {
-      $('kBarStatus').textContent = 'No bars (weekend / pre-listing / Finnhub free tier limit)';
-      $('barBody').innerHTML = '<tr><td colspan="6" style="text-align:center;padding:20px;color:var(--text-muted);">No bars for this date. Finnhub free tier covers ~1 year intraday for most US stocks.</td></tr>';
+      $('kBarStatus').textContent = 'No bars for this date';
+      $('barBody').innerHTML = '<tr><td colspan="6" style="text-align:center;padding:20px;color:var(--text-muted);">No intraday bars came back for this date: a weekend or holiday, a date before listing, or a provider plan without intraday history (Finnhub\u2019s candle endpoint is paid; a free key gets refused). Nothing is simulated in their place.</td></tr>';
       return;
     }
     $('kBars').textContent = bars.length;
