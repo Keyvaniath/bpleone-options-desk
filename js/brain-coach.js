@@ -209,19 +209,21 @@
       // 85/100 is a single thing to review, not a five-alarm fire — saying so on
       // every page was alarmist and contradicted the score (and the worker brain,
       // which is the authoritative engine, reports healthy separately).
-      headline = 'BRAIN IS DEGRADED — be very careful';
+      // Pass 342: these are THIS BROWSER's local-model diagnostics, not the Worker brain or a trading signal.
+      headline = 'Local model diagnostics flag problems (this browser only)';
       headlineColor = 'var(--red)';
     } else if (alertCount > 0) {
-      headline = 'Brain is mostly healthy — ' + alertCount + ' alert' + (alertCount > 1 ? 's' : '') + ' to review';
+      headline = 'Local model diagnostics: ' + alertCount + ' alert' + (alertCount > 1 ? 's' : '') + ' to review (this browser only)';
       headlineColor = 'var(--yellow)';
     } else if (warnCount > 1) {
-      headline = 'Brain is OK but multiple warnings — reduce size';
+      headline = 'Local model diagnostics: several warnings (this browser only)';
       headlineColor = 'var(--yellow)';
     } else if (warnCount === 1) {
-      headline = 'Brain is mostly healthy — one yellow flag';
+      headline = 'Local model diagnostics: one warning (this browser only)';
       headlineColor = 'var(--yellow)';
     } else if (diagnosis.some(d => d.kind === 'good')) {
-      headline = 'Brain is HEALTHY — trade with conviction';
+      // Never 'trade with conviction': the graded live record shows no edge over market drift (edge-scorecard.html).
+      headline = 'Local model diagnostics look clean (this browser only; not a trading signal)';
       headlineColor = 'var(--green)';
     } else {
       headline = 'Brain is warming up — waiting for data';
@@ -231,7 +233,7 @@
     // Default advice if none
     if (advice.length === 0 && diagnosis.length > 0) {
       if (alertCount === 0 && warnCount === 0) {
-        advice.push({ icon: '✓', text: 'No specific concerns. Follow standard sizing per Unified Predictor.' });
+        advice.push({ icon: '✓', text: 'No local diagnostic concerns. This is not a trading signal: the graded live record is on the Edge Scorecard.' });
       } else {
         advice.push({ icon: '👀', text: 'Watch the diagnostic flags. Reduce size if they don\'t clear within 1 hour.' });
       }

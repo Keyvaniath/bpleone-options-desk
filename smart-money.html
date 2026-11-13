@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" media="print" onload="this.media='all'"><noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap"></noscript>
-<link rel="stylesheet" href="css/style.css?v=v236">
+<link rel="stylesheet" href="css/style.css?v=v237">
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
@@ -49,17 +49,17 @@
   <!-- KPI strip — computed from real data -->
   <div class="grid grid-4" style="margin-bottom:24px;">
     <div class="sentiment-card">
-      <div class="lab">Transactions (last 6mo)</div>
+      <div class="lab">Insider transactions (latest filings)</div>
       <div class="val mono" id="kCount">—</div>
       <div style="font-size:12px;color:var(--text-muted);" id="kCountSub">—</div>
     </div>
     <div class="sentiment-card" style="border-left-color:var(--green);">
-      <div class="lab">Total Insider BUY shares</div>
+      <div class="lab">Open-market BUY shares</div>
       <div class="val mono green-text" id="kBuy">—</div>
       <div style="font-size:12px;color:var(--text-muted);" id="kBuyDol">—</div>
     </div>
     <div class="sentiment-card" style="border-left-color:var(--red);">
-      <div class="lab">Total Insider SELL shares</div>
+      <div class="lab">Open-market SELL shares</div>
       <div class="val mono red-text" id="kSell">—</div>
       <div style="font-size:12px;color:var(--text-muted);" id="kSellDol">—</div>
     </div>
@@ -73,7 +73,7 @@
   <!-- Sentiment chart -->
   <div class="card mb-24">
     <div class="card-header">
-      <div class="card-title">📈 Insider Sentiment (MSPR) — Monthly</div>
+      <div class="card-title" id="sentLabel">📈 Insider Sentiment (MSPR) — Monthly</div>
       <span style="font-size:11px;color:var(--text-muted);">Range: −1 (max selling) to +1 (max buying)</span>
     </div>
     <canvas id="sentChart" height="200"></canvas>
@@ -121,11 +121,11 @@
 
 <div id="site-footer"></div>
 
-<script src="js/data-provider.js?v=v236"></script>
-<script src="js/ai-client.js?v=v236"></script>
-<script src="js/app.js?v=v236"></script>
-<script src="js/notify.js?v=v236"></script>
-<script src="js/live.js?v=v236"></script>
+<script src="js/data-provider.js?v=v237"></script>
+<script src="js/ai-client.js?v=v237"></script>
+<script src="js/app.js?v=v237"></script>
+<script src="js/notify.js?v=v237"></script>
+<script src="js/live.js?v=v237"></script>
 <script>
 buildNav('smart-money');
 
@@ -155,11 +155,23 @@ async function load() {
   $('tickerLink').href = 'ticker.html?sym=' + sym;
   $('tableWrap').innerHTML = '<div class="empty-card"><div class="icon">⏳</div><div>Loading insider transactions for ' + sym + '…</div></div>';
 
-  if (typeof DataProvider === 'undefined' || DataProvider.getConfig().provider !== 'finnhub' || !DataProvider.getConfig().apiKey) {
-    showError('Finnhub key required',
-      'Insider data is pulled live from Finnhub. Open Settings → Market Data, paste your Finnhub key, and enable the feed.');
+  // Pass 342: without a Finnhub key this page stopped at "Finnhub key required" with every tile blank, although the
+  // desk's Worker serves the same SEC Form 4 filings with no key (/brain/insider). Keyless visitors now get those.
+  const hasKey = typeof DataProvider !== 'undefined' && DataProvider.getConfig().provider === 'finnhub' && !!DataProvider.getConfig().apiKey;
+  if (!hasKey) {
+    const W = (window.WorkerBridge && WorkerBridge.getUrl && WorkerBridge.getUrl()) || 'https://bpleone-brain-worker.brandonpleone.workers.dev';
+    let j = null;
+    try { const r = await fetch(W + '/brain/insider?symbol=' + encodeURIComponent(sym), { cache: 'no-store' }); if (r.ok) j = await r.json(); } catch (e) {}
+    if (!j || !j.ok || !Array.isArray(j.transactions)) {
+      showError('Insider feed unreachable', 'The desk worker did not answer for ' + sym + '. Nothing is fabricated in its place; try again in a minute.');
+      return;
+    }
+    _src = 'SEC Form 4 via the desk worker';
+    renderTxns(j.transactions);
+    renderSentiment(monthlyOpenMarket(j.transactions), true);
     return;
   }
+  _src = 'Finnhub';
 
   // Parallel fetch transactions + sentiment
   const [txns, sent] = await Promise.all([
@@ -180,6 +192,27 @@ function fmt$(v) {
   return '$' + v.toFixed(2);
 }
 
+let _src = 'Finnhub';
+// Open-market = code P (purchase) or S (sale): the trades with the insider's own money on the line. Grants (A),
+// exercises (M), gifts (G) and tax withholding (F) are not votes.
+const isOpenMarket = t => t.openMarket != null ? !!t.openMarket : (t.transactionCode === 'P' || t.transactionCode === 'S');
+// Monthly open-market buy/sell share ratio from the filings themselves, (buys - sells) / (buys + sells), the same
+// shape as Finnhub's MSPR (which needs a key) but computed here and labeled as such.
+function monthlyOpenMarket(txns) {
+  const by = {};
+  txns.filter(isOpenMarket).forEach(t => {
+    const d = String(t.transactionDate || t.filingDate || '');
+    if (!/^\d{4}-\d{2}/.test(d)) return;
+    const k = d.slice(0, 7), ch = Number(t.change) || 0;
+    const m = by[k] = by[k] || { buy: 0, sell: 0 };
+    if (ch > 0) m.buy += ch; else m.sell += -ch;
+  });
+  return Object.keys(by).sort().map(k => {
+    const m = by[k], tot = m.buy + m.sell;
+    return { year: +k.slice(0, 4), month: +k.slice(5, 7), mspr: tot ? (m.buy - m.sell) / tot : 0, change: m.buy - m.sell };
+  });
+}
+
 function renderTxns(txns) {
   $('tableMeta').textContent = txns.length + ' transactions';
   if (!txns.length) {
@@ -190,8 +223,10 @@ function renderTxns(txns) {
     return;
   }
 
+  // Pass 342: the totals count open-market trades only. They used to count every positive share change (grants,
+  // awards, option exercises) as insider "buying".
   let buyShares = 0, buyDol = 0, sellShares = 0, sellDol = 0;
-  txns.forEach(t => {
+  txns.filter(isOpenMarket).forEach(t => {
     const px = t.transactionPrice || 0;
     const ch = t.change || 0;
     if (ch > 0) { buyShares += ch; buyDol += ch * px; }
@@ -199,7 +234,7 @@ function renderTxns(txns) {
   });
 
   $('kCount').textContent = txns.length;
-  $('kCountSub').textContent = 'Last 6 months from Finnhub';
+  $('kCountSub').textContent = txns.filter(isOpenMarket).length + ' open-market · ' + _src;
   $('kBuy').textContent = buyShares.toLocaleString();
   $('kBuyDol').textContent = fmt$(buyDol);
   $('kSell').textContent = sellShares.toLocaleString();
@@ -216,6 +251,7 @@ function renderTxns(txns) {
     </tr></thead>
     <tbody>${txns.map(t => {
       const isBuy = (t.change || 0) > 0;
+      const om = isOpenMarket(t);
       const px = Number(t.transactionPrice) || 0;
       const hasPrice = px > 0; // Form-4 grants/awards/option-exercises (code A/M/G) have no open-market price
       const val = Math.abs((t.change || 0) * px);
@@ -225,7 +261,7 @@ function renderTxns(txns) {
         <td class="mono" style="font-size:11px;color:var(--text-muted);">${t.transactionDate || '—'}</td>
         <td>${(t.name || '—').replace(/&/g,'&amp;').replace(/</g,'&lt;')}</td>
         <td class="mono">${t.transactionCode || '—'}</td>
-        <td class="mono ${isBuy ? 'tx-buy' : 'tx-sell'}" style="text-align:right;">${isBuy ? '+' : ''}${(t.change || 0).toLocaleString()}</td>
+        <td class="mono ${om ? (isBuy ? 'tx-buy' : 'tx-sell') : ''}" style="text-align:right;${om ? '' : 'color:var(--text-muted);'}" title="${om ? 'Open-market trade' : 'Not an open-market trade (grant, exercise, gift or tax)'}">${isBuy ? '+' : ''}${(t.change || 0).toLocaleString()}</td>
         <td class="mono" style="text-align:right;">${hasPrice ? px.toFixed(2) : dash}</td>
         <td class="mono ${isBuy ? 'tx-buy' : 'tx-sell'}" style="text-align:right;">${hasPrice ? (isBuy ? '+' : '-') + fmt$(val) : dash}</td>
       </tr>`;
@@ -233,7 +269,9 @@ function renderTxns(txns) {
   $('tableWrap').innerHTML = html;
 }
 
-function renderSentiment(items) {
+function renderSentiment(items, computed) {
+  const lbl = document.getElementById('sentLabel');
+  if (lbl) lbl.textContent = computed ? 'Open-market buy/sell ratio by month (computed from the Form 4 filings; Finnhub\u2019s MSPR series needs a key)' : 'Insider Sentiment (MSPR) — Monthly';
   if (!items || !items.length) {
     $('kSent').textContent = '—';
     if (sentChart) { sentChart.destroy(); sentChart = null; }
@@ -255,7 +293,7 @@ function renderSentiment(items) {
   sentChart = new Chart($('sentChart').getContext('2d'), {
     type: 'line',
     data: { labels, datasets: [
-      { label: 'MSPR', data: mspr, borderColor: 'rgba(0,212,255,1)', backgroundColor: 'rgba(0,212,255,0.15)', fill: true, tension: 0.25, pointRadius: 3, yAxisID: 'y' },
+      { label: computed ? 'Open-market ratio' : 'MSPR', data: mspr, borderColor: 'rgba(0,212,255,1)', backgroundColor: 'rgba(0,212,255,0.15)', fill: true, tension: 0.25, pointRadius: 3, yAxisID: 'y' },
       { label: 'Net Shares', data: changes, type: 'bar', backgroundColor: changes.map(v => v >= 0 ? 'rgba(16,185,129,0.6)' : 'rgba(239,68,68,0.6)'), yAxisID: 'y1' }
     ] },
     options: { responsive: true, maintainAspectRatio: false,

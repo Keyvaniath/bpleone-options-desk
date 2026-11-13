@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" media="print" onload="this.media='all'"><noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap"></noscript>
-<link rel="stylesheet" href="css/style.css?v=v236">
+<link rel="stylesheet" href="css/style.css?v=v237">
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
 <style>
@@ -33,9 +33,9 @@
   </div>
 
   <div class="grid grid-4 mb-24">
-    <div class="card"><div class="card-header"><div class="card-title">Buys (24h)</div></div><div class="mono green-text" style="font-size:26px;font-weight:700;" id="kpiBuys">--</div><div class="mono" style="font-size:11px;color:var(--text-muted);" id="kpiBuysDollar">--</div></div>
-    <div class="card"><div class="card-header"><div class="card-title">Sells (24h)</div></div><div class="mono red-text" style="font-size:26px;font-weight:700;" id="kpiSells">--</div><div class="mono" style="font-size:11px;color:var(--text-muted);" id="kpiSellsDollar">--</div></div>
-    <div class="card"><div class="card-header"><div class="card-title">B/S Ratio (count)</div></div><div class="mono" style="font-size:26px;font-weight:700;" id="kpiRatio">--</div><div class="mono" style="font-size:11px;color:var(--text-muted);">Buys / Sells</div></div>
+    <div class="card"><div class="card-header"><div class="card-title" id="kpiBuysLabel">Open-market buys</div></div><div class="mono green-text" style="font-size:26px;font-weight:700;" id="kpiBuys">--</div><div class="mono" style="font-size:11px;color:var(--text-muted);" id="kpiBuysDollar">--</div></div>
+    <div class="card"><div class="card-header"><div class="card-title" id="kpiSellsLabel">Open-market sells</div></div><div class="mono red-text" style="font-size:26px;font-weight:700;" id="kpiSells">--</div><div class="mono" style="font-size:11px;color:var(--text-muted);" id="kpiSellsDollar">--</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">B/S Ratio (open-market)</div></div><div class="mono" style="font-size:26px;font-weight:700;" id="kpiRatio">--</div><div class="mono" style="font-size:11px;color:var(--text-muted);" id="kpiRatioSub">Buys / Sells</div></div>
     <div class="card"><div class="card-header"><div class="card-title">Detected Clusters</div></div><div class="mono" style="font-size:26px;font-weight:700;color:var(--green);" id="kpiCluster">--</div><div class="mono" style="font-size:11px;color:var(--text-muted);">3+ insider buys / 14d</div></div>
   </div>
 
@@ -67,11 +67,11 @@
 
 <div id="site-footer"></div>
 
-<script src="js/data-provider.js?v=v236"></script>
-<script src="js/ai-client.js?v=v236"></script>
-<script src="js/app.js?v=v236"></script>
-<script src="js/notify.js?v=v236"></script>
-<script src="js/live.js?v=v236"></script>
+<script src="js/data-provider.js?v=v237"></script>
+<script src="js/ai-client.js?v=v237"></script>
+<script src="js/app.js?v=v237"></script>
+<script src="js/notify.js?v=v237"></script>
+<script src="js/live.js?v=v237"></script>
 <script>
 buildNav('insider-live');
 
@@ -162,7 +162,8 @@ function paint() {
     body.innerHTML = '';
     rows.forEach(t => {
       const cls = t.side === 'BUY' ? 'buy' : 'sell';
-      const sideCol = t.side === 'BUY' ? 'var(--green)' : 'var(--red)';
+      // Pass 342: only open-market trades get the buy/sell colour; an exercise, grant, gift or tax row is not a vote.
+      const sideCol = !t.openMarket ? 'var(--text-muted)' : t.side === 'BUY' ? 'var(--green)' : 'var(--red)';
       const v = Math.abs(t.value || 0);
       const valStr = v >= 1e6 ? '$' + (v / 1e6).toFixed(2) + 'M' : v >= 1e3 ? '$' + (v / 1e3).toFixed(0) + 'k' : (v ? '$' + v.toFixed(0) : '—');
       const note = CODE_NOTE[t.transactionCode] || ('Code ' + (t.transactionCode || '?'));
@@ -182,8 +183,17 @@ function paint() {
     if (!rows.length) body.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-muted);font-size:12px;">No rows match this filter.</div>';
   }
 
-  const buys = data.filter(d => d.side === 'BUY');
-  const sells = data.filter(d => d.side === 'SELL');
+  // Pass 342 (Brandon's 11/13 screenshot): these tiles said "Buys (24h) 24 / Sells (24h) 126" over filings dated
+  // 9/17-11/10, and every one of the 24 "buys" was an option exercise or grant (zero open-market purchases); gifts
+  // counted as sells. The tiles now count open-market trades only (the ones the page says carry the signal) and
+  // name the filing window they actually cover.
+  const om = data.filter(d => d.openMarket);
+  const buys = om.filter(d => d.side === 'BUY');
+  const sells = om.filter(d => d.side === 'SELL');
+  const fds = data.map(d => d.filingDate).filter(Boolean).sort();
+  const win = fds.length ? ' · filed ' + fds[0].slice(5).replace('-', '/') + '–' + fds[fds.length - 1].slice(5).replace('-', '/') : '';
+  const other = data.length - om.length;
+  document.getElementById('kpiRatioSub').textContent = 'of ' + data.length + ' latest filings' + win + (other ? ' · ' + other + ' grants/exercises/gifts excluded' : '');
   const buyVal = buys.reduce((a, d) => a + Math.abs(d.value || 0), 0);
   const sellVal = sells.reduce((a, d) => a + Math.abs(d.value || 0), 0);
   document.getElementById('kpiBuys').textContent = buys.length;

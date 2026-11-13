@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" media="print" onload="this.media='all'"><noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap"></noscript>
-<link rel="stylesheet" href="css/style.css?v=v236">
+<link rel="stylesheet" href="css/style.css?v=v237">
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
 <style>
@@ -55,11 +55,11 @@
 
 <div id="site-footer"></div>
 
-<script src="js/data-provider.js?v=v236"></script>
-<script src="js/ai-client.js?v=v236"></script>
-<script src="js/app.js?v=v236"></script>
-<script src="js/notify.js?v=v236"></script>
-<script src="js/live.js?v=v236"></script>
+<script src="js/data-provider.js?v=v237"></script>
+<script src="js/ai-client.js?v=v237"></script>
+<script src="js/app.js?v=v237"></script>
+<script src="js/notify.js?v=v237"></script>
+<script src="js/live.js?v=v237"></script>
 <script>
 buildNav('options-lab');
 
@@ -152,12 +152,19 @@ async function generate(sym) {
   $('result').innerHTML = '<div class="card" style="text-align:center;padding:40px;color:var(--text-muted);">Reading ' + sym + ' — live price, the brain’s lean, and the tape…</div>';
   history.replaceState(null, '', 'options-lab.html?sym=' + sym);
 
-  const [pred, barsR, recR, earnR] = await Promise.all([
+  const [pred, barsR, recR, earnR, picksR, sigsR] = await Promise.all([
     wjBody('/brain/predict?sym=' + encodeURIComponent(sym)),
     wj('/brain/bars?syms=' + encodeURIComponent(sym) + '&days=40'),
     wj('/brain/recommendations?symbol=' + encodeURIComponent(sym)),
-    wj('/brain/earnings?days=70')
+    wj('/brain/earnings?days=70'),
+    wj('/brain/picks'),
+    wj('/brain/signals')
   ]);
+  // Pass 342 (Brandon's 11/13 screenshots): /brain/predict returns the bootstrap-Platt probability (SPY 80% on a NO
+  // PLAY day), so this lab built a BULLISH call spread from a signal the desk's own daily calibration calls
+  // uninformative. The lean is now the live-calibrated call from /brain/signals, and there is none on NO PLAY days.
+  const noPlay = !!(picksR && picksR.no_play);
+  const liveSig = sigsR && Array.isArray(sigsR.signals) ? sigsR.signals.find(x => x.sym === sym) : null;
 
   if (!pred || !pred.quote || !(pred.quote.last > 0)) {
     // Distinguish "symbol not covered" (the brain tracks ~75 large-caps) from a
@@ -172,8 +179,9 @@ async function generate(sym) {
 
   const S = pred.quote.last;
   const chg = pred.quote.changePct;
-  const conv = (pred.conviction != null) ? pred.conviction : 0.5;       // calibrated prob of the directional call
-  const dir = pred.direction || (conv >= 0.5 ? 'LONG' : 'SHORT');
+  const liveP = liveSig && typeof liveSig.predProb === 'number' ? liveSig.predProb : null;
+  const conv = noPlay ? 0.5 : liveP != null ? Math.max(liveP, 1 - liveP) : ((pred.conviction != null) ? pred.conviction : 0.5);   // live-calibrated prob of the directional call
+  const dir = liveP != null ? (liveP >= 0.5 ? 'LONG' : 'SHORT') : (pred.direction || (conv >= 0.5 ? 'LONG' : 'SHORT'));
   const vix = pred.vix || null;
   const bars = (barsR && barsR.bars && barsR.bars[sym]) ? barsR.bars[sym] : null;
 
@@ -192,7 +200,7 @@ async function generate(sym) {
   let stance, stanceCol, structure;
   if (conv >= 0.60) { stance = bull ? 'BULLISH' : 'BEARISH'; stanceCol = bull ? 'var(--green)' : 'var(--red)'; structure = bull ? 'call-debit' : 'put-debit'; }
   else if (conv >= 0.555) { stance = bull ? 'MILD BULL' : 'MILD BEAR'; stanceCol = bull ? 'var(--green)' : 'var(--red)'; structure = bull ? 'call-debit' : 'put-debit'; }
-  else { stance = 'NO CLEAR EDGE'; stanceCol = 'var(--yellow)'; structure = 'none'; }
+  else { stance = noPlay ? 'NO CALL (NO PLAY)' : 'NO CLEAR EDGE'; stanceCol = 'var(--yellow)'; structure = 'none'; }
 
   // Earnings (monitor)
   let nextErn = null;
@@ -202,13 +210,15 @@ async function generate(sym) {
   const r = 0.043; // risk-free proxy
   // Shareable one-paste summary (the spread branch overrides with strike detail).
   window.__playShare = '🤖 bpleone Options Play Lab — ' + sym + ' @ ' + fmt$(S) + '\n'
-    + 'Brain 5-day lean: ' + (bull ? 'LONG' : 'SHORT') + ' ' + (conv * 100).toFixed(0) + '%'
+    + (noPlay ? 'Brain 5-day lean: none today (NO PLAY)' : 'Brain 5-day lean: ' + (bull ? 'LONG' : 'SHORT') + ' ' + (conv * 100).toFixed(0) + '%')
     + (structure === 'none' ? ' — no clear edge; the lab says WAIT, not a forced trade.' : '.') + '\n'
     + 'https://options.bpleone.com/options-lab.html?sym=' + sym + '\n(Educational, not advice.)';
   let playHtml;
   if (structure === 'none') {
     playHtml = '<div class="card mb-24"><div class="card-header"><div class="card-title">🎯 Suggested Play</div></div>'
-      + '<div style="padding:14px;font-size:13px;color:var(--text-secondary);line-height:1.7;">The brain’s lean here is only <strong>' + (conv * 100).toFixed(0) + '%</strong> — too close to the market’s natural drift to justify a directional options bet. <strong style="color:var(--yellow);">The honest call is to WAIT / monitor</strong>, not to force a trade. Watch for the conviction to firm up past ~60% with price reclaiming its 20-day average, or trade the underlying small. (A defined-risk neutral structure like an iron condor is the only "play" that fits a no-edge read — and only if you want premium-decay exposure, not direction.)</div></div>';
+      + '<div style="padding:14px;font-size:13px;color:var(--text-secondary);line-height:1.7;">' + (noPlay
+        ? 'No brain lean today: <strong>NO PLAY</strong>. The daily calibration on the brain\u2019s own graded 5-day calls says its direction signal is uninformative, so the lab does not build a directional play. <strong style="color:var(--yellow);">The honest call is to WAIT</strong> until the desk publishes a pick again.'
+        : 'The brain’s lean here is only <strong>' + (conv * 100).toFixed(0) + '%</strong> — too close to the market’s natural drift to justify a directional options bet. <strong style="color:var(--yellow);">The honest call is to WAIT / monitor</strong>, not to force a trade. Watch for the conviction to firm up past ~60% with price reclaiming its 20-day average, or trade the underlying small.') + ' (A defined-risk neutral structure like an iron condor is the only "play" that fits a no-edge read — and only if you want premium-decay exposure, not direction.)</div></div>';
   } else {
     const callPut = structure === 'call-debit' ? 'call' : 'put';
     const isCall = structure === 'call-debit';
@@ -320,9 +330,11 @@ async function generate(sym) {
     + '<div class="card col-5"><div class="card-header"><div class="card-title">' + sym + ' snapshot</div>'
     + '<span class="bias-pill" style="background:' + stanceCol + '22;color:' + stanceCol + ';">' + stance + '</span></div>'
     + '<div style="display:flex;align-items:baseline;gap:10px;margin:6px 0 10px;"><span class="mono" style="font-size:30px;font-weight:700;">' + fmt$(S) + '</span><span class="mono ' + (chg >= 0 ? 'green-text' : 'red-text') + '">' + fmtPct(chg, 2) + '</span></div>'
-    + '<div class="kv"><span class="k">Brain 5-day lean</span><span class="v" style="color:' + stanceCol + ';">' + (bull ? 'LONG' : 'SHORT') + ' · ' + (conv * 100).toFixed(0) + '% conviction</span></div>'
+    + '<div class="kv"><span class="k">Brain 5-day lean</span><span class="v" style="color:' + stanceCol + ';">' + (noPlay ? 'none today (NO PLAY)' : (bull ? 'LONG' : 'SHORT') + ' · ' + (conv * 100).toFixed(0) + '% conviction') + '</span></div>'
     + recLine
-    + '<div style="margin-top:10px;font-size:11px;color:var(--text-muted);line-height:1.6;">The lean is the brain’s calibrated probability the next ~5-day move is ' + (bull ? 'up' : 'down') + '. It has <strong>no proven timing edge</strong> beyond market drift — treat it as a tilt, not a signal.</div>'
+    + '<div style="margin-top:10px;font-size:11px;color:var(--text-muted);line-height:1.6;">' + (noPlay
+      ? 'The brain refits its calibration daily on its own graded 5-day calls; today it says the direction signal is uninformative, so there is no lean.'
+      : 'The lean is the brain’s live-calibrated probability the next ~5-day move is ' + (bull ? 'up' : 'down') + '. It has <strong>no proven timing edge</strong> beyond market drift — treat it as a tilt, not a signal.') + '</div>'
     + '<button id="shareBtn" class="btn btn-secondary" style="margin-top:12px;width:100%;">📋 Copy / share this play</button>'
     + '</div>'
     // technicals

@@ -12,7 +12,7 @@
 <meta property="og:url" content="https://options.bpleone.com/broadcast.html">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:image" content="https://options.bpleone.com/assets/og-card.png">
-<link rel="stylesheet" href="css/style.css?v=v236">
+<link rel="stylesheet" href="css/style.css?v=v237">
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
 <style>
@@ -72,12 +72,12 @@
 
 <div id="site-footer"></div>
 
-<script src="js/data-provider.js?v=v236"></script>
-<script src="js/ai-client.js?v=v236"></script>
-<script src="js/app.js?v=v236"></script>
-<script src="js/notify.js?v=v236"></script>
-<script src="js/live.js?v=v236"></script>
-<script src="js/worker-bridge.js?v=v236"></script>
+<script src="js/data-provider.js?v=v237"></script>
+<script src="js/ai-client.js?v=v237"></script>
+<script src="js/app.js?v=v237"></script>
+<script src="js/notify.js?v=v237"></script>
+<script src="js/live.js?v=v237"></script>
+<script src="js/worker-bridge.js?v=v237"></script>
 <script>
 buildNav('broadcast');
 const WORKER = (window.WorkerBridge && WorkerBridge.getUrl && WorkerBridge.getUrl())
@@ -152,6 +152,16 @@ function copyTweet(id){
   }).catch(() => { ta.select(); document.execCommand('copy'); });
 }
 
+// Pass 342: the brain's OWN graded record. The verdict object's drift_base_rate and n belong to the confluence leg, so
+// pairing them with brain_hit_rate compared the model against the wrong baseline and sample (47.5% vs "55.2%, n=414"
+// on 11/13; the brain's own baseline was 49.2% on n=3,509).
+function brainRecord(conf) {
+  const b = conf && conf.brain;
+  if (b && typeof b.hit_rate === 'number' && typeof b.drift_null_rate === 'number')
+    return { hit: b.hit_rate, base: b.drift_null_rate, n: b.n, nEff: b.effective_n, beats: !!b.beats_drift_95 };
+  return null;
+}
+
 // ---- Compose from live data ----
 async function build(){
   const [picks, conf] = await Promise.all([ jget('/brain/picks'), jget('/brain/confluence-score') ]);
@@ -163,10 +173,11 @@ async function build(){
   // misattribution the worker-side verdict was fixed for.
   try {
     const v = conf && (conf.verdict || conf);
-    if (v && typeof v.brain_hit_rate === 'number' && typeof v.drift_base_rate === 'number') {
-      const brainBeats = v.brain_hit_rate > v.drift_base_rate;
-      let line = 'the model hits ' + (v.brain_hit_rate*100).toFixed(1) + '% vs a ' + (v.drift_base_rate*100).toFixed(1) + '% drift base' + (v.n ? ' (n=' + v.n + ')' : '') +
-        (brainBeats ? ' — above drift but not proven skill' : ' — it does NOT beat market drift');
+    const br = brainRecord(conf);
+    if (v && br) {
+      const brainBeats = br.hit > br.base;
+      let line = 'the model hits ' + (br.hit*100).toFixed(1) + '% vs a ' + (br.base*100).toFixed(1) + '% drift base (n=' + Number(br.n).toLocaleString() + ' graded calls)' +
+        (br.beats ? ' — beats drift at 95%, still research, not advice' : brainBeats ? ' — above drift but not proven skill' : ' — it does NOT beat market drift');
       if (v.insider_edge_found) {
         line += v.fusion_beats_insider === false
           ? '; the one real edge in the data is the INSIDER signal, not the model'
@@ -274,12 +285,13 @@ async function build(){
   {
     let v = null;
     try { v = conf && (conf.verdict || conf); } catch(e){}
+    const br = brainRecord(conf);
     let t;
-    if (v && typeof v.brain_hit_rate === 'number' && typeof v.drift_base_rate === 'number') {
-      const bh = (v.brain_hit_rate*100).toFixed(1), dr = (v.drift_base_rate*100).toFixed(1), n = v.n || '';
+    if (v && br) {
+      const bh = (br.hit*100).toFixed(1), dr = (br.base*100).toFixed(1), n = Number(br.n).toLocaleString();
       if (v.insider_edge_found && v.fusion_beats_insider === false) {
         t = 'Honest scorecard update: our MODEL hits ' + bh + '% vs a ' + dr + '% drift base (n=' + n + ') — no proven skill. The one signal beating drift is INSIDER buy-clusters — the data, not our model. Receipts: ' + SITE + '/edge-scorecard.html';
-      } else if (v.brain_hit_rate <= v.drift_base_rate) {
+      } else if (br.hit <= br.base) {
         t = 'We publish our model’s leans and grade every one live vs market drift. Right now, honestly, the model’s hit rate (' + bh + '%) doesn’t beat the drift base (' + dr + '%, n=' + n + '). We show that openly — that’s the point: ' + SITE + '/edge-scorecard.html';
       } else {
         t = 'Honest scorecard: the model hits ' + bh + '% vs a ' + dr + '% drift base (n=' + n + ') — above the bar but we do NOT call that proven skill until it clears significance. Live grading, wins and misses in public: ' + SITE + '/edge-scorecard.html';
@@ -316,7 +328,11 @@ async function genHorizon(){
   symEl.value = sym;
   const ta = document.getElementById('ta_horizon');
   ta.value = 'Building ' + sym + ' across timeframes…'; recount('horizon');
-  const [hist, pred] = await Promise.all([ jget('/brain/history?sym=' + encodeURIComponent(sym)), jget('/brain/predict?sym=' + encodeURIComponent(sym)) ]);
+  // Pass 342: the weekly leg is the live-calibrated call from /brain/signals (what the desk publishes), and no call on
+  // NO PLAY days. /brain/predict's bootstrap-Platt number (SPY "model 80%" on 11/13) is never broadcast.
+  const [hist, picksH, sigsH] = await Promise.all([ jget('/brain/history?sym=' + encodeURIComponent(sym)), jget('/brain/picks'), jget('/brain/signals') ]);
+  const noPlayH = !!(picksH && picksH.no_play);
+  const sigH = sigsH && Array.isArray(sigsH.signals) ? sigsH.signals.find(x => x.sym === sym) : null;
   // Pass 308: distinguish a worker OUTAGE (fetch failed -> jget null) from a
   // genuinely uncovered symbol, instead of misdiagnosing both as "no history".
   if (!hist) {
@@ -330,13 +346,13 @@ async function genHorizon(){
   const sma = n => { if (px.length<n) return null; let s=0; for(let i=px.length-n;i<px.length;i++) s+=px[i]; return s/n; };
   const last = px[px.length-1];
   const arrow = m => m==null ? '·' : (m>0.003?'▲':m<-0.003?'▼':'▬');
-  const d1 = mom(1), w = (pred && typeof pred.predProb==='number') ? pred.predProb : null;
+  const d1 = mom(1), w = (!noPlayH && sigH && typeof sigH.predProb==='number') ? sigH.predProb : null;
   const m1 = mom(21), m3 = mom(63), m6 = mom(126);
   // Pass 308 (honesty): three-state 200d clause — a short-history name gets NO
   // claim rather than a fabricated "(below 200d)" baked into a ready-to-post tweet.
   const ma200 = sma(200);
   const maClause = ma200 == null ? '' : (last > ma200 ? ' (above 200d)' : ' (below 200d)');
-  const wk = w!=null ? ('Weekly ' + (w>=0.52?'▲':w<=0.48?'▼':'▬') + ' (model ' + Math.round(w*100) + '%)') : 'Weekly ·';
+  const wk = noPlayH ? 'Weekly: no model call (NO PLAY)' : w!=null ? ('Weekly ' + (w>=0.52?'▲':w<=0.48?'▼':'▬') + ' (model ' + Math.round(w*100) + '%)') : 'Weekly ·';
   const t = '📆 $' + sym + ' across timeframes — Daily ' + arrow(d1) + ' / ' + wk + ' / 1mo ' + arrow(m1) + ' / 3mo ' + arrow(m3) + ' / 1yr ' + arrow(m6) +
     maClause + '. Only the 5-day is a graded model call; the rest are trend reads, not advice. ' + SITE + '/horizons.html';
   ta.value = t;

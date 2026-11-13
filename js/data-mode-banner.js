@@ -60,12 +60,14 @@ const DataModeBanner = (function () {
         // Audit pass 277 (HONESTY): the live-vs-stale call is made by the ET market
         // CLOCK (detectSession), not by the provider name and not by a liveAt age a
         // racing off-hours Finnhub WS heartbeat can reset to ~now. During regular
-        // hours equities are delayed ~15 min (Yahoo/Stooq); outside them the printed
+        // hours equities are delayed ~15 min (Yahoo via the Worker); outside them the printed
         // price is the prior session's close. equityDataAgeMin() (market-timestamp
         // source only) supplies the "N ago" detail.
         const sess = (typeof window !== 'undefined' && typeof window.detectSession === 'function') ? window.detectSession() : 'open';
         if (sess === 'open') {
-          return { mode: 'live', color: 'var(--green)', bg: 'rgba(16,185,129,0.08)', border: 'rgba(16,185,129,0.3)', icon: '✓', text: 'Crypto LIVE (real-time WS) · equities DELAYED ~15 min (free Yahoo/Stooq data — real prices, not real-time ticks).' };
+          // Pass 342: the browser Stooq poll is retired (pass 338); equities come from the desk's Worker (Yahoo), and the
+          // mode tag says DELAYED, not LIVE, because the equity prices on these pages are ~15 min old.
+          return { mode: 'delayed', color: 'var(--green)', bg: 'rgba(16,185,129,0.08)', border: 'rgba(16,185,129,0.3)', icon: '✓', text: 'Real prices · equities DELAYED ~15 min (Yahoo via the desk\u2019s Worker) · crypto real-time (Coinbase).' };
         }
         const eqAge = (typeof window !== 'undefined' && typeof window.equityDataAgeMin === 'function') ? window.equityDataAgeMin() : null;
         let ago = '';

@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" media="print" onload="this.media='all'"><noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap"></noscript>
-<link rel="stylesheet" href="css/style.css?v=v236">
+<link rel="stylesheet" href="css/style.css?v=v237">
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
 <style>
@@ -71,11 +71,11 @@
 
 <div id="site-footer"></div>
 
-<script src="js/data-provider.js?v=v236"></script>
-<script src="js/ai-client.js?v=v236"></script>
-<script src="js/app.js?v=v236"></script>
-<script src="js/notify.js?v=v236"></script>
-<script src="js/live.js?v=v236"></script>
+<script src="js/data-provider.js?v=v237"></script>
+<script src="js/ai-client.js?v=v237"></script>
+<script src="js/app.js?v=v237"></script>
+<script src="js/notify.js?v=v237"></script>
+<script src="js/live.js?v=v237"></script>
 <script>
 buildNav('algo-signals');
 
@@ -190,7 +190,12 @@ async function loadData() {
   ]);
   const bars = (br && br.bars) || {};
   const probMap = {};
-  if (sr && Array.isArray(sr.signals)) sr.signals.forEach(s => { if (s && s.sym && typeof s.predProb === 'number') probMap[s.sym] = s.predProb; });
+  // Pass 342: no brain bonus on NO PLAY days. The live calibration then gives every name the same constant (44.8% on
+  // 11/13), which nudged every bearish setup up the ranking as if the brain agreed.
+  const sigList = (sr && Array.isArray(sr.signals)) ? sr.signals : [];
+  const brainNoRead = sigList.length > 0 && (sigList.every(s => /^no play/i.test((s && s.reason) || ''))
+    || new Set(sigList.map(s => Number(s && s.predProb).toFixed(4))).size === 1);
+  if (!brainNoRead) sigList.forEach(s => { if (s && s.sym && typeof s.predProb === 'number') probMap[s.sym] = s.predProb; });
   const all = [];
   UNIVERSE.forEach(sym => { detectSignals(sym, bars[sym], probMap[sym]).forEach(x => all.push(x)); });
   data = all.sort((a, b) => b.score - a.score);

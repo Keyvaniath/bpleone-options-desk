@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" media="print" onload="this.media='all'"><noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap"></noscript>
-<link rel="stylesheet" href="css/style.css?v=v236">
+<link rel="stylesheet" href="css/style.css?v=v237">
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
 <style>
@@ -108,12 +108,12 @@
 
 <div id="site-footer"></div>
 
-<script src="js/data-provider.js?v=v236"></script>
-<script src="js/ai-client.js?v=v236"></script>
-<script src="js/app.js?v=v236"></script>
-<script src="js/notify.js?v=v236"></script>
-<script src="js/live.js?v=v236"></script>
-<script src="js/econ-feed.js?v=v236"></script>
+<script src="js/data-provider.js?v=v237"></script>
+<script src="js/ai-client.js?v=v237"></script>
+<script src="js/app.js?v=v237"></script>
+<script src="js/notify.js?v=v237"></script>
+<script src="js/live.js?v=v237"></script>
+<script src="js/econ-feed.js?v=v237"></script>
 <script>
 buildNav('spy-radar');
 (function () {
@@ -180,10 +180,14 @@ buildNav('spy-radar');
     if (spySig) {
       $('rLeanAge').textContent = 'scan ' + (sigs.ageSec < 90 ? sigs.ageSec + 's' : Math.round(sigs.ageSec / 60) + 'm') + ' old';
       const up = spySig.predProb >= 0.5;
-      $('rLean').innerHTML =
-        'Model P(up over 5 trading days): <b style="color:' + (up ? 'var(--green)' : 'var(--red)') + ';font-family:var(--font-mono);font-size:18px;">' + Math.round(spySig.predProb * 100) + '%</b>'
-        + ' · signal <b>' + esc(spySig.signal) + '</b> · ' + esc(spySig.reason || '') + '<br>'
-        + 'Universe regime: <b>' + esc(sigs.regime || '—') + '</b> (mean P(up) ' + Math.round((sigs.universe_mean_prob || 0) * 100) + '% across ' + sigs.count + ' names)<br>'
+      // Pass 342: on NO PLAY days the live calibration gives every name the same constant (44.8% on 11/13), so a
+      // "Model P(up) 45%" and a "bearish" universe regime were artifacts of that constant, not reads.
+      const noRead = /^no play/i.test(spySig.reason || '') || (Array.isArray(sigs.signals) && sigs.signals.length > 1 && new Set(sigs.signals.map(x => Number(x.predProb).toFixed(4))).size === 1);
+      $('rLean').innerHTML = (noRead
+        ? 'Model call: <b style="font-family:var(--font-mono);font-size:18px;color:var(--text-muted);">NO PLAY</b> · the daily calibration says the brain\'s direction signal is uninformative today, so there is no 5-day lean and no regime read<br>'
+        : 'Model P(up over 5 trading days): <b style="color:' + (up ? 'var(--green)' : 'var(--red)') + ';font-family:var(--font-mono);font-size:18px;">' + Math.round(spySig.predProb * 100) + '%</b>'
+          + ' · signal <b>' + esc(spySig.signal) + '</b> · ' + esc(spySig.reason || '') + '<br>'
+          + 'Universe regime: <b>' + esc(sigs.regime || '—') + '</b> (mean P(up) ' + Math.round((sigs.universe_mean_prob || 0) * 100) + '% across ' + sigs.count + ' names)<br>')
         + '<span style="font-size:11.5px;color:var(--text-muted);">The honest label: this model\'s live record does not beat market drift (<a href="edge-scorecard.html">proof</a>). Treat it as one input, never a reason on its own. For a tradeable structure: <a href="options-tranches.html?sym=SPY">SPY ladders + play card →</a></span>';
     } else {
       $('rLean').innerHTML = '<span style="color:var(--text-muted);">Signal feed unreachable — nothing fabricated.</span>';

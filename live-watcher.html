@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" media="print" onload="this.media='all'"><noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap"></noscript>
-<link rel="stylesheet" href="css/style.css?v=v236">
+<link rel="stylesheet" href="css/style.css?v=v237">
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
 <style>
@@ -79,11 +79,11 @@
   <div id="alertContent"></div>
 </div>
 
-<script src="js/data-provider.js?v=v236"></script>
-<script src="js/ai-client.js?v=v236"></script>
-<script src="js/app.js?v=v236"></script>
-<script src="js/notify.js?v=v236"></script>
-<script src="js/live.js?v=v236"></script>
+<script src="js/data-provider.js?v=v237"></script>
+<script src="js/ai-client.js?v=v237"></script>
+<script src="js/app.js?v=v237"></script>
+<script src="js/notify.js?v=v237"></script>
+<script src="js/live.js?v=v237"></script>
 <script>
 buildNav('live-watcher');
 
@@ -139,11 +139,16 @@ function paint() {
   document.getElementById('kSpread').textContent = q.prevClose > 0 ? q.prevClose.toFixed(2) : '—';
   document.getElementById('kVol').textContent = q.volume ? (q.volume / 1e6).toFixed(2) + 'M' : '—';
 
-  // Brain score — REAL from /brain/predict
-  const p = DATA.predict, kb = document.getElementById('kBrain');
-  if (p && typeof p.conviction === 'number') {
-    kb.textContent = Math.round(p.conviction * 100) + '% ' + (p.direction === 'LONG' ? 'L' : 'S');
-    kb.style.color = p.direction === 'LONG' ? 'var(--green)' : 'var(--red)';
+  // Brain score. Pass 342: the live-calibrated call the desk publishes (/brain/signals), not /brain/predict's
+  // bootstrap-Platt number (SPY 80% on 11/13's NO PLAY day); on NO PLAY days there is no score at all.
+  const kb = document.getElementById('kBrain');
+  const sg = DATA.signal;
+  const noRead = sg && /^no play/i.test(sg.reason || '');
+  if (noRead) { kb.textContent = 'NO PLAY'; kb.style.color = 'var(--text-muted)'; kb.title = 'The daily calibration says the direction signal is uninformative today'; }
+  else if (sg && typeof sg.predProb === 'number') {
+    const up = sg.predProb >= 0.5;
+    kb.textContent = Math.round((up ? sg.predProb : 1 - sg.predProb) * 100) + '% ' + (up ? 'L' : 'S');
+    kb.style.color = up ? 'var(--green)' : 'var(--red)';
   } else { kb.textContent = '—'; kb.style.color = 'var(--text-muted)'; }
 
   renderBars(); renderSignals();
@@ -168,12 +173,20 @@ function renderSignals() {
   const sb = document.getElementById('signalsBody');
   const p = DATA.predict, sig = DATA.signal;
   let html = '';
-  if (p && typeof p.predProb === 'number') {
-    const pct = Math.round(p.predProb * 100);
-    const dirCol = p.direction === 'LONG' ? 'var(--green)' : 'var(--red)';
+  // Pass 342: the brain read is the live-calibrated call the desk publishes (the scanner row), and none on NO PLAY
+  // days. /brain/predict's old bootstrap-Platt number read "LONG 80%" for SPY on 11/13's NO PLAY day.
+  const noRead = (sig && /^no play/i.test(sig.reason || '')) || (p && p.no_play);
+  const lp = sig && typeof sig.predProb === 'number' ? sig.predProb : (p && p.live_calibrated && typeof p.predProb === 'number' ? p.predProb : null);
+  if (noRead) {
     html += '<div style="padding:12px;border-bottom:1px solid var(--border);">'
-      + '<div style="display:flex;justify-content:space-between;align-items:center;"><strong style="font-size:12px;">Brain read</strong><span style="color:' + dirCol + ';font-weight:700;font-family:var(--font-mono);">' + p.direction + ' ' + pct + '%</span></div>'
-      + '<div style="font-size:11px;color:var(--text-muted);margin-top:4px;">5-day directional probability (calibrated). ' + (p.plattApplied ? 'Platt-calibrated.' : 'Raw model output.') + ' ' + (p.bars_in_history || 0) + ' bars of history.</div></div>';
+      + '<div style="display:flex;justify-content:space-between;align-items:center;"><strong style="font-size:12px;">Brain read</strong><span style="color:var(--text-muted);font-weight:700;font-family:var(--font-mono);">NO PLAY</span></div>'
+      + '<div style="font-size:11px;color:var(--text-muted);margin-top:4px;">The daily calibration on the brain\u2019s own graded 5-day calls says its direction signal is uninformative today, so there is no read. <a href="today.html" style="color:var(--accent);">Why →</a></div></div>';
+  } else if (lp != null) {
+    const up = lp >= 0.5, pct = Math.round((up ? lp : 1 - lp) * 100);
+    const dirCol = up ? 'var(--green)' : 'var(--red)';
+    html += '<div style="padding:12px;border-bottom:1px solid var(--border);">'
+      + '<div style="display:flex;justify-content:space-between;align-items:center;"><strong style="font-size:12px;">Brain read</strong><span style="color:' + dirCol + ';font-weight:700;font-family:var(--font-mono);">' + (up ? 'LONG' : 'SHORT') + ' ' + pct + '%</span></div>'
+      + '<div style="font-size:11px;color:var(--text-muted);margin-top:4px;">5-day directional probability, live-calibrated on the brain\u2019s own graded record (no proven edge over drift). ' + ((p && p.bars_in_history) || 0) + ' bars of history.</div></div>';
   }
   if (sig && sig.signal) {
     const sc = sig.signal.indexOf('BUY') >= 0 ? 'var(--green)' : sig.signal.indexOf('SELL') >= 0 ? 'var(--red)' : 'var(--accent)';

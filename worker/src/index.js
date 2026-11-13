@@ -43,7 +43,7 @@ import { ECON_DESK_FILE, normalizeEconEvents, econCoverage, econCovers } from '.
 // Pass 200: version stamp so brain-proof.html + worker-setup.html can detect
 // when the deployed worker is behind the repo source. Bump on every meaningful
 // behavior change. Read via /brain/health → worker_version field.
-const WORKER_VERSION = 'pass-323';
+const WORKER_VERSION = 'pass-324';
 
 const UNIVERSE = [
   'SPY','QQQ','IWM','DIA','AAPL','NVDA','TSLA','MSFT','META','AMZN','GOOGL','AMD',
@@ -2024,7 +2024,7 @@ async function handleRequest(request, env, ctx) {
     // Pass 333: when the live self-calibration says the direction signal is
     // uninformative, cross-sectional ranks would turn noise (or exact ties) into
     // a full BUY/SELL spread. Every name is HOLD until the record earns it.
-    let { arr, universeMean, regime } = labelDisplayedSignals(snap.signals, liveCalSig);
+    let { arr, universeMean, regime, sigNoPlay } = labelDisplayedSignals(snap.signals, liveCalSig);
     const wantSignal = (url.searchParams.get('signal') || '').toUpperCase();
     if (wantSignal) arr = arr.filter(s => s.signal === wantSignal);
     const minRvol = parseFloat(url.searchParams.get('min_rvol') || '0');
@@ -2042,7 +2042,8 @@ async function handleRequest(request, env, ctx) {
       into_close: intoClose.slice(0, 20),
       count: arr.length,
       counts,
-      regime,                                          // pass 236: bullish / neutral / bearish
+      regime,                                          // pass 236: bullish / neutral / bearish; pass-324: no-read on NO PLAY days
+      no_play: !!sigNoPlay,                            // pass-324: the same gate /brain/picks and /brain/predict report
       universe_mean_prob: +universeMean.toFixed(4),    // avg 5d P(up) across the scanned universe
       note: 'Cross-sectional relative strength: each name ranked vs the current universe (regime-robust). Absolute P(up 5d) shown per row. Unusual VOLUME + brain conviction; free-data TA proxy, NOT options-flow whale prints.',
       signals: arr
@@ -3393,10 +3394,11 @@ async function handleRequest(request, env, ctx) {
     const sym = (url.searchParams.get('sym') || '').toUpperCase().trim();
     if (!sym) return json({ error: 'missing ?sym=X' }, 400);
     if (!UNIVERSE.includes(sym)) return json({ error: 'symbol not in universe', sym, universe_size: UNIVERSE.length }, 404);
-    const [model, barsHistory, platt] = await Promise.all([
+    const [model, barsHistory, platt, liveCal] = await Promise.all([
       kvGet(env, KV_KEYS.MODEL, newModel()),
       kvGet(env, KV_KEYS.BARS_HISTORY, {}),
-      kvGet(env, KV_KEYS.PLATT, null)
+      kvGet(env, KV_KEYS.PLATT, null),
+      kvGet(env, KV_KEYS.LIVE_CAL, null, 300)
     ]);
     const quote = await fetchLiveQuote(env, sym);  // pass 234: Yahoo-primary (carries volume)
     if (!quote) return json({ error: 'live quote unavailable', sym }, 503);
@@ -3407,13 +3409,24 @@ async function handleRequest(request, env, ctx) {
     const features = extractRichFeatures(quote, history, { vix });
     const rawProb = predict(model, features);
     const adjProb = applySymBias(rawProb, sym, model);  // pass 234: per-symbol recalibration
-    const calibratedProb = applyPlatt(adjProb, platt);
+    const modelProb = applyPlatt(adjProb, platt);
+    // Pass-324 (Brandon's 11/13 screenshots): predProb used to be this bootstrap-Platt number (SPY 80% on a NO PLAY
+    // day), so Horizons, options-lab and live-watcher showed and traded a confidence the desk's own daily
+    // calibration rejects, while /brain/signals showed 44.8% for every name. predProb is now the SAME live-calibrated
+    // probability /brain/signals and /brain/picks use; the model's own number stays available as predProbModel.
+    const calOn = !!(liveCal && liveCal.n >= 300);
+    const calibratedProb = calOn ? applyLiveCalibration(adjProb, liveCal) : modelProb;
+    const noPlay = !!(calOn && !liveCal.informative);
     const conviction = Math.max(calibratedProb, 1 - calibratedProb);
-    const direction = calibratedProb >= 0.5 ? 'LONG' : 'SHORT';
+    const direction = noPlay ? 'NONE' : (calibratedProb >= 0.5 ? 'LONG' : 'SHORT');
     return json({
       sym,
       quote: { last: quote.last, prevClose: quote.prevClose, changePct: quote.changePct, ts: quote.ts },
       predProb: calibratedProb,
+      predProbModel: modelProb,
+      live_calibrated: calOn,
+      no_play: noPlay,
+      calibration: liveCal ? { slope_a: liveCal.a, intercept_b: liveCal.b, graded_calls: liveCal.n, informative: !!liveCal.informative } : null,
       predProbRaw: rawProb,
       plattApplied: !!platt && !platt.rejected && typeof platt.a === 'number' && platt.a >= 0.2,
       conviction,
@@ -4706,7 +4719,9 @@ function labelDisplayedSignals(signalsObj, liveCalSig) {
   const n = withProb.length;
   const sorted = withProb.map(s => s.predProb).sort((a, b) => a - b);
   const universeMean = n ? sorted.reduce((a, b) => a + b, 0) / n : 0.5;
-  const regime = n < 8 ? 'unknown' : (universeMean >= 0.52 ? 'bullish' : universeMean <= 0.48 ? 'bearish' : 'neutral');
+  // Pass-324: on NO PLAY days the live calibration maps every name to one constant (44.8% on 11/13), so a
+  // "bearish" regime computed from it was an artifact the pages printed as a read. No play = no regime.
+  const regime = n < 8 ? 'unknown' : sigNoPlay ? 'no-read' : (universeMean >= 0.52 ? 'bullish' : universeMean <= 0.48 ? 'bearish' : 'neutral');
   if (n >= 8) {
     for (const s of withProb) {
       // Pass 333: mid-rank for ties (all-equal probabilities rank 0.5, not 0).

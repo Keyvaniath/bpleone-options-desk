@@ -15,7 +15,7 @@
 <meta name="twitter:image" content="https://options.bpleone.com/assets/og-card.png">
 <meta name="twitter:title" content="bpleone / trade — Horizons">
 <meta name="twitter:description" content="One name, every timeframe — daily to within-a-year — with an honest split between the graded 5-day model call and trend/positioning reads.">
-<link rel="stylesheet" href="css/style.css?v=v236">
+<link rel="stylesheet" href="css/style.css?v=v237">
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
 <style>
@@ -80,12 +80,12 @@
 
 <div id="site-footer"></div>
 
-<script src="js/data-provider.js?v=v236"></script>
-<script src="js/ai-client.js?v=v236"></script>
-<script src="js/app.js?v=v236"></script>
-<script src="js/notify.js?v=v236"></script>
-<script src="js/live.js?v=v236"></script>
-<script src="js/worker-bridge.js?v=v236"></script>
+<script src="js/data-provider.js?v=v237"></script>
+<script src="js/ai-client.js?v=v237"></script>
+<script src="js/app.js?v=v237"></script>
+<script src="js/notify.js?v=v237"></script>
+<script src="js/live.js?v=v237"></script>
+<script src="js/worker-bridge.js?v=v237"></script>
 <script>
 buildNav('horizons');
 const WORKER = (window.WorkerBridge && WorkerBridge.getUrl && WorkerBridge.getUrl())
@@ -117,6 +117,14 @@ async function run(){
   let hist=null, pred=null, quote=null, histReached=false;
   try { const r = await fetch(WORKER + '/brain/history?sym=' + encodeURIComponent(sym), { cache:'no-store' }); histReached = true; if (r.ok) hist = await r.json(); } catch(e){}
   try { const r = await fetch(WORKER + '/brain/predict?sym=' + encodeURIComponent(sym), { cache:'no-store' }); if (r.ok) pred = await r.json(); } catch(e){}
+  // Pass 342 (Brandon's 11/13 screenshot: "brain P(up) 80%" on a NO PLAY day while every other page showed 45% for
+  // every name): /brain/predict returns the bootstrap Platt probability, not the live calibration the desk publishes.
+  // Use the live-calibrated per-name probability from /brain/signals, and no model call at all on NO PLAY days.
+  let picks = null, sigs = null;
+  try { const r = await fetch(WORKER + '/brain/picks', { cache:'no-store' }); if (r.ok) picks = await r.json(); } catch(e){}
+  try { const r = await fetch(WORKER + '/brain/signals', { cache:'no-store' }); if (r.ok) sigs = await r.json(); } catch(e){}
+  const noPlay = !!(picks && picks.no_play);
+  const liveSig = sigs && Array.isArray(sigs.signals) ? sigs.signals.find(x => x.sym === sym) : null;
   try { const r = await fetch(WORKER + '/brain/quotes?syms=' + encodeURIComponent(sym), { cache:'no-store' }); if (r.ok){ const j = await r.json(); quote = j.quotes && j.quotes[sym]; } } catch(e){}
 
   if (!hist || !hist.ok || !Array.isArray(hist.closes) || hist.closes.length < 30) {
@@ -132,8 +140,9 @@ async function run(){
 
   // Model (5-day) direction + strength from the calibrated brain call.
   let modelDir = 0, modelStrength = 0, modelProb = null;
-  if (pred && typeof pred.predProb === 'number') {
-    modelProb = pred.predProb;
+  const liveProb = liveSig && typeof liveSig.predProb === 'number' ? liveSig.predProb : (pred && typeof pred.predProb === 'number' ? pred.predProb : null);
+  if (!noPlay && liveProb != null) {
+    modelProb = liveProb;
     modelDir = modelProb >= 0.52 ? 1 : modelProb <= 0.48 ? -1 : 0;
     modelStrength = Math.min(100, Math.round(Math.abs(modelProb - 0.5) * 200));
   }
@@ -163,11 +172,14 @@ async function run(){
     const dir = m==null?0:(m>0.003?1:m<-0.003?-1:0); const strength = m==null?0:Math.min(100,Math.round(Math.abs(m)*100*8));
     H.push({ tf:'Daily', sub:'next 1–2 days', badge:'trend', dir, strength, metric:'1–2d momentum ' + pct(m), basis:'Very short-term price momentum. Noisy — a coin-flip most days.' }); })();
   // Weekly — the MODEL
-  H.push({ tf:'Weekly', sub:'5 trading days', badge:'model', dir:modelDir, strength:modelStrength,
+  if (noPlay) {
+    H.push({ tf:'Weekly', sub:'5 trading days', badge:'model', dir:0, strength:0, noCall:true, metric:'NO PLAY: no model call today',
+      basis:'The brain refits its calibration daily on its own graded 5-day calls; today it says the direction signal is uninformative, so there is no weekly call for any name. <a href="today.html" style="color:var(--accent);">Why →</a>' });
+  } else H.push({ tf:'Weekly', sub:'5 trading days', badge:'model', dir:modelDir, strength:modelStrength,
     metric: modelProb!=null ? ('brain P(up) ' + (modelProb*100).toFixed(0) + '%') : 'model n/a',
-    basis: modelProb!=null ? 'The brain’s calibrated 5-day model — the one signal graded on the Edge Scorecard (mostly drift).' : 'No live model call for this name yet; showing trend only.' });
+    basis: modelProb!=null ? 'The brain’s live-calibrated 5-day call, the one signal graded on the Edge Scorecard (no proven edge over drift).' : 'No live model call for this name yet; showing trend only.' });
   // If model missing, fall back to 5d momentum for the weekly card
-  if (modelProb == null) { const t = trendLean(5, null, 0.005); if (t){ H[H.length-1].dir=t.dir; H[H.length-1].strength=t.strength; H[H.length-1].metric='5d momentum ' + pct(t.mom); H[H.length-1].badge='trend'; } }
+  if (modelProb == null && !noPlay) { const t = trendLean(5, null, 0.005); if (t){ H[H.length-1].dir=t.dir; H[H.length-1].strength=t.strength; H[H.length-1].metric='5d momentum ' + pct(t.mom); H[H.length-1].badge='trend'; } }
   // Few weeks — ~15 trading days
   (function(){ const t = trendLean(15, 20, 0.01); if(t) H.push({ tf:'Few weeks', sub:'~2–4 weeks', badge:'trend', dir:t.dir, strength:t.strength, metric:'~3wk momentum ' + pct(t.mom), basis:'~3-week momentum, checked against the 20-day trend.' }); })();
   // One month — ~21 trading days + 50d MA
@@ -183,7 +195,7 @@ async function run(){
     return '<div class="hz-card ' + dc + '">' +
       '<span class="hz-badge ' + (h.badge==='model'?'badge-model':'badge-trend') + '">' + (h.badge==='model'?'MODEL · GRADED':'TREND') + '</span>' +
       '<div class="hz-tf">' + h.tf + '</div><div class="hz-sub">' + h.sub + '</div>' +
-      '<div class="hz-dir ' + dc + '">' + dirWord(h.dir) + '</div>' +
+      '<div class="hz-dir ' + dc + '">' + (h.noCall ? 'NO CALL' : dirWord(h.dir)) + '</div>' +
       '<div class="hz-metric">' + h.metric + '</div>' +
       '<div class="hz-meter"><span style="width:' + Math.max(6,h.strength) + '%;background:' + meterColor(h.dir) + ';"></span></div>' +
       '<div class="hz-basis">' + h.basis + '</div>' +
@@ -191,7 +203,7 @@ async function run(){
   }).join('');
 
   // Net posture across horizons
-  const ups = H.filter(h=>h.dir>0).length, downs = H.filter(h=>h.dir<0).length, flats = H.filter(h=>h.dir===0).length;
+  const ups = H.filter(h=>h.dir>0).length, downs = H.filter(h=>h.dir<0).length, flats = H.filter(h=>h.dir===0 && !h.noCall).length, noCalls = H.filter(h=>h.noCall).length;
   const shortSide = H[0].dir, longSide = H[H.length-1].dir;
   let read;
   if (ups>=4) read = '<strong style="color:var(--green);">Aligned bullish</strong> — most timeframes lean up.';
@@ -200,7 +212,7 @@ async function run(){
   else if (shortSide>0 && longSide<0) read = '<strong style="color:var(--yellow);">Short-term bounce in a longer downtrend</strong> — countertrend; the bigger tape still leans down.';
   else read = '<strong style="color:var(--text-muted);">Mixed / no clean alignment</strong> — the timeframes disagree, which is itself information (lower conviction).';
   posture.innerHTML = '<strong>' + esc(sym) + ' — net posture:</strong> ' + read +
-    ' <span style="color:var(--text-muted);">(' + ups + ' up · ' + downs + ' down · ' + flats + ' neutral across ' + H.length + ' horizons; only the Weekly card is a graded model signal.)</span>';
+    ' <span style="color:var(--text-muted);">(' + ups + ' up · ' + downs + ' down · ' + flats + ' neutral' + (noCalls ? ' · ' + noCalls + ' no call (NO PLAY)' : '') + ' across ' + H.length + ' horizons; only the Weekly card is a graded model signal.)</span>';
 }
 
 // ?sym= deep-link (same convention as trade-coach) so ticker/watchlist/broadcast

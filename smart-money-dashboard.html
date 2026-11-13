@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" media="print" onload="this.media='all'"><noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap"></noscript>
-<link rel="stylesheet" href="css/style.css?v=v236">
+<link rel="stylesheet" href="css/style.css?v=v237">
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
 <style>
@@ -47,9 +47,9 @@
   </div>
 
   <div class="grid grid-4 mb-24">
-    <div class="card kpi"><div class="l">Whales filed (this cycle)</div><div class="v" id="kFiled">--</div><div class="s"><a href="13f-watch.html">13F Watch →</a></div></div>
+    <div class="card kpi"><div class="l" id="kFiledLabel">Whales filed (this cycle)</div><div class="v" id="kFiled">--</div><div class="s"><a href="13f-watch.html">13F Watch →</a></div></div>
     <div class="card kpi"><div class="l">Biggest whale move</div><div class="v" id="kBig" style="font-size:15px;line-height:1.3;">--</div><div class="s" id="kBigSub"></div></div>
-    <div class="card kpi"><div class="l">Insider tape (last 150 filings)</div><div class="v" id="kIns">--</div><div class="s"><a href="insider-live.html">Insider feed →</a></div></div>
+    <div class="card kpi"><div class="l">Insider tape (open-market, last 150 filings)</div><div class="v" id="kIns">--</div><div class="s"><a href="insider-live.html">Insider feed →</a></div></div>
     <div class="card kpi"><div class="l">Options $-flow today</div><div class="v" id="kFlow">--</div><div class="s"><a href="options-flow.html">Flow detail →</a></div></div>
   </div>
 
@@ -92,11 +92,11 @@
 
 <div id="site-footer"></div>
 
-<script src="js/data-provider.js?v=v236"></script>
-<script src="js/ai-client.js?v=v236"></script>
-<script src="js/app.js?v=v236"></script>
-<script src="js/notify.js?v=v236"></script>
-<script src="js/live.js?v=v236"></script>
+<script src="js/data-provider.js?v=v237"></script>
+<script src="js/ai-client.js?v=v237"></script>
+<script src="js/app.js?v=v237"></script>
+<script src="js/notify.js?v=v237"></script>
+<script src="js/live.js?v=v237"></script>
 <script>
 buildNav('smart-money-dashboard');
 (function () {
@@ -140,8 +140,15 @@ buildNav('smart-money-dashboard');
   async function loadWhales() {
     const list = await jget('/brain/13f');
     if (!list || !list.ok) { $('mvStatus').textContent = 'EDGAR unreachable'; $('mvBody').innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-muted);">13F list unreachable — nothing fabricated.</div>'; return; }
-    const cycleFiled = list.whales.filter(w => w.latest && w.latest.filingDate > '2026-06-30').length;
+    // Pass 342 (Brandon's 11/13 screenshots: "10 / 12" here vs "1/12" on the home page): the cycle was a hardcoded
+    // '2026-06-30', so June-quarter filings counted as "this cycle". The cycle is the latest quarter end (qeISO, the same
+    // rule the home tile uses): a whale has filed it when its latest filing came after that quarter ended.
+    const cycleFiled = list.whales.filter(w => w.latest && w.latest.filingDate > qeISO).length;
     $('kFiled').textContent = cycleFiled + ' / ' + list.whales.length;
+    const qd = new Date(qeISO + 'T12:00:00Z'), due = new Date(qd.getTime() + 45 * 864e5);
+    const qLabel = 'Q' + (Math.floor(qd.getUTCMonth() / 3) + 1) + ' ' + qd.getUTCFullYear();
+    const fl = document.getElementById('kFiledLabel');
+    if (fl) fl.textContent = 'Whales filed (' + qLabel + ' 13F, due ' + (due.getUTCMonth() + 1) + '/' + due.getUTCDate() + ')';
     const skipped = [];
     let done = 0;
     await Promise.all(list.whales.map(async w => {
@@ -173,8 +180,13 @@ buildNav('smart-money-dashboard');
   async function loadInsiders() {
     const j = await jget('/brain/insider-feed');
     if (!j || !j.ok) { $('insBody').innerHTML = '<div style="padding:16px;text-align:center;color:var(--text-muted);">Insider feed unreachable — nothing fabricated.</div>'; return; }
-    $('insMeta').textContent = j.buy_count + ' buys / ' + j.sell_count + ' sells · ' + fmtB(j.buy_value) + ' bought vs ' + fmtB(j.sell_value) + ' sold';
-    $('kIns').textContent = j.buy_count + '↑ ' + j.sell_count + '↓';
+    // Pass 342: count open-market trades only. The feed's buy_count/sell_count include option exercises, grants and
+    // gifts (on 11/13 all 24 "buys" were exercises/grants; zero were open-market purchases).
+    const omAll = (j.transactions || []).filter(t => t.openMarket);
+    const omB = omAll.filter(t => t.side === 'BUY'), omS = omAll.filter(t => t.side === 'SELL');
+    const sum = a => a.reduce((x, t) => x + Math.abs(t.value || 0), 0);
+    $('insMeta').textContent = omB.length + ' open-market buys / ' + omS.length + ' sells · ' + fmtB(sum(omB)) + ' bought vs ' + fmtB(sum(omS)) + ' sold (of ' + (j.transactions || []).length + ' filings; grants/exercises/gifts excluded)';
+    $('kIns').textContent = omB.length + '↑ ' + omS.length + '↓';
     $('insClusters').innerHTML = (j.clusters && j.clusters.length)
       ? '<strong style="color:var(--green);">Buy clusters (≥2 insiders buying):</strong> ' + j.clusters.slice(0, 6).map(c => esc(c.sym) + ' (' + c.buyers + ' buyers, ' + fmtB(c.value) + ')').join(' · ')
       : '<span style="color:var(--text-muted);">No ≥2-insider open-market buy clusters in the latest filings — an honest zero, not a gap.</span>';

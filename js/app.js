@@ -530,6 +530,10 @@ function wireDataPill() {
       // Re-evaluate periodically: worker-quotes can land real prices without the WS
       // firing another status event, and the market session changes over time.
       setInterval(() => { try { render(DataProvider.getStatus()); } catch (e) {} }, 8000);
+      // Pass 342: and the moment prices land. Without this the pill sat on its first-paint label for up to 8 s
+      // while the ticker already showed real prices (Brandon's 11/13 screenshots: "LOADING" over a full ticker).
+      window.addEventListener('bpleone:quotes', () => { try { render(DataProvider.getStatus()); } catch (e) {} });
+      try { if (typeof Feed !== 'undefined' && Feed.subscribe) Feed.subscribe('*', () => { try { render(DataProvider.getStatus()); } catch (e) {} }); } catch (e) {}
       return;
     } catch (e) {}
   }
@@ -737,6 +741,36 @@ function initSearch() {
   });
 }
 
+// Pass 342: the ONE description of the brain's state that pages show (status bar, home card). It is the Worker's,
+// never a browser-local guess: liveness from /brain/health, the verdict from /brain/metrics (the same "no edge" rule
+// as today.html) and NO PLAY from /brain/picks. Cached 2 min per tab session. Never "trade with conviction".
+async function workerBrainStatus() {
+  const WB = (() => {
+    try { const u = window.WorkerBridge && WorkerBridge.getUrl && WorkerBridge.getUrl(); if (u && /^https:\/\//.test(u)) return u.replace(/\/$/, ''); } catch (e) {}
+    return 'https://bpleone-brain-worker.brandonpleone.workers.dev';
+  })();
+  const CACHE = 'bpleone_status_bar_cache_v1';
+  let d = null;
+  try { const c = JSON.parse(sessionStorage.getItem(CACHE) || 'null'); if (c && Date.now() - c.at < 120000) d = c.d; } catch (e) {}
+  if (!d) {
+    const get = u => fetch(WB + u, { cache: 'no-store' }).then(r => r.ok ? r.json() : null).catch(() => null);
+    const [health, metrics, picks] = await Promise.all([get('/brain/health'), get('/brain/metrics'), get('/brain/picks')]);
+    d = { health, metrics, noPlay: !!(picks && (picks.no_play || !picks.pick_of_day)) };
+    try { if (health) sessionStorage.setItem(CACHE, JSON.stringify({ at: Date.now(), d })); } catch (e) {}
+  }
+  const h = d.health, lr = d.metrics && d.metrics.live_resolved, wf = d.metrics && d.metrics.walk_forward_test;
+  if (!h) return { color: 'var(--text-muted)', headline: 'Brain status unavailable: the Worker did not answer', metrics: 'retrying' };
+  const tick = h.lastTickAgo != null ? (h.lastTickAgo < 120 ? h.lastTickAgo + 's ago' : Math.round(h.lastTickAgo / 60) + 'm ago') : '—';
+  if (!h.self_sustaining) return { color: 'var(--red)', headline: 'Worker brain needs attention', metrics: 'last tick ' + tick + (h.issues && h.issues.length ? ' · ' + h.issues.length + ' issue(s)' : '') };
+  const liveBad = !!(lr && lr.n >= 100 && ((lr.bss != null && lr.bss < 0) || (lr.accuracy != null && lr.accuracy < 0.5)));
+  let metrics = 'tick ' + tick;
+  if (lr && lr.accuracy != null) metrics += ' · live 5-day ' + (lr.accuracy * 100).toFixed(1) + '% (n=' + Number(lr.n).toLocaleString() + ')' + (lr.bss != null ? ' · Brier skill ' + (lr.bss >= 0 ? '+' : '') + lr.bss.toFixed(2) : '');
+  if (liveBad) return { color: 'var(--yellow)', headline: 'Brain running · no edge in live trading' + (d.noPlay ? ' · no pick today' : ''), metrics };
+  if (wf && wf.beats_base_rate_95) return { color: 'var(--green)', headline: 'Brain running · beats market drift on held-out data (still research, not advice)', metrics };
+  return { color: 'var(--yellow)', headline: 'Brain running · no proven edge over market drift' + (d.noPlay ? ' · no pick today' : ''), metrics };
+}
+if (typeof window !== 'undefined') window.workerBrainStatus = workerBrainStatus;
+
 // Sticky brain-status footer — slim bar at the very bottom of every page
 // that shows the live brain coach headline + key metrics. Polls BrainCoach
 // once it's available. Persists user dismissal preference.
@@ -754,8 +788,8 @@ function initBrainStatusBar() {
     + '<span id="bsb-headline" style="font-weight:700;color:var(--text-primary);">Brain status loading…</span>'
     + '<span id="bsb-metrics" style="font-family:var(--font-mono);color:var(--text-muted);font-size:11px;"></span>'
     + '<span style="flex:1;"></span>'
-    + '<a href="brain-coach-live.html" style="color:var(--accent);text-decoration:none;font-weight:700;font-size:11px;">Coach →</a>'
-    + '<a href="brain-truth.html" style="color:var(--accent);text-decoration:none;font-weight:700;font-size:11px;">All modules →</a>'
+    + '<a href="proof.html" style="color:var(--accent);text-decoration:none;font-weight:700;font-size:11px;">Proof →</a>'
+    + '<a href="edge-scorecard.html" style="color:var(--accent);text-decoration:none;font-weight:700;font-size:11px;">Edge scorecard →</a>'
     + '<button id="bsb-close" style="background:transparent;border:none;color:var(--text-muted);cursor:pointer;font-size:18px;line-height:1;padding:0 4px;" title="Dismiss for this browser">×</button>';
   document.body.appendChild(bar);
 
@@ -765,36 +799,26 @@ function initBrainStatusBar() {
     try { localStorage.setItem('bpleone_status_bar_dismissed', '1'); } catch (e) {}
   };
 
-  function refresh() {
-    if (typeof window.BrainCoach === 'undefined') { setTimeout(refresh, 2000); return; }
-    try {
-      const s = window.BrainCoach.summary();
-      bar.style.display = 'flex';
-      const dot = document.getElementById('bsb-dot');
-      dot.style.background = s.headlineColor;
-      dot.style.boxShadow = '0 0 6px ' + s.headlineColor;
-      dot.style.animation = 'bpleonePulse 1.5s ease-in-out infinite';
-      document.getElementById('bsb-headline').textContent = s.headline;
-      document.getElementById('bsb-headline').style.color = s.headlineColor;
-      // When the local model is untrained (worker-authoritative), s.healthScore is the
-      // capped-35 LOCAL value — printing "Health 35/100" misrepresents the healthy 24/7
-      // worker brain. Show the worker-authoritative note instead of a scary number.
-      let metrics;
-      if (s.localUntrained) {
-        metrics = 'Live 24/7 worker brain · graded record on Proof';
-      } else {
-        metrics = 'Health ' + s.healthScore + '/100';
-        if (s.snapshot.bss != null) metrics += ' · BSS ' + (s.snapshot.bss >= 0 ? '+' : '') + s.snapshot.bss.toFixed(2);
-        if (s.snapshot.sharpe != null) metrics += ' · Sharpe ' + s.snapshot.sharpe.toFixed(2);
-        if (s.alertCount > 0) metrics += ' · ⚠ ' + s.alertCount + ' alerts';
-      }
-      document.getElementById('bsb-metrics').textContent = metrics;
-    } catch (e) {}
+  // Pass 342 (Brandon's screenshots 11/13): this bar printed the BROWSER-LOCAL coach headline, so the same site
+  // said "Brain is HEALTHY — trade with conviction · Health 100/100" on one page and "BRAIN IS DEGRADED · Health
+  // 55/100" on the next. It now reports the Worker brain through workerBrainStatus() (shared with the home page).
+  function paint(color, headline, metrics) {
+    bar.style.display = 'flex';
+    const dot = document.getElementById('bsb-dot');
+    dot.style.background = color; dot.style.boxShadow = '0 0 6px ' + color;
+    dot.style.animation = 'bpleonePulse 1.5s ease-in-out infinite';
+    const h = document.getElementById('bsb-headline');
+    h.textContent = headline; h.style.color = color;
+    document.getElementById('bsb-metrics').textContent = metrics;
+  }
+  async function refresh() {
+    if (document.hidden) return;
+    const st = await workerBrainStatus();
+    paint(st.color, st.headline, st.metrics);
   }
   refresh();
-  setInterval(refresh, 30000);
-  // Also refresh on every brain cycle for instant update
-  window.addEventListener('bpleone:continuous-cycle', refresh);
+  setInterval(refresh, 60000);
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) refresh(); });
 }
 
 // Heartbeat handler: visible nav-pulse tick + text updates on every cycle
@@ -975,6 +999,6 @@ document.addEventListener('DOMContentLoaded', () => {
   // Try live data immediately on load + every 5 min thereafter
   setTimeout(tryAutoConnectLiveData, 1500);
   setInterval(tryAutoConnectLiveData, 5 * 60 * 1000);
-  // Give BrainCoach time to load (lazy-loaded by live.js) before showing bar
-  setTimeout(initBrainStatusBar, 4000);
+  // Pass 342: the bar reads the Worker directly (no longer waits for the lazy BrainCoach module).
+  setTimeout(initBrainStatusBar, 1200);
 });

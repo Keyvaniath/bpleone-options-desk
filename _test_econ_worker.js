@@ -32,7 +32,7 @@ ok(/const desk = await fetchDeskFile\(\);\s*\n\s*if \(desk && econCovers\(desk, 
 ok(/if \(econCovers\(stored\.events, nowE\)\) \{\s*\n\s*raw = stored\.events; staleServed = true/.test(h), 'last-good copy served only while it covers today');
 ok(/out_of_date: outOfDate \?/.test(h) && /source,/.test(h), 'response says where the events came from and when the copy is out of date');
 ok(/const econGood = Array\.isArray\(events\) && \(events\.length > 0/.test(h), 'an empty/failed calendar is still never edge-cached for an hour (pass 308)');
-ok(/const WORKER_VERSION = 'pass-323'/.test(idx), 'worker version bumped');
+ok(/const WORKER_VERSION = 'pass-3(2[3-9]|[3-9]\d)'/.test(idx), 'worker version is pass-323 or later');
 ok(/json\(result, result\.ok \? 200 : \(result\.notFound \? 404 : 502\)\)/.test(idx) && /ok: false, notFound: true, error: 'No Motley Fool transcript found/.test(idx), 'a missing transcript is a 404, not a 502');
 
 console.log(fails ? fails + ' econ worker test(s) FAILED' : 'econ worker: all tests passed');

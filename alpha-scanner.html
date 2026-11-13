@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Alpha Scanner — Unusual Volume + Brain Signals — bpleone / trade</title>
 <meta name="description" content="Scans the universe for unusual relative-volume surges (the equity whale-proxy) and pairs them with the brain's 5-day conviction to emit plain BUY / SELL / WATCH signals.">
-<link rel="stylesheet" href="css/style.css?v=v236">
+<link rel="stylesheet" href="css/style.css?v=v237">
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
 <style>
@@ -84,18 +84,18 @@
   </div>
 
   <div style="margin-top:18px;padding:14px 18px;border-radius:10px;background:rgba(148,163,184,0.06);border-left:3px solid var(--text-muted);font-size:12px;color:var(--text-muted);line-height:1.6;">
-    <strong>How to read this.</strong> Signals are <strong>cross-sectional relative strength</strong> — each name is ranked against the current universe, not an absolute line, so the list stays balanced in any regime. <span style="color:var(--green);">BUY</span> = strongest of the pack + volume confirmation. <span style="color:var(--red);">SELL</span> = weakest of the pack + volume (distribution / avoid / short). <span style="color:var(--yellow);">WATCH</span> = big volume surge, mid-pack strength — something's happening. Check the <strong>regime banner</strong> up top: in a bearish tape a "BUY" is the <em>relatively</em> strongest name (may still fall), so favor cash/shorts; in a bullish tape BUYs are outright longs. The "Brain 5D" column shows each name's absolute P(up) for context. RVOL is time-of-day adjusted. The brain's edge is real but marginal (~53% walk-forward) — size accordingly.
+    <strong>How to read this.</strong> Signals are <strong>cross-sectional relative strength</strong> — each name is ranked against the current universe, not an absolute line, so the list stays balanced in any regime. <span style="color:var(--green);">BUY</span> = strongest of the pack + volume confirmation. <span style="color:var(--red);">SELL</span> = weakest of the pack + volume (distribution / avoid / short). <span style="color:var(--yellow);">WATCH</span> = big volume surge, mid-pack strength — something's happening. Check the <strong>regime banner</strong> up top: in a bearish tape a "BUY" is the <em>relatively</em> strongest name (may still fall), so favor cash/shorts; in a bullish tape BUYs are outright longs. The "Brain 5D" column shows each name's live-calibrated P(up) for context, and a dash on NO PLAY days, when the daily calibration finds the model's direction signal uninformative. RVOL is time-of-day adjusted. The brain has <strong>no proven edge over market drift</strong> (graded live on the <a href="edge-scorecard.html" style="color:var(--accent);">Edge Scorecard</a>): treat every row as research, never as sizing.
     <br><br>
     <strong>What this is NOT.</strong> This is unusual <em>volume</em> + price action on free equity data — the honest TA proxy for institutional activity. It is <em>not</em> options-flow whale prints (sweeps/blocks/premium), which require a paid OPRA data feed. If you want true options flow, that's a data-subscription decision.
   </div>
 </div>
 
-<script src="js/data-provider.js?v=v236"></script>
-<script src="js/ai-client.js?v=v236"></script>
-<script src="js/app.js?v=v236"></script>
-<script src="js/notify.js?v=v236"></script>
-<script src="js/live.js?v=v236"></script>
-<script src="js/worker-bridge.js?v=v236"></script>
+<script src="js/data-provider.js?v=v237"></script>
+<script src="js/ai-client.js?v=v237"></script>
+<script src="js/app.js?v=v237"></script>
+<script src="js/notify.js?v=v237"></script>
+<script src="js/live.js?v=v237"></script>
+<script src="js/worker-bridge.js?v=v237"></script>
 <script>
 buildNav('alpha-scanner');
 
@@ -105,6 +105,15 @@ const WORKER = (window.WorkerBridge && WorkerBridge.getUrl && WorkerBridge.getUr
 let _allSignals = [];
 let _filter = 'ACTIONABLE';
 let _stale = false;
+// Pass 342 (Brandon's 11/13 screenshot): on NO PLAY days the live calibration maps every name to the same constant
+// (44.8% on 11/13), so the page printed "55% ↓" on every row and a "BEARISH regime" computed from that constant.
+// When the brain has no read, say so: no per-row probability, no regime.
+let _noRead = false;
+function brainHasNoRead(sigs) {
+  if (!sigs.length) return false;
+  if (sigs.every(s => /^no play/i.test(s.reason || ''))) return true;
+  return new Set(sigs.map(s => Number(s.predProb).toFixed(4))).size === 1;
+}
 
 function pillClass(sig) {
   return 'sig-pill sig-' + String(sig || 'HOLD').replace(/\s+/g, '');
@@ -117,6 +126,7 @@ function fmtVol(rvol) {
     + '<span class="rvol-bar" style="width:' + w + 'px;background:' + col + ';"></span>';
 }
 function fmtBrain(s) {
+  if (_noRead || s.predProb == null) return '<span style="color:var(--text-muted);" title="No read: NO PLAY (the daily calibration says the direction signal is uninformative)">—</span>';
   const pct = Math.round(s.predProb * 100);
   const up = s.dirUp;
   const shown = up ? pct : (100 - pct);
@@ -137,8 +147,11 @@ function render() {
     // Never show an empty page: if nothing is actionable, surface the most
     // active names (top by conviction x volume) so there's always a watchlist.
     if (rows.length === 0 && _allSignals.length > 0) {
-      rows = _allSignals.slice().sort((a, b) => (b.rank || 0) - (a.rank || 0)).slice(0, 10);
-      fallbackNote = 'No high-conviction signals right now (the brain is being appropriately cautious). Showing the 10 most active names by volume × conviction — your watchlist.';
+      // Pass 342: rank by what the note says. The old sort used `rank`, which put 0.5x-volume bond ETFs on top.
+      rows = _allSignals.slice().sort((a, b) => (b.rvol || 0) - (a.rvol || 0)).slice(0, 10);
+      fallbackNote = _noRead
+        ? 'No calls today (NO PLAY: the brain\u2019s direction signal is uninformative). Showing the 10 names with the highest relative volume: volume only, not a signal.'
+        : 'No high-conviction signals right now. Showing the 10 names with the highest relative volume: volume only, not a signal.';
     }
   } else if (_filter !== 'ALL') {
     rows = rows.filter(s => s.signal === _filter);
@@ -170,13 +183,21 @@ async function loadSignals() {
     const r = await fetch(WORKER + '/brain/signals', { cache: 'no-store' });
     const j = await r.json();
     _allSignals = Array.isArray(j.signals) ? j.signals : [];
+    _noRead = brainHasNoRead(_allSignals);
     const counts = j.counts || {};
     document.getElementById('c-buy').textContent = counts.BUY || 0;
     document.getElementById('c-sell').textContent = counts.SELL || 0;
     document.getElementById('c-watch').textContent = counts.WATCH || 0;
     // Pass 236: regime banner — context for the cross-sectional signals
     const rb = document.getElementById('regime-banner');
-    if (rb && j.regime && j.regime !== 'unknown') {
+    if (rb && _noRead) {
+      rb.style.display = 'block';
+      rb.style.background = 'rgba(148,163,184,0.08)';
+      rb.style.borderLeft = '4px solid var(--text-muted)';
+      rb.innerHTML = 'Brain regime: <strong style="color:var(--text-secondary);">NO READ</strong> '
+        + '<span style="color:var(--text-muted);">(NO PLAY today)</span><br>'
+        + '<span style="color:var(--text-secondary);font-size:12px;">The brain refits its calibration daily on its own graded 5-day calls; today the fit says its direction signal carries no information, so every name maps to the same probability and there is no regime to read. <a href="today.html" style="color:var(--accent);">Why →</a></span>';
+    } else if (rb && j.regime && j.regime !== 'unknown') {
       const mp = Math.round((j.universe_mean_prob || 0.5) * 100);
       const cfg = {
         bullish: { c: 'var(--green)', bg: 'rgba(16,185,129,0.10)', t: 'BULLISH', m: 'The brain is net-bullish on the tape — favor the long (BUY) names below.' },

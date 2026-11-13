@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" media="print" onload="this.media='all'"><noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap"></noscript>
-<link rel="stylesheet" href="css/style.css?v=v236">
+<link rel="stylesheet" href="css/style.css?v=v237">
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
@@ -148,15 +148,15 @@
 
 <div id="site-footer"></div>
 
-<script src="js/data-provider.js?v=v236"></script>
-<script src="js/ai-client.js?v=v236"></script>
-<script src="js/app.js?v=v236"></script>
-<script src="js/notify.js?v=v236"></script>
-<script src="js/live.js?v=v236"></script>
-<script src="js/ta.js?v=v236"></script>
-<script src="js/learn.js?v=v236"></script>
-<script src="js/discord.js?v=v236"></script>
-<script src="js/alerts-engine.js?v=v236"></script>
+<script src="js/data-provider.js?v=v237"></script>
+<script src="js/ai-client.js?v=v237"></script>
+<script src="js/app.js?v=v237"></script>
+<script src="js/notify.js?v=v237"></script>
+<script src="js/live.js?v=v237"></script>
+<script src="js/ta.js?v=v237"></script>
+<script src="js/learn.js?v=v237"></script>
+<script src="js/discord.js?v=v237"></script>
+<script src="js/alerts-engine.js?v=v237"></script>
 <script>
 buildNav('dashboard');
 const $ = id => document.getElementById(id);
@@ -235,19 +235,26 @@ function renderMovers() {
 }
 
 async function loadNews() {
-  if (typeof DataProvider === 'undefined' || DataProvider.getConfig().provider !== 'finnhub' || !DataProvider.getConfig().apiKey) {
-    $('newsSnap').innerHTML = '<div style="padding:24px;text-align:center;color:var(--text-muted);">Connect Finnhub in <a href="settings.html" style="color:var(--accent);">Settings</a>.</div>';
-    return;
-  }
+  // Pass 342: this card said "Connect Finnhub in Settings" to every visitor without a key, although the desk's
+  // Worker serves the same Finnhub headlines with no key (/brain/news, used by news.html). Links are checked to be
+  // http(s) before they reach an href (pass 299).
+  const W = (window.WorkerBridge && WorkerBridge.getUrl && WorkerBridge.getUrl()) || 'https://bpleone-brain-worker.brandonpleone.workers.dev';
   try {
-    const items = await DataProvider.getMarketNews('general');
-    items.sort((a, b) => b.datetime - a.datetime);
-    $('newsSnap').innerHTML = items.slice(0, 8).map(n => `<div class="news-snap">
-      <a href="${n.url}" target="_blank" rel="noopener">${escapeHtml(n.headline)}</a>
-      <div class="src">${escapeHtml(n.source || '')} · ${new Date(n.datetime).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}</div>
-    </div>`).join('');
+    const r = await fetch(W + '/brain/news', { cache: 'no-store' });
+    const j = r.ok ? await r.json() : null;
+    const items = (j && j.ok && Array.isArray(j.items)) ? j.items.slice() : [];
+    if (!items.length) { $('newsSnap').innerHTML = '<div style="padding:24px;text-align:center;color:var(--text-muted);">Headlines unavailable right now; nothing fabricated. <a href="news.html" style="color:var(--accent);">News →</a></div>'; return; }
+    const ms = t => (t > 1e12 ? t : t * 1000);
+    items.sort((a, b) => ms(b.datetime || 0) - ms(a.datetime || 0));
+    $('newsSnap').innerHTML = items.slice(0, 8).map(n => {
+      const url = /^https?:\/\//i.test(n.url || '') ? n.url : '';
+      const head = escapeHtml(n.headline);
+      return `<div class="news-snap">
+      ${url ? `<a href="${escapeHtml(url)}" target="_blank" rel="noopener">${head}</a>` : head}
+      <div class="src">${escapeHtml(n.source || '')} · ${n.datetime ? new Date(ms(n.datetime)).toLocaleTimeString('en-US', { timeZone: 'America/New_York', hour: 'numeric', minute: '2-digit' }) + ' ET' : ''}</div>
+    </div>`; }).join('');
   } catch (e) {
-    $('newsSnap').innerHTML = '<div style="padding:24px;text-align:center;color:var(--red);">' + e.message + '</div>';
+    $('newsSnap').innerHTML = '<div style="padding:24px;text-align:center;color:var(--text-muted);">Headlines unavailable right now; nothing fabricated.</div>';
   }
 }
 

@@ -93,7 +93,8 @@ global.window.TradeTrust = { score: () => ({ score: 95 }) };
 // so the all-healthy path is reachable in this mock environment.
 localStorage.setItem('bpleone_model_v1', JSON.stringify({ n_trained: 500, version: 3, weights: [0.1, -0.2, 0.05] }));
 const s11 = BC.summary();
-t('T11 healthy state has positive headline', s11.headline.toLowerCase().includes('healthy'));
+// Pass 342: the clean-diagnostics headline is scoped to this browser and never says "trade with conviction".
+t('T11 healthy state has positive, browser-scoped headline', /look clean/i.test(s11.headline) && /this browser only/i.test(s11.headline) && !/conviction/i.test(s11.headline) && s11.headlineColor === 'var(--green)');
 
 // T12: Health score in [0, 100]
 t('T12 health score in range', s11.healthScore >= 0 && s11.healthScore <= 100);
