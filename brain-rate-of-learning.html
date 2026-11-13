@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" media="print" onload="this.media='all'"><noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap"></noscript>
-<link rel="stylesheet" href="css/style.css?v=v238">
+<link rel="stylesheet" href="css/style.css?v=v239">
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
@@ -40,30 +40,30 @@
 
   <div class="grid grid-2 mb-24">
     <div class="card">
-      <div class="card-header"><div class="card-title">📈 Rolling 20-trade hit rate over time</div></div>
+      <div class="card-header"><div class="card-title">📈 Rolling 20-call hit rate vs market drift</div></div>
       <canvas id="rollChart" height="220"></canvas>
     </div>
     <div class="card">
-      <div class="card-header"><div class="card-title">📊 Trades per day (volume)</div></div>
+      <div class="card-header"><div class="card-title">📊 Graded calls per capture day</div></div>
       <canvas id="volChart" height="220"></canvas>
     </div>
   </div>
 
   <div class="grid grid-3 mb-24">
     <div class="eta-tile">
-      <div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;">Time to next grade</div>
+      <div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;">Skill vs drift (latest window)</div>
       <div class="mono" style="font-size:26px;font-weight:800;margin-top:8px;color:var(--accent);" id="eta">--</div>
       <div style="font-size:11px;color:var(--text-muted);margin-top:4px;" id="etaSub">--</div>
     </div>
     <div class="eta-tile">
       <div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;">Learning slope</div>
       <div class="mono" style="font-size:26px;font-weight:800;margin-top:8px;" id="slope">--</div>
-      <div style="font-size:11px;color:var(--text-muted);margin-top:4px;">% per 10 trades</div>
+      <div style="font-size:11px;color:var(--text-muted);margin-top:4px;">hit-rate change per 10 calls</div>
     </div>
     <div class="eta-tile">
-      <div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;">Trades to 95% sig</div>
+      <div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;">Calls to 95% significance</div>
       <div class="mono" style="font-size:26px;font-weight:800;margin-top:8px;" id="sigN">--</div>
-      <div style="font-size:11px;color:var(--text-muted);margin-top:4px;">to prove edge isn't luck</div>
+      <div style="font-size:11px;color:var(--text-muted);margin-top:4px;">to tell skill above drift from luck</div>
     </div>
   </div>
 
@@ -75,26 +75,27 @@
   <div class="card">
     <div class="card-header"><div class="card-title">💡 Interpretation</div></div>
     <div style="font-size:13px;color:var(--text-secondary);line-height:1.7;">
-      <strong>Slope &gt; 0:</strong> The rolling hit rate is trending up. The brain is getting better as it sees more data. Good.<br>
+      <strong>Slope &gt; 0:</strong> The rolling hit rate is trending up. That is learning only if it ends above the drift line (an always-long call on the same days).<br>
       <strong>Slope ≈ 0:</strong> Plateaued. Either you hit your ceiling, or the model needs a refresh / new features.<br>
       <strong>Slope &lt; 0:</strong> Degrading. Possible regime change. Investigate drift, consider retraining or pausing.<br>
       <br>
-      Most edge accumulates slowly. A 1%/month improvement in hit rate compounds enormously over a year. Don't expect step changes.
+      A hit rate above 50% is not skill: in a rising market an always-long call beats a coin flip. The bar is the drift line. The desk's live record is the <a href="edge-scorecard.html" style="color:var(--accent);">Edge Scorecard</a>.
     </div>
   </div>
 </div>
 
 <div id="site-footer"></div>
 
-<script src="js/data-provider.js?v=v238"></script>
-<script src="js/ai-client.js?v=v238"></script>
-<script src="js/app.js?v=v238"></script>
-<script src="js/notify.js?v=v238"></script>
-<script src="js/live.js?v=v238"></script>
+<script src="js/data-provider.js?v=v239"></script>
+<script src="js/ai-client.js?v=v239"></script>
+<script src="js/app.js?v=v239"></script>
+<script src="js/notify.js?v=v239"></script>
+<script src="js/live.js?v=v239"></script>
+<script src="js/train-rows.js?v=v239"></script>
 <script>
 buildNav('brain-rate-of-learning');
 
-function loadTrain() { try { return JSON.parse(localStorage.getItem('bpleone_train_v1') || '[]'); } catch(e) { return []; } }
+function loadTrain() { return window.TrainRows ? TrainRows.load() : []; }   // pass 344: graded calls (js/train-rows.js); 'bpleone_train_v1' was never written
 
 function rollingHit(train, window) {
   const sorted = [...train].sort((a, b) => a.ts - b.ts);
@@ -121,11 +122,17 @@ function linearRegression(pts) {
 
 function render() {
   const train = loadTrain();
+  // Pass 344: graded calls from js/train-rows.js (the old key was never written); bar = drift, not 50% or A-F.
+  const drift = TrainRows.driftRate(train);
+  const bar = drift != null ? drift : 0.52;
   if (train.length < 20) {
     document.getElementById('trendCard').className = 'trend-card flat';
-    document.getElementById('trendCard').innerHTML = '<div class="arrow">🌱</div><div class="stat" style="color:var(--yellow);">NOT ENOUGH DATA</div><div style="font-size:13px;color:var(--text-secondary);">Need 20+ resolved trades to measure rate of learning. Keep going.</div>';
+    document.getElementById('trendCard').innerHTML = '<div class="arrow">🌱</div><div class="stat" style="color:var(--yellow);">NOT ENOUGH DATA</div><div style="font-size:13px;color:var(--text-secondary);">' + (train.length ? train.length + ' graded calls; a rate of learning needs 20+.' : TrainRows.EMPTY_HTML) + '</div>';
+    ['eta', 'slope', 'sigN'].forEach(id => { document.getElementById(id).textContent = '—'; });
+    document.getElementById('etaSub').textContent = train.length + ' graded calls';
     return;
   }
+  train.sort((a, b) => a.ts - b.ts);
 
   const window = Math.min(20, Math.floor(train.length / 2));
   const rolling = rollingHit(train, window);
@@ -142,43 +149,33 @@ function render() {
   const slopePerTen = slope * 10; // hit-rate change per 10 trades
   if (slopePerTen > 0.02) {
     tCard.className = 'trend-card up';
-    tCard.innerHTML = '<div class="arrow" style="color:var(--green);">📈</div><div class="stat" style="color:var(--green);">+' + (slopePerTen * 100).toFixed(2) + '% / 10 trades</div><div style="font-size:13px;color:var(--text-secondary);">Brain is learning. Started at <strong>' + (startHit*100).toFixed(0) + '%</strong>, now at <strong>' + (endHit*100).toFixed(0) + '%</strong>. Keep the routine.</div>';
+    tCard.innerHTML = '<div class="arrow" style="color:var(--green);">📈</div><div class="stat" style="color:var(--green);">+' + (slopePerTen * 100).toFixed(2) + ' pp / 10 calls</div><div style="font-size:13px;color:var(--text-secondary);">Hit rate trending up: <strong>' + (startHit*100).toFixed(0) + '%</strong> to <strong>' + (endHit*100).toFixed(0) + '%</strong>, against drift ' + (bar*100).toFixed(0) + '%.</div>';
   } else if (slopePerTen > -0.01) {
     tCard.className = 'trend-card flat';
-    tCard.innerHTML = '<div class="arrow" style="color:var(--text-muted);">➡</div><div class="stat" style="color:var(--text-primary);">' + (slopePerTen >= 0 ? '+' : '') + (slopePerTen * 100).toFixed(2) + '% / 10 trades</div><div style="font-size:13px;color:var(--text-secondary);">Hit rate is stable. Plateaued at <strong>' + (endHit*100).toFixed(0) + '%</strong>. Consider feature engineering or a retrain.</div>';
+    tCard.innerHTML = '<div class="arrow" style="color:var(--text-muted);">➡</div><div class="stat" style="color:var(--text-primary);">' + (slopePerTen >= 0 ? '+' : '') + (slopePerTen * 100).toFixed(2) + ' pp / 10 calls</div><div style="font-size:13px;color:var(--text-secondary);">Hit rate is flat at <strong>' + (endHit*100).toFixed(0) + '%</strong>, against drift ' + (bar*100).toFixed(0) + '%.</div>';
   } else {
     tCard.className = 'trend-card down';
-    tCard.innerHTML = '<div class="arrow" style="color:var(--red);">📉</div><div class="stat" style="color:var(--red);">' + (slopePerTen * 100).toFixed(2) + '% / 10 trades</div><div style="font-size:13px;color:var(--text-secondary);">Brain is degrading. Started at <strong>' + (startHit*100).toFixed(0) + '%</strong>, now at <strong>' + (endHit*100).toFixed(0) + '%</strong>. Investigate drift.</div>';
+    tCard.innerHTML = '<div class="arrow" style="color:var(--red);">📉</div><div class="stat" style="color:var(--red);">' + (slopePerTen * 100).toFixed(2) + ' pp / 10 calls</div><div style="font-size:13px;color:var(--text-secondary);">Hit rate trending down: <strong>' + (startHit*100).toFixed(0) + '%</strong> to <strong>' + (endHit*100).toFixed(0) + '%</strong>, against drift ' + (bar*100).toFixed(0) + '%.</div>';
   }
 
-  document.getElementById('slope').textContent = (slopePerTen >= 0 ? '+' : '') + (slopePerTen * 100).toFixed(2) + '%';
+  document.getElementById('slope').textContent = (slopePerTen >= 0 ? '+' : '') + (slopePerTen * 100).toFixed(2) + ' pp';
   document.getElementById('slope').style.color = slopePerTen > 0 ? 'var(--green)' : 'var(--red)';
 
-  // ETA to next grade
-  const currentGrade = endHit >= 0.7 ? 'A' : endHit >= 0.6 ? 'B' : endHit >= 0.5 ? 'C' : endHit >= 0.4 ? 'D' : 'F';
-  const nextThreshold = currentGrade === 'A' ? null : currentGrade === 'B' ? 0.7 : currentGrade === 'C' ? 0.6 : currentGrade === 'D' ? 0.5 : 0.4;
-  if (nextThreshold == null) {
-    document.getElementById('eta').textContent = '🏆 A';
-    document.getElementById('etaSub').textContent = 'Top grade — keep it';
-  } else if (slope <= 0) {
-    document.getElementById('eta').textContent = '∞';
-    document.getElementById('etaSub').textContent = 'Need positive slope';
-  } else {
-    const gap = nextThreshold - endHit;
-    const tradesNeeded = Math.ceil(gap / slope);
-    document.getElementById('eta').textContent = tradesNeeded > 1000 ? '> 1000' : tradesNeeded + ' trades';
-    document.getElementById('etaSub').textContent = 'to reach grade ' + (currentGrade === 'B' ? 'A' : currentGrade === 'C' ? 'B' : currentGrade === 'D' ? 'C' : 'D');
-  }
+  // Skill vs drift on the latest rolling window (replaces "time to next grade": A-F at 50/60/70% graded drift as skill)
+  const skill = (endHit - bar) * 100;
+  document.getElementById('eta').textContent = (skill >= 0 ? '+' : '') + skill.toFixed(1) + ' pp';
+  document.getElementById('eta').style.color = skill > 0 ? 'var(--green)' : 'var(--red)';
+  document.getElementById('etaSub').textContent = 'latest ' + window + '-call hit ' + (endHit*100).toFixed(0) + '% vs drift ' + (bar*100).toFixed(0) + '%' + (drift == null ? ' (assumed)' : '');
 
-  // Trades to 95% sig
-  const p_hat = endHit;
-  const effect = p_hat - 0.5;
-  const sigN = effect > 0 ? Math.ceil((1.645 ** 2 * 0.5 * 0.5) / (effect ** 2)) : Infinity;
-  document.getElementById('sigN').textContent = sigN === Infinity ? '∞' : sigN;
+  // Calls needed for a one-sided 95% test of the overall hit rate against drift
+  const p_hat = train.filter(t => t.y === 1).length / train.length;
+  const effect = p_hat - bar;
+  const sigN = effect > 0 ? Math.ceil((1.645 ** 2 * bar * (1 - bar)) / (effect ** 2)) : Infinity;
+  document.getElementById('sigN').textContent = sigN === Infinity ? '∞ (no skill above drift)' : sigN;
   document.getElementById('sigN').style.color = sigN < train.length ? 'var(--green)' : 'var(--accent)';
 
   // Rolling chart
-  const labels = rolling.map(r => new Date(r.ts).toLocaleDateString([], { month:'short', day:'numeric' }));
+  const labels = rolling.map(r => new Date(r.ts).toLocaleDateString('en-US', { timeZone:'America/New_York', month:'short', day:'numeric' }));
   if (window._rollChart) window._rollChart.destroy();
   window._rollChart = new Chart(document.getElementById('rollChart'), {
     type: 'line',
@@ -187,7 +184,7 @@ function render() {
       datasets: [
         { label: 'Hit %', data: rolling.map(r => r.hit * 100), borderColor:'#00d4ff', backgroundColor:'rgba(0,212,255,0.1)', tension:0.3, fill:true, pointRadius:0, borderWidth:2 },
         { label: 'Trend', data: pts.map(p => (intercept + slope * p.x) * 100), borderColor:'#a78bfa', borderDash:[6,4], pointRadius:0, borderWidth:2 },
-        { label: 'Coin flip baseline', data: rolling.map(() => 50), borderColor:'#666', borderDash:[2,4], pointRadius:0, borderWidth:1 }
+        { label: 'Drift (always long)', data: rolling.map(() => bar * 100), borderColor:'#f59e0b', borderDash:[2,4], pointRadius:0, borderWidth:1 }
       ]
     },
     options: { responsive:true, maintainAspectRatio:false, plugins:{legend:{labels:{color:'#ccc'}}}, scales:{x:{ticks:{color:'#888',maxTicksLimit:8},grid:{color:'#222'}},y:{ticks:{color:'#888',callback:v=>v+'%'},grid:{color:'#222'},min:0,max:100}} }
@@ -208,14 +205,14 @@ function render() {
   });
 
   // Milestones
+  // Sample-size milestones only: a count never proves an edge (overlapping 5-day calls are not independent).
   const MS = [
-    { name: '10 trades — first signal', n: 10 },
-    { name: '30 trades — pattern emerges', n: 30 },
-    { name: '50 trades — statistically meaningful', n: 50 },
-    { name: '100 trades — half-real edge', n: 100 },
-    { name: '200 trades — proven if pattern holds', n: 200 },
-    { name: '500 trades — institutional confidence', n: 500 },
-    { name: '1000 trades — book-publishing territory', n: 1000 }
+    { name: '20 graded calls: first hit rate worth showing', n: 20 },
+    { name: '50 graded calls', n: 50 },
+    { name: '100 graded calls', n: 100 },
+    { name: '200 graded calls', n: 200 },
+    { name: '500 graded calls', n: 500 },
+    { name: '1000 graded calls', n: 1000 }
   ];
   document.getElementById('milestones').innerHTML = MS.map(m => {
     const hit = train.length >= m.n;

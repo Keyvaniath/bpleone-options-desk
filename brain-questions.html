@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" media="print" onload="this.media='all'"><noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap"></noscript>
-<link rel="stylesheet" href="css/style.css?v=v238">
+<link rel="stylesheet" href="css/style.css?v=v239">
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
 <style>
@@ -41,102 +41,113 @@
 
 <div id="site-footer"></div>
 
-<script src="js/data-provider.js?v=v238"></script>
-<script src="js/ai-client.js?v=v238"></script>
-<script src="js/app.js?v=v238"></script>
-<script src="js/notify.js?v=v238"></script>
-<script src="js/live.js?v=v238"></script>
-<script src="js/model.js?v=v238"></script>
+<script src="js/data-provider.js?v=v239"></script>
+<script src="js/ai-client.js?v=v239"></script>
+<script src="js/app.js?v=v239"></script>
+<script src="js/notify.js?v=v239"></script>
+<script src="js/live.js?v=v239"></script>
+<script src="js/train-rows.js?v=v239"></script>
+<script src="js/model.js?v=v239"></script>
 <script>
 buildNav('brain-questions');
 
-function loadTrain() { try { return JSON.parse(localStorage.getItem('bpleone_train_v1') || '[]'); } catch(e) { return []; } }
+function loadTrain() { return window.TrainRows ? TrainRows.load() : []; }   // pass 344: graded calls (js/train-rows.js); 'bpleone_train_v1' was never written
 function loadFindings() { try { return JSON.parse(localStorage.getItem('bpleone_brain_findings_v1') || '{"items":[]}').items; } catch(e) { return []; } }
 function loadJournal() { try { return JSON.parse(localStorage.getItem('bpleone_journal_pro_v1') || '[]'); } catch(e) { return []; } }
 
+// Pass 344: answers come from the browser model's GRADED calls (js/train-rows.js; the old key was never written), in
+// realized % per call (no assumed +1.5R per win), graded against market drift, with no "trade it more" advice.
+const esc = TrainRows.esc;
+const pct = v => (v >= 0 ? '+' : '') + v.toFixed(2) + '%';
+const NONE = () => TrainRows.EMPTY_HTML;
+function groupAvg(train, keyOf, minN) {
+  const by = {};
+  train.forEach(t => { if (typeof t.pnl !== 'number') return; const k = keyOf(t); if (k == null) return; if (!by[k]) by[k] = { n:0, r:0, w:0 }; by[k].n++; by[k].r += t.pnl; if (t.y === 1) by[k].w++; });
+  return Object.entries(by).filter(([,v]) => v.n >= minN);
+}
 const QUESTIONS = [
-  { cat:'performance', q:'How am I doing this week?', a:() => {
-    const train = loadTrain().filter(t => t.ts >= Date.now() - 7*86400000);
-    if (train.length === 0) return 'No closed trades this week yet — close some via Journal PRO or Autopilot.';
-    const wins = train.filter(t => t.y === 1).length;
-    const r = train.reduce((a, t) => a + (t.y === 1 ? (t.r || 1.5) : -1.0), 0);
-    return 'You\'ve closed <strong>' + train.length + '</strong> trades this week. <strong>' + ((wins/train.length)*100).toFixed(0) + '%</strong> win rate, <strong>' + (r >= 0 ? '+' : '') + r.toFixed(1) + 'R</strong> total. ' + (r > 2 ? 'Solid week.' : r < -2 ? 'Tough week — postmortem recommended.' : 'Mixed.');
+  { cat:'performance', q:'How is the browser model doing this week?', a:() => {
+    const all = loadTrain();
+    if (!all.length) return NONE();
+    const train = all.filter(t => t.ts >= Date.now() - 7*86400000);
+    if (train.length === 0) return 'No calls captured in the last 7 days have been graded yet (calls grade after 5 days).';
+    const g = TrainRows.grade(train);
+    const r = train.reduce((a, t) => a + TrainRows.ret(t), 0);
+    return '<strong>' + train.length + '</strong> graded calls captured this week: ' + esc(g.text) + ' Summed move in the called direction: <strong>' + pct(r) + '</strong>.';
   }},
-  { cat:'performance', q:'What\'s my best symbol ever?', a:() => {
+  { cat:'performance', q:'Which symbol has the best record?', a:() => {
     const train = loadTrain();
-    const bySym = {};
-    train.forEach(t => { const s = t.meta?.sym || 'UNK'; if (!bySym[s]) bySym[s] = { n:0, r:0 }; bySym[s].n++; bySym[s].r += t.y === 1 ? (t.r || 1.5) : -1.0; });
-    const arr = Object.entries(bySym).filter(([,v]) => v.n >= 3).sort((a,b) => b[1].r/b[1].n - a[1].r/a[1].n);
-    if (arr.length === 0) return 'Not enough data per symbol yet (need 3+ trades).';
+    if (!train.length) return NONE();
+    const arr = groupAvg(train, t => t.meta?.sym || null, 5).sort((a,b) => b[1].r/b[1].n - a[1].r/a[1].n);
+    if (arr.length === 0) return 'No symbol has 5+ graded calls yet.';
     const [sym, v] = arr[0];
-    return 'Your best symbol is <strong>' + sym + '</strong> at <strong>+' + (v.r/v.n).toFixed(2) + 'R per trade</strong> across ' + v.n + ' trades. Trade it more.';
+    return '<strong>' + esc(sym) + '</strong>: <strong>' + pct(v.r/v.n) + ' per call</strong> in the called direction, ' + v.w + '/' + v.n + ' right. A small per-symbol sample is mostly noise, not an edge.';
   }},
-  { cat:'performance', q:'What\'s my worst symbol?', a:() => {
+  { cat:'performance', q:'Which symbol has the worst record?', a:() => {
     const train = loadTrain();
-    const bySym = {};
-    train.forEach(t => { const s = t.meta?.sym || 'UNK'; if (!bySym[s]) bySym[s] = { n:0, r:0 }; bySym[s].n++; bySym[s].r += t.y === 1 ? (t.r || 1.5) : -1.0; });
-    const arr = Object.entries(bySym).filter(([,v]) => v.n >= 3).sort((a,b) => a[1].r/a[1].n - b[1].r/b[1].n);
-    if (arr.length === 0) return 'Not enough data per symbol yet.';
+    if (!train.length) return NONE();
+    const arr = groupAvg(train, t => t.meta?.sym || null, 5).sort((a,b) => a[1].r/a[1].n - b[1].r/b[1].n);
+    if (arr.length === 0) return 'No symbol has 5+ graded calls yet.';
     const [sym, v] = arr[0];
-    return '<strong>' + sym + '</strong> is bleeding you — <strong>' + (v.r/v.n).toFixed(2) + 'R per trade</strong> across ' + v.n + ' trades. Consider removing it from your watchlist.';
+    return '<strong>' + esc(sym) + '</strong>: <strong>' + pct(v.r/v.n) + ' per call</strong>, ' + v.w + '/' + v.n + ' right.';
   }},
-  { cat:'patterns', q:'Which setup actually makes money?', a:() => {
+  { cat:'patterns', q:'Which setup has the best record?', a:() => {
     const train = loadTrain();
-    const bySetup = {};
-    train.forEach(t => { const s = t.meta?.setup || 'unknown'; if (!bySetup[s]) bySetup[s] = { n:0, r:0 }; bySetup[s].n++; bySetup[s].r += t.y === 1 ? (t.r || 1.5) : -1.0; });
-    const arr = Object.entries(bySetup).filter(([,v]) => v.n >= 3).sort((a,b) => b[1].r/b[1].n - a[1].r/a[1].n);
-    if (arr.length === 0) return 'No setup has 3+ trades yet.';
-    const [s, v] = arr[0];
-    return 'The <strong>' + s + '</strong> setup is your edge: <strong>+' + (v.r/v.n).toFixed(2) + 'R per trade</strong> over ' + v.n + ' trades. Look for more of these.';
+    if (!train.length) return NONE();
+    const arr = groupAvg(train, t => t.meta?.setup || null, 5).sort((a,b) => b[1].r/b[1].n - a[1].r/a[1].n);
+    if (arr.length === 0) return 'No setup has 5+ graded calls yet.';
+    const [k, v] = arr[0];
+    return '<strong>' + esc(k) + '</strong>: <strong>' + pct(v.r/v.n) + ' per call</strong> over ' + v.n + ' graded calls (' + v.w + ' right). Not tested against drift; treat it as a lead, not an edge.';
   }},
   // Audit pass 170: bucket by ET clock so hour/dow stats reflect the
   // market-attribution calendar, not the user's local timezone.
-  { cat:'timing', q:'What\'s my best hour of the day?', a:() => {
+  { cat:'timing', q:'Which capture hour has the best record?', a:() => {
     function etHourOf(ts) { try { return new Date(new Date(ts).toLocaleString('en-US', { timeZone: 'America/New_York' })).getHours(); } catch(e) { return new Date(ts).getHours(); } }
     const train = loadTrain();
-    const byHour = Array(24).fill(0).map(() => ({ n:0, r:0 }));
-    train.forEach(t => { const h = etHourOf(t.ts); byHour[h].n++; byHour[h].r += t.y === 1 ? (t.r || 1.5) : -1.0; });
-    const arr = byHour.map((v, h) => ({ h, ...v })).filter(v => v.n >= 3).sort((a,b) => b.r/b.n - a.r/a.n);
-    if (arr.length === 0) return 'Need 3+ trades per hour.';
-    return 'You\'re sharpest at <strong>' + arr[0].h + ':00 ET</strong> — <strong>+' + (arr[0].r/arr[0].n).toFixed(2) + 'R/trade</strong> across ' + arr[0].n + ' trades. Schedule your focus around this hour.';
+    if (!train.length) return NONE();
+    const arr = groupAvg(train, t => etHourOf(t.ts), 5).sort((a,b) => b[1].r/b[1].n - a[1].r/a[1].n);
+    if (arr.length === 0) return 'No hour has 5+ graded calls yet.';
+    const [h, v] = arr[0];
+    return 'Calls captured at <strong>' + h + ':00 ET</strong>: <strong>' + pct(v.r/v.n) + ' per call</strong> across ' + v.n + ' graded calls.';
   }},
-  { cat:'timing', q:'What\'s my worst day of the week?', a:() => {
+  { cat:'timing', q:'Which weekday has the worst record?', a:() => {
     function etDowOf(ts) { try { return new Date(new Date(ts).toLocaleString('en-US', { timeZone: 'America/New_York' })).getDay(); } catch(e) { return new Date(ts).getDay(); } }
     const train = loadTrain();
+    if (!train.length) return NONE();
     const dayNames = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
-    const byDow = Array(7).fill(0).map(() => ({ n:0, r:0 }));
-    train.forEach(t => { const d = etDowOf(t.ts); byDow[d].n++; byDow[d].r += t.y === 1 ? (t.r || 1.5) : -1.0; });
-    const arr = byDow.map((v, d) => ({ d, ...v })).filter(v => v.n >= 2).sort((a,b) => a.r/a.n - b.r/b.n);
-    if (arr.length === 0) return 'Need 2+ trades per weekday.';
-    return '<strong>' + dayNames[arr[0].d] + '</strong> is your worst day — <strong>' + (arr[0].r/arr[0].n).toFixed(2) + 'R/trade</strong> across ' + arr[0].n + ' trades. Consider paper-only on this day.';
+    const arr = groupAvg(train, t => etDowOf(t.ts), 5).sort((a,b) => a[1].r/a[1].n - b[1].r/b[1].n);
+    if (arr.length === 0) return 'No weekday has 5+ graded calls yet.';
+    const [d, v] = arr[0];
+    return '<strong>' + dayNames[d] + '</strong>: <strong>' + pct(v.r/v.n) + ' per call</strong> across ' + v.n + ' graded calls.';
   }},
-  { cat:'risk', q:'Is my model overconfident?', a:() => {
+  { cat:'risk', q:'Is the browser model overconfident?', a:() => {
     const train = loadTrain();
-    if (train.length < 10) return 'Need 10+ labeled trades.';
-    const probs = train.map(t => { try { return { p: window.predictForFinding ? window.predictForFinding(t).prob : null, y: t.y }; } catch(e){return null;} }).filter(x => x && x.p != null);
-    const high = probs.filter(x => x.p >= 0.7);
-    const hitHigh = high.length > 0 ? high.filter(x => x.y === 1).length / high.length : 0;
-    if (high.length < 5) return 'Need more high-conf trades.';
-    const diff = 0.7 - hitHigh;  // crude — true Brier would be better
-    if (diff > 0.1) return '<strong style="color:var(--red);">Yes</strong> — model says 70%+ confident but actually wins ' + (hitHigh*100).toFixed(0) + '%. Re-train recommended.';
-    return '<strong style="color:var(--green);">No</strong> — high-conf predictions actually win ' + (hitHigh*100).toFixed(0) + '%. Model is calibrated.';
+    if (!train.length) return NONE();
+    // Confidence AT CAPTURE in the direction called (re-scoring old calls with today's weights tests a different model).
+    const probs = train.filter(t => typeof t.predProb === 'number').map(t => ({ c: Math.max(t.predProb, 1 - t.predProb), y: t.y }));
+    const high = probs.filter(x => x.c >= 0.7);
+    if (high.length < TrainRows.MIN_N) return 'Only ' + high.length + ' graded calls were made at 70%+ confidence; needs ' + TrainRows.MIN_N + '+ to judge.';
+    const hitHigh = high.filter(x => x.y === 1).length / high.length;
+    const avgC = high.reduce((a, x) => a + x.c, 0) / high.length;
+    if (avgC - hitHigh > 0.1) return '<strong style="color:var(--red);">Yes</strong>: calls made at ' + (avgC*100).toFixed(0) + '% average confidence were right ' + (hitHigh*100).toFixed(0) + '% of the time (n=' + high.length + ').';
+    return '<strong>Not by this test</strong>: calls made at ' + (avgC*100).toFixed(0) + '% average confidence were right ' + (hitHigh*100).toFixed(0) + '% of the time (n=' + high.length + ').';
   }},
-  { cat:'risk', q:'How concentrated am I?', a:() => {
+  { cat:'risk', q:'How concentrated are the graded calls?', a:() => {
     const train = loadTrain();
-    if (train.length === 0) return 'No trades yet.';
+    if (train.length === 0) return NONE();
     const bySym = {};
-    train.forEach(t => { const s = t.meta?.sym || 'UNK'; bySym[s] = (bySym[s] || 0) + 1; });
+    train.forEach(t => { const s = t.meta?.sym || '—'; bySym[s] = (bySym[s] || 0) + 1; });
     const arr = Object.entries(bySym).sort((a,b) => b[1] - a[1]);
     const top3Pct = (arr.slice(0, 3).reduce((a, x) => a + x[1], 0) / train.length * 100).toFixed(0);
-    return 'Your top 3 symbols (' + arr.slice(0, 3).map(x => x[0]).join(', ') + ') account for <strong>' + top3Pct + '%</strong> of your trades. ' + (top3Pct > 60 ? 'Concentrated — diversify.' : 'Reasonable diversification.');
+    return 'The top 3 symbols (' + arr.slice(0, 3).map(x => esc(x[0])).join(', ') + ') account for <strong>' + top3Pct + '%</strong> of graded calls.';
   }},
-  { cat:'signals', q:'Anything hot right now?', a:() => {
-    const findings = loadFindings().filter(f => Date.now() - f.ts < 3600 * 1000);
-    if (findings.length === 0) return 'No signals in the last hour. Brain is quiet.';
+  { cat:'signals', q:'Anything scored in the last hour?', a:() => {
+    const findings = loadFindings().filter(f => Date.now() - f.ts < 3600 * 1000 && f.meta && f.meta.sym);
+    if (findings.length === 0) return 'No symbol findings in the last hour.';
     const ranked = findings.map(f => { let p = null; try { if (window.predictForFinding) { const r = window.predictForFinding(f); p = r ? r.prob : null; } } catch(e) {} return { ...f, p }; }).filter(f => f.p != null).sort((a,b) => b.p - a.p);
-    if (ranked.length === 0) return findings.length + ' signal(s) in the last hour, but no model probabilities yet.';
+    if (ranked.length === 0) return findings.length + ' finding(s) in the last hour, but no model probabilities yet.';
     const top = ranked[0];
-    return '<strong>' + top.meta?.sym + '</strong> is hot — <strong>' + (top.p*100).toFixed(0) + '%</strong> model confidence on a <strong>' + (top.meta?.setup || 'signal') + '</strong> setup right now. <a href="trade-coach.html?sym=' + top.meta?.sym + '" style="color:var(--accent);">Build plan →</a>';
+    return '<strong>' + esc(top.meta.sym) + '</strong>: the browser model scores its <strong>' + esc(top.meta.setup || 'signal') + '</strong> finding at <strong>' + (top.p*100).toFixed(0) + '%</strong> (raw output, no proven edge over drift; the desk\'s own pick is on <a href="pick-of-day.html" style="color:var(--accent);">Pick of the Day</a>).';
   }},
   { cat:'discipline', q:'Did I follow my plan last 10 trades?', a:() => {
     const journal = loadJournal().filter(t => t.exit != null).slice(0, 10);
@@ -153,9 +164,10 @@ const QUESTIONS = [
     if (revenges === 0) return '<strong style="color:var(--green);">No</strong> — no trades within 15 min of a losing trade. Good discipline.';
     return '<strong style="color:var(--red);">Maybe</strong> — ' + revenges + ' of your last 20 trades came within 15 min of a previous loss. That\'s the tilt zone.';
   }},
-  { cat:'meta', q:'How much has the brain learned?', a:() => {
+  { cat:'meta', q:'How many calls has the browser model graded?', a:() => {
     const train = loadTrain();
-    return 'The brain has trained on <strong>' + train.length + '</strong> labeled trades. ' + (train.length < 50 ? 'Still bootstrapping — let it cook longer.' : train.length < 200 ? 'Getting somewhere — predictions are stabilizing.' : 'Mature — patterns are well-learned. Keep feeding it.');
+    if (!train.length) return NONE();
+    return '<strong>' + train.length + '</strong> graded calls in this browser. ' + esc(TrainRows.grade(train).text) + ' The desk\'s live record is the <a href="edge-scorecard.html" style="color:var(--accent);">Edge Scorecard</a>.';
   }}
 ];
 

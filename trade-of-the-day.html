@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" media="print" onload="this.media='all'"><noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap"></noscript>
-<link rel="stylesheet" href="css/style.css?v=v238">
+<link rel="stylesheet" href="css/style.css?v=v239">
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
 <style>
@@ -65,12 +65,13 @@
 
 <div id="site-footer"></div>
 
-<script src="js/data-provider.js?v=v238"></script>
-<script src="js/ai-client.js?v=v238"></script>
-<script src="js/app.js?v=v238"></script>
-<script src="js/notify.js?v=v238"></script>
-<script src="js/live.js?v=v238"></script>
-<script src="js/model.js?v=v238"></script>
+<script src="js/data-provider.js?v=v239"></script>
+<script src="js/ai-client.js?v=v239"></script>
+<script src="js/app.js?v=v239"></script>
+<script src="js/notify.js?v=v239"></script>
+<script src="js/live.js?v=v239"></script>
+<script src="js/train-rows.js?v=v239"></script>
+<script src="js/model.js?v=v239"></script>
 <script>
 buildNav('trade-of-the-day');
 
@@ -209,13 +210,12 @@ function scoreCatalyst(q) {
 
 // ---------- Factor 8: ML overlay ----------
 function scoreML(sym, q) {
-  let trainCount = 0, liveCount = 0;
-  try {
-    const train = JSON.parse(localStorage.getItem('bpleone_train_v1') || '[]');
-    trainCount = train.length;
-    liveCount = train.filter(t => (t.meta && t.meta.dataSource) === 'live' || t.dataSource === 'live').length;
-  } catch(e) {}
-  if (liveCount < 20) return { score: 5, value: 'untrained', band: 'neutral — needs ' + (20 - liveCount) + ' more live trades' };
+  // Pass 344: this read 'bpleone_train_v1', which no module writes, so the overlay always sat at neutral. It now
+  // contributes only when the browser model's own graded calls beat the drift rate (js/train-rows.js); a hit rate
+  // above 50% is drift, not skill (pass 299).
+  const g = window.TrainRows ? TrainRows.grade() : { n: 0, enough: false, skillPp: null };
+  if (!g.enough) return { score: 5, value: 'untested', band: 'neutral — ' + g.n + ' graded browser-model calls (needs ' + ((window.TrainRows && TrainRows.MIN_N) || 20) + ')' };
+  if (!(g.skillPp > 0)) return { score: 5, value: 'no skill', band: 'neutral — browser model ' + (g.skillPp >= 0 ? '+' : '') + g.skillPp.toFixed(1) + ' pp vs drift (n=' + g.n + ')' };
   // Try to compute a model prediction
   try {
     if (window.predictForFinding) {
@@ -262,7 +262,7 @@ function rankAll() {
 
 // ---------- Rendering ----------
 function render() {
-  document.getElementById('lastUpdate').textContent = new Date().toLocaleTimeString();
+  document.getElementById('lastUpdate').textContent = new Date().toLocaleTimeString('en-US', { timeZone: 'America/New_York' }) + ' ET';
   const wrap = document.getElementById('content');
 
   // How many symbols have we received real prices for?
@@ -395,6 +395,6 @@ render();
 setInterval(render, 5000);
 window.addEventListener('bpleone:data-mode', render);
 </script>
-<script src="js/no-play-gate.js?v=v238" defer></script>
+<script src="js/no-play-gate.js?v=v239" defer></script>
 </body>
 </html>

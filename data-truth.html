@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" media="print" onload="this.media='all'"><noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap"></noscript>
-<link rel="stylesheet" href="css/style.css?v=v238">
+<link rel="stylesheet" href="css/style.css?v=v239">
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
 <style>
@@ -140,21 +140,24 @@
 
 <div id="site-footer"></div>
 
-<script src="js/data-provider.js?v=v238"></script>
-<script src="js/ai-client.js?v=v238"></script>
-<script src="js/app.js?v=v238"></script>
-<script src="js/notify.js?v=v238"></script>
-<script src="js/live.js?v=v238"></script>
-<script src="js/model.js?v=v238"></script>
+<script src="js/data-provider.js?v=v239"></script>
+<script src="js/ai-client.js?v=v239"></script>
+<script src="js/app.js?v=v239"></script>
+<script src="js/notify.js?v=v239"></script>
+<script src="js/live.js?v=v239"></script>
+<script src="js/model.js?v=v239"></script>
 <script>
 buildNav('data-truth');
+// Pass 344: the training-row store is ModelStore's 'bpleone_train_data_v1'. This page read, quarantined and wiped
+// 'bpleone_train_v1', which no module writes, so it always reported 0 mock rows and its buttons moved nothing.
+const TD_KEY = (window.ModelStore && ModelStore.TRAIN_DATA_KEY) || 'bpleone_train_data_v1';
 
 function audit() {
   const mode = window.BPLEONE_DATA_MODE || 'mock';
   let findings = [];
   try { findings = JSON.parse(localStorage.getItem('bpleone_brain_findings_v1') || '{"items":[]}').items; } catch(e) {}
   let train = [];
-  try { train = JSON.parse(localStorage.getItem('bpleone_train_v1') || '[]'); } catch(e) {}
+  try { train = JSON.parse(localStorage.getItem(TD_KEY) || '[]'); } catch(e) {}
 
   const findMock = findings.filter(f => (f.dataSource || 'mock') !== 'live').length;
   const findLive = findings.filter(f => f.dataSource === 'live').length;
@@ -207,11 +210,11 @@ document.getElementById('refreshBtn').addEventListener('click', audit);
 document.getElementById('quarantineBtn').addEventListener('click', () => {
   if (!confirm('Move all current training data into quarantine? The brain will lose every pattern it learned from mock prices.\n\nYou can restore the quarantine if needed.')) return;
   try {
-    const train = JSON.parse(localStorage.getItem('bpleone_train_v1') || '[]');
+    const train = JSON.parse(localStorage.getItem(TD_KEY) || '[]');
     const existing = JSON.parse(localStorage.getItem('bpleone_train_quarantine_v1') || '[]');
     localStorage.setItem('bpleone_train_quarantine_v1', JSON.stringify([...train, ...existing]));
-    localStorage.setItem('bpleone_train_v1', '[]');
-    alert('✓ Quarantined ' + train.length + ' rows. The brain is now blank. Run a real trade and resolve it to start fresh learning.');
+    localStorage.setItem(TD_KEY, '[]');
+    alert('✓ Quarantined ' + train.length + ' training rows. The model\'s current weights are unchanged (reset them with "Wipe model weights").');
     audit();
   } catch(e) { alert('Quarantine failed: ' + e.message); }
 });
@@ -221,8 +224,8 @@ document.getElementById('restoreBtn').addEventListener('click', () => {
     const q = JSON.parse(localStorage.getItem('bpleone_train_quarantine_v1') || '[]');
     if (!q.length) { alert('Nothing in quarantine.'); return; }
     if (!confirm('Restore ' + q.length + ' rows from quarantine back into the brain?')) return;
-    const cur = JSON.parse(localStorage.getItem('bpleone_train_v1') || '[]');
-    localStorage.setItem('bpleone_train_v1', JSON.stringify([...q, ...cur]));
+    const cur = JSON.parse(localStorage.getItem(TD_KEY) || '[]');
+    localStorage.setItem(TD_KEY, JSON.stringify([...q, ...cur].slice(0, 5000)));
     localStorage.removeItem('bpleone_train_quarantine_v1');
     alert('✓ Restored ' + q.length + ' rows.');
     audit();
@@ -251,7 +254,7 @@ function wipeKey(key, label) {
 }
 
 document.getElementById('wipeFindings').addEventListener('click', () => wipeKey('bpleone_brain_findings_v1', 'all findings'));
-document.getElementById('wipeTraining').addEventListener('click', () => wipeKey('bpleone_train_v1', 'all training rows'));
+document.getElementById('wipeTraining').addEventListener('click', () => wipeKey(TD_KEY, 'all training rows'));
 document.getElementById('wipeModel').addEventListener('click', () => wipeKey('bpleone_model_v1', 'model weights'));
 document.getElementById('wipeEverything').addEventListener('click', () => {
   if (!confirm('☠ NUCLEAR WIPE: removes findings, training, model, learn data, journal, positions, alerts. All bpleone_* localStorage keys. Are you ABSOLUTELY sure?')) return;
@@ -263,6 +266,9 @@ document.getElementById('wipeEverything').addEventListener('click', () => {
 
 audit();
 setInterval(audit, 10000);
+// The data mode is set once the feed answers; re-audit then instead of showing "simulated data" for up to 10 s.
+window.addEventListener('bpleone:data-mode', audit);
+window.addEventListener('bpleone:quotes', (() => { let t = 0; return () => { if (Date.now() - t > 5000) { t = Date.now(); audit(); } }; })());
 </script>
 </body>
 </html>

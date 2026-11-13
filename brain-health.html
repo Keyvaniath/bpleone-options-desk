@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" media="print" onload="this.media='all'"><noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap"></noscript>
-<link rel="stylesheet" href="css/style.css?v=v238">
+<link rel="stylesheet" href="css/style.css?v=v239">
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
 <style>
@@ -72,12 +72,12 @@
 
 <div id="site-footer"></div>
 
-<script src="js/data-provider.js?v=v238"></script>
-<script src="js/ai-client.js?v=v238"></script>
-<script src="js/app.js?v=v238"></script>
-<script src="js/notify.js?v=v238"></script>
-<script src="js/live.js?v=v238"></script>
-<script src="js/model.js?v=v238"></script>
+<script src="js/data-provider.js?v=v239"></script>
+<script src="js/ai-client.js?v=v239"></script>
+<script src="js/app.js?v=v239"></script>
+<script src="js/notify.js?v=v239"></script>
+<script src="js/live.js?v=v239"></script>
+<script src="js/model.js?v=v239"></script>
 <script>
 buildNav('brain-health');
 
@@ -90,16 +90,28 @@ function checkRow(status, title, desc, verdict) {
     + '</div>';
 }
 
+const PAGE_T0 = Date.now();
 function audit() {
   const checks = { pass: 0, warn: 0, fail: 0 };
   let html;
 
   // ============ STAGE 1: DATA SOURCE ============
   html = '';
+  // Pass 344: this ran at load, before the first price poll, so every visit opened on "MOCK" + "Most prices on the site
+  // are fake" for up to 15 s. The first 20 s now read as waiting, the audit re-runs when prices land, and real prices
+  // from the Worker are named DELAYED (only a streaming source is LIVE).
   const mode = window.BPLEONE_DATA_MODE || 'mock';
   const isLive = mode === 'live';
-  if (isLive) { html += checkRow('pass', 'Site data mode', 'Global data mode is "live". Site is configured to accept real prices.', 'LIVE'); checks.pass++; }
-  else { html += checkRow('fail', 'Site data mode', 'Global data mode is "mock". The worker price feed has not answered yet (or the worker is unreachable from your network).', 'MOCK'); checks.fail++; }
+  const waiting = !isLive && (Date.now() - PAGE_T0) < 20000;
+  const streaming = (typeof window.bpleoneLiveShare === 'function') ? window.bpleoneLiveShare().live : 0;
+  if (isLive) { html += checkRow('pass', 'Site data mode', streaming > 0 ? streaming + ' symbols streaming in real time; the rest are real prices delayed ~15 min.' : 'Real prices: equities delayed ~15 min (Yahoo via the desk’s Worker), crypto from Coinbase.', streaming > 0 ? 'LIVE ' + streaming : 'DELAYED'); checks.pass++; }
+  else if (waiting) { html += checkRow('warn', 'Site data mode', 'Waiting for the first price poll (the Worker usually answers within a few seconds).', 'LOADING'); checks.warn++; }
+  else { html += checkRow('fail', 'Site data mode', 'No real prices yet: the Worker price feed has not answered (or it is unreachable from your network).', 'NO FEED'); checks.fail++; }
+  if (waiting) {
+    document.getElementById('dataChecks').innerHTML = html;
+    document.getElementById('overall').innerHTML = '<div class="score-card"><div style="font-size:13px;color:var(--text-muted);">Waiting for the first price poll before grading the pipeline…</div></div>';
+    return;
+  }
 
   // Count symbols with real prices
   let liveSymCount = 0, totalSyms = 0, freshSymCount = 0;
@@ -107,7 +119,10 @@ function audit() {
     Object.values(QUOTES).forEach(q => {
       totalSyms++;
       if (q.priceSource && q.priceSource !== 'stale-seed' && q.priceSource !== 'mock') liveSymCount++;
-      if (q.liveAt && (Date.now() - q.liveAt) < 5 * 60 * 1000) freshSymCount++;
+      // Pass 344: liveAt on a worker-yahoo quote is the MARKET timestamp, ~15 min old by design, so this counted 0 fresh
+      // while the feed had just answered. Fresh = a real price RECEIVED (q.ts) or traded (liveAt) in the last 5 minutes.
+      const realQ = q.priceSource && ['stale-seed', 'mock', 'demo-sim'].indexOf(q.priceSource) < 0;
+      if (realQ && ((q.ts && (Date.now() - q.ts) < 5 * 60 * 1000) || (q.liveAt && (Date.now() - q.liveAt) < 5 * 60 * 1000))) freshSymCount++;
     });
   } catch(e) {}
   const symPct = totalSyms > 0 ? (liveSymCount / totalSyms * 100) : 0;
@@ -167,7 +182,13 @@ function audit() {
 
   if (hits + misses >= 20) { html += checkRow('pass', 'Trainable outcomes', hits + ' wins · ' + misses + ' losses across all data. Enough to begin learning patterns.', (hits + misses) + ' labeled'); checks.pass++; }
   else if (hits + misses >= 5) { html += checkRow('warn', 'Few trainable outcomes', hits + ' wins · ' + misses + ' losses. Need 20+ for the brain to find real patterns.', (hits + misses) + ' labeled'); checks.warn++; }
-  else { html += checkRow('fail', 'No trainable outcomes yet', hits + ' wins · ' + misses + ' losses. Resolve trades in Journal PRO or let Autopilot run.', (hits + misses) + ' labeled'); checks.fail++; }
+  else if (window.WorkerBridge && typeof WorkerBridge.isEnabled === 'function' && WorkerBridge.isEnabled()) {
+    // Pass 344: with the Worker authoritative (pass 199) this browser does not train, so no local outcomes is expected,
+    // not a pipeline failure ("BROKEN: the brain cannot learn" on every fresh visit).
+    html += checkRow('pass', 'Outcomes are graded by the Worker', 'The desk’s Worker grades and trains 24/7; this browser has ' + (hits + misses) + ' local outcomes, which only feed its own display.', 'WORKER'); checks.pass++;
+  }
+  // A fresh browser starts with no outcomes: findings resolve over hours to days. That is an empty state, not breakage.
+  else { html += checkRow('warn', 'No local outcomes yet', hits + ' wins · ' + misses + ' losses in this browser so far. Findings resolve over hours to days while a tab is open (or resolve trades in Journal PRO).', (hits + misses) + ' labeled'); checks.warn++; }
 
   document.getElementById('outcomeChecks').innerHTML = html;
 
@@ -176,7 +197,9 @@ function audit() {
   let model = null;
   try { model = JSON.parse(localStorage.getItem('bpleone_model_v1') || 'null'); } catch(e) {}
   let trainData = [];
-  try { trainData = JSON.parse(localStorage.getItem('bpleone_train_v1') || '[]'); } catch(e) {}
+  // Pass 344: ModelStore's training-row store; 'bpleone_train_v1' was never written, so this stage always read 0 rows.
+  try { trainData = JSON.parse(localStorage.getItem('bpleone_train_data_v1') || '[]'); } catch(e) {}
+  const workerAuth = !!(window.WorkerBridge && typeof WorkerBridge.isEnabled === 'function' && WorkerBridge.isEnabled());
   const liveTrain = trainData.filter(t => (t.meta && t.meta.dataSource) === 'live' || t.dataSource === 'live').length;
   const mockTrain = trainData.length - liveTrain;
 
@@ -187,6 +210,7 @@ function audit() {
 
   if (mockTrain > 0) { html += checkRow('warn', 'Contaminated training data', mockTrain + ' training rows came from mock prices. Trainer skips them now, but they pollute analytics. Quarantine via Data Truth.', mockTrain + ' mock'); checks.warn++; }
   else if (liveTrain > 0) { html += checkRow('pass', 'Clean training data', liveTrain + ' training rows, all from live data.', liveTrain + ' clean'); checks.pass++; }
+  else if (workerAuth) { html += checkRow('pass', 'Worker trains the brain', 'The desk’s Worker is the authoritative brain, so this browser does not add training rows (it only grades its own calls for display).', 'WORKER'); checks.pass++; }
   else { html += checkRow('warn', 'No training data yet', 'No labeled trades in the training set.', '0 rows'); checks.warn++; }
 
   if (liveTrain >= 20) { html += checkRow('pass', 'ML overlay active', liveTrain + ' live-tagged training rows. The 8th TOTD factor (ML overlay) now contributes to scoring.', 'ACTIVE'); checks.pass++; }
@@ -215,7 +239,7 @@ function audit() {
   if (checks.fail > 0) {
     verdictClass = 'broken';
     verdictBig = '❌ BROKEN';
-    verdictMsg = '<strong>' + checks.fail + '</strong> critical failure(s) detected. The brain cannot learn meaningfully in this state. Fix the failing checks below before relying on predictions.';
+    verdictMsg = '<strong>' + checks.fail + '</strong> critical failure(s) in this browser’s local pipeline. Fix the failing checks below before relying on its local output. The desk’s brain runs on the Worker: <a href="system-status.html" style="color:var(--accent);">System status</a>.';
   } else if (checks.warn > checks.pass / 2) {
     verdictClass = 'degraded';
     verdictBig = '⚠ DEGRADED';
@@ -226,7 +250,7 @@ function audit() {
     verdictMsg = checks.pass + ' / ' + total_checks + ' checks passed. The self-learning pipeline is intact and operational.';
   }
   document.getElementById('overall').innerHTML = '<div class="score-card ' + verdictClass + '">'
-    + '<div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:1px;">Overall pipeline health</div>'
+    + '<div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:1px;">This browser’s pipeline health</div>'
     + '<div class="big" style="color:' + (verdictClass === 'healthy' ? 'var(--green)' : verdictClass === 'degraded' ? 'var(--yellow)' : 'var(--red)') + ';">' + verdictBig + '</div>'
     + '<div style="font-size:13px;color:var(--text-secondary);margin-top:14px;max-width:600px;margin-left:auto;margin-right:auto;line-height:1.6;">' + verdictMsg + '</div>'
     + '<div style="margin-top:18px;font-size:12px;font-family:var(--font-mono);">'
@@ -240,6 +264,9 @@ function audit() {
 document.getElementById('rerunBtn').addEventListener('click', audit);
 audit();
 setInterval(audit, 15000);
+// Re-grade as soon as real prices land (5 s floor), not on the next 15 s tick.
+let _bhLast = 0;
+window.addEventListener('bpleone:quotes', () => { if (Date.now() - _bhLast > 5000) { _bhLast = Date.now(); audit(); } });
 </script>
 </body>
 </html>

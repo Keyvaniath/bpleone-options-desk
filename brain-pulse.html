@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" media="print" onload="this.media='all'"><noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap"></noscript>
-<link rel="stylesheet" href="css/style.css?v=v238">
+<link rel="stylesheet" href="css/style.css?v=v239">
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
 <style>
@@ -47,12 +47,12 @@ body { background:#000; }
       <div id="topPick"></div>
     </div>
     <div class="pulse-tile">
-      <div class="lbl">Brain grade</div>
+      <div class="lbl">Skill vs drift</div>
       <div class="val" id="grade">--</div>
       <div class="sub" id="gradeNote">--</div>
     </div>
     <div class="pulse-tile">
-      <div class="lbl">7d Hit rate</div>
+      <div class="lbl">Hit rate (graded 5-day calls)</div>
       <div class="val" id="hit">--</div>
       <div class="sub" id="hitSub">--</div>
     </div>
@@ -64,7 +64,7 @@ body { background:#000; }
     <div class="pulse-tile">
       <div class="lbl">High conf today</div>
       <div class="val" id="highConf" style="color:var(--accent);">--</div>
-      <div class="sub">≥ 70% ML</div>
+      <div class="sub">≥ 70% browser model (raw)</div>
     </div>
     <div class="pulse-tile">
       <div class="lbl">Open positions</div>
@@ -76,17 +76,19 @@ body { background:#000; }
 
 <div id="site-footer"></div>
 
-<script src="js/data-provider.js?v=v238"></script>
-<script src="js/ai-client.js?v=v238"></script>
-<script src="js/app.js?v=v238"></script>
-<script src="js/notify.js?v=v238"></script>
-<script src="js/live.js?v=v238"></script>
-<script src="js/model.js?v=v238"></script>
+<script src="js/data-provider.js?v=v239"></script>
+<script src="js/ai-client.js?v=v239"></script>
+<script src="js/app.js?v=v239"></script>
+<script src="js/notify.js?v=v239"></script>
+<script src="js/live.js?v=v239"></script>
+<script src="js/train-rows.js?v=v239"></script>
+<script src="js/no-play-gate.js?v=v239" defer></script>
+<script src="js/model.js?v=v239"></script>
 <script>
 buildNav('brain-pulse');
 
 function loadFindings() { try { return JSON.parse(localStorage.getItem('bpleone_brain_findings_v1') || '{"items":[]}').items; } catch(e) { return []; } }
-function loadTrain() { try { return JSON.parse(localStorage.getItem('bpleone_train_v1') || '[]'); } catch(e) { return []; } }
+function loadTrain() { return window.TrainRows ? TrainRows.load() : []; }   // pass 344: graded calls (js/train-rows.js); 'bpleone_train_v1' was never written
 function loadPositions() { try { return JSON.parse(localStorage.getItem('bpleone_positions_live_v1') || '[]'); } catch(e) { return []; } }
 
 function render() {
@@ -99,38 +101,50 @@ function render() {
   const today0 = new Date(); today0.setHours(0,0,0,0);
 
   // Top pick
-  const todayF = findings.filter(f => f.ts >= today0.getTime());
+  // Pass 344: only findings about a symbol can be a pick (regime/market findings have no meta.sym: "undefined").
+  const esc = window.TrainRows ? TrainRows.esc : (x => String(x == null ? '' : x));
+  const todayF = findings.filter(f => f.ts >= today0.getTime() && f.meta && f.meta.sym);
   const ranked = todayF.map(f => {
     let prob = null; try { if (window.predictForFinding) { const p = window.predictForFinding(f); prob = p ? p.prob : null; } } catch(e) {}
     return { ...f, prob };
   }).filter(f => f.prob != null).sort((a,b) => b.prob - a.prob);
   const top = ranked[0];
   if (top) {
-    const q = (typeof QUOTES !== 'undefined' && QUOTES[top.meta?.sym]) ? QUOTES[top.meta.sym] : null;
+    const q0 = (typeof QUOTES !== 'undefined') ? QUOTES[top.meta.sym] : null;
+    const q = q0 && q0.last > 0 && ['stale-seed', 'mock', 'demo-sim'].indexOf(q0.priceSource) < 0 && isFinite(q0.changePct) ? q0 : null;
     document.getElementById('topPick').innerHTML =
-      '<div class="val" style="color:var(--accent);text-align:center;font-size:120px;">' + top.meta?.sym + '</div>'
+      '<div class="val" style="color:var(--accent);text-align:center;font-size:120px;">' + esc(top.meta.sym) + '</div>'
       + '<div style="text-align:center;margin-top:14px;">'
-        + '<div style="font-size:18px;color:var(--text-muted);text-transform:uppercase;letter-spacing:1px;">' + (top.meta?.setup || 'signal') + '</div>'
+        + '<div style="font-size:18px;color:var(--text-muted);text-transform:uppercase;letter-spacing:1px;">' + esc(top.meta.setup || 'signal') + '</div>'
         + '<div style="font-family:var(--font-mono);font-size:48px;font-weight:800;color:var(--green);margin-top:6px;">' + (top.prob*100).toFixed(0) + '%</div>'
         + (q ? '<div style="font-family:var(--font-mono);font-size:18px;color:var(--text-secondary);margin-top:4px;">$' + q.last.toFixed(2) + ' · <span style="color:' + (q.changePct >= 0 ? 'var(--green)' : 'var(--red)') + ';">' + (q.changePct >= 0 ? '+' : '') + q.changePct.toFixed(2) + '%</span></div>' : '')
       + '</div>';
   } else {
-    document.getElementById('topPick').innerHTML = '<div style="text-align:center;padding:40px;font-size:20px;color:var(--text-muted);">Brain is scanning. Top pick appears here when a high-conf signal fires.</div>';
+    document.getElementById('topPick').innerHTML = '<div style="text-align:center;padding:40px;font-size:20px;color:var(--text-muted);">No symbol finding scored today in this browser yet.</div>';
   }
 
-  // Grade
-  const week = train.filter(t => t.ts >= weekAgo);
-  const hit = week.length > 0 ? week.filter(t => t.y === 1).length / week.length : 0;
-  const grade = hit >= 0.7 ? 'A' : hit >= 0.6 ? 'B' : hit >= 0.5 ? 'C' : hit >= 0.4 ? 'D' : 'F';
-  const gradeCol = grade === 'A' ? 'var(--green)' : grade === 'B' ? '#84cc16' : grade === 'C' ? 'var(--yellow)' : grade === 'D' ? '#f97316' : 'var(--red)';
-  document.getElementById('grade').textContent = grade;
-  document.getElementById('grade').style.color = gradeCol;
-  document.getElementById('gradeNote').textContent = (hit*100).toFixed(0) + '% / 7d';
-
-  // Hit
-  document.getElementById('hit').textContent = (hit*100).toFixed(0) + '%';
-  document.getElementById('hit').style.color = hit >= 0.55 ? 'var(--green)' : 'var(--red)';
-  document.getElementById('hitSub').textContent = week.filter(t => t.y === 1).length + '/' + week.length + ' wins';
+  // Pass 344: graded against the drift rate, never a 50% coin flip or A-F cutoffs (pass 299). Zero calls = "—".
+  const g = window.TrainRows ? TrainRows.grade(train) : { n: 0 };
+  const gEl = document.getElementById('grade'), hEl = document.getElementById('hit');
+  if (!g.n) {
+    gEl.textContent = '—'; gEl.style.color = 'var(--text-muted)';
+    document.getElementById('gradeNote').innerHTML = 'No graded calls in this browser yet · <a href="edge-scorecard.html" style="color:var(--accent);">live record</a>';
+    hEl.textContent = '—'; hEl.style.color = 'var(--text-muted)';
+    document.getElementById('hitSub').textContent = '0 graded calls';
+  } else {
+    const wins = train.filter(t => t.y === 1).length;
+    hEl.textContent = (g.hit * 100).toFixed(0) + '%';
+    hEl.style.color = 'var(--text-primary)';
+    document.getElementById('hitSub').textContent = wins + '/' + g.n + ' right · drift ' + (g.drift != null ? (g.drift * 100).toFixed(0) + '%' : '~52%');
+    if (!g.enough) {
+      gEl.textContent = '—'; gEl.style.color = 'var(--text-muted)';
+      document.getElementById('gradeNote').textContent = 'n=' + g.n + ': too few to grade (needs ' + TrainRows.MIN_N + '+)';
+    } else {
+      gEl.textContent = (g.skillPp >= 0 ? '+' : '') + g.skillPp.toFixed(1) + ' pp';
+      gEl.style.color = g.skillPp > 0 ? 'var(--green)' : 'var(--red)';
+      document.getElementById('gradeNote').textContent = 'hit rate minus drift (n=' + g.n + ')';
+    }
+  }
 
   // Signals
   document.getElementById('sig').textContent = findings.filter(f => f.ts >= hourAgo).length;

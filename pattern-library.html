@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" media="print" onload="this.media='all'"><noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap"></noscript>
-<link rel="stylesheet" href="css/style.css?v=v238">
+<link rel="stylesheet" href="css/style.css?v=v239">
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
 <style>
@@ -51,11 +51,12 @@
 
 <div id="site-footer"></div>
 
-<script src="js/data-provider.js?v=v238"></script>
-<script src="js/ai-client.js?v=v238"></script>
-<script src="js/app.js?v=v238"></script>
-<script src="js/notify.js?v=v238"></script>
-<script src="js/live.js?v=v238"></script>
+<script src="js/data-provider.js?v=v239"></script>
+<script src="js/ai-client.js?v=v239"></script>
+<script src="js/app.js?v=v239"></script>
+<script src="js/notify.js?v=v239"></script>
+<script src="js/live.js?v=v239"></script>
+<script src="js/train-rows.js?v=v239"></script>
 <script>
 buildNav('pattern-library');
 
@@ -78,13 +79,13 @@ const PATTERNS = [
   { id:'mean-revert', name:'Mean reversion (2σ)', cat:'reversal', desc:'Price 2+ standard deviations below mean with no fundamental driver. Buy-the-dip candidate.', svg:'<polyline points="0,40 50,40 100,75 150,40 200,40" fill="none" stroke="#10b981" stroke-width="2"/><line x1="0" y1="40" x2="200" y2="40" stroke="#666" stroke-dasharray="3,3"/>' }
 ];
 
-function loadTrain() { try { return JSON.parse(localStorage.getItem('bpleone_train_v1') || '[]'); } catch(e) { return []; } }
+function loadTrain() { return window.TrainRows ? TrainRows.load() : []; }   // pass 344: graded calls (js/train-rows.js); 'bpleone_train_v1' was never written
 
 function statsFor(setupId) {
   const matches = loadTrain().filter(t => (t.meta?.setup || '').toLowerCase().includes(setupId.toLowerCase()));
   const n = matches.length;
   const w = matches.filter(t => t.y === 1).length;
-  const r = matches.reduce((a, t) => a + (t.y === 1 ? (t.r || 1.5) : -1.0), 0);
+  const r = matches.reduce((a, t) => a + TrainRows.ret(t), 0);
   return { n, hitRate: n > 0 ? w/n : null, expectancy: n > 0 ? r/n : null };
 }
 
@@ -102,9 +103,11 @@ function render() {
       + '<svg class="pattern-svg" viewBox="0 0 200 90" preserveAspectRatio="none">' + p.svg + '</svg>'
       + '<div class="desc">' + p.desc + '</div>'
       + '<div class="stats">'
-        + '<div class="stat-row">Trades<span class="num">' + s.n + '</span></div>'
-        + '<div class="stat-row">Hit %<span class="num" style="color:' + (s.hitRate >= 0.55 ? 'var(--green)' : s.hitRate >= 0.45 ? 'var(--text-primary)' : s.hitRate != null ? 'var(--red)' : 'var(--text-muted)') + ';">' + (s.hitRate != null ? (s.hitRate*100).toFixed(0) + '%' : '—') + '</span></div>'
-        + '<div class="stat-row">Exp R<span class="num" style="color:' + (s.expectancy > 0 ? 'var(--green)' : s.expectancy != null ? 'var(--red)' : 'var(--text-muted)') + ';">' + (s.expectancy != null ? (s.expectancy >= 0 ? '+' : '') + s.expectancy.toFixed(2) : '—') + '</span></div>'
+        // Pass 344: graded findings of this setup in this browser (js/train-rows.js); % per call, no assumed R;
+        // under 5 calls nothing is shown as a rate.
+        + '<div class="stat-row">Graded calls<span class="num">' + s.n + '</span></div>'
+        + '<div class="stat-row">Hit %<span class="num" style="color:' + (s.n >= 5 ? 'var(--text-primary)' : 'var(--text-muted)') + ';">' + (s.n >= 5 ? (s.hitRate*100).toFixed(0) + '%' : '—') + '</span></div>'
+        + '<div class="stat-row">Avg move<span class="num" style="color:' + (s.n >= 5 && s.expectancy > 0 ? 'var(--green)' : s.n >= 5 ? 'var(--red)' : 'var(--text-muted)') + ';">' + (s.n >= 5 ? (s.expectancy >= 0 ? '+' : '') + s.expectancy.toFixed(2) + '%' : '—') + '</span></div>'
       + '</div>'
     + '</div>';
   }).join('') || '<div style="grid-column:1/-1;text-align:center;padding:40px;color:var(--text-muted);">No patterns match.</div>';

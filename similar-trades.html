@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" media="print" onload="this.media='all'"><noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap"></noscript>
-<link rel="stylesheet" href="css/style.css?v=v238">
+<link rel="stylesheet" href="css/style.css?v=v239">
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
 <style>
@@ -59,17 +59,18 @@
 
 <div id="site-footer"></div>
 
-<script src="js/data-provider.js?v=v238"></script>
-<script src="js/ai-client.js?v=v238"></script>
-<script src="js/app.js?v=v238"></script>
-<script src="js/notify.js?v=v238"></script>
-<script src="js/live.js?v=v238"></script>
-<script src="js/model.js?v=v238"></script>
+<script src="js/data-provider.js?v=v239"></script>
+<script src="js/ai-client.js?v=v239"></script>
+<script src="js/app.js?v=v239"></script>
+<script src="js/notify.js?v=v239"></script>
+<script src="js/live.js?v=v239"></script>
+<script src="js/train-rows.js?v=v239"></script>
+<script src="js/model.js?v=v239"></script>
 <script>
 buildNav('similar-trades');
 
 function loadFindings() { try { return JSON.parse(localStorage.getItem('bpleone_brain_findings_v1') || '{"items":[]}').items; } catch(e) { return []; } }
-function loadTrain() { try { return JSON.parse(localStorage.getItem('bpleone_train_v1') || '[]'); } catch(e) { return []; } }
+function loadTrain() { return window.TrainRows ? TrainRows.load() : []; }   // pass 344: graded calls (js/train-rows.js); 'bpleone_train_v1' was never written
 
 function distance(a, b) {
   if (!a || !b || !a.length || !b.length) return Infinity;
@@ -80,9 +81,13 @@ function distance(a, b) {
 }
 
 let activeId = null;
+// Pass 344: findings and graded calls carry their feature vector as .features (.x never existed, so no signal ever
+// found a match). Same 22-feature schema on both sides.
+const vec = o => (o && Array.isArray(o.features) && o.features.length) ? o.features : (o && Array.isArray(o.x) && o.x.length ? o.x : null);
+const esc = s => (window.TrainRows ? TrainRows.esc(s) : String(s == null ? '' : s));
 
 function renderSignals() {
-  const findings = loadFindings().filter(f => Date.now() - f.ts < 6 * 3600 * 1000);
+  const findings = loadFindings().filter(f => Date.now() - f.ts < 6 * 3600 * 1000 && f.meta && f.meta.sym);
   const wrap = document.getElementById('signals');
   if (findings.length === 0) {
     wrap.innerHTML = '<div style="padding:30px;text-align:center;color:var(--text-muted);font-size:13px;">No live signals in the last 6 hours. Wait for the brain to find one.</div>';
@@ -94,10 +99,10 @@ function renderSignals() {
   }).filter(f => f.p != null).sort((a,b) => b.p - a.p).slice(0, 12);
   wrap.innerHTML = ranked.map(f => '<div class="signal-row' + (activeId === f.id ? ' on' : '') + '" data-fid="' + f.id + '">'
     + '<div style="display:flex;justify-content:space-between;align-items:center;">'
-    + '<div><strong style="font-family:var(--font-mono);font-size:14px;">' + (f.meta?.sym || '?') + '</strong> <span style="color:var(--text-muted);font-size:11px;margin-left:8px;">' + (f.meta?.setup || 'signal') + '</span></div>'
+    + '<div><strong style="font-family:var(--font-mono);font-size:14px;">' + esc(f.meta.sym) + '</strong> <span style="color:var(--text-muted);font-size:11px;margin-left:8px;">' + esc(f.meta.setup || 'signal') + '</span></div>'
     + '<div style="font-family:var(--font-mono);font-weight:700;color:var(--accent);">' + (f.p*100).toFixed(0) + '%</div>'
     + '</div>'
-    + '<div style="font-size:11px;color:var(--text-muted);margin-top:4px;">' + (f.title || '') + '</div>'
+    + '<div style="font-size:11px;color:var(--text-muted);margin-top:4px;">' + esc(f.title || '') + '</div>'
     + '</div>').join('');
   wrap.querySelectorAll('.signal-row').forEach(r => r.addEventListener('click', () => {
     activeId = r.dataset.fid;
@@ -114,33 +119,33 @@ function renderMatches() {
   }
   const findings = loadFindings();
   const target = findings.find(f => f.id === activeId);
-  if (!target || !target.x) {
+  if (!target || !vec(target)) {
     wrap.innerHTML = '<div style="padding:30px;text-align:center;color:var(--text-muted);font-size:13px;">No feature vector for this signal.</div>';
     return;
   }
-  const train = loadTrain().filter(t => t.x && t.x.length);
+  const train = loadTrain().filter(t => vec(t));
   if (train.length === 0) {
-    wrap.innerHTML = '<div style="padding:30px;text-align:center;color:var(--text-muted);font-size:13px;">No historical trades to compare against. Trade more.</div>';
+    wrap.innerHTML = '<div style="padding:30px;text-align:center;color:var(--text-muted);font-size:13px;">' + (window.TrainRows ? TrainRows.EMPTY_HTML : 'No graded calls yet.') + '</div>';
     return;
   }
   // Compute distances
-  const scored = train.map(t => ({ t, d: distance(target.x, t.x) })).sort((a, b) => a.d - b.d).slice(0, 10);
+  const scored = train.map(t => ({ t, d: distance(vec(target), vec(t)) })).sort((a, b) => a.d - b.d).slice(0, 10);
   const maxD = scored[scored.length - 1].d || 1;
   const wins = scored.filter(x => x.t.y === 1).length;
+  const dr = TrainRows.driftRate(scored.map(x => x.t));
   const summary = '<div style="padding:14px;background:var(--bg-elevated);border-radius:10px;margin-bottom:12px;font-size:13px;text-align:center;">'
-    + 'Of the 10 most similar past trades, <strong style="color:' + (wins >= 6 ? 'var(--green)' : wins >= 4 ? 'var(--yellow)' : 'var(--red)') + ';font-family:var(--font-mono);font-size:18px;">' + wins + '</strong> were wins. '
-    + (wins >= 7 ? 'High-quality cluster — your history supports the signal.' :
-       wins >= 4 ? 'Mixed cluster — coin flip.' :
-       '<span style="color:var(--red);">Bad cluster — history disagrees with the model.</span>')
+    + 'Of the ' + scored.length + ' most similar graded calls, <strong style="font-family:var(--font-mono);font-size:18px;">' + wins + '</strong> were right'
+    + (dr != null ? ' (an always-long call would have been right on ' + Math.round(dr * scored.length) + ')' : '') + '. '
+    + 'Ten neighbours is a tiny sample: this describes the past, it does not confirm the signal.'
     + '</div>';
   const matches = scored.map(({ t, d }) => {
     const sim = Math.max(0, 1 - d / maxD);
     const cls = t.y === 1 ? 'win' : 'loss';
-    const r = (t.y === 1 ? '+' + (t.r || 1.5).toFixed(2) : '-1.00') + 'R';
+    const r = typeof t.pnl === 'number' ? (t.pnl >= 0 ? '+' : '') + t.pnl.toFixed(2) + '%' : '—';
     return '<div class="match-row ' + cls + '">'
-      + '<div style="font-family:var(--font-mono);font-size:11px;color:var(--text-muted);">' + new Date(t.ts).toLocaleDateString() + '</div>'
-      + '<div><strong>' + (t.meta?.sym || '?') + '</strong> · <span style="color:var(--text-muted);">' + (t.meta?.setup || '?') + '</span></div>'
-      + '<div style="font-family:var(--font-mono);font-weight:700;color:' + (t.y === 1 ? 'var(--green)' : 'var(--red)') + ';">' + (t.y === 1 ? 'WIN' : 'LOSS') + '</div>'
+      + '<div style="font-family:var(--font-mono);font-size:11px;color:var(--text-muted);">' + new Date(t.ts).toLocaleDateString('en-US', { timeZone: 'America/New_York' }) + '</div>'
+      + '<div><strong>' + esc(t.meta?.sym || '—') + '</strong> · <span style="color:var(--text-muted);">' + esc(t.meta?.setup || '—') + '</span></div>'
+      + '<div style="font-family:var(--font-mono);font-weight:700;color:' + (t.y === 1 ? 'var(--green)' : 'var(--red)') + ';">' + (t.y === 1 ? 'RIGHT' : 'WRONG') + '</div>'
       + '<div style="font-family:var(--font-mono);">' + r + '</div>'
       + '<div><div class="sim-bar"><div style="width:' + (sim*100).toFixed(0) + '%;background:var(--accent);"></div></div> <span style="font-family:var(--font-mono);font-size:10px;color:var(--accent);">' + (sim*100).toFixed(0) + '%</span></div>'
       + '</div>';

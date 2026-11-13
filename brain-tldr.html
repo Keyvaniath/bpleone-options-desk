@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" media="print" onload="this.media='all'"><noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap"></noscript>
-<link rel="stylesheet" href="css/style.css?v=v238">
+<link rel="stylesheet" href="css/style.css?v=v239">
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
 <style>
@@ -54,17 +54,19 @@
 
 <div id="site-footer"></div>
 
-<script src="js/data-provider.js?v=v238"></script>
-<script src="js/ai-client.js?v=v238"></script>
-<script src="js/app.js?v=v238"></script>
-<script src="js/notify.js?v=v238"></script>
-<script src="js/live.js?v=v238"></script>
-<script src="js/model.js?v=v238"></script>
+<script src="js/data-provider.js?v=v239"></script>
+<script src="js/ai-client.js?v=v239"></script>
+<script src="js/app.js?v=v239"></script>
+<script src="js/notify.js?v=v239"></script>
+<script src="js/live.js?v=v239"></script>
+<script src="js/train-rows.js?v=v239"></script>
+<script src="js/no-play-gate.js?v=v239" defer></script>
+<script src="js/model.js?v=v239"></script>
 <script>
 buildNav('brain-tldr');
 
 function loadFindings() { try { return JSON.parse(localStorage.getItem('bpleone_brain_findings_v1') || '{"items":[]}').items; } catch(e) { return []; } }
-function loadTrain() { try { return JSON.parse(localStorage.getItem('bpleone_train_v1') || '[]'); } catch(e) { return []; } }
+function loadTrain() { return window.TrainRows ? TrainRows.load() : []; }   // pass 344: graded calls (js/train-rows.js); 'bpleone_train_v1' was never written
 function loadPos() { try { return JSON.parse(localStorage.getItem('bpleone_positions_live_v1') || '[]'); } catch(e) { return []; } }
 
 function render() {
@@ -76,15 +78,14 @@ function render() {
   const today0 = new Date(); today0.setHours(0,0,0,0);
 
   // Stats
+  // Pass 344: graded calls (js/train-rows.js), graded against drift; no A-F letters or mood words.
+  const esc = TrainRows.esc;
   const week = train.filter(t => t.ts >= weekAgo);
-  const wins = week.filter(t => t.y === 1).length;
-  const hit = week.length > 0 ? wins / week.length : 0;
-  const pnl = week.reduce((a, t) => a + (t.y === 1 ? (t.r || 1.5) : -1.0), 0);
-  const grade = hit >= 0.7 ? 'A' : hit >= 0.6 ? 'B' : hit >= 0.5 ? 'C' : hit >= 0.4 ? 'D' : 'F';
-  const gradeCol = grade === 'A' ? 'var(--green)' : grade === 'B' ? '#84cc16' : grade === 'C' ? 'var(--yellow)' : grade === 'D' ? '#f97316' : 'var(--red)';
+  const pnl = week.reduce((a, t) => a + TrainRows.ret(t), 0);
+  const g = TrainRows.grade(train);
 
   // Top pick today
-  const todayF = findings.filter(f => f.ts >= today0.getTime());
+  const todayF = findings.filter(f => f.ts >= today0.getTime() && f.meta && f.meta.sym);
   const ranked = todayF.map(f => {
     let p = null; try { if (window.predictForFinding) { const r = window.predictForFinding(f); p = r ? r.prob : null; } } catch(e){}
     return { ...f, p };
@@ -93,26 +94,27 @@ function render() {
 
   // Drift
   const recent3 = train.filter(t => t.ts >= now - 3*86400000);
-  const recentHit = recent3.length > 0 ? recent3.filter(t => t.y === 1).length / recent3.length : null;
-  const lifeHit = train.length > 0 ? train.filter(t => t.y === 1).length / train.length : null;
+  const recentHit = recent3.length >= 10 ? recent3.filter(t => t.y === 1).length / recent3.length : null;
+  const lifeHit = train.length >= TrainRows.MIN_N ? train.filter(t => t.y === 1).length / train.length : null;
   const drift = (recentHit != null && lifeHit != null) ? recentHit - lifeHit : 0;
 
   // Compose narrative
   let lead = '';
-  if (top) lead = 'The brain\'s top pick right now is <strong>' + (top.meta?.sym || '?') + '</strong> at <span class="accent">' + (top.p*100).toFixed(0) + '%</span> confidence on a ' + (top.meta?.setup || 'signal') + ' setup.';
-  else if (todayF.length > 0) lead = 'The brain scanned ' + todayF.length + ' signals today but nothing above its conviction threshold yet.';
-  else lead = 'Brain is in scan mode — no high-conviction picks yet today.';
+  if (top) lead = 'The browser model\'s top-scored finding right now is <strong>' + esc(top.meta.sym) + '</strong> at <span class="accent">' + (top.p*100).toFixed(0) + '%</span> on a ' + esc(top.meta.setup || 'signal') + ' setup (raw output, not a pick).';
+  else if (todayF.length > 0) lead = 'The browser model has ' + todayF.length + ' symbol findings today but none scored yet.';
+  else lead = 'No symbol findings in this browser yet today.';
 
-  const moodWord = grade === 'A' ? 'crushing' : grade === 'B' ? 'solid' : grade === 'C' ? 'mixed' : grade === 'D' ? 'rough' : 'bad';
-  const summary = 'You\'re having a <strong style="color:' + gradeCol + ';">' + moodWord + '</strong> week — <span class="accent">grade ' + grade + '</span>, ' + (hit*100).toFixed(0) + '% hit rate over ' + week.length + ' resolved trades, ' + (pnl >= 0 ? '+' : '') + pnl.toFixed(1) + 'R total.';
+  const summary = !g.n ? 'No graded calls in this browser yet.'
+    : !g.enough ? g.n + ' graded calls so far: too few to grade (needs ' + TrainRows.MIN_N + '+).'
+    : 'Browser model: <span class="accent">' + (g.skillPp >= 0 ? '+' : '') + g.skillPp.toFixed(1) + ' pp</span> vs market drift (' + (g.hit*100).toFixed(0) + '% right vs ' + (g.bar*100).toFixed(0) + '% always-long, n=' + g.n + ')' + (week.length ? ', ' + (pnl >= 0 ? '+' : '') + pnl.toFixed(2) + '% summed move this week.' : '.');
 
   // Bullets
   const bullets = [];
   if (positions.length > 0) bullets.push('Currently holding <strong>' + positions.length + '</strong> open position' + (positions.length > 1 ? 's' : '') + '.');
   bullets.push('Last hour saw <strong>' + findings.filter(f => f.ts > now - 3600000).length + '</strong> brain findings.');
-  if (ranked.length > 0) bullets.push('<strong>' + ranked.filter(f => f.p >= 0.7).length + '</strong> high-conviction picks (≥70%) today.');
-  if (Math.abs(drift) > 0.1) bullets.push('<strong style="color:var(--yellow);">⚠ Drift detected:</strong> recent hit rate is ' + (drift >= 0 ? '+' : '') + (drift*100).toFixed(0) + '% vs lifetime. Watch for regime change.');
-  else if (lifeHit != null) bullets.push('Model is stable — no drift detected.');
+  if (ranked.length > 0) bullets.push('<strong>' + ranked.filter(f => f.p >= 0.7).length + '</strong> findings scored 70%+ by the browser model today (raw).');
+  if (recentHit != null && lifeHit != null && Math.abs(drift) > 0.1) bullets.push('<strong style="color:var(--yellow);">Recent vs lifetime:</strong> the last 3 days\' hit rate is ' + (drift >= 0 ? '+' : '') + (drift*100).toFixed(0) + ' pp vs lifetime.');
+  if (!g.n) bullets.push(TrainRows.EMPTY_HTML);
 
   const html = '<div class="lead">' + lead + '</div>'
     + '<h2>' + summary + '</h2>'
@@ -122,18 +124,15 @@ function render() {
 
   // Action items
   const actions = [];
-  if (grade === 'F' || grade === 'D') actions.push({ tone:'bad', t:'🛑 Switch to paper only', b:'Your hit rate is below 50% this week. Don\'t compound losses. Trade paper until you find the leak.' });
-  if (Math.abs(drift) > 0.15) actions.push({ tone:'warn', t:'🔁 Retrain the model', b:'Drift is severe. <a href="model-trainer.html" style="color:var(--accent);">Run a full retrain</a> on the latest data.' });
-  if (top && top.p >= 0.8) actions.push({ tone:'good', t:'🎯 Plan ' + top.meta?.sym, b:'Highest-conviction setup of the day. <a href="trade-coach.html?sym=' + top.meta?.sym + '" style="color:var(--accent);">Open Trade Coach →</a>' });
+  if (g.enough && g.skillPp <= 0) actions.push({ tone:'bad', t:'No skill above drift', b:'The browser model\'s graded calls do no better than an always-long call. Treat its output as noise; the desk\'s live record is the <a href="edge-scorecard.html" style="color:var(--accent);">Edge Scorecard</a>.' });
   if (positions.length > 0) actions.push({ tone:'warn', t:'👀 Check positions', b:'You have ' + positions.length + ' open position(s). <a href="positions-live.html" style="color:var(--accent);">Live tracker →</a>' });
-  if (week.length === 0 && findings.length > 0) actions.push({ tone:'warn', t:'📊 Resolve outstanding trades', b:'You have unresolved signals. <a href="trade-journal-pro.html" style="color:var(--accent);">Open Journal PRO</a> and label them so the brain can learn.' });
-  if (!actions.length) actions.push({ tone:'good', t:'✓ Nothing urgent', b:'Brain is healthy. Stick to the plan. Don\'t over-trade.' });
+  if (!actions.length) actions.push({ tone:'good', t:'Nothing to act on', b:'No open positions and no graded result that needs attention.' });
 
   document.getElementById('actions').innerHTML = actions.map(a =>
     '<div class="action-card ' + a.tone + '"><h4>' + a.t + '</h4><p>' + a.b + '</p></div>'
   ).join('');
 
-  document.getElementById('readTime').textContent = 'Generated ' + new Date().toLocaleTimeString() + ' · 60-second read · auto-refreshes';
+  document.getElementById('readTime').textContent = 'Generated ' + new Date().toLocaleTimeString('en-US', { timeZone: 'America/New_York' }) + ' ET · 60-second read · auto-refreshes';
 }
 
 document.getElementById('refreshBtn').addEventListener('click', render);

@@ -245,6 +245,9 @@ The whole site was swept so nothing fabricated reads as live. Three moves:
 - model.js `FEATURES` is a list of name STRINGS (brain-evolution printed `f.name` = undefined for all 22). model-compare: only models that produce a number vote.
 - Brain pages lead with the Worker's state (`workerBrainStatus()`); a browser-local score is labeled local (brain-mobile).
 - **The snapshot chain starts from 6:00 ET on weekdays** (was 8:30): on 11/13 GitHub started one morning kick (7:38 ET), the chain refused to continue before 8:30, and nothing else fired until 14:35 ET. The acceptance check still counts the 8:30-17:00 slots.
+- **No page reads `bpleone_train_v1`** (nothing writes it; 28 pages showed 0% / "F" / empty forever). The browser model's graded calls come from `js/train-rows.js` (`TrainRows.load()`: the prediction journal's 5-day calls + resolved findings; skips flat/unresolved/duplicate/continuous/historical/test rows; `pnl` = the real % move in the called direction), graded with `TrainRows.grade()` against drift, "too few to grade" under 20 calls. Guard: `node _test_train_rows.js`. Before wiring any localStorage key, grep that something WRITES it.
+- **Never size up on model confidence** (trade-sizing-advisor's 85%+ = 1.25x is gone): the live conviction ranking was inverted (pass 333).
+- Cache-bust **v239** (pass 344).
 - **brain-proof writes nothing into the real journal** (its "inject test prediction" / "force-resolve" tools were removed: a made-up AAPL call, and early grading of real entries trained on the spot). Market timestamps print in ET with the zone named.
 
 **Pass 343 invariants (2026-11-13, worker pass-324 adds `/brain/earnings-history`; guarded by honesty section 6j + `node _test_earnings_reaction.js`):**

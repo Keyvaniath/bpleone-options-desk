@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" media="print" onload="this.media='all'"><noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap"></noscript>
-<link rel="stylesheet" href="css/style.css?v=v238">
+<link rel="stylesheet" href="css/style.css?v=v239">
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
@@ -33,42 +33,43 @@
     </div>
     <div class="flex gap-8">
       <select id="sortBy" class="btn btn-secondary" style="padding:7px 12px;background:var(--bg-elevated);border:1px solid var(--border);color:var(--text-primary);">
-        <option value="expectancy">Sort: Expectancy</option>
+        <option value="expectancy">Sort: Avg % per call</option>
         <option value="hitRate">Sort: Hit rate</option>
+        <option value="skillPp">Sort: Hit rate vs drift</option>
         <option value="n">Sort: Sample size</option>
         <option value="avgProb">Sort: Avg confidence</option>
         <option value="weight">Sort: Learned weight</option>
       </select>
       <select id="minN" class="btn btn-secondary" style="padding:7px 12px;background:var(--bg-elevated);border:1px solid var(--border);color:var(--text-primary);">
-        <option value="1">Min: 1 trade</option>
-        <option value="3">Min: 3 trades</option>
-        <option value="5" selected>Min: 5 trades</option>
-        <option value="10">Min: 10 trades</option>
+        <option value="1">Min: 1 call</option>
+        <option value="3">Min: 3 calls</option>
+        <option value="5" selected>Min: 5 calls</option>
+        <option value="10">Min: 10 calls</option>
       </select>
     </div>
   </div>
 
   <div class="grid grid-4 mb-24">
     <div class="card"><div class="card-header"><div class="card-title">Tracked symbols</div></div><div class="mono" style="font-size:24px;font-weight:700;" id="kTotal">--</div></div>
-    <div class="card"><div class="card-header"><div class="card-title">A-grade syms</div></div><div class="mono" style="font-size:24px;font-weight:700;color:var(--green);" id="kAGrade">--</div></div>
-    <div class="card"><div class="card-header"><div class="card-title">F-grade syms</div></div><div class="mono" style="font-size:24px;font-weight:700;color:var(--red);" id="kFGrade">--</div></div>
-    <div class="card"><div class="card-header"><div class="card-title">Best-of-best</div></div><div class="mono" style="font-size:24px;font-weight:700;color:var(--accent);" id="kKing">--</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">Above drift (10+ calls)</div></div><div class="mono" style="font-size:24px;font-weight:700;color:var(--green);" id="kAGrade">--</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">Below drift (10+ calls)</div></div><div class="mono" style="font-size:24px;font-weight:700;color:var(--red);" id="kFGrade">--</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">Top of this sort</div></div><div class="mono" style="font-size:24px;font-weight:700;color:var(--accent);" id="kKing">--</div></div>
   </div>
 
   <div class="grid grid-2 mb-24">
     <div class="card">
-      <div class="card-header"><div class="card-title">🏅 Top 10 by expectancy</div></div>
+      <div class="card-header"><div class="card-title">🏅 Top 10 by avg % per call</div></div>
       <canvas id="topChart" height="200"></canvas>
     </div>
     <div class="card">
-      <div class="card-header"><div class="card-title">🩻 Bottom 10 by expectancy</div></div>
+      <div class="card-header"><div class="card-title">🩻 Bottom 10 by avg % per call</div></div>
       <canvas id="bottomChart" height="200"></canvas>
     </div>
   </div>
 
   <div class="card" style="padding:0;">
     <div class="lb-row hdr">
-      <div>#</div><div>SYM</div><div>N</div><div>HIT %</div><div>AVG R</div><div>EXP</div><div>MODEL</div><div>WEIGHT</div><div>PERFORMANCE</div>
+      <div>#</div><div>SYM</div><div>N</div><div>HIT %</div><div>AVG %</div><div>VS DRIFT</div><div>CONF</div><div>WEIGHT</div><div>HIT RATE</div>
     </div>
     <div id="lbBody"></div>
   </div>
@@ -76,53 +77,51 @@
   <div class="card mt-24">
     <div class="card-header"><div class="card-title">🎯 Action playbook</div></div>
     <div style="font-size:13px;color:var(--text-secondary);line-height:1.7;">
-      <strong>A-grade symbols (green):</strong> The model is wired for these. Trade them with full size. Confidence + hit rate are both high.<br>
-      <strong>C-grade (yellow):</strong> Coin-flip territory. Either skip or take half-size and use them to train. Most symbols are here.<br>
-      <strong>F-grade (red):</strong> The model gets these wrong. Either the setup doesn't apply to that symbol, or there's an external factor (earnings, M&A) the brain can't see. Don't blindly follow the model here — or remove them from your watchlist.<br>
-      <strong>Low sample size:</strong> Be patient. Wait until you have 10+ trades per symbol before drawing conclusions. Filter with the Min dropdown.
+      <strong>VS DRIFT:</strong> the symbol's hit rate minus what an always-long call got on the same calls. A hit rate above 50% on a stock that rose is drift, not skill.<br>
+      <strong>AVG %:</strong> the realized 5-day move in the direction the browser model called, averaged per call.<br>
+      <strong>Sample size:</strong> per-symbol samples are small and overlapping 5-day calls are not independent, so a symbol at the top of this table is not a proven edge. This is the browser model's diagnostic, not sizing advice; the desk's live record is the <a href="edge-scorecard.html" style="color:var(--accent);">Edge Scorecard</a>.
     </div>
   </div>
 </div>
 
 <div id="site-footer"></div>
 
-<script src="js/data-provider.js?v=v238"></script>
-<script src="js/ai-client.js?v=v238"></script>
-<script src="js/app.js?v=v238"></script>
-<script src="js/notify.js?v=v238"></script>
-<script src="js/live.js?v=v238"></script>
-<script src="js/model.js?v=v238"></script>
+<script src="js/data-provider.js?v=v239"></script>
+<script src="js/ai-client.js?v=v239"></script>
+<script src="js/app.js?v=v239"></script>
+<script src="js/notify.js?v=v239"></script>
+<script src="js/live.js?v=v239"></script>
+<script src="js/train-rows.js?v=v239"></script>
+<script src="js/model.js?v=v239"></script>
 <script>
 buildNav('model-symbols-leaderboard');
 
-function loadTrain() { try { return JSON.parse(localStorage.getItem('bpleone_train_v1') || '[]'); } catch(e) { return []; } }
+function loadTrain() { return window.TrainRows ? TrainRows.load() : []; }   // pass 344: graded calls (js/train-rows.js); 'bpleone_train_v1' was never written
 function loadLearn() { try { return JSON.parse(localStorage.getItem('bpleone_learn_v1') || '{}'); } catch(e) { return {}; } }
 
 function compute() {
   const train = loadTrain();
   const learn = loadLearn();
   const bySym = {};
+  // Pass 344: graded calls (js/train-rows.js); realized % per call (no assumed +1.5R/-1R); confidence at capture.
   train.forEach(t => {
-    const s = t.meta?.sym || 'UNK';
+    const s = t.meta?.sym;
+    if (!s) return;
     if (!bySym[s]) bySym[s] = { sym: s, trades: [], wins: 0, losses: 0, rTotal: 0, probs: [] };
     bySym[s].trades.push(t);
-    if (t.y === 1) { bySym[s].wins++; bySym[s].rTotal += (t.r || 1.5); }
-    else { bySym[s].losses++; bySym[s].rTotal += -1.0; }
-    try {
-      if (window.predictForFinding) {
-        const p = window.predictForFinding(t);
-        if (p) bySym[s].probs.push(p.prob);
-      }
-    } catch(e) {}
+    if (t.y === 1) bySym[s].wins++; else bySym[s].losses++;
+    bySym[s].rTotal += TrainRows.ret(t);
+    if (typeof t.predProb === 'number') bySym[s].probs.push(Math.max(t.predProb, 1 - t.predProb));
   });
   Object.values(bySym).forEach(s => {
     s.n = s.trades.length;
     s.hitRate = s.n > 0 ? s.wins / s.n : 0;
     s.avgR = s.n > 0 ? s.rTotal / s.n : 0;
     s.expectancy = s.avgR;
-    s.avgProb = s.probs.length > 0 ? s.probs.reduce((a,b)=>a+b,0)/s.probs.length : 0;
+    s.avgProb = s.probs.length > 0 ? s.probs.reduce((a,b)=>a+b,0)/s.probs.length : null;
     s.weight = (learn.symbols && learn.symbols[s.sym] && learn.symbols[s.sym].w) || 1.0;
-    s.grade = s.expectancy >= 0.5 ? 'A' : s.expectancy >= 0.2 ? 'B' : s.expectancy >= -0.2 ? 'C' : s.expectancy >= -0.5 ? 'D' : 'F';
+    const d = TrainRows.driftRate(s.trades);
+    s.skillPp = d != null && s.n > 0 ? (s.hitRate - d) * 100 : null;
   });
   return Object.values(bySym);
 }
@@ -134,28 +133,30 @@ function render() {
   data.sort((a, b) => (b[sortBy] || 0) - (a[sortBy] || 0));
 
   // KPIs
+  const esc = TrainRows.esc;
   document.getElementById('kTotal').textContent = data.length;
-  document.getElementById('kAGrade').textContent = data.filter(s => s.grade === 'A').length;
-  document.getElementById('kFGrade').textContent = data.filter(s => s.grade === 'F').length;
+  document.getElementById('kAGrade').textContent = data.filter(s => s.n >= 10 && s.skillPp != null && s.skillPp > 0).length;
+  document.getElementById('kFGrade').textContent = data.filter(s => s.n >= 10 && s.skillPp != null && s.skillPp <= 0).length;
   document.getElementById('kKing').textContent = data.length ? data[0].sym : '—';
 
   // Body
   const body = document.getElementById('lbBody');
-  body.innerHTML = '';
+  const allN = loadTrain().length;
+  body.innerHTML = data.length ? '' : '<div style="padding:18px;font-size:13px;color:var(--text-muted);">' + (allN ? 'No symbol has ' + minN + '+ graded calls yet (' + allN + ' graded calls in all).' : TrainRows.EMPTY_HTML) + '</div>';
   data.forEach((s, i) => {
     const r = document.createElement('div');
     r.className = 'lb-row';
-    const gradeCol = s.grade === 'A' ? 'var(--green)' : s.grade === 'B' ? '#84cc16' : s.grade === 'C' ? 'var(--yellow)' : s.grade === 'D' ? '#f97316' : 'var(--red)';
+    const gradeCol = s.skillPp == null || s.n < 10 ? 'var(--text-primary)' : s.skillPp > 0 ? 'var(--green)' : 'var(--red)';
     const medal = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : (i + 1);
     const barWidth = Math.max(2, Math.min(100, (s.hitRate * 100)));
-    const barCol = s.hitRate >= 0.6 ? '#10b981' : s.hitRate >= 0.5 ? '#00d4ff' : s.hitRate >= 0.4 ? '#f59e0b' : '#ef4444';
+    const barCol = '#00d4ff';
     r.innerHTML = '<div>' + medal + '</div>'
-      + '<div style="font-weight:700;color:' + gradeCol + ';font-size:13px;">' + s.sym + ' <small style="font-size:9px;color:' + gradeCol + ';">' + s.grade + '</small></div>'
+      + '<div style="font-weight:700;color:' + gradeCol + ';font-size:13px;">' + esc(s.sym) + '</div>'
       + '<div>' + s.n + '</div>'
-      + '<div style="color:' + (s.hitRate >= 0.55 ? 'var(--green)' : s.hitRate >= 0.45 ? 'var(--text-primary)' : 'var(--red)') + ';">' + (s.hitRate*100).toFixed(0) + '%</div>'
-      + '<div style="color:' + (s.avgR > 0 ? 'var(--green)' : 'var(--red)') + ';">' + (s.avgR >= 0 ? '+' : '') + s.avgR.toFixed(2) + '</div>'
-      + '<div style="color:' + gradeCol + ';font-weight:700;">' + (s.expectancy >= 0 ? '+' : '') + s.expectancy.toFixed(2) + 'R</div>'
-      + '<div style="color:var(--accent);">' + (s.avgProb*100).toFixed(0) + '%</div>'
+      + '<div>' + (s.hitRate*100).toFixed(0) + '%</div>'
+      + '<div style="color:' + (s.avgR > 0 ? 'var(--green)' : 'var(--red)') + ';">' + (s.avgR >= 0 ? '+' : '') + s.avgR.toFixed(2) + '%</div>'
+      + '<div style="color:' + gradeCol + ';font-weight:700;">' + (s.skillPp == null ? '—' : (s.skillPp >= 0 ? '+' : '') + s.skillPp.toFixed(0) + ' pp') + '</div>'
+      + '<div style="color:var(--accent);">' + (s.avgProb == null ? '—' : (s.avgProb*100).toFixed(0) + '%') + '</div>'
       + '<div style="color:' + (s.weight > 1.05 ? 'var(--green)' : s.weight < 0.95 ? 'var(--red)' : 'var(--text-muted)') + ';">' + s.weight.toFixed(2) + 'x</div>'
       + '<div><div class="bar"><div class="bar-fill" style="width:' + barWidth + '%;background:' + barCol + ';"></div></div></div>';
     body.appendChild(r);

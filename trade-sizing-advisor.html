@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" media="print" onload="this.media='all'"><noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap"></noscript>
-<link rel="stylesheet" href="css/style.css?v=v238">
+<link rel="stylesheet" href="css/style.css?v=v239">
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
 <style>
@@ -88,10 +88,10 @@
       <br><br>
       Then the brain applies modifiers:
       <br>
-      <strong>ML confidence:</strong> &lt;55% → skip the trade. 55–70% → half size. 70–85% → full size. 85%+ → can go 1.25x (still capped at 2% max risk).<br>
+      <strong>ML confidence:</strong> &lt;55% → skip the trade. 55–70% → half size. 70%+ → full size, never more: on the desk’s live record, higher model confidence has not meant a higher hit rate (<a href="edge-scorecard.html" style="color:var(--accent);">Edge Scorecard</a>).<br>
       <strong>Daily P&L:</strong> If you're down &gt;1% on the day, size halves. Tilt protection.<br>
       <strong>Drift:</strong> If model drift is &gt;10%, size halves. The brain doesn't trust itself when regime is shifting.<br>
-      <strong>Symbol weight:</strong> Symbols with a learned positive edge (weight &gt;1.1) get a small bump. Symbols with negative learned edge get cut size.<br>
+      <strong>Symbol weight:</strong> a low learned weight in this browser (&lt;0.9) cuts size; a high one adds nothing, because an untested local weight is not an edge.<br>
       <strong>Daily limit:</strong> Hard cap — never risk more than your daily loss limit allows for one trade.
     </div>
   </div>
@@ -99,18 +99,19 @@
 
 <div id="site-footer"></div>
 
-<script src="js/data-provider.js?v=v238"></script>
-<script src="js/ai-client.js?v=v238"></script>
-<script src="js/app.js?v=v238"></script>
-<script src="js/notify.js?v=v238"></script>
-<script src="js/live.js?v=v238"></script>
-<script src="js/model.js?v=v238"></script>
+<script src="js/data-provider.js?v=v239"></script>
+<script src="js/ai-client.js?v=v239"></script>
+<script src="js/app.js?v=v239"></script>
+<script src="js/notify.js?v=v239"></script>
+<script src="js/live.js?v=v239"></script>
+<script src="js/train-rows.js?v=v239"></script>
+<script src="js/model.js?v=v239"></script>
 <script>
 buildNav('trade-sizing-advisor');
 
 function loadLearn() { try { return JSON.parse(localStorage.getItem('bpleone_learn_v1') || '{}'); } catch(e) { return {}; } }
 function loadJournal() { try { return JSON.parse(localStorage.getItem('bpleone_journal_pro_v1') || '[]'); } catch(e) { return []; } }
-function loadTrain() { try { return JSON.parse(localStorage.getItem('bpleone_train_v1') || '[]'); } catch(e) { return []; } }
+function loadTrain() { return window.TrainRows ? TrainRows.load() : []; }   // pass 344: graded calls (js/train-rows.js); 'bpleone_train_v1' was never written
 
 function calc() {
   const sym = (document.getElementById('sym').value || '').toUpperCase();
@@ -136,11 +137,10 @@ function calc() {
     } else if (conf < 0.70) {
       factors.push({ label: 'ML confidence ' + (conf*100).toFixed(0) + '% (55-70%)', mod: '0.5x', cls:'mod-down', mult: 0.5 });
       multiplier *= 0.5;
-    } else if (conf < 0.85) {
-      factors.push({ label: 'ML confidence ' + (conf*100).toFixed(0) + '% (70-85%)', mod: '1.0x', cls:'mod-neutral', mult: 1.0 });
     } else {
-      factors.push({ label: 'ML confidence ' + (conf*100).toFixed(0) + '% (85%+)', mod: '1.25x', cls:'mod-up', mult: 1.25 });
-      multiplier *= 1.25;
+      // Pass 344: no size-up above 85%. On the live record the conviction ranking was inverted (pass 333: 40-80%
+      // conviction hit ~37-38% vs ~45-49% below 40%), so more confidence must never mean more size.
+      factors.push({ label: 'ML confidence ' + (conf*100).toFixed(0) + '% (70%+: full size, no size-up)', mod: '1.0x', cls:'mod-neutral', mult: 1.0 });
     }
   } else {
     factors.push({ label: 'ML confidence (not provided)', mod: '1.0x', cls:'mod-neutral', mult: 1.0 });
@@ -162,10 +162,12 @@ function calc() {
 
   // Drift
   const train = loadTrain();
-  if (train.length > 10) {
-    const recent = train.filter(t => Date.now() - t.ts < 14 * 86400000);
+  // Pass 344: graded calls (js/train-rows.js). Needs 20+ lifetime and 10+ recent calls: a 14-day hit rate from one or
+  // two calls is noise, not drift.
+  const recent = train.filter(t => Date.now() - t.ts < 14 * 86400000);
+  if (train.length >= 20 && recent.length >= 10) {
     const lifetimeHit = train.filter(t => t.y === 1).length / train.length;
-    const recentHit = recent.length > 0 ? recent.filter(t => t.y === 1).length / recent.length : lifetimeHit;
+    const recentHit = recent.filter(t => t.y === 1).length / recent.length;
     const drift = Math.abs(recentHit - lifetimeHit);
     if (drift > 0.15) {
       factors.push({ label: 'Major drift detected (' + (drift*100).toFixed(0) + '%)', mod: '0.5x', cls:'mod-down', mult: 0.5 });
@@ -182,10 +184,9 @@ function calc() {
   const learn = loadLearn();
   const symW = (learn.symbols && learn.symbols[sym] && learn.symbols[sym].w) || 1.0;
   if (symW > 1.1) {
-    factors.push({ label: sym + ' is a proven winner (' + symW.toFixed(2) + 'x)', mod: '1.1x', cls:'mod-up', mult: 1.1 });
-    multiplier *= 1.1;
+    factors.push({ label: sym + ' learned weight ' + symW.toFixed(2) + 'x (this browser, untested: no size-up)', mod: '1.0x', cls:'mod-neutral', mult: 1.0 });
   } else if (symW < 0.9) {
-    factors.push({ label: sym + ' is weak for the brain (' + symW.toFixed(2) + 'x)', mod: '0.75x', cls:'mod-down', mult: 0.75 });
+    factors.push({ label: sym + ' learned weight ' + symW.toFixed(2) + 'x in this browser (below 0.9: cut size)', mod: '0.75x', cls:'mod-down', mult: 0.75 });
     multiplier *= 0.75;
   } else {
     factors.push({ label: sym + ' has neutral history', mod: '1.0x', cls:'mod-neutral', mult: 1.0 });

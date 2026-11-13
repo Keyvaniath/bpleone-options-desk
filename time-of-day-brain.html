@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" media="print" onload="this.media='all'"><noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap"></noscript>
-<link rel="stylesheet" href="css/style.css?v=v238">
+<link rel="stylesheet" href="css/style.css?v=v239">
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
@@ -35,8 +35,8 @@
     <div class="flex gap-8">
       <select id="metric" class="btn btn-secondary" style="background:var(--bg-elevated);border:1px solid var(--border);color:var(--text-primary);padding:8px 14px;">
         <option value="hitRate">Hit rate</option>
-        <option value="expectancy">Expectancy (R)</option>
-        <option value="signals">Signal count</option>
+        <option value="expectancy">Avg move per call (%)</option>
+        <option value="signals">Graded-call count</option>
       </select>
     </div>
   </div>
@@ -83,26 +83,26 @@
   <div class="card">
     <div class="card-header"><div class="card-title">💡 How to use this</div></div>
     <div style="font-size:13px;color:var(--text-secondary);line-height:1.7;">
-      <strong>Find your prime window:</strong> If the brain is +25% better in the 10-11am hour, that's where you put the most attention. Skip trades outside your prime window.<br>
-      <strong>Avoid the dead zone:</strong> Most traders lose money in lunchtime chop. The brain might too — let the data tell you.<br>
-      <strong>Watch for weekend effects:</strong> Monday-after-Sunday-news and Friday-OPEX often skew the data.<br>
-      <strong>Sample size matters:</strong> A 100% hit rate from 2 trades is noise. Look for hours with at least 10+ trades before drawing conclusions.
+      Each cell buckets the browser model's graded 5-day calls by the ET hour and weekday they were captured (js/train-rows.js).<br>
+      <strong>Sample size matters:</strong> a 100% hit rate from 2 calls is noise, and overlapping 5-day calls are not independent; look for buckets with 10+ calls.<br>
+      <strong>Beware drift:</strong> a hit rate above 50% in a rising market is not skill. The desk's live record is the <a href="edge-scorecard.html" style="color:var(--accent);">Edge Scorecard</a>.
     </div>
   </div>
 </div>
 
 <div id="site-footer"></div>
 
-<script src="js/data-provider.js?v=v238"></script>
-<script src="js/ai-client.js?v=v238"></script>
-<script src="js/app.js?v=v238"></script>
-<script src="js/notify.js?v=v238"></script>
-<script src="js/live.js?v=v238"></script>
-<script src="js/model.js?v=v238"></script>
+<script src="js/data-provider.js?v=v239"></script>
+<script src="js/ai-client.js?v=v239"></script>
+<script src="js/app.js?v=v239"></script>
+<script src="js/notify.js?v=v239"></script>
+<script src="js/live.js?v=v239"></script>
+<script src="js/train-rows.js?v=v239"></script>
+<script src="js/model.js?v=v239"></script>
 <script>
 buildNav('time-of-day-brain');
 
-function loadTrain() { try { return JSON.parse(localStorage.getItem('bpleone_train_v1') || '[]'); } catch(e) { return []; } }
+function loadTrain() { return window.TrainRows ? TrainRows.load() : []; }   // pass 344: graded calls (js/train-rows.js); 'bpleone_train_v1' was never written
 
 // Audit pass 164: bucket by ET clock time, since session labels below
 // (Pre-market 4-9:30, Open 9:30-11, Lunch 11:30-1:30, etc.) are all ET hours.
@@ -135,7 +135,7 @@ function compute() {
     const et = etHourDowOf(t.ts);
     const h = et.hour;
     const w = et.dow;
-    const r = t.y === 1 ? (t.r || 1.5) : -1.0;
+    const r = TrainRows.ret(t);
     byHour[h].n++;
     byHour[h].r += r;
     if (t.y === 1) byHour[h].w++;
@@ -188,11 +188,11 @@ function cellColor(v, metric) {
     if (v >= 0.35) return '#f59e0b';
     return '#ef4444';
   }
-  if (metric === 'expectancy') {
-    if (v >= 0.5) return '#10b981';
-    if (v >= 0.2) return '#84cc16';
-    if (v >= -0.2) return '#00d4ff';
-    if (v >= -0.5) return '#f59e0b';
+  if (metric === 'expectancy') {   // % per call (pass 344: was R with an assumed +1.5R per win)
+    if (v >= 1) return '#10b981';
+    if (v >= 0.25) return '#84cc16';
+    if (v >= -0.25) return '#00d4ff';
+    if (v >= -1) return '#f59e0b';
     return '#ef4444';
   }
   if (metric === 'signals') {
@@ -212,17 +212,18 @@ function render() {
   const hourScores = byHour.map((c, h) => ({ h, v: fn(c), n: c.n })).filter(x => x.n >= 3);
   const sortedH = [...hourScores].sort((a, b) => (b.v || 0) - (a.v || 0));
   if (sortedH.length > 0) {
-    document.getElementById('bestHour').querySelector('p').textContent = sortedH[0].h + ':00 — ' + (metric === 'hitRate' ? (sortedH[0].v*100).toFixed(0) + '% hit' : metric === 'expectancy' ? (sortedH[0].v >= 0 ? '+' : '') + sortedH[0].v.toFixed(2) + 'R' : sortedH[0].v + ' signals') + ' (n=' + sortedH[0].n + ')';
+    document.getElementById('bestHour').querySelector('p').textContent = sortedH[0].h + ':00 — ' + (metric === 'hitRate' ? (sortedH[0].v*100).toFixed(0) + '% hit' : metric === 'expectancy' ? (sortedH[0].v >= 0 ? '+' : '') + sortedH[0].v.toFixed(2) + '%' : sortedH[0].v + ' calls') + ' (n=' + sortedH[0].n + ')';
     const worst = sortedH[sortedH.length - 1];
-    document.getElementById('worstHour').querySelector('p').textContent = worst.h + ':00 — ' + (metric === 'hitRate' ? (worst.v*100).toFixed(0) + '% hit' : metric === 'expectancy' ? (worst.v >= 0 ? '+' : '') + worst.v.toFixed(2) + 'R' : worst.v + ' signals') + ' (n=' + worst.n + ')';
+    document.getElementById('worstHour').querySelector('p').textContent = worst.h + ':00 — ' + (metric === 'hitRate' ? (worst.v*100).toFixed(0) + '% hit' : metric === 'expectancy' ? (worst.v >= 0 ? '+' : '') + worst.v.toFixed(2) + '%' : worst.v + ' calls') + ' (n=' + worst.n + ')';
   } else {
-    document.getElementById('bestHour').querySelector('p').textContent = 'Not enough data yet.';
-    document.getElementById('worstHour').querySelector('p').textContent = 'Not enough data yet.';
+    const none = loadTrain().length ? 'No hour has 3+ graded calls yet.' : 'No graded calls in this browser yet.';
+    document.getElementById('bestHour').querySelector('p').textContent = none;
+    document.getElementById('worstHour').querySelector('p').textContent = none;
   }
   // Prime session
   const sessArr = Object.entries(sessions).map(([n, s]) => ({ n, v: fn(s.data), count: s.data.n })).filter(s => s.count >= 3);
   const primeSess = sessArr.sort((a, b) => (b.v || 0) - (a.v || 0))[0];
-  document.getElementById('prime').querySelector('p').textContent = primeSess ? primeSess.n + ' · ' + (metric === 'hitRate' ? (primeSess.v*100).toFixed(0) + '%' : metric === 'expectancy' ? (primeSess.v >= 0 ? '+' : '') + primeSess.v.toFixed(2) + 'R' : primeSess.v) : 'Not enough data yet.';
+  document.getElementById('prime').querySelector('p').textContent = primeSess ? primeSess.n + ' · ' + (metric === 'hitRate' ? (primeSess.v*100).toFixed(0) + '%' : metric === 'expectancy' ? (primeSess.v >= 0 ? '+' : '') + primeSess.v.toFixed(2) + '%' : primeSess.v) : (loadTrain().length ? 'No session has 3+ graded calls yet.' : 'See the Edge Scorecard for the desk\u2019s live record.');
 
   // Hour labels (above heatmap)
   document.getElementById('hourLabels').style.gridColumn = 'span 24';

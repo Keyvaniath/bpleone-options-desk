@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" media="print" onload="this.media='all'"><noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap"></noscript>
-<link rel="stylesheet" href="css/style.css?v=v238">
+<link rel="stylesheet" href="css/style.css?v=v239">
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
@@ -50,7 +50,7 @@
   </div>
 
   <div class="grid grid-4 mb-24">
-    <div class="card"><div class="card-header"><div class="card-title">Total trades</div></div><div class="mono" style="font-size:24px;font-weight:700;" id="kTotal">--</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">Graded calls</div></div><div class="mono" style="font-size:24px;font-weight:700;" id="kTotal">--</div></div>
     <div class="card"><div class="card-header"><div class="card-title">Cohorts</div></div><div class="mono" style="font-size:24px;font-weight:700;color:var(--accent);" id="kCoh">--</div></div>
     <div class="card"><div class="card-header"><div class="card-title">Best cohort</div></div><div class="mono" style="font-size:16px;font-weight:700;color:var(--green);" id="kBest">--</div></div>
     <div class="card"><div class="card-header"><div class="card-title">Worst cohort</div></div><div class="mono" style="font-size:16px;font-weight:700;color:var(--red);" id="kWorst">--</div></div>
@@ -62,14 +62,14 @@
       <canvas id="hitChart" height="220"></canvas>
     </div>
     <div class="card">
-      <div class="card-header"><div class="card-title">💰 Expectancy by cohort (R)</div></div>
+      <div class="card-header"><div class="card-title">💰 Avg realized move per call (%, in the called direction)</div></div>
       <canvas id="expChart" height="220"></canvas>
     </div>
   </div>
 
   <div class="card" style="padding:0;">
     <div class="cohort-row hdr">
-      <div>COHORT</div><div>N</div><div>HIT %</div><div>AVG R</div><div>TOTAL R</div><div>AVG CONF</div><div>EXP</div><div>HIT RATE BAR</div>
+      <div>COHORT</div><div>N</div><div>HIT %</div><div>AVG %</div><div>TOTAL %</div><div>AVG CONF</div><div>VS DRIFT</div><div>HIT RATE BAR</div>
     </div>
     <div id="cohortBody"></div>
   </div>
@@ -87,16 +87,17 @@
 
 <div id="site-footer"></div>
 
-<script src="js/data-provider.js?v=v238"></script>
-<script src="js/ai-client.js?v=v238"></script>
-<script src="js/app.js?v=v238"></script>
-<script src="js/notify.js?v=v238"></script>
-<script src="js/live.js?v=v238"></script>
-<script src="js/model.js?v=v238"></script>
+<script src="js/data-provider.js?v=v239"></script>
+<script src="js/ai-client.js?v=v239"></script>
+<script src="js/app.js?v=v239"></script>
+<script src="js/notify.js?v=v239"></script>
+<script src="js/live.js?v=v239"></script>
+<script src="js/train-rows.js?v=v239"></script>
+<script src="js/model.js?v=v239"></script>
 <script>
 buildNav('cohort-analysis');
 
-function loadTrain() { try { return JSON.parse(localStorage.getItem('bpleone_train_v1') || '[]'); } catch(e) { return []; } }
+function loadTrain() { return window.TrainRows ? TrainRows.load() : []; }   // pass 344: graded calls (js/train-rows.js); 'bpleone_train_v1' was never written
 
 // Simple symbol -> sector lookup
 const SECTORS = {
@@ -126,10 +127,9 @@ function dimKey(t, dim) {
     return ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][_etDowOf(t.ts)];
   }
   if (dim === 'conf') {
-    let p = null; try { if (window.predictForFinding) { const r = window.predictForFinding(t); p = r ? r.prob : null; } } catch(e) {}
+    // Confidence AT CAPTURE in the direction called (pass 344)
+    const p = typeof t.predProb === 'number' ? Math.max(t.predProb, 1 - t.predProb) : null;
     if (p == null) return 'No model';
-    if (p < 0.4) return '0-40%';
-    if (p < 0.5) return '40-50%';
     if (p < 0.6) return '50-60%';
     if (p < 0.7) return '60-70%';
     if (p < 0.8) return '70-80%';
@@ -144,54 +144,63 @@ function compute() {
   const dim = document.getElementById('dim').value;
   const winStr = document.getElementById('window').value;
   const since = winStr === 'all' ? 0 : Date.now() - parseInt(winStr) * 86400000;
+  // Pass 344: graded calls (js/train-rows.js); realized % per call (no assumed +1.5R per win); each cohort's hit
+  // rate is compared with ITS OWN drift rate (an always-long call on the same calls), not with 50%.
   const train = loadTrain().filter(t => t.ts >= since);
 
   const cohorts = {};
   train.forEach(t => {
     const k = dimKey(t, dim);
-    if (!cohorts[k]) cohorts[k] = { name: k, n: 0, w: 0, r: 0, probSum: 0 };
+    if (!cohorts[k]) cohorts[k] = { name: k, n: 0, w: 0, r: 0, probSum: 0, probN: 0, rows: [] };
     cohorts[k].n++;
-    if (t.y === 1) { cohorts[k].w++; cohorts[k].r += (t.r || 1.5); }
-    else cohorts[k].r -= 1.0;
-    try { if (window.predictForFinding) { const p = window.predictForFinding(t); if (p) cohorts[k].probSum += p.prob; } } catch(e) {}
+    cohorts[k].rows.push(t);
+    if (t.y === 1) cohorts[k].w++;
+    cohorts[k].r += TrainRows.ret(t);
+    if (typeof t.predProb === 'number') { cohorts[k].probSum += Math.max(t.predProb, 1 - t.predProb); cohorts[k].probN++; }
   });
 
-  const arr = Object.values(cohorts).map(c => ({
-    ...c,
-    hitRate: c.n > 0 ? c.w / c.n : 0,
-    avgR: c.n > 0 ? c.r / c.n : 0,
-    expectancy: c.n > 0 ? c.r / c.n : 0,
-    avgConf: c.n > 0 ? c.probSum / c.n : 0
-  }));
+  const arr = Object.values(cohorts).map(c => {
+    const d = TrainRows.driftRate(c.rows);
+    return {
+      ...c,
+      hitRate: c.n > 0 ? c.w / c.n : 0,
+      avgR: c.n > 0 ? c.r / c.n : 0,
+      expectancy: c.n > 0 ? c.r / c.n : 0,
+      avgConf: c.probN > 0 ? c.probSum / c.probN : null,
+      skillPp: d != null && c.n > 0 ? (c.w / c.n - d) * 100 : null
+    };
+  });
   arr.sort((a, b) => b.expectancy - a.expectancy);
   return { arr, total: train.length };
 }
 
 function render() {
   const { arr, total } = compute();
+  const esc = TrainRows.esc;
   document.getElementById('kTotal').textContent = total;
   document.getElementById('kCoh').textContent = arr.length;
-  document.getElementById('kBest').textContent = arr.length > 0 ? arr[0].name + ' (' + (arr[0].expectancy >= 0 ? '+' : '') + arr[0].expectancy.toFixed(2) + 'R)' : '—';
-  const worst = arr[arr.length - 1];
-  document.getElementById('kWorst').textContent = worst ? worst.name + ' (' + (worst.expectancy >= 0 ? '+' : '') + worst.expectancy.toFixed(2) + 'R)' : '—';
+  const ranked = arr.filter(c => c.n >= 5);
+  document.getElementById('kBest').textContent = ranked.length > 0 ? ranked[0].name + ' (' + (ranked[0].expectancy >= 0 ? '+' : '') + ranked[0].expectancy.toFixed(2) + '%, n=' + ranked[0].n + ')' : '—';
+  const worst = ranked.length > 1 ? ranked[ranked.length - 1] : null;
+  document.getElementById('kWorst').textContent = worst ? worst.name + ' (' + (worst.expectancy >= 0 ? '+' : '') + worst.expectancy.toFixed(2) + '%, n=' + worst.n + ')' : '—';
 
   // Table
   const body = document.getElementById('cohortBody');
-  body.innerHTML = '';
+  body.innerHTML = total ? '' : '<div style="padding:18px;font-size:13px;color:var(--text-muted);">' + TrainRows.EMPTY_HTML + '</div>';
   arr.forEach(c => {
     const r = document.createElement('div');
     r.className = 'cohort-row';
-    const hitCol = c.hitRate >= 0.55 ? 'var(--green)' : c.hitRate >= 0.45 ? 'var(--text-primary)' : 'var(--red)';
-    const expCol = c.expectancy > 0 ? 'var(--green)' : 'var(--red)';
+    const hitCol = 'var(--text-primary)';
+    const expCol = c.skillPp == null ? 'var(--text-muted)' : c.skillPp > 0 ? 'var(--green)' : 'var(--red)';
     const barW = Math.max(2, c.hitRate * 100);
-    const barCol = c.hitRate >= 0.55 ? '#10b981' : c.hitRate >= 0.45 ? '#00d4ff' : '#ef4444';
-    r.innerHTML = '<div style="font-weight:700;">' + c.name + '</div>'
+    const barCol = '#00d4ff';
+    r.innerHTML = '<div style="font-weight:700;">' + esc(c.name) + '</div>'
       + '<div>' + c.n + '</div>'
       + '<div style="color:' + hitCol + ';">' + (c.hitRate*100).toFixed(0) + '%</div>'
       + '<div style="color:' + (c.avgR > 0 ? 'var(--green)' : 'var(--red)') + ';">' + (c.avgR >= 0 ? '+' : '') + c.avgR.toFixed(2) + '</div>'
-      + '<div style="color:' + (c.r > 0 ? 'var(--green)' : 'var(--red)') + ';">' + (c.r >= 0 ? '+' : '') + c.r.toFixed(1) + 'R</div>'
-      + '<div style="color:var(--accent);">' + (c.avgConf*100).toFixed(0) + '%</div>'
-      + '<div style="color:' + expCol + ';font-weight:700;">' + (c.expectancy >= 0 ? '+' : '') + c.expectancy.toFixed(2) + 'R</div>'
+      + '<div style="color:' + (c.r > 0 ? 'var(--green)' : 'var(--red)') + ';">' + (c.r >= 0 ? '+' : '') + c.r.toFixed(2) + '%</div>'
+      + '<div style="color:var(--accent);">' + (c.avgConf == null ? '—' : (c.avgConf*100).toFixed(0) + '%') + '</div>'
+      + '<div style="color:' + expCol + ';font-weight:700;">' + (c.skillPp == null ? '—' : c.n < 5 ? 'n<5' : (c.skillPp >= 0 ? '+' : '') + c.skillPp.toFixed(0) + ' pp') + '</div>'
       + '<div><div class="bar"><div style="width:' + barW + '%;background:' + barCol + ';"></div></div></div>';
     body.appendChild(r);
   });
@@ -200,7 +209,7 @@ function render() {
   if (window._hitChart) window._hitChart.destroy();
   window._hitChart = new Chart(document.getElementById('hitChart'), {
     type: 'bar',
-    data: { labels: arr.map(c => c.name), datasets: [{ data: arr.map(c => c.hitRate * 100), backgroundColor: arr.map(c => c.hitRate >= 0.55 ? '#10b981' : c.hitRate >= 0.45 ? '#00d4ff' : '#ef4444') }] },
+    data: { labels: arr.map(c => c.name), datasets: [{ data: arr.map(c => c.hitRate * 100), backgroundColor: '#00d4ff' }] },
     options: { responsive:true, maintainAspectRatio:false, plugins:{legend:{display:false}}, scales:{x:{ticks:{color:'#888',maxRotation:60,minRotation:30},grid:{display:false}},y:{ticks:{color:'#888',callback:v=>v+'%'},grid:{color:'#222'},max:100}} }
   });
 
@@ -208,7 +217,7 @@ function render() {
   window._expChart = new Chart(document.getElementById('expChart'), {
     type: 'bar',
     data: { labels: arr.map(c => c.name), datasets: [{ data: arr.map(c => c.expectancy), backgroundColor: arr.map(c => c.expectancy > 0 ? '#10b981' : '#ef4444') }] },
-    options: { responsive:true, maintainAspectRatio:false, plugins:{legend:{display:false}}, scales:{x:{ticks:{color:'#888',maxRotation:60,minRotation:30},grid:{display:false}},y:{ticks:{color:'#888',callback:v=>v+'R'},grid:{color:'#222'}}} }
+    options: { responsive:true, maintainAspectRatio:false, plugins:{legend:{display:false}}, scales:{x:{ticks:{color:'#888',maxRotation:60,minRotation:30},grid:{display:false}},y:{ticks:{color:'#888',callback:v=>v+'%'},grid:{color:'#222'}}} }
   });
 }
 

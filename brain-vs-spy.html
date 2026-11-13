@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" media="print" onload="this.media='all'"><noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap"></noscript>
-<link rel="stylesheet" href="css/style.css?v=v238">
+<link rel="stylesheet" href="css/style.css?v=v239">
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
@@ -44,7 +44,7 @@
         <option value="all">All time</option>
       </select>
       <select id="conf" class="btn btn-secondary" style="background:var(--bg-elevated);border:1px solid var(--border);color:var(--text-primary);padding:8px 14px;">
-        <option value="0">All trades</option>
+        <option value="0">All calls</option>
         <option value="0.6" selected>Conf ≥ 60%</option>
         <option value="0.7">Conf ≥ 70%</option>
         <option value="0.8">Conf ≥ 80%</option>
@@ -86,7 +86,7 @@
   <div class="card">
     <div class="card-header"><div class="card-title">📐 Methodology</div></div>
     <div style="font-size:13px;color:var(--text-secondary);line-height:1.7;">
-      <strong>Brain returns:</strong> simulated P&L of every trade the model labeled, sized as 1% of book per trade. Wins paid at avg R (typically 1.5), losses at -1R.<br>
+      <strong>Brain returns:</strong> the browser model's graded 5-day calls, each booked at its realized return in the called direction on the day it was captured. Each day's calls share one fifth of the book (five overlapping 5-day cohorts make a fully invested book). No assumed payoff: a call earns what the stock actually did.<br>
       <strong>SPY benchmark:</strong> daily returns of SPY over the same window (estimated from the live quote — replace with a real historical feed for production use).<br>
       <strong>Sharpe:</strong> annualized return / annualized volatility (assuming 252 trading days, 0% risk-free).<br>
       <strong>Alpha:</strong> annualized return above what beta would predict given SPY's returns. Positive = brain adds value.<br>
@@ -97,16 +97,17 @@
 
 <div id="site-footer"></div>
 
-<script src="js/data-provider.js?v=v238"></script>
-<script src="js/ai-client.js?v=v238"></script>
-<script src="js/app.js?v=v238"></script>
-<script src="js/notify.js?v=v238"></script>
-<script src="js/live.js?v=v238"></script>
-<script src="js/model.js?v=v238"></script>
+<script src="js/data-provider.js?v=v239"></script>
+<script src="js/ai-client.js?v=v239"></script>
+<script src="js/app.js?v=v239"></script>
+<script src="js/notify.js?v=v239"></script>
+<script src="js/live.js?v=v239"></script>
+<script src="js/train-rows.js?v=v239"></script>
+<script src="js/model.js?v=v239"></script>
 <script>
 buildNav('brain-vs-spy');
 
-function loadTrain() { try { return JSON.parse(localStorage.getItem('bpleone_train_v1') || '[]'); } catch(e) { return []; } }
+function loadTrain() { return window.TrainRows ? TrainRows.load() : []; }   // pass 344: graded calls (js/train-rows.js); 'bpleone_train_v1' was never written
 
 function stdDev(arr) {
   if (arr.length < 2) return 0;
@@ -149,23 +150,20 @@ async function compute() {
   const days = winStr === 'all' ? 60 : parseInt(winStr);
 
   // Brain trades
-  let trades = loadTrain().filter(t => t.ts >= since);
-  if (minConf > 0) {
-    trades = trades.filter(t => {
-      try { if (window.predictForFinding) { const p = window.predictForFinding(t); return p && p.prob >= minConf; } } catch(e) {}
-      return false;
-    });
-  }
+  // Pass 344: graded calls (js/train-rows.js); confidence is the model's AT CAPTURE in the direction it called.
+  let trades = loadTrain().filter(t => t.ts >= since && typeof t.pnl === 'number');
+  if (minConf > 0) trades = trades.filter(t => typeof t.predProb === 'number' && Math.max(t.predProb, 1 - t.predProb) >= minConf);
   trades.sort((a, b) => a.ts - b.ts);
 
-  // Bucket trades into daily P&L (per-trade R = 1% of bankroll → daily % returns)
-  const daily = {};
+  // Each capture day's calls share 1/5 of the book (equal weight); their realized 5-day return is booked that day.
+  const byDay = {};
   trades.forEach(t => {
     const d = new Date(t.ts); d.setHours(0,0,0,0);
     const k = d.getTime();
-    if (!daily[k]) daily[k] = 0;
-    daily[k] += (t.y === 1 ? (t.r || 1.5) : -1.0) * 0.01;  // 1% per R
+    (byDay[k] = byDay[k] || []).push(TrainRows.ret(t) / 100);
   });
+  const daily = {};
+  Object.keys(byDay).forEach(k => { const a = byDay[k]; daily[k] = a.reduce((x, y) => x + y, 0) / a.length * 0.2; });
 
   const dayKeys = Array(days).fill(0).map((_, i) => {
     const d = new Date(); d.setHours(0,0,0,0);
@@ -244,13 +242,25 @@ async function compute() {
 
 async function render() {
   const s = await compute();
+  if (!s.n) {
+    // Pass 344: no graded calls = no brain return; never crown SPY over an empty book.
+    document.getElementById('brainCard').className = 'vs-card';
+    document.getElementById('spyCard').className = 'vs-card';
+    document.getElementById('brainCard').innerHTML = '<div class="name">🧠 BPLEONE BRAIN (this browser)</div><div class="big" style="color:var(--text-muted);">—</div><div class="sub">0 graded calls in this window</div>';
+    document.getElementById('spyCard').innerHTML = '<div class="name">📊 SPY BUY & HOLD</div>'
+      + (s.sRet != null ? '<div class="big" style="color:' + (s.sRet > 0 ? 'var(--green)' : 'var(--red)') + ';">' + (s.sRet >= 0 ? '+' : '') + (s.sRet * 100).toFixed(2) + '%</div><div class="sub">passive benchmark</div>' : '<div class="big" style="color:var(--text-muted);">—</div><div class="sub">benchmark unavailable</div>');
+    ['bSharpe', 'sSharpe', 'bDD', 'sDD', 'alpha', 'beta', 'ir', 'wr'].forEach(id => { const el = document.getElementById(id); if (el) { el.textContent = '—'; el.style.color = 'var(--text-muted)'; } });
+    if (window._eq) { window._eq.destroy(); window._eq = null; }
+    document.getElementById('commentary').innerHTML = '<p>' + TrainRows.EMPTY_HTML + '</p>';
+    return;
+  }
 
   if (s.spyUnavailable) {
     document.getElementById('brainCard').className = 'vs-card';
     document.getElementById('spyCard').className = 'vs-card';
     document.getElementById('brainCard').innerHTML = '<div class="name">🧠 BPLEONE BRAIN</div>'
       + '<div class="big" style="color:' + (s.bRet > 0 ? 'var(--green)' : 'var(--red)') + ';">' + (s.bRet >= 0 ? '+' : '') + (s.bRet * 100).toFixed(2) + '%</div>'
-      + '<div class="sub">' + s.n + ' trades · ' + s.days + ' days</div>';
+      + '<div class="sub">' + s.n + ' graded calls · ' + s.days + ' days</div>';
     document.getElementById('spyCard').innerHTML = '<div class="name">📊 SPY BUY & HOLD</div>'
       + '<div class="big" style="color:var(--text-muted);">—</div>'
       + '<div class="sub">benchmark unavailable</div>';
@@ -280,7 +290,7 @@ async function render() {
 
   document.getElementById('brainCard').innerHTML = '<div class="name">🧠 ' + (brainWins ? '🏆 ' : '') + 'BPLEONE BRAIN</div>'
     + '<div class="big" style="color:' + (s.bRet > 0 ? 'var(--green)' : 'var(--red)') + ';">' + (s.bRet >= 0 ? '+' : '') + (s.bRet * 100).toFixed(2) + '%</div>'
-    + '<div class="sub">' + s.n + ' trades · ' + s.days + ' days</div>';
+    + '<div class="sub">' + s.n + ' graded calls · ' + s.days + ' days</div>';
 
   document.getElementById('spyCard').innerHTML = '<div class="name">📊 ' + (!brainWins ? '🏆 ' : '') + 'SPY BUY & HOLD</div>'
     + '<div class="big" style="color:' + (s.sRet > 0 ? 'var(--green)' : 'var(--red)') + ';">' + (s.sRet >= 0 ? '+' : '') + (s.sRet * 100).toFixed(2) + '%</div>'
@@ -321,14 +331,14 @@ async function render() {
   const lines = [];
   const thin = s.n < 30;
   if (s.requestedDays && s.days < s.requestedDays) lines.push('<p style="color:var(--text-muted);">Benchmark covers the last ' + s.days + ' sessions with real SPY data (the worker keeps ~40 daily bars), not the full ' + s.requestedDays + '-day window.</p>');
-  if (thin) lines.push('<p style="color:var(--yellow);">⚠ Only ' + s.n + ' trades — far too small to conclude anything. Over a window this short, out- or under-performance is mostly luck. Read the rest as descriptive, not a verdict.</p>');
+  if (thin) lines.push('<p style="color:var(--yellow);">⚠ Only ' + s.n + ' graded calls — far too small to conclude anything. Over a window this short, out- or under-performance is mostly luck. Read the rest as descriptive, not a verdict.</p>');
   if (brainWins) {
     lines.push('<p><strong style="color:var(--green);">The brain outperformed SPY</strong> by <strong>' + ((s.bRet - s.sRet) * 100).toFixed(2) + '%</strong> over this window' + (thin ? ' (small sample — not a proven edge)' : '') + '.</p>');
     if (s.bSharpe > s.sSharpe) lines.push('<p>It did so with a better Sharpe (' + s.bSharpe.toFixed(2) + ' vs ' + s.sSharpe.toFixed(2) + ') over this window.</p>');
     else lines.push('<p style="color:var(--yellow);">But Sharpe was worse (' + s.bSharpe.toFixed(2) + ' vs ' + s.sSharpe.toFixed(2) + ') — more risk taken for that excess return.</p>');
   } else {
     lines.push('<p><strong style="color:var(--red);">SPY outperformed the brain</strong> by <strong>' + ((s.sRet - s.bRet) * 100).toFixed(2) + '%</strong> over this window.</p>');
-    lines.push('<p>Could be: (1) a strong trending regime that favors buy-and-hold, (2) overtrading, (3) the model needs more data. Check the postmortem.</p>');
+    lines.push('<p>A model with no timing skill trails buy-and-hold in a rising market: it is short some of the time.</p>');
   }
   if (s.alpha > 0.1 && !thin) lines.push('<p>Over this window, alpha was +' + (s.alpha*100).toFixed(1) + '% annualized. One window is not a proven edge — see the significance math on <a href="proof.html" style="color:var(--accent);">proof.html</a>.</p>');
   else if (s.alpha > 0.1 && thin) lines.push('<p style="color:var(--text-muted);">Windowed alpha looks positive, but the sample is too small to annualize meaningfully.</p>');

@@ -16,7 +16,9 @@
   if (typeof document === 'undefined') return;
   const WORKER = (window.WorkerBridge && WorkerBridge.getUrl && WorkerBridge.getUrl()) || 'https://bpleone-brain-worker.brandonpleone.workers.dev';
   // page -> the element holding the page's own pick output (dimmed when the gate is closed); null = banner only
-  const PAGES = { 'trade-of-the-day': '#content', 'brain-bet': '#bet', 'conviction-stack': null, 'morning-brief': null, 'plays': '#playsGrid', 'game-plan': '#topPlays' };
+  const PAGES = { 'trade-of-the-day': '#content', 'brain-bet': '#bet', 'conviction-stack': null, 'morning-brief': null, 'plays': '#playsGrid', 'game-plan': '#topPlays',
+    // pass 344: pages that show a browser-model "top pick" from local findings
+    'brain-pulse': '#topPick', 'brain-hub': '#topPick', 'brain-snapshot': null, 'mobile-dashboard': '#topPick', 'brain-tldr': null };
   const page = ((location.pathname.split('/').pop() || '').toLowerCase().replace(/\.html$/, '')) || 'index';
   if (!(page in PAGES)) return;
   // What the page's own output IS, so the label below it is accurate (plays.html ranks movers, it is not a model).

@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" media="print" onload="this.media='all'"><noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap"></noscript>
-<link rel="stylesheet" href="css/style.css?v=v238">
+<link rel="stylesheet" href="css/style.css?v=v239">
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
 <style>
@@ -76,12 +76,13 @@
 
 <div id="site-footer"></div>
 
-<script src="js/data-provider.js?v=v238"></script>
-<script src="js/ai-client.js?v=v238"></script>
-<script src="js/app.js?v=v238"></script>
-<script src="js/notify.js?v=v238"></script>
-<script src="js/live.js?v=v238"></script>
-<script src="js/model.js?v=v238"></script>
+<script src="js/data-provider.js?v=v239"></script>
+<script src="js/ai-client.js?v=v239"></script>
+<script src="js/app.js?v=v239"></script>
+<script src="js/notify.js?v=v239"></script>
+<script src="js/live.js?v=v239"></script>
+<script src="js/train-rows.js?v=v239"></script>
+<script src="js/model.js?v=v239"></script>
 <script>
 buildNav('brain-monthly-calendar');
 
@@ -141,14 +142,14 @@ function getMonth() {
   return { year: base.getFullYear(), month: base.getMonth() };
 }
 
-function loadTrain() { try { return JSON.parse(localStorage.getItem('bpleone_train_v1') || '[]'); } catch(e) { return []; } }
+function loadTrain() { return window.TrainRows ? TrainRows.load() : []; }   // pass 344: graded calls (js/train-rows.js); 'bpleone_train_v1' was never written
 
 function dayStats(year, month, day) {
   const key = cellKey(year, month, day);
   const t = loadTrain().filter(r => etDateKey(r.ts) === key);
   if (t.length === 0) return null;
   const wins = t.filter(r => r.y === 1).length;
-  return { n: t.length, wins, hitRate: wins / t.length, rTotal: t.reduce((a,r) => a + (r.y === 1 ? (r.r || 1.5) : -1.0), 0) };
+  return { n: t.length, wins, hitRate: wins / t.length, rTotal: t.reduce((a,r) => a + TrainRows.ret(r), 0) };
 }
 
 function cellColor(s) {
@@ -216,11 +217,11 @@ function render() {
     const key = cellKey(year, month, d);
     const t = loadTrain().filter(r => etDateKey(r.ts) === key).sort((a,b) => b.ts - a.ts);
     document.getElementById('detailCard').style.display = 'block';
-    document.getElementById('detailTitle').textContent = monthName + ' ' + d + ', ' + year + ' — ' + s.n + ' trades · ' + (s.hitRate*100).toFixed(0) + '% hit · ' + (s.rTotal >= 0 ? '+' : '') + s.rTotal.toFixed(1) + 'R';
+    document.getElementById('detailTitle').textContent = monthName + ' ' + d + ', ' + year + ' — ' + s.n + ' graded calls · ' + (s.hitRate*100).toFixed(0) + '% right · ' + (s.rTotal >= 0 ? '+' : '') + s.rTotal.toFixed(2) + '% summed move in the called direction';
     document.getElementById('detailBody').innerHTML = t.map(r =>
       '<div style="padding:8px 0;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;font-size:12px;">'
-      + '<div><strong>' + (r.meta?.sym || '—') + '</strong> · <span style="color:var(--text-muted);">' + (r.meta?.setup || '?') + '</span></div>'
-      + '<div style="font-family:var(--font-mono);"><span style="color:' + (r.y === 1 ? 'var(--green)' : 'var(--red)') + ';">' + (r.y === 1 ? '+' + (r.r || 1.5).toFixed(1) + 'R' : '-1.0R') + '</span> · <span style="color:var(--text-muted);">' + new Date(r.ts).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}) + '</span></div>'
+      + '<div><strong>' + TrainRows.esc(r.meta?.sym || '—') + '</strong> · <span style="color:var(--text-muted);">' + TrainRows.esc(r.meta?.setup || '?') + '</span></div>'
+      + '<div style="font-family:var(--font-mono);"><span style="color:' + (r.y === 1 ? 'var(--green)' : 'var(--red)') + ';">' + (r.y === 1 ? 'RIGHT' : 'WRONG') + (typeof r.pnl === 'number' ? ' ' + (r.pnl >= 0 ? '+' : '') + r.pnl.toFixed(2) + '%' : '') + '</span> · <span style="color:var(--text-muted);">' + new Date(r.ts).toLocaleTimeString('en-US', {timeZone:'America/New_York', hour:'2-digit',minute:'2-digit'}) + ' ET</span></div>'
       + '</div>'
     ).join('');
   }));
@@ -229,6 +230,12 @@ function render() {
   document.getElementById('kActive').textContent = activeDays;
   document.getElementById('kHit').textContent = weights > 0 ? (hits/weights*100).toFixed(0) + '%' : '—';
   document.getElementById('kBest').textContent = bestDay ? monthName.slice(0,3) + ' ' + bestDay.d + ' · ' + (bestDay.hitRate*100).toFixed(0) + '%' : '—';
+  if (!loadTrain().length) {
+    // Pass 344: say why the calendar is empty instead of a blank grid.
+    document.getElementById('detailCard').style.display = 'block';
+    document.getElementById('detailTitle').textContent = 'No graded calls yet';
+    document.getElementById('detailBody').innerHTML = '<div style="font-size:13px;color:var(--text-muted);padding:14px 0;">' + TrainRows.EMPTY_HTML + '</div>';
+  }
   document.getElementById('kWorst').textContent = worstDay && activeDays > 1 ? monthName.slice(0,3) + ' ' + worstDay.d + ' · ' + (worstDay.hitRate*100).toFixed(0) + '%' : '—';
 }
 

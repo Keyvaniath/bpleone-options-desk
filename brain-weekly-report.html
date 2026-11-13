@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" media="print" onload="this.media='all'"><noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap"></noscript>
-<link rel="stylesheet" href="css/style.css?v=v238">
+<link rel="stylesheet" href="css/style.css?v=v239">
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
@@ -46,7 +46,7 @@
   </div>
 
   <div class="card mb-24" style="text-align:center;padding:34px;">
-    <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:1px;margin-bottom:10px;">Weekly Brain Grade</div>
+    <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:1px;margin-bottom:10px;">Skill vs market drift (graded calls)</div>
     <div class="hero-grade" id="weekGrade">--</div>
     <div id="weekTone" style="font-size:13px;color:var(--text-secondary);margin-top:14px;max-width:600px;margin-left:auto;margin-right:auto;line-height:1.6;"></div>
   </div>
@@ -55,7 +55,7 @@
     <div class="stat-card"><div class="label">Total signals</div><div class="val" id="kSig">--</div><div class="sub" id="kSigSub"></div></div>
     <div class="stat-card"><div class="label">Hit rate</div><div class="val" id="kHit">--</div><div class="sub" id="kHitSub"></div></div>
     <div class="stat-card"><div class="label">Avg confidence</div><div class="val" id="kConf">--</div><div class="sub" id="kConfSub"></div></div>
-    <div class="stat-card"><div class="label">Sim P&L</div><div class="val" id="kPnl">--</div><div class="sub" id="kPnlSub"></div></div>
+    <div class="stat-card"><div class="label">Realized move</div><div class="val" id="kPnl">--</div><div class="sub" id="kPnlSub"></div></div>
   </div>
 
   <div class="grid grid-2 mb-24">
@@ -105,12 +105,13 @@
 
 <div id="site-footer"></div>
 
-<script src="js/data-provider.js?v=v238"></script>
-<script src="js/ai-client.js?v=v238"></script>
-<script src="js/app.js?v=v238"></script>
-<script src="js/notify.js?v=v238"></script>
-<script src="js/live.js?v=v238"></script>
-<script src="js/model.js?v=v238"></script>
+<script src="js/data-provider.js?v=v239"></script>
+<script src="js/ai-client.js?v=v239"></script>
+<script src="js/app.js?v=v239"></script>
+<script src="js/notify.js?v=v239"></script>
+<script src="js/live.js?v=v239"></script>
+<script src="js/train-rows.js?v=v239"></script>
+<script src="js/model.js?v=v239"></script>
 <script>
 buildNav('brain-weekly-report');
 
@@ -176,7 +177,7 @@ function weekRange() {
 }
 
 function loadFindings() { try { return JSON.parse(localStorage.getItem('bpleone_brain_findings_v1') || '{"items":[]}').items; } catch (e) { return []; } }
-function loadTraining() { try { return JSON.parse(localStorage.getItem('bpleone_train_v1') || '[]'); } catch (e) { return []; } }
+function loadTraining() { return window.TrainRows ? TrainRows.load() : []; }   // pass 344: graded calls (js/train-rows.js); 'bpleone_train_v1' was never written
 
 // Tight ET-attributed filter: keep only entries whose ET-day falls within
 // the offset week.
@@ -204,34 +205,30 @@ function render() {
   const hitRate = train.length > 0 ? wins / train.length : 0;
   const probs = findings.map(f => { try { return window.predictForFinding ? window.predictForFinding(f).prob : null; } catch(e){return null;} }).filter(Boolean);
   const avgConf = probs.length > 0 ? probs.reduce((a,b)=>a+b,0)/probs.length : 0;
-  const wonRs = train.filter(t => t.y === 1).map(t => t.r || 1.5);
-  const lostRs = train.filter(t => t.y === 0).length;
-  const simPnl = wonRs.reduce((a,b)=>a+b,0) - lostRs * 1.0;
-
-  // Grade
-  const grade = hitRate >= 0.70 ? 'A' : hitRate >= 0.60 ? 'B' : hitRate >= 0.50 ? 'C' : hitRate >= 0.40 ? 'D' : 'F';
-  const gradeCol = grade === 'A' ? 'var(--green)' : grade === 'B' ? '#84cc16' : grade === 'C' ? 'var(--yellow)' : grade === 'D' ? '#f97316' : 'var(--red)';
+  // Pass 344: graded calls (js/train-rows.js); realized % per call instead of an assumed +1.5R per win; graded
+  // against market drift (an always-long call on the same calls), never A-F at 50/60/70%.
+  const esc = TrainRows.esc;
+  const withPnl = train.filter(t => typeof t.pnl === 'number');
+  const simPnl = withPnl.reduce((a, t) => a + t.pnl, 0);
+  const g = TrainRows.grade(train);
+  const grade = !g.n ? '—' : !g.enough ? 'n=' + g.n : (g.skillPp >= 0 ? '+' : '') + g.skillPp.toFixed(1) + ' pp';
+  const gradeCol = !g.enough ? 'var(--text-muted)' : g.skillPp > 0 ? 'var(--green)' : 'var(--red)';
   document.getElementById('weekGrade').textContent = grade;
   document.getElementById('weekGrade').style.color = gradeCol;
-  const tones = {
-    A: 'Stellar week. The model called this market well. Don\'t get cocky — write down what worked.',
-    B: 'Solid week. Above-baseline. Keep the routine, refine edge cases.',
-    C: 'Neutral. Model is treading water. Look at the misses below — is there a regime change?',
-    D: 'Tough week. Check drift. Avoid revenge-trading the misses.',
-    F: 'Bad week. Consider pausing live trading. Re-seed if needed.'
-  };
-  document.getElementById('weekTone').textContent = tones[grade];
+  document.getElementById('weekTone').innerHTML = !g.n ? TrainRows.EMPTY_HTML
+    : !g.enough ? esc(g.text) + ' A week of graded calls is rarely enough to grade.'
+    : 'Skill vs drift this week: ' + esc(g.text) + ' One week is a small sample.';
 
   document.getElementById('kSig').textContent = n;
   document.getElementById('kSigSub').textContent = (n / 7).toFixed(1) + ' / day';
-  document.getElementById('kHit').textContent = (hitRate * 100).toFixed(0) + '%';
-  document.getElementById('kHit').style.color = hitRate >= 0.55 ? 'var(--green)' : hitRate >= 0.45 ? 'var(--text-primary)' : 'var(--red)';
-  document.getElementById('kHitSub').textContent = wins + ' / ' + train.length + ' labeled';
-  document.getElementById('kConf').textContent = (avgConf * 100).toFixed(0) + '%';
-  document.getElementById('kConfSub').textContent = probs.length + ' predictions';
-  document.getElementById('kPnl').textContent = (simPnl >= 0 ? '+' : '') + simPnl.toFixed(1) + 'R';
-  document.getElementById('kPnl').style.color = simPnl > 0 ? 'var(--green)' : simPnl < 0 ? 'var(--red)' : 'var(--text-primary)';
-  document.getElementById('kPnlSub').textContent = '1R risk per trade';
+  document.getElementById('kHit').textContent = train.length ? (hitRate * 100).toFixed(0) + '%' : '—';
+  document.getElementById('kHit').style.color = 'var(--text-primary)';
+  document.getElementById('kHitSub').textContent = train.length ? wins + ' / ' + train.length + ' right · drift ' + (g.drift != null ? (g.drift * 100).toFixed(0) + '%' : '~52%') : '0 graded calls';
+  document.getElementById('kConf').textContent = probs.length ? (avgConf * 100).toFixed(0) + '%' : '—';
+  document.getElementById('kConfSub').textContent = probs.length + ' findings scored (raw)';
+  document.getElementById('kPnl').textContent = withPnl.length ? (simPnl >= 0 ? '+' : '') + simPnl.toFixed(2) + '%' : '—';
+  document.getElementById('kPnl').style.color = !withPnl.length ? 'var(--text-muted)' : simPnl > 0 ? 'var(--green)' : simPnl < 0 ? 'var(--red)' : 'var(--text-primary)';
+  document.getElementById('kPnlSub').textContent = 'summed realized move in the called direction';
 
   // Daily hit chart
   const days = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
@@ -247,19 +244,19 @@ function render() {
     data: { labels: days, datasets: [{
       label: 'Hit %',
       data: dailyHit.map(h => h === null ? 0 : h * 100),
-      backgroundColor: dailyHit.map(h => h === null ? '#333' : h >= 0.55 ? '#10b981' : h >= 0.45 ? '#f59e0b' : '#ef4444')
+      backgroundColor: dailyHit.map(h => h === null ? '#333' : '#00d4ff')
     }] },
     options: { responsive:true, maintainAspectRatio:false, plugins:{legend:{display:false}}, scales:{y:{ticks:{color:'#888',callback:v=>v+'%'},grid:{color:'#222'},max:100},x:{ticks:{color:'#888'},grid:{display:false}}} }
   });
 
   // Conf bucket chart
-  const buckets = [0.4, 0.5, 0.6, 0.7, 0.8, 0.9];
+  // Confidence AT CAPTURE in the direction called (re-scoring old calls with today's weights tests a different model)
+  const conf = t => typeof t.predProb === 'number' ? Math.max(t.predProb, 1 - t.predProb) : null;
+  const buckets = [0.5, 0.6, 0.7, 0.8, 0.9];
   const bucketHits = buckets.map((b, i) => {
-    const bMax = buckets[i+1] || 1;
-    const bTrain = train.filter(t => {
-      try { const p = window.predictForFinding ? window.predictForFinding(t).prob : null; return p != null && p >= b && p < bMax; } catch(e){return false;}
-    });
-    if (bTrain.length === 0) return null;
+    const bMax = buckets[i+1] || 1.0001;
+    const bTrain = train.filter(t => { const c = conf(t); return c != null && c >= b && c < bMax; });
+    if (bTrain.length < 5) return null;
     return bTrain.filter(t => t.y === 1).length / bTrain.length;
   });
   if (window._confChart) window._confChart.destroy();
@@ -273,38 +270,32 @@ function render() {
   });
 
   // Top calls / worst misses
-  const ranked = train.map(t => {
-    let p = null; try { p = window.predictForFinding ? window.predictForFinding(t).prob : null; } catch(e){}
-    return { ...t, p };
-  }).filter(t => t.p != null);
+  const ranked = train.map(t => ({ ...t, p: conf(t) })).filter(t => t.p != null);
   const topWins = ranked.filter(t => t.y === 1).sort((a,b) => b.p - a.p).slice(0, 5);
   const worstMisses = ranked.filter(t => t.y === 0).sort((a,b) => b.p - a.p).slice(0, 5);
 
   const fmtCall = t => '<div style="padding:10px 0;border-bottom:1px solid var(--border);font-size:12px;display:flex;justify-content:space-between;align-items:center;">'
-    + '<div><strong>' + (t.meta?.sym || '—') + '</strong> <span style="color:var(--text-muted);">· ' + (t.meta?.setup || 'signal') + '</span></div>'
-    + '<div style="font-family:var(--font-mono);"><span style="color:' + (t.y === 1 ? 'var(--green)' : 'var(--red)') + ';">' + (t.y === 1 ? 'WIN' : 'LOSS') + '</span> · <span style="color:var(--accent);">' + (t.p*100).toFixed(0) + '%</span></div>'
+    + '<div><strong>' + esc(t.meta?.sym || '—') + '</strong> <span style="color:var(--text-muted);">· ' + esc(t.meta?.setup || 'signal') + '</span></div>'
+    + '<div style="font-family:var(--font-mono);"><span style="color:' + (t.y === 1 ? 'var(--green)' : 'var(--red)') + ';">' + (t.y === 1 ? 'RIGHT' : 'WRONG') + (typeof t.pnl === 'number' ? ' ' + (t.pnl >= 0 ? '+' : '') + t.pnl.toFixed(2) + '%' : '') + '</span> · <span style="color:var(--accent);">' + (t.p*100).toFixed(0) + '%</span></div>'
     + '</div>';
-  document.getElementById('topCalls').innerHTML = topWins.length ? topWins.map(fmtCall).join('') : '<div style="font-size:12px;color:var(--text-muted);padding:14px 0;">No wins yet this week.</div>';
-  document.getElementById('worstCalls').innerHTML = worstMisses.length ? worstMisses.map(fmtCall).join('') : '<div style="font-size:12px;color:var(--text-muted);padding:14px 0;">No high-confidence misses — clean week.</div>';
+  document.getElementById('topCalls').innerHTML = topWins.length ? topWins.map(fmtCall).join('') : '<div style="font-size:12px;color:var(--text-muted);padding:14px 0;">No graded call right this week.</div>';
+  document.getElementById('worstCalls').innerHTML = worstMisses.length ? worstMisses.map(fmtCall).join('') : '<div style="font-size:12px;color:var(--text-muted);padding:14px 0;">No graded call wrong this week.</div>';
 
   // Narrative
   const narrative = [];
-  narrative.push('<p>Week of <strong>' + wk.startStr + '</strong> closed with grade <strong style="color:' + gradeCol + ';">' + grade + '</strong>. The brain processed <strong>' + n + '</strong> signals across the market.</p>');
-  if (train.length > 0) narrative.push('<p>Of the <strong>' + train.length + '</strong> trades that resolved, the model called <strong>' + (hitRate*100).toFixed(0) + '%</strong> correctly with an average confidence of <strong>' + (avgConf*100).toFixed(0) + '%</strong>. Simulated P&L at 1R risk came in at <strong style="color:' + (simPnl >= 0 ? 'var(--green)' : 'var(--red)') + ';">' + (simPnl >= 0 ? '+' : '') + simPnl.toFixed(1) + 'R</strong>.</p>');
-  if (topWins.length) narrative.push('<p>Biggest win: <strong>' + topWins[0].meta?.sym + '</strong> on a <strong>' + topWins[0].meta?.setup + '</strong> setup the model rated at <strong>' + (topWins[0].p*100).toFixed(0) + '%</strong> confidence.</p>');
-  if (worstMisses.length && worstMisses[0].p > 0.7) narrative.push('<p style="color:var(--yellow);">⚠ The model was overconfident on <strong>' + worstMisses[0].meta?.sym + '</strong> — flagged it at <strong>' + (worstMisses[0].p*100).toFixed(0) + '%</strong> but it lost. Worth a postmortem.</p>');
-  if (avgConf > 0.7 && hitRate < 0.55) narrative.push('<p style="color:var(--red);">⚠ Confidence high but hit rate weak — calibration drift. Re-train recommended.</p>');
-  if (n > 0 && train.length / n < 0.3) narrative.push('<p style="color:var(--text-muted);">Most signals are still unresolved (' + ((train.length/n)*100).toFixed(0) + '% labeled). Check back later for the final score.</p>');
+  narrative.push('<p>Week of <strong>' + wk.startStr + '</strong>: the browser model scored <strong>' + n + '</strong> findings.</p>');
+  if (train.length > 0) narrative.push('<p>Of the <strong>' + train.length + '</strong> calls captured this week that have been graded, <strong>' + (hitRate*100).toFixed(0) + '%</strong> were right (an always-long call: ' + (g.drift != null ? (g.drift*100).toFixed(0) + '%' : 'about 52%') + '). Summed realized move in the called direction: <strong style="color:' + (simPnl >= 0 ? 'var(--green)' : 'var(--red)') + ';">' + (simPnl >= 0 ? '+' : '') + simPnl.toFixed(2) + '%</strong>.</p>');
+  else narrative.push('<p>' + TrainRows.EMPTY_HTML + '</p>');
+  if (worstMisses.length && worstMisses[0].p > 0.7) narrative.push('<p style="color:var(--yellow);">The model was ' + (worstMisses[0].p*100).toFixed(0) + '% confident on <strong>' + esc(worstMisses[0].meta?.sym) + '</strong> and the call was wrong.</p>');
+  if (n > 0 && train.length / n < 0.3) narrative.push('<p style="color:var(--text-muted);">Calls grade 5 days after capture, so most of this week\'s are not graded yet.</p>');
   document.getElementById('narrative').innerHTML = narrative.join('');
 
-  // Action items
+  // Action items (no "pause live trading" / "keep the routine": this is a diagnostic of the browser model, not a trading desk)
   const actions = [];
-  if (grade === 'F' || grade === 'D') actions.push({ tone: 'bad', t: 'Pause live trading', b: 'Hit rate is below 50%. Use paper only this week. Open <a href="model-postmortem.html" style="color:var(--accent);">Postmortem</a> to find the failure pattern.' });
-  if (avgConf > 0.7 && hitRate < 0.55) actions.push({ tone: 'warn', t: 'Recalibrate', b: 'Model is overconfident. Run a full retrain on Training Center.' });
-  if (worstMisses.length && worstMisses.filter(m => m.p > 0.75).length >= 2) actions.push({ tone: 'warn', t: 'Investigate high-conf misses', b: 'Two or more setups the model loved still lost. Are they all the same setup type or symbol?' });
-  if (topWins.length >= 3 && hitRate > 0.6) actions.push({ tone: 'good', t: 'Keep the routine', b: 'You\'re in a groove. Don\'t change feature weights or thresholds this week.' });
-  if (train.length < 5) actions.push({ tone: 'warn', t: 'Low sample size', b: 'Less than 5 labeled trades this week. Resolve outcomes in Journal PRO so the brain has data to learn from.' });
-  if (!actions.length) actions.push({ tone: 'good', t: 'Nothing urgent', b: 'Brain is healthy. Keep watching, keep labeling.' });
+  if (g.enough && g.skillPp <= 0) actions.push({ tone: 'warn', t: 'No skill above drift', b: 'The graded calls do no better than an always-long call. The desk\'s live record is the <a href="edge-scorecard.html" style="color:var(--accent);">Edge Scorecard</a>.' });
+  if (worstMisses.length && worstMisses.filter(m => m.p > 0.75).length >= 2) actions.push({ tone: 'warn', t: 'High-confidence misses', b: 'Two or more calls made at 75%+ confidence were wrong. Are they the same symbol or regime?' });
+  if (train.length < 5) actions.push({ tone: 'warn', t: 'Small sample', b: 'Fewer than 5 graded calls this week; nothing here is a grade.' });
+  if (!actions.length) actions.push({ tone: 'good', t: 'Nothing flagged', b: 'No pattern in this week\'s graded calls needs attention.' });
   document.getElementById('actionItems').innerHTML = actions.map(a =>
     '<div class="callout ' + a.tone + '"><h4>' + a.t + '</h4><p>' + a.b + '</p></div>'
   ).join('');
@@ -312,13 +303,13 @@ function render() {
   // Share text
   const share = '═══ BPLEONE BRAIN — WEEKLY REPORT ═══\n'
     + 'Week of ' + wk.startStr + ' – ' + wk.endStr + '\n\n'
-    + 'GRADE: ' + grade + '\n'
+    + 'SKILL VS DRIFT: ' + grade + '\n'
     + 'Signals: ' + n + ' (' + (n/7).toFixed(1) + '/day)\n'
-    + 'Hit rate: ' + (hitRate*100).toFixed(0) + '% (' + wins + '/' + train.length + ')\n'
-    + 'Avg confidence: ' + (avgConf*100).toFixed(0) + '%\n'
-    + 'Sim P&L: ' + (simPnl >= 0 ? '+' : '') + simPnl.toFixed(1) + 'R\n\n'
-    + 'TOP CALLS:\n' + topWins.slice(0,3).map(t => '  · ' + t.meta?.sym + ' / ' + t.meta?.setup + ' — ' + (t.p*100).toFixed(0) + '% → WIN').join('\n') + '\n\n'
-    + 'WORST MISSES:\n' + worstMisses.slice(0,3).map(t => '  · ' + t.meta?.sym + ' / ' + t.meta?.setup + ' — ' + (t.p*100).toFixed(0) + '% → LOSS').join('\n') + '\n\n'
+    + 'Hit rate: ' + (train.length ? (hitRate*100).toFixed(0) + '% (' + wins + '/' + train.length + ') vs drift ' + (g.drift != null ? (g.drift*100).toFixed(0) + '%' : '~52%') : 'no graded calls') + '\n'
+    + 'Summed move in the called direction: ' + (withPnl.length ? (simPnl >= 0 ? '+' : '') + simPnl.toFixed(2) + '%' : '—') + '\n\n'
+    + 'RIGHT:\n' + topWins.slice(0,3).map(t => '  · ' + t.meta?.sym + ' / ' + t.meta?.setup + ' — ' + (t.p*100).toFixed(0) + '%').join('\n') + '\n\n'
+    + 'WRONG:\n' + worstMisses.slice(0,3).map(t => '  · ' + t.meta?.sym + ' / ' + t.meta?.setup + ' — ' + (t.p*100).toFixed(0) + '%').join('\n') + '\n\n'
+    + 'Browser model diagnostic, not advice. Live record: options.bpleone.com/edge-scorecard.html\n'
     + 'ACTIONS: ' + actions.map(a => a.t).join(' · ') + '\n'
     + '\nGenerated by bpleone/trade brain';
   document.getElementById('shareText').value = share;

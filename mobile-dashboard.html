@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" media="print" onload="this.media='all'"><noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap"></noscript>
-<link rel="stylesheet" href="css/style.css?v=v238">
+<link rel="stylesheet" href="css/style.css?v=v239">
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
 <style>
@@ -37,13 +37,13 @@
 
 <div class="container mob-container" style="padding-top:14px;">
   <div class="mob-card mob-hero">
-    <div class="sub">TODAY'S BRAIN GRADE</div>
+    <div class="sub">BROWSER MODEL: SKILL VS MARKET DRIFT</div>
     <h2 id="todayGrade">--</h2>
     <div class="sub" id="gradeNote">Loading...</div>
   </div>
 
   <div class="mob-card">
-    <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:10px;font-weight:700;">🎯 Top ML Pick</div>
+    <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:10px;font-weight:700;">🎯 Top browser-model finding (raw, not a pick)</div>
     <div id="topPick">--</div>
   </div>
 
@@ -53,11 +53,11 @@
       <div class="val" id="sigCnt">--</div>
     </div>
     <div class="stat-mini">
-      <div class="label">High conf (≥70%)</div>
+      <div class="label">Model ≥70% (raw)</div>
       <div class="val" style="color:var(--accent);" id="hiCnt">--</div>
     </div>
     <div class="stat-mini">
-      <div class="label">Hit rate (7d)</div>
+      <div class="label">Hit rate (graded calls)</div>
       <div class="val" id="hitRate">--</div>
     </div>
     <div class="stat-mini">
@@ -90,26 +90,30 @@
 
 <div id="site-footer"></div>
 
-<script src="js/data-provider.js?v=v238"></script>
-<script src="js/ai-client.js?v=v238"></script>
-<script src="js/app.js?v=v238"></script>
-<script src="js/notify.js?v=v238"></script>
-<script src="js/live.js?v=v238"></script>
-<script src="js/model.js?v=v238"></script>
+<script src="js/data-provider.js?v=v239"></script>
+<script src="js/ai-client.js?v=v239"></script>
+<script src="js/app.js?v=v239"></script>
+<script src="js/notify.js?v=v239"></script>
+<script src="js/live.js?v=v239"></script>
+<script src="js/train-rows.js?v=v239"></script>
+<script src="js/no-play-gate.js?v=v239" defer></script>
+<script src="js/model.js?v=v239"></script>
 <script>
 buildNav('mobile-dashboard');
 
 function loadFindings() { try { return JSON.parse(localStorage.getItem('bpleone_brain_findings_v1') || '{"items":[]}').items; } catch(e) { return []; } }
-function loadTrain() { try { return JSON.parse(localStorage.getItem('bpleone_train_v1') || '[]'); } catch(e) { return []; } }
+function loadTrain() { return window.TrainRows ? TrainRows.load() : []; }   // pass 344: graded calls (js/train-rows.js); 'bpleone_train_v1' was never written
 
 function render() {
   const findings = loadFindings();
   const train = loadTrain();
   const today0 = new Date(); today0.setHours(0,0,0,0);
   const todayFindings = findings.filter(f => f.ts >= today0.getTime());
+  const esc = TrainRows.esc;
+  const realQ = s => { const q = (typeof QUOTES !== 'undefined') ? QUOTES[s] : null; return q && q.last > 0 && ['stale-seed', 'mock', 'demo-sim'].indexOf(q.priceSource) < 0 && isFinite(q.changePct) ? q : null; };
 
   // ML rankings
-  const ranked = todayFindings.map(f => {
+  const ranked = todayFindings.filter(f => f.meta && f.meta.sym).map(f => {
     let prob = null; try { if (window.predictForFinding) { const p = window.predictForFinding(f); prob = p ? p.prob : null; } } catch(e) {}
     return { ...f, prob };
   }).filter(f => f.prob != null).sort((a,b) => b.prob - a.prob);
@@ -117,27 +121,26 @@ function render() {
   // Top pick
   if (ranked.length > 0) {
     const t = ranked[0];
-    const q = (typeof QUOTES !== 'undefined' && QUOTES[t.meta?.sym]) ? QUOTES[t.meta.sym] : null;
-    document.getElementById('topPick').innerHTML = '<div style="font-size:24px;font-weight:800;font-family:var(--font-mono);">' + (t.meta?.sym || '?') + '</div>'
-      + '<div style="font-size:12px;color:var(--text-muted);margin:4px 0;">' + (t.meta?.setup || 'signal') + '</div>'
+    const q = realQ(t.meta.sym);
+    document.getElementById('topPick').innerHTML = '<div style="font-size:24px;font-weight:800;font-family:var(--font-mono);">' + esc(t.meta.sym) + '</div>'
+      + '<div style="font-size:12px;color:var(--text-muted);margin:4px 0;">' + esc(t.meta.setup || 'signal') + '</div>'
       + '<div style="margin-top:10px;display:flex;justify-content:space-between;align-items:center;">'
       + '<div style="font-family:var(--font-mono);font-size:18px;font-weight:700;color:var(--accent);">' + (t.prob*100).toFixed(0) + '%</div>'
       + (q ? '<div style="font-family:var(--font-mono);font-size:14px;">$' + q.last.toFixed(2) + ' <span style="color:' + (q.changePct >= 0 ? 'var(--green)' : 'var(--red)') + ';font-size:11px;">' + (q.changePct >= 0 ? '+' : '') + q.changePct.toFixed(2) + '%</span></div>' : '')
       + '</div>'
-      + '<a href="trade-coach.html?sym=' + (t.meta?.sym || '') + '" class="btn btn-primary" style="margin-top:14px;width:100%;display:block;text-align:center;">📋 Open trade plan</a>';
+      + '<a href="trade-coach.html?sym=' + encodeURIComponent(t.meta.sym) + '" class="btn btn-primary" style="margin-top:14px;width:100%;display:block;text-align:center;">📋 Open trade plan</a>';
   } else {
-    document.getElementById('topPick').innerHTML = '<div style="text-align:center;color:var(--text-muted);font-size:13px;padding:14px 0;">No high-confidence picks yet today. Check back in a bit.</div>';
+    document.getElementById('topPick').innerHTML = '<div style="text-align:center;color:var(--text-muted);font-size:13px;padding:14px 0;">No symbol finding scored today in this browser.</div>';
   }
 
   // Stats
   document.getElementById('sigCnt').textContent = todayFindings.length;
   document.getElementById('hiCnt').textContent = ranked.filter(f => f.prob >= 0.7).length;
 
-  const weekAgo = Date.now() - 7 * 86400000;
-  const recent = train.filter(t => t.ts >= weekAgo);
-  const hit = recent.filter(t => t.y === 1).length / Math.max(1, recent.length);
-  document.getElementById('hitRate').textContent = recent.length > 0 ? (hit*100).toFixed(0) + '%' : '—';
-  document.getElementById('hitRate').style.color = hit >= 0.55 ? 'var(--green)' : hit >= 0.45 ? 'var(--text-primary)' : 'var(--red)';
+  // Pass 344: all graded calls (js/train-rows.js), graded against the drift rate, never a 50% coin flip or A-F.
+  const g = TrainRows.grade(train);
+  document.getElementById('hitRate').textContent = g.n ? (g.hit * 100).toFixed(0) + '%' : '—';
+  document.getElementById('hitRate').style.color = 'var(--text-primary)';
 
   // Streak
   const sorted = [...train].sort((a,b) => b.ts - a.ts);
@@ -147,32 +150,28 @@ function render() {
     else if (t.y !== lastY) break;
     streak++;
   }
-  document.getElementById('streak').textContent = streak > 0 ? streak + (lastY === 1 ? ' W' : ' L') : '—';
-  document.getElementById('streak').style.color = lastY === 1 ? 'var(--green)' : lastY === 0 ? 'var(--red)' : 'var(--text-primary)';
+  document.getElementById('streak').textContent = streak > 0 ? streak + (lastY === 1 ? ' right' : ' wrong') : '—';
+  document.getElementById('streak').style.color = 'var(--text-primary)';
 
-  // Grade — graded ONLY against a 50% coin flip, NOT market drift. So the labels
-  // describe distance from a coin flip; they must never imply proven timing skill
-  // ("Crushing it"/"Solid"). The caveat below spells out the honest bar. (honesty pass)
-  const grade = hit >= 0.7 ? 'A' : hit >= 0.6 ? 'B' : hit >= 0.5 ? 'C' : hit >= 0.4 ? 'D' : 'F';
-  const tones = { A: 'Well above a coin flip', B: 'Above a coin flip', C: 'About a coin flip', D: 'Below a coin flip', F: 'Well below a coin flip' };
-  document.getElementById('todayGrade').textContent = grade;
-  document.getElementById('todayGrade').style.color = grade === 'A' ? 'var(--green)' : grade === 'B' ? '#84cc16' : grade === 'C' ? 'var(--yellow)' : grade === 'D' ? '#f97316' : 'var(--red)';
-  document.getElementById('gradeNote').innerHTML = tones[grade] + ' · 7d hit rate ' + (hit*100).toFixed(0) + '%'
-    + '<div style="font-size:9px;color:var(--text-muted);margin-top:6px;line-height:1.4;opacity:0.85;">Tab-only local brain, scored vs a 50% coin flip — above a coin flip is not yet above market drift, so this is no proven edge. <a href="proof.html" style="color:var(--accent);">Proof →</a></div>';
+  const gEl = document.getElementById('todayGrade');
+  gEl.textContent = g.enough ? (g.skillPp >= 0 ? '+' : '') + g.skillPp.toFixed(1) + ' pp' : '—';
+  gEl.style.color = !g.enough ? 'var(--text-muted)' : g.skillPp > 0 ? 'var(--green)' : 'var(--red)';
+  document.getElementById('gradeNote').innerHTML = (g.n ? esc(g.text) : TrainRows.EMPTY_HTML)
+    + '<div style="font-size:9px;color:var(--text-muted);margin-top:6px;line-height:1.4;opacity:0.85;">This browser\'s own model, graded on its 5-day calls against market drift (an always-long call). The desk\'s live record: <a href="edge-scorecard.html" style="color:var(--accent);">Edge Scorecard →</a></div>';
 
   // Watchlist
   try {
     const lists = JSON.parse(localStorage.getItem('bpleone_watchlist_pro_v1') || '[]');
     const syms = lists.length > 0 ? lists[0].syms.slice(0, 5) : [];
     document.getElementById('watchRows').innerHTML = syms.map(s => {
-      const q = (typeof QUOTES !== 'undefined' && QUOTES[s]) ? QUOTES[s] : null;
+      const q = realQ(s);
       const symFindings = todayFindings.filter(f => f.meta?.sym === s);
       let mlProb = null;
       if (symFindings.length > 0 && window.predictForFinding) {
         try { const p = window.predictForFinding(symFindings[0]); mlProb = p ? p.prob : null; } catch(e) {}
       }
-      return '<a href="trade-coach.html?sym=' + s + '" class="mob-row" style="text-decoration:none;color:inherit;">'
-        + '<div><span class="sym">' + s + '</span> ' + (q ? '<span style="font-size:11px;color:var(--text-muted);margin-left:6px;">$' + q.last.toFixed(2) + '</span>' : '') + '</div>'
+      return '<a href="trade-coach.html?sym=' + encodeURIComponent(s) + '" class="mob-row" style="text-decoration:none;color:inherit;">'
+        + '<div><span class="sym">' + esc(s) + '</span> ' + (q ? '<span style="font-size:11px;color:var(--text-muted);margin-left:6px;">$' + q.last.toFixed(2) + '</span>' : '') + '</div>'
         + '<div style="display:flex;gap:8px;align-items:center;">'
           + (q ? '<span style="font-size:11px;color:' + (q.changePct >= 0 ? 'var(--green)' : 'var(--red)') + ';">' + (q.changePct >= 0 ? '+' : '') + q.changePct.toFixed(2) + '%</span>' : '')
           + (mlProb != null ? '<span class="ml" style="background:rgba(0,212,255,0.18);color:var(--accent);">' + (mlProb*100).toFixed(0) + '%</span>' : '')
@@ -183,8 +182,8 @@ function render() {
 
   // Recent signals
   document.getElementById('signalRows').innerHTML = ranked.slice(0, 6).map(f =>
-    '<a href="trade-coach.html?sym=' + (f.meta?.sym || '') + '" class="mob-row" style="text-decoration:none;color:inherit;">'
-    + '<div><span class="sym">' + (f.meta?.sym || '?') + '</span> <span style="font-size:11px;color:var(--text-muted);">' + (f.meta?.setup || 'signal') + '</span></div>'
+    '<a href="trade-coach.html?sym=' + encodeURIComponent(f.meta.sym) + '" class="mob-row" style="text-decoration:none;color:inherit;">'
+    + '<div><span class="sym">' + esc(f.meta.sym) + '</span> <span style="font-size:11px;color:var(--text-muted);">' + esc(f.meta.setup || 'signal') + '</span></div>'
     + '<div style="display:flex;gap:8px;align-items:center;">'
       + '<span style="font-size:10px;color:var(--text-muted);">' + (function(ts){ const d=Date.now()-ts; if(d<60000)return Math.floor(d/1000)+'s';if(d<3600000)return Math.floor(d/60000)+'m';return Math.floor(d/3600000)+'h'; })(f.ts) + '</span>'
       + '<span class="ml" style="background:rgba(0,212,255,0.18);color:var(--accent);">' + (f.prob*100).toFixed(0) + '%</span>'
