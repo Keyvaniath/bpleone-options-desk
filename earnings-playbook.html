@@ -135,8 +135,10 @@
 <script>
 (function () {
   // v2 (audit 2026-11-03): v1 results carried the fabricated 1.7xATR "implied move" and synthetic dates; never re-render them.
-  const KEY = 'bpleone_earnings_playbook_v2';
-  try { localStorage.removeItem('bpleone_earnings_playbook_v1'); } catch (e) {}
+  // Pass 344: v3. Results saved before the EDGAR report-date source (worker pass-325/326) said "no history" for
+  // nearly every name and were re-shown from this cache for 6 hours after the fix.
+  const KEY = 'bpleone_earnings_playbook_v3';
+  try { localStorage.removeItem('bpleone_earnings_playbook_v1'); localStorage.removeItem('bpleone_earnings_playbook_v2'); } catch (e) {}
 
   function getFinnhubKey() {
     try {
@@ -397,12 +399,14 @@
   document.getElementById('btnRefresh').addEventListener('click', runAnalysis);
   document.getElementById('stratFilter').addEventListener('change', () => renderResults(loadResults().results));
 
-  // Load cached on first paint
+  // Load cached on first paint (30 min); otherwise analyze now instead of waiting for a click.
   setTimeout(() => {
     const cached = loadResults();
-    if (cached.results && cached.results.length && cached.ts && Date.now() - cached.ts < 6 * 3600 * 1000) {
+    if (cached.results && cached.results.length && cached.ts && Date.now() - cached.ts < 30 * 60 * 1000) {
       renderResults(cached.results);
-      document.getElementById('status').textContent = '(showing cached — click refresh for live)';
+      document.getElementById('status').textContent = '(analyzed ' + new Date(cached.ts).toLocaleTimeString('en-US', { timeZone: 'America/New_York', hour: 'numeric', minute: '2-digit' }) + ' ET, click refresh to re-run)';
+    } else {
+      runAnalysis();
     }
   }, 400);
 })();

@@ -236,6 +236,8 @@ t('brain-proof writes no test or force-resolved entry into the real journal', !/
 t('market timestamps are ET (alpha, confluence, alerts, brain-proof)', /timeZone: 'America\/New_York', hour: 'numeric', minute: '2-digit' \}\) \+ ' ET · ' \+ _allSignals/.test(read('alpha-scanner.html')) && /' ET · insider feed cached hourly'/.test(read('smart-money-confluence.html')));
 t('backtest skill is labeled backtest next to live accuracy', /stat\('Skill over drift \(backtest\)'/.test(read('money-made.html')));
 
+t('earnings-playbook never re-shows a pre-EDGAR cached analysis, and analyzes on load', /const KEY = 'bpleone_earnings_playbook_v3';/.test(read('earnings-playbook.html')) && /localStorage\.removeItem\('bpleone_earnings_playbook_v2'\)/.test(read('earnings-playbook.html')) && /\} else \{\s*runAnalysis\(\);\s*\}/.test(read('earnings-playbook.html')));
+
 // 7. Worker sources parse strictly. `node --check` passed an ES-module file with an unescaped quote in a
 //    string (found 2026-11-03), so parse the bodies as scripts with imports/exports stripped.
 ['worker/src/index.js', 'worker/src/grading.js', 'worker/src/radar.js', 'worker/src/bars.js', 'worker/src/snapshots.js', 'worker/src/econ.js', 'worker/src/earnings.js'].forEach(f => {
