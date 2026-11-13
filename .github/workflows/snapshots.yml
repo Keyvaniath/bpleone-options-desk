@@ -13,7 +13,7 @@ name: Publish read snapshots (CDN offload)
 # events start hours late at random minutes or never), and the Worker's dispatch (pass-320/322) needs a
 # GitHub token the Worker does not have. So each run starts its own successor: publish, wait out the
 # 15 minutes, then `gh workflow run` with the job's own GITHUB_TOKEN (workflow_dispatch is the one
-# event that token may trigger). The chain runs on weekdays 8:30-17:00 ET; the run after 17:00 makes
+# event that token may trigger). The chain runs on weekdays 6:00-17:00 ET (pass 344; was 8:30); the run after 17:00 makes
 # the closing pass and stops. The schedule below only (re)starts it: morning kicks at off-peak minutes,
 # plus a pass every two hours that also re-ignites a broken chain during desk hours.
 # Off switch: set the repository variable SNAPSHOT_CHAIN to "off" (Settings > Secrets and variables >
@@ -86,15 +86,18 @@ jobs:
               git pull --rebase origin main
             done
           fi
-      - name: Start the next run (the chain; weekdays 8:30-17:00 ET)
+      # Pass 344 (11/13): GitHub started ONE morning kick (7:38 ET) and no other scheduled run until 14:35 ET, and a
+      # run before 8:30 stopped the chain, so the desk had no 15-minute snapshots from 7:38 to 14:35. A weekday run
+      # from 6:00 ET now keeps chaining, so whichever early kick GitHub does start carries the whole session.
+      - name: Start the next run (the chain; weekdays 6:00-17:00 ET)
         if: ${{ vars.SNAPSHOT_CHAIN != 'off' }}
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           dow=$(TZ=America/New_York date +%u)                  # 1 = Monday ... 7 = Sunday
           hm=$((10#$(TZ=America/New_York date +%H%M)))         # base 10: 0830 is not octal
-          if [ "$dow" -gt 5 ] || [ "$hm" -lt 830 ] || [ "$hm" -ge 1700 ]; then
-            echo "Outside weekday 8:30-17:00 ET ($(TZ=America/New_York date '+%a %H:%M')): the chain stops here."
+          if [ "$dow" -gt 5 ] || [ "$hm" -lt 600 ] || [ "$hm" -ge 1700 ]; then
+            echo "Outside weekday 6:00-17:00 ET ($(TZ=America/New_York date '+%a %H:%M')): the chain stops here."
             exit 0
           fi
           wait=$(( 900 - ($(date +%s) - RUN_T0) - 30 ))        # ~15 min run to run; the successor needs ~30 s to start

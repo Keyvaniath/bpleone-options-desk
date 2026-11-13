@@ -105,7 +105,7 @@ t('broadcast explains NO PLAY instead of blaming constraints', /picks && picks\.
 //     checks judge it by runs that happened, never by a configured flag.
 const snapWf = read('.github/workflows/snapshots.yml');
 t('snapshot job can start its successor (actions: write + gh workflow run)', /actions: write/.test(snapWf) && /gh workflow run snapshots\.yml --ref main/.test(snapWf));
-t('snapshot chain is bounded to weekday 8:30-17:00 ET and has an off switch', /"\$dow" -gt 5 \] \|\| \[ "\$hm" -lt 830 \] \|\| \[ "\$hm" -ge 1700 \]/.test(snapWf) && /vars\.SNAPSHOT_CHAIN != 'off'/.test(snapWf) && /timeout-minutes: 30/.test(snapWf));
+t('snapshot chain is bounded to weekday 6:00-17:00 ET and has an off switch', /"\$dow" -gt 5 \] \|\| \[ "\$hm" -lt 600 \] \|\| \[ "\$hm" -ge 1700 \]/.test(snapWf) && /vars\.SNAPSHOT_CHAIN != 'off'/.test(snapWf) && /timeout-minutes: 30/.test(snapWf));
 t('snapshot crons avoid the top of the hour', !/cron: '\*\/15|cron: '0 \*/.test(snapWf) && !/cron: '\*\/30/.test(read('.github/workflows/brain-health.yml')));
 const acc = read('_acceptance.js');
 t('acceptance judges the snapshot job by runs, not by a configured flag', /deskSlots\(now - 86400000, now\)/.test(acc) && !/sd && sd\.configured \? 'PASS'/.test(acc));

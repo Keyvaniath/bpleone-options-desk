@@ -244,6 +244,8 @@ The whole site was swept so nothing fabricated reads as live. Three moves:
 - **No static LIVE badge on delayed data** (10 pages relabeled DELAYED ~15 MIN; crypto says BTC/ETH REAL-TIME; options chains say REAL CHAIN + the delay).
 - model.js `FEATURES` is a list of name STRINGS (brain-evolution printed `f.name` = undefined for all 22). model-compare: only models that produce a number vote.
 - Brain pages lead with the Worker's state (`workerBrainStatus()`); a browser-local score is labeled local (brain-mobile).
+- **The snapshot chain starts from 6:00 ET on weekdays** (was 8:30): on 11/13 GitHub started one morning kick (7:38 ET), the chain refused to continue before 8:30, and nothing else fired until 14:35 ET. The acceptance check still counts the 8:30-17:00 slots.
+- **brain-proof writes nothing into the real journal** (its "inject test prediction" / "force-resolve" tools were removed: a made-up AAPL call, and early grading of real entries trained on the spot). Market timestamps print in ET with the zone named.
 
 **Pass 343 invariants (2026-11-13, worker pass-324 adds `/brain/earnings-history`; guarded by honesty section 6j + `node _test_earnings_reaction.js`):**
 - **A page must not stop at "Finnhub key required" when the Worker serves the data keyless.** Rewired: earnings-tonight, tomorrow-playbook, pre-market (/brain/earnings, /brain/news), pre-market-scanner (/brain/news?symbol=), insider-congress-flow (/brain/insider), earnings-playbook (/brain/earnings-history + /brain/history). Replay needs intraday bars, which no free source has: it says so (Finnhub's candle endpoint is paid).

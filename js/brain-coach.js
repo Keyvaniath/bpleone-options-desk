@@ -226,7 +226,7 @@
       headline = 'Local model diagnostics look clean (this browser only; not a trading signal)';
       headlineColor = 'var(--green)';
     } else {
-      headline = 'Brain is warming up — waiting for data';
+      headline = 'Local model diagnostics: collecting data in this browser (the desk’s 24/7 brain runs on the Worker)';
       headlineColor = 'var(--text-muted)';
     }
 
