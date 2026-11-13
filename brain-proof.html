@@ -208,17 +208,16 @@
     </div>
   </div>
 
-  <!-- Live verification: inject test prediction, watch it resolve -->
+  <!-- Pass 344: the "inject a test prediction" and "force-resolve" tools were removed. Injection wrote a made-up AAPL
+       call (priced from a hardcoded $245 when no quote had landed) into the real prediction journal; force-resolve graded
+       the OLDEST unresolved entry, real ones included, at an arbitrary moment against a 0.3% band and trained the model
+       on it, bypassing the Worker-authoritative gate (pass 199) with a different label convention. -->
   <div class="card mb-24">
-    <div class="card-header"><div class="card-title">⚗ Live Verification — inject a test prediction</div></div>
+    <div class="card-header"><div class="card-title">🧹 Test entries</div></div>
     <div style="font-size:12px;color:var(--text-secondary);line-height:1.6;margin-bottom:14px;">
-      Click below to inject a known prediction (AAPL LONG, prob=0.85) into the journal. Then watch
-      <a href="brain-debug.html" style="color:var(--accent);">/brain-debug</a> tick — within 30s the new entry shows up.
-      After the short-horizon (24h) elapses it resolves automatically; OR click "Force resolve" to immediately simulate the resolution against current AAPL price.
+      Earlier versions of this page could inject test predictions into this browser’s journal. Real calls resolve only on their own horizon now; this removes any leftover test entries.
     </div>
     <div class="flex gap-12" style="flex-wrap:wrap;">
-      <button class="action-btn" onclick="injectTest()">⚗ Inject test prediction</button>
-      <button class="action-btn" onclick="forceResolve()">⏩ Force-resolve oldest unresolved</button>
       <button class="action-btn" onclick="purgeTests()">🗑 Purge test entries</button>
     </div>
     <div id="inject-result" style="margin-top:14px;font-family:var(--font-mono);font-size:11px;"></div>
@@ -805,7 +804,7 @@ function refresh() {
         ? 'CAPTURED ' + e.sym + ' · p=' + (e.prob != null ? e.prob.toFixed(3) : '?') + ' · ' + (e.regime || 'no-regime')
         : 'RESOLVED ' + e.sym + ' · ' + e.outcome;
       stream.innerHTML += '<div class="evidence-row' + (fresh ? ' fresh' : '') + '">'
-        + '<span class="ts">' + new Date(e.ts).toLocaleTimeString() + '</span>'
+        + '<span class="ts">' + new Date(e.ts).toLocaleTimeString('en-US', { timeZone: 'America/New_York' }) + ' ET</span>'
         + ' &nbsp;' + detail
         + ' &nbsp;<span class="ts">(' + fmtAgo(ageMs) + ')</span>'
         + '</div>';
@@ -813,93 +812,9 @@ function refresh() {
   }
 }
 
-function injectTest() {
-  if (typeof FeatureExtractor === 'undefined' || typeof ModelStore === 'undefined') {
-    document.getElementById('inject-result').textContent = '✗ FeatureExtractor or ModelStore not loaded yet — wait a few seconds';
-    return;
-  }
-  // Build a fake high-conviction LONG prediction for AAPL
-  const aapl = (typeof QUOTES !== 'undefined' && QUOTES.AAPL) ? QUOTES.AAPL : { last: 245, changePct: 0.5 };
-  const finding = {
-    ts: Date.now(),
-    type: 'continuous-capture',
-    severity: 1,
-    meta: { sym: 'AAPL', setup: 'TEST-INJECTION', last: aapl.last, bias: 'long' }
-  };
-  let features = null;
-  try {
-    features = FeatureExtractor.extract(finding);
-  } catch(e) {
-    document.getElementById('inject-result').textContent = '✗ FeatureExtractor.extract threw: ' + e.message;
-    return;
-  }
-  const model = ModelStore.load();
-  const pred = model.predict(features);
-  const journal = loadJournal();
-  const entry = {
-    id: 'test-' + Date.now() + '-' + Math.random().toString(36).slice(2, 6),
-    ts: Date.now(),
-    sym: 'AAPL',
-    entryPx: aapl.last,
-    features: features,
-    predProb: pred.prob,
-    oodScore: 0,
-    priceSource: 'TEST-INJECTION',
-    regime: 'test',
-    regimeVix: 18,
-    regimeSpyChg: 0,
-    resolved: { short: false, mid: false, long: false }
-  };
-  journal.push(entry);
-  saveJournal(journal);
-  document.getElementById('inject-result').innerHTML = '✓ Injected test entry id=<code>' + entry.id + '</code> · model predicted ' + (pred.prob * 100).toFixed(1) + '% LONG. Use "Force-resolve" below to immediately train on it, or wait 24h for natural resolution.';
-  setTimeout(refresh, 100);
-}
-
-function forceResolve() {
-  const journal = loadJournal();
-  const unresolved = journal.find(e =>
-    e.resolved && typeof e.resolved === 'object' && e.resolved.short === false
-  );
-  if (!unresolved) {
-    document.getElementById('inject-result').textContent = '✗ No unresolved entries to resolve';
-    return;
-  }
-  if (typeof QUOTES === 'undefined' || !QUOTES[unresolved.sym]) {
-    document.getElementById('inject-result').textContent = '✗ No live quote for ' + unresolved.sym + ' yet — wait for Stooq';
-    return;
-  }
-  const last = QUOTES[unresolved.sym].last;
-  const ret = (last - unresolved.entryPx) / unresolved.entryPx;
-  const predUp = unresolved.predProb >= 0.5;
-  const wentUp = ret > 0.003;
-  const wentDown = ret < -0.003;
-  let outcome;
-  if (Math.abs(ret) < 0.003) outcome = 'flat';
-  else if ((predUp && wentUp) || (!predUp && wentDown)) outcome = 'correct';
-  else outcome = 'wrong';
-
-  unresolved.resolved = { short: outcome, mid: false, long: false };
-  saveJournal(journal);
-
-  // Force the brain to train if outcome was correct/wrong
-  if (outcome !== 'flat' && typeof ModelStore !== 'undefined') {
-    const model = ModelStore.load();
-    const before = JSON.stringify(model.weights);
-    model.train(unresolved.features, outcome === 'correct' ? (unresolved.predProb >= 0.5 ? 1 : 0) : (unresolved.predProb >= 0.5 ? 0 : 1));
-    ModelStore.save(model);
-    const after = JSON.stringify(model.weights);
-    const changed = before !== after;
-    document.getElementById('inject-result').innerHTML = '✓ Resolved ' + unresolved.sym + ' as <strong>' + outcome + '</strong> (return=' + (ret * 100).toFixed(2) + '%) · model weights ' + (changed ? '<span style="color:var(--green);">CHANGED</span> (brain learned)' : '<span style="color:var(--red);">UNCHANGED</span> (brain did NOT learn — bug!)');
-  } else {
-    document.getElementById('inject-result').textContent = '✓ Resolved ' + unresolved.sym + ' as ' + outcome + ' (return=' + (ret * 100).toFixed(2) + '%) · no training (flat outcome)';
-  }
-  setTimeout(refresh, 100);
-}
-
 function purgeTests() {
   const journal = loadJournal();
-  const filtered = journal.filter(e => !e.id || !e.id.startsWith('test-'));
+  const filtered = journal.filter(e => !(e.id && String(e.id).startsWith('test-')) && e.priceSource !== 'TEST-INJECTION');
   saveJournal(filtered);
   document.getElementById('inject-result').textContent = '✓ Removed ' + (journal.length - filtered.length) + ' test entries';
   setTimeout(refresh, 100);

@@ -227,6 +227,15 @@ t('global-markets + crypto-commodities: real quotes only, daily indicators from 
 t('global-markets never claims US-listed country ETFs lead the US open', !/overnight sentiment 6-12 hours before US open/.test(read('global-markets.html')));
 t('model-compare: only models that produce a number vote (no NaN, no phantom LOSS)', /\.filter\(v => v != null\)\.map\(v => v >= 0\.5\)/.test(read('model-compare.html')) && !/High confidence buys/.test(read('model-compare.html')));
 
+t('technical-analysis: no formula RSI, daily Wilder RSI from real bars', !/rsi\(hist\) \|\| \(50 \+ q\.changePct \* 2\)/.test(read('technical-analysis.html')) && /\/brain\/bars\?days=40&syms=/.test(read('technical-analysis.html')));
+t('no invented +/-1% day range around the prior close', !/q\.dayLow \|\| q\.prevClose \* 0\.99/.test(read('technical-analysis.html')) && !/q\.dayLow \|\| q\.prevClose \* 0\.99/.test(read('momentum.html')) && /cur\.dayHigh = v\.dayHigh; cur\.dayLow = v\.dayLow;/.test(read('js/worker-quotes.js')));
+t('momentum and technical-analysis never rank seeds (keyless visitors are provider mock)', !/usingMock \|\| q\.fresh/.test(read('momentum.html')) && !/usingMock \|\| q\.fresh/.test(read('technical-analysis.html')));
+const liveBadge = allSrc.filter(([f]) => f.endsWith('.html') && f !== 'brain-heartbeat.html').filter(([f, t]) => /class="feat-badge feat-live">LIVE</.test(t)).map(([f]) => f);
+t('no static LIVE badge on a delayed-data page' + (liveBadge.length ? ' (' + liveBadge.join(', ') + ')' : ''), liveBadge.length === 0);
+t('brain-proof writes no test or force-resolved entry into the real journal', !/function injectTest|function forceResolve/.test(read('brain-proof.html')));
+t('market timestamps are ET (alpha, confluence, alerts, brain-proof)', /timeZone: 'America\/New_York', hour: 'numeric', minute: '2-digit' \}\) \+ ' ET · ' \+ _allSignals/.test(read('alpha-scanner.html')) && /' ET · insider feed cached hourly'/.test(read('smart-money-confluence.html')));
+t('backtest skill is labeled backtest next to live accuracy', /stat\('Skill over drift \(backtest\)'/.test(read('money-made.html')));
+
 // 7. Worker sources parse strictly. `node --check` passed an ES-module file with an unescaped quote in a
 //    string (found 2026-11-03), so parse the bodies as scripts with imports/exports stripped.
 ['worker/src/index.js', 'worker/src/grading.js', 'worker/src/radar.js', 'worker/src/bars.js', 'worker/src/snapshots.js', 'worker/src/econ.js', 'worker/src/earnings.js'].forEach(f => {
