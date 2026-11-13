@@ -678,26 +678,25 @@ function refresh() {
   }
 
   // Q4: Is accuracy real (recomputed) vs cached?
-  const correctCount = resolved.filter(e => {
-    if (typeof e.resolved === 'object' && e.resolved.short === 'correct') return true;
-    return false;
-  }).length;
-  const acc = resolved.length > 0 ? correctCount / resolved.length : null;
-  // Compare to any cached stat
-  let cachedAcc = null;
-  try {
-    const accLog = JSON.parse(localStorage.getItem('bpleone_acc_log_v1') || '[]');
-    if (accLog.length > 0) {
-      const cachedCorrect = accLog.filter(a => a.correct).length;
-      cachedAcc = cachedCorrect / accLog.length;
-    }
-  } catch(e) {}
+  // Pass 344: this read 'bpleone_acc_log_v1', which nothing writes (the learner logs to 'bpleone_rolling_acc_v1'), so
+  // the cross-check never ran; and it recomputed from the 24h resolution with 'flat' counted as a miss, while the log
+  // holds the 5-day calls. Both sides are now the graded 5-day calls (outcome correct / wrong; flat excluded); the log
+  // keeps the last 500, so compare over the same last-N window.
+  const graded5 = journal.filter(e => e && (e.outcome === 'correct' || e.outcome === 'wrong'));
+  let accLog = [];
+  try { accLog = JSON.parse(localStorage.getItem('bpleone_rolling_acc_v1') || '[]'); } catch (e) {}
+  if (!Array.isArray(accLog)) accLog = [];
+  const nCmp = accLog.length ? Math.min(graded5.length, accLog.length) : graded5.length;
+  const window5 = graded5.slice(-nCmp);
+  const correctCount = window5.filter(e => e.outcome === 'correct').length;
+  const acc = window5.length > 0 ? correctCount / window5.length : null;
+  const cachedAcc = accLog.length ? accLog.slice(-nCmp).filter(a => a.correct).length / Math.max(1, Math.min(nCmp, accLog.length)) : null;
 
-  if (resolved.length < 5) {
-    setTile('q4', 'N/A', 'Need ≥5 resolved entries to compute', '⏳ Waiting for data', 'yellow');
+  if (window5.length < 5) {
+    setTile('q4', 'N/A', 'Need ≥5 graded 5-day calls to compute (' + graded5.length + ' so far)', '⏳ Waiting for data', 'yellow');
   } else {
     const accPct = (acc * 100).toFixed(1) + '%';
-    let sub = correctCount + '/' + resolved.length + ' correct';
+    let sub = correctCount + '/' + window5.length + ' graded 5-day calls correct';
     let verdict;
     if (cachedAcc != null) {
       const diff = Math.abs(acc - cachedAcc) * 100;

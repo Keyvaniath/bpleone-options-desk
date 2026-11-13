@@ -229,19 +229,31 @@ function paintSignals() {
 }
 
 function paintPnl() {
-  // Audit pass 173: guard JSON.parse so corrupted localStorage doesn't crash render.
-  let session = { trades: [], realized: 0 };
-  try { session = JSON.parse(localStorage.getItem('bpleone_session_pnl_v1') || '{"trades":[],"realized":0}'); } catch (e) {}
-  if (!session || !Array.isArray(session.trades)) session = { trades: [], realized: 0 };
+  // Pass 344: this read 'bpleone_session_pnl_v1', which nothing writes, so it always said "+$0.00 · 0 trades". The
+  // session is now today's (ET) closed trades from the trade journal (Journal PRO entries and Live Positions closes).
+  let journal = [];
+  try { journal = JSON.parse(localStorage.getItem('bpleone_journal_pro_v1') || '[]'); } catch (e) {}
+  if (!Array.isArray(journal)) journal = [];
+  const etDay = ms => new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York' }).format(new Date(ms));
+  const today = etDay(Date.now());
+  const pnlOf = t => {
+    if (typeof t.pnl === 'number' && isFinite(t.pnl)) return t.pnl;
+    const q = +(t.qty || t.shares || 0);
+    if (!(t.entry > 0) || !(t.exit > 0) || !(q > 0)) return null;
+    return (/^s/i.test(String(t.side || '')) ? (t.entry - t.exit) : (t.exit - t.entry)) * q;
+  };
+  const esc = v => String(v == null ? '' : v).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+  const trades = journal.filter(t => t && t.ts && etDay(t.ts) === today).map(t => ({ sym: t.sym, side: t.side, pnl: pnlOf(t) })).filter(t => t.pnl != null);
+  const realized = trades.reduce((a, t) => a + t.pnl, 0);
   const body = document.getElementById('pnlBody');
-  body.innerHTML = '<div class="mono" style="font-size:28px;font-weight:800;color:' + (session.realized >= 0 ? 'var(--green)' : 'var(--red)') + ';margin-bottom:8px;">' + (session.realized >= 0 ? '+$' : '−$') + Math.abs(session.realized).toFixed(2) + '</div>'
-    + '<div style="font-size:11px;color:var(--text-muted);margin-bottom:14px;">Realized today · ' + session.trades.length + ' trades</div>'
+  body.innerHTML = '<div class="mono" style="font-size:28px;font-weight:800;color:' + (!trades.length ? 'var(--text-muted)' : realized >= 0 ? 'var(--green)' : 'var(--red)') + ';margin-bottom:8px;">' + (!trades.length ? '—' : (realized >= 0 ? '+$' : '−$') + Math.abs(realized).toFixed(2)) + '</div>'
+    + '<div style="font-size:11px;color:var(--text-muted);margin-bottom:14px;">Realized today (ET) from your trade journal · ' + trades.length + ' trades</div>'
     + '<div style="font-size:11px;color:var(--text-muted);font-weight:700;letter-spacing:0.4px;text-transform:uppercase;margin-bottom:6px;">Recent trades</div>';
-  if (session.trades.length === 0) {
-    body.innerHTML += '<div style="font-size:11px;color:var(--text-muted);">No trades logged. Use <a href="trade-coach.html" style="color:var(--accent);">Trade Coach</a> for entries.</div>';
+  if (trades.length === 0) {
+    body.innerHTML += '<div style="font-size:11px;color:var(--text-muted);">No trades closed today. Log them in <a href="trade-journal-pro.html" style="color:var(--accent);">Journal PRO</a> or close a position in <a href="positions-live.html" style="color:var(--accent);">Live Positions</a>.</div>';
   } else {
-    session.trades.slice(0, 5).forEach(t => {
-      body.innerHTML += '<div style="padding:5px 0;border-bottom:1px solid var(--border);font-size:11px;display:flex;justify-content:space-between;"><span>' + t.sym + ' ' + (t.side || '') + '</span><span class="mono" style="color:' + (t.pnl >= 0 ? 'var(--green)' : 'var(--red)') + ';">' + (t.pnl >= 0 ? '+$' : '−$') + Math.abs(t.pnl).toFixed(2) + '</span></div>';
+    trades.slice(0, 5).forEach(t => {
+      body.innerHTML += '<div style="padding:5px 0;border-bottom:1px solid var(--border);font-size:11px;display:flex;justify-content:space-between;"><span>' + esc(t.sym) + ' ' + esc(t.side || '') + '</span><span class="mono" style="color:' + (t.pnl >= 0 ? 'var(--green)' : 'var(--red)') + ';">' + (t.pnl >= 0 ? '+$' : '−$') + Math.abs(t.pnl).toFixed(2) + '</span></div>';
     });
   }
 }
