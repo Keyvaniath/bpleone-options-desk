@@ -218,7 +218,7 @@ t('feed headlines are escaped before innerHTML (pre-market-scanner)', /\$\{pmsEs
 
 // 7. Worker sources parse strictly. `node --check` passed an ES-module file with an unescaped quote in a
 //    string (found 2026-11-03), so parse the bodies as scripts with imports/exports stripped.
-['worker/src/index.js', 'worker/src/grading.js', 'worker/src/radar.js', 'worker/src/bars.js', 'worker/src/snapshots.js', 'worker/src/econ.js'].forEach(f => {
+['worker/src/index.js', 'worker/src/grading.js', 'worker/src/radar.js', 'worker/src/bars.js', 'worker/src/snapshots.js', 'worker/src/econ.js', 'worker/src/earnings.js'].forEach(f => {
   const body = read(f).replace(/^import .*$/mg, '').replace(/^export default /mg, 'const __d = ').replace(/^export /mg, '');
   let okParse = true; try { new vm.Script('(async () => {' + body + '\n})'); } catch (e) { okParse = false; console.log('  ' + f + ': ' + e.message); }
   t(f + ' parses strictly', okParse);

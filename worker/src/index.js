@@ -3,6 +3,7 @@ import { overlapScore, splitForCap, archiveBuckets, appendUnique, sealRecord, la
 import { etDayKey, reconcileBars, overlayToday } from './bars.js';
 import { SNAPSHOT_SCHEDULE, snapshotDispatchDue, buildDispatchRequest, cleanToken, tokenShape } from './snapshots.js';
 import { ECON_DESK_FILE, normalizeEconEvents, econCoverage, econCovers } from './econ.js';
+import { earningsFrom8K, tickerMap, cikFor, cikPath } from './earnings.js';
 /* ===========================================
    BPLEONE Brain Worker — 24/7 server-side brain
    ---
@@ -43,7 +44,7 @@ import { ECON_DESK_FILE, normalizeEconEvents, econCoverage, econCovers } from '.
 // Pass 200: version stamp so brain-proof.html + worker-setup.html can detect
 // when the deployed worker is behind the repo source. Bump on every meaningful
 // behavior change. Read via /brain/health → worker_version field.
-const WORKER_VERSION = 'pass-324';
+const WORKER_VERSION = 'pass-325';
 
 const UNIVERSE = [
   'SPY','QQQ','IWM','DIA','AAPL','NVDA','TSLA','MSFT','META','AMZN','GOOGL','AMD',
@@ -1704,6 +1705,32 @@ function extractTranscriptText(html) {
     .trim();
 }
 
+// Pass-325: SEC ticker -> CIK map (www.sec.gov/files/company_tickers.json, ~10k issuers), cached in isolate memory
+// and in KV for 7 days, so EDGAR lookups cost one KV write a week. A failed refresh keeps the last good map.
+const SEC_TICKERS_KEY = 'sec_tickers_v1';
+let SEC_TICKER_MEM = null;
+async function secCik(env, sym) {
+  const now = Date.now(), WEEK = 7 * 864e5;
+  if (!SEC_TICKER_MEM || now - SEC_TICKER_MEM.at > WEEK) {
+    const kv = await kvGet(env, SEC_TICKERS_KEY, null, 3600);
+    if (kv && kv.map && now - (kv.at || 0) < WEEK) SEC_TICKER_MEM = kv;
+    else {
+      try {
+        const r = await fetch('https://www.sec.gov/files/company_tickers.json', SEC_UA);
+        if (r.ok) {
+          const map = tickerMap(await r.json());
+          if (Object.keys(map).length > 1000) {
+            SEC_TICKER_MEM = { at: now, map };
+            try { await env.BRAIN_KV.put(SEC_TICKERS_KEY, JSON.stringify(SEC_TICKER_MEM)); } catch (e) {}
+          }
+        }
+      } catch (e) {}
+      if (!SEC_TICKER_MEM && kv && kv.map) SEC_TICKER_MEM = kv;   // stale beats nothing
+    }
+  }
+  return SEC_TICKER_MEM ? cikFor(SEC_TICKER_MEM.map, sym) : null;
+}
+
 async function fetchFoolTranscript(ticker) {
   const found = await findFoolTranscriptUrl(ticker);
   if (!found) return { ok: false, notFound: true, error: 'No Motley Fool transcript found for ' + ticker + ' (they may not have published a recent call yet).' };
@@ -2574,15 +2601,28 @@ async function handleRequest(request, env, ctx) {
     const raw = (url.searchParams.get('symbol') || url.searchParams.get('sym') || '').toUpperCase().trim();
     const sym = raw.replace(/[^A-Z0-9.\-]/g, '').slice(0, 8);
     if (!/^[A-Z][A-Z0-9.\-]{0,7}$/.test(sym)) return json({ ok: false, error: 'symbol required (e.g. ?symbol=NVDA)' }, 400);
-    if (!env.FINNHUB_API_KEY) return json({ ok: false, error: 'worker has no Finnhub key' }, 503);
     const cache = caches.default;
     const cacheKey = new Request(url.toString(), { method: 'GET' });
     const hit = await cache.match(cacheKey);
     if (hit) return hit;
+    // Pass-325: SEC EDGAR 8-K Item 2.02 filings first (years of real report dates + release timing); Finnhub's
+    // calendar (about a month back on the free tier) only as the fallback.
+    let rows = null, source = 'sec-edgar/8-K item 2.02';
+    try {
+      const cik = await secCik(env, sym);
+      if (cik) {
+        const r = await fetch('https://data.sec.gov/submissions/' + cikPath(cik), SEC_UA);
+        if (r.ok) {
+          const j = await r.json();
+          const got = earningsFrom8K(j && j.filings && j.filings.recent).filter(e => e.date <= new Date().toISOString().slice(0, 10)).slice(0, 12);
+          if (got.length) rows = got;
+        }
+      }
+    } catch (e) {}
     const today = new Date(), from = new Date(Date.now() - 400 * 86400000);
     const ymd = d => d.toISOString().slice(0, 10);
-    let rows = null;
-    try {
+    if (!rows) try {
+      source = 'finnhub/calendar-earnings';
       const r = await fetch('https://finnhub.io/api/v1/calendar/earnings?from=' + ymd(from) + '&to=' + ymd(today) +
         '&symbol=' + encodeURIComponent(sym) + '&token=' + encodeURIComponent(env.FINNHUB_API_KEY));
       if (r.ok) {
@@ -2593,8 +2633,8 @@ async function handleRequest(request, env, ctx) {
           .sort((a, b) => b.date.localeCompare(a.date));
       }
     } catch (e) {}
-    const resp = json({ ok: Array.isArray(rows), source: 'finnhub/calendar-earnings', symbol: sym, count: rows ? rows.length : 0, earnings: rows || [],
-      note: Array.isArray(rows) ? 'Past report dates (ET) with timing: bmo = before the open, amc = after the close, blank = not stated.' : 'Finnhub did not answer; nothing cached.' });
+    const resp = json({ ok: Array.isArray(rows), source, symbol: sym, count: rows ? rows.length : 0, earnings: rows || [],
+      note: Array.isArray(rows) ? 'Past report dates (ET) with timing: bmo = before the open, amc = after the close, dmh = during market hours, blank = not stated. From the 8-K Item 2.02 filing time when SEC EDGAR has the issuer.' : 'Neither EDGAR nor Finnhub answered; nothing cached.' });
     // Past report dates change only when a new report lands - cache 12h. Pass 308: failures are not cached.
     resp.headers.set('Cache-Control', 'public, max-age=' + (Array.isArray(rows) ? 43200 : 60));
     if (Array.isArray(rows)) ctx.waitUntil(cache.put(cacheKey, resp.clone()));

@@ -36,6 +36,10 @@ ok(Math.abs(a.pastMoves[1] - (110 / 102 - 1) * 100) < 0.01, 'amc: next-session c
 const b = ctx.analyzeSymbol('XYZ', '2027-01-20', [{ date: '2026-07-29', hour: '' }], closes, null);
 ok(b.n === 1 && Math.abs(b.pastMoves[0] - (110 / 100 - 1) * 100) < 0.01, 'unstated timing spans both sessions (got ' + b.pastMoves + ')');
 
+// Released during market hours (EDGAR 'dmh'): the report day's close vs the prior close.
+const dm = ctx.analyzeSymbol('XYZ', '2027-01-20', [{ date: '2026-10-21', hour: 'dmh' }], closes, null);
+ok(dm.n === 1 && Math.abs(dm.pastMoves[0] - (190 / 200 - 1) * 100) < 0.01, 'dmh: report-day close vs prior close (got ' + dm.pastMoves + ')');
+
 // A date with no session in the history is skipped, never approximated from a nearby bar.
 const c = ctx.analyzeSymbol('XYZ', '2027-01-20', [{ date: '2026-08-15', hour: 'amc' }], closes, null);
 ok(c.n === 0, 'a report date with no session is skipped (got ' + c.n + ')');
