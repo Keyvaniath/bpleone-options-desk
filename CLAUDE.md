@@ -235,6 +235,12 @@ The whole site was swept so nothing fabricated reads as live. Three moves:
 
 **Honesty rule going forward:** never show a fabricated number as live. If a feed is free-derivable (Yahoo/Stooq/Binance) wire it real; if it needs a paid feed, show '—' or the SAMPLE banner.
 
+**Pass 345 invariants (2026-11-13; guarded by `node _test_dead_keys.js` + `node _test_daily_history.js`):**
+- **Daily history for analysis comes from `js/daily-history.js`** (`DailyHistory.closes(sym)`: a year of real closes from the Worker's /brain/history, keyed by ET date; `align(a, b)` on common dates; `returns`; `pearson` (null under 10 points)). `DataProvider.getHistorical` is Finnhub's PAID candle endpoint: never the only source for a page. cross-asset-correlations, pair-trades and news-reactions moved; multi-backtest (needs highs/lows over a custom range) says so when no bars load instead of "lower min-score".
+- **Correlate RETURNS aligned by DATE**, never price levels (pair-trades did) and never by array position (crypto trades 7 days, equities 5).
+- **A post-event reaction is measured from real closes after the event** (news-reactions: base = last close before the headline, 1d = first close after, 1w = fifth; unfinished sessions wait). Never "move to the current price" labeled 1h/1d.
+- **A page whose data source changes bumps its localStorage RESULT cache** (earnings-playbook v3, news-reactions v2, cross-asset-correlations v2), or visitors keep seeing the old answer after the fix ships; pages analyze on load when nothing fresh is cached.
+
 **Pass 344 invariants (2026-11-13, worker pass-326; whole-site CONTENT sweep: 427 pages, visible text read after load for "need a key", "Loading…", undefined/NaN, dash-only panels and contradictions; guarded by honesty section 6k + `node _test_earnings_edgar.js`):**
 - **Never edge-cache an EMPTY answer either** (worker pass-326, /brain/earnings-history): pass-324 cached Finnhub's empty NVDA answer for 12 h, so the playbook kept saying "no history" after pass-325 added EDGAR. The page asks under `?src=edgar&symbol=` (a key the old empty entry never had).
 - **"After-hours" means a real extended-hours trade** (`/brain/premarket`, Yahoo includePrePost), never the delayed quote's regular-session change. after-hours-scanner, earnings-preview: keyless (Worker earnings, news, recommendations, fundamentals, quote).

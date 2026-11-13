@@ -48,7 +48,7 @@
   <div class="page-header">
     <div>
       <div class="page-title">News Reactions <span class="feat-badge feat-new">NEW</span></div>
-      <div class="page-subtitle">Tracks every headline + the symbol's 1h/1d/1w move after. Learns which headline types move price. · <span id="market-clock">--</span></div>
+      <div class="page-subtitle">Tracks each headline and the stock's move after it: next-session close and 5 sessions later from real daily closes (the 1h column needs intraday bars, a paid Finnhub key). Categories are keyword tags. · <span id="market-clock">--</span></div>
     </div>
     <div class="flex gap-8">
       <a href="news.html" class="btn btn-ghost">📰 News feed</a>
@@ -128,11 +128,13 @@
 <script src="js/live.js?v=v239"></script>
 <script src="js/ta.js?v=v239"></script>
 <script src="js/learn.js?v=v239"></script>
+<script src="js/daily-history.js?v=v239"></script>
 <script>buildNav('news');</script>
 
 <script>
 (function () {
-  const KEY = 'bpleone_news_log_v1';
+  const KEY = 'bpleone_news_log_v2';   // pass 345: v1 items carried 'move to the current price' as 1h/1d reactions
+  try { localStorage.removeItem('bpleone_news_log_v1'); } catch (e) {}
   const UNIVERSE = ['SPY', 'QQQ', 'NVDA', 'AAPL', 'TSLA', 'META', 'AMZN', 'MSFT', 'GOOGL', 'AMD', 'COIN', 'PLTR'];
 
   function load() {
@@ -228,38 +230,41 @@
     return null;
   }
 
+  // Pass 345: reactions from REAL daily closes (js/daily-history.js). Before, the base price needed Finnhub's paid
+  // intraday candles (so nothing was ever computed for keyless or free-key visitors), and the "1h" / "1d" cells were
+  // the move from the headline to the CURRENT price whenever the item's age fell in that band.
+  //   base = the last close before the headline (a headline during or before the session counts against the prior
+  //   close); 1d = the first close after the headline; 1w = the fifth close after it. Unfinished sessions wait.
+  function etParts(ms) {
+    const p = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false }).formatToParts(new Date(ms));
+    const g = t => (p.find(x => x.type === t) || {}).value;
+    return { d: g('year') + '-' + g('month') + '-' + g('day'), h: (+g('hour') % 24) + (+g('minute')) / 60 };
+  }
+  function sessionDone(d) { const n = etParts(Date.now()); return d < n.d || (d === n.d && n.h >= 16.25); }
+
   async function refreshReactions() {
     const state = load();
     document.getElementById('status').textContent = 'computing reactions…';
+    const syms = Array.from(new Set(state.items.map(it => it.sym)));
+    const hist = {};
+    await Promise.all(syms.map(async sym => { hist[sym] = (typeof DailyHistory !== 'undefined') ? await DailyHistory.closes(sym) : null; }));
     for (const item of state.items) {
-      // Only compute if we have a quote source
-      if (!item.priceAt) {
-        item.priceAt = await fetchPriceAt(item.sym, item.ts);
+      const series = hist[item.sym];
+      if (series && item.ts) {
+        const e = etParts(item.ts);
+        let i = series.findIndex(p => p.d > e.d || (p.d === e.d && e.h < 16));
+        if (i >= 1) {
+          const base = series[i - 1].c;
+          item.priceAt = base;
+          item.reaction1d = sessionDone(series[i].d) ? (series[i].c / base - 1) * 100 : null;
+          item.reaction1w = (series[i + 4] && sessionDone(series[i + 4].d)) ? (series[i + 4].c / base - 1) * 100 : null;
+        }
       }
-      const q = (typeof QUOTES !== 'undefined') ? QUOTES[item.sym] : null;
-      const now = q ? q.last : null;
-      const age = Date.now() - item.ts;
-      const oneHour = 3600 * 1000;
-      const oneDay = 24 * 3600 * 1000;
-      const oneWeek = 7 * oneDay;
-      // For 1h/1d/1w we'd ideally pull historical bars too — to keep cheap, only fill cells with newer data
-      if (item.priceAt) {
-        const r = {};
-        // We use percentage move from priceAt to ... but we need different price snapshots
-        // simplistic approach: compare priceAt to now if age in band
-        if (age >= oneHour && age < oneDay && item.reaction1h == null && now) item.reaction1h = ((now - item.priceAt) / item.priceAt) * 100;
-        if (age >= oneDay && age < oneWeek && item.reaction1d == null && now) item.reaction1d = ((now - item.priceAt) / item.priceAt) * 100;
-        if (age >= oneWeek && item.reaction1w == null && now) item.reaction1w = ((now - item.priceAt) / item.priceAt) * 100;
-        // Also: if too old to fall in a band, fill what we can with historical
-        if (!item.reaction1h && now) {
-          // Fetch 1h-after bar
-          const px1h = await fetchPriceAt(item.sym, item.ts + oneHour);
-          if (px1h) item.reaction1h = ((px1h - item.priceAt) / item.priceAt) * 100;
-        }
-        if (!item.reaction1d && now) {
-          const px1d = await fetchPriceAt(item.sym, item.ts + oneDay);
-          if (px1d) item.reaction1d = ((px1d - item.priceAt) / item.priceAt) * 100;
-        }
+      // 1h needs intraday bars: only with a key that has paid candle access (fetchPriceAt), never "price now".
+      if (item.reaction1h == null && item.priceAt && Date.now() - item.ts > 3600 * 1000) {
+        const px0 = await fetchPriceAt(item.sym, item.ts);
+        const px1 = px0 ? await fetchPriceAt(item.sym, item.ts + 3600 * 1000) : null;
+        if (px0 && px1) item.reaction1h = (px1 / px0 - 1) * 100;
       }
     }
     save(state);
@@ -277,6 +282,7 @@
     // Keep newest 200
     state.items.sort((a, b) => b.ts - a.ts);
     state.items = state.items.slice(0, 200);
+    state.pulledAt = Date.now();
     save(state);
     await refreshReactions();
   }
@@ -370,6 +376,12 @@
   });
 
   setTimeout(render, 600);
+  // Pass 345: pull on load when the log is empty or older than 30 minutes (a first visit showed an empty page until
+  // someone found the Fetch button).
+  setTimeout(() => {
+    const st = load();
+    if (!st.items || !st.items.length || !st.pulledAt || Date.now() - st.pulledAt > 30 * 60 * 1000) pullAndMerge();
+  }, 900);
 })();
 </script>
 </body>

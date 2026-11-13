@@ -267,7 +267,7 @@
     progressBlock.style.display = '';
 
     const trades = [];
-    let n = 0;
+    let n = 0, loaded = 0;
     for (let s = 0; s < universe.length; s++) {
       const sym = universe[s];
       label.textContent = 'Loading ' + sym + ' (' + (s + 1) + '/' + universe.length + ')';
@@ -275,6 +275,7 @@
       const fromBuffer = from - 250 * 86400000; // need 200d warmup
       const bars = await fetchBars(sym, fromBuffer, to);
       if (!bars || bars.length < 30) continue;
+      loaded++;
       const closes = bars.map(b => b.c);
 
       for (let i = 30; i < bars.length - 1; i++) {
@@ -318,12 +319,17 @@
     fill.style.width = '100%';
     label.textContent = '✓ done — ' + trades.length + ' signals';
     setTimeout(() => { progressBlock.style.display = 'none'; }, 1500);
-    renderResults(trades);
+    renderResults(trades, loaded);
   }
 
-  function renderResults(trades) {
+  function renderResults(trades, loaded) {
     if (!trades.length) {
-      document.getElementById('tradeBody').innerHTML = '<div class="empty">No signals fired in this range. Lower min-score or widen date range.</div>';
+      // Pass 345: with no bars loaded the cause is the data, not the settings ("lower min-score" sent people tuning
+      // a backtest that never had a single bar). Stops and targets need daily highs and lows over the whole range,
+      // which only Finnhub's paid candles provide here; the free sources give closes (1y) or 40 sessions of OHLC.
+      document.getElementById('tradeBody').innerHTML = loaded === 0
+        ? '<div class="empty">No daily bars loaded for any symbol. This backtest walks stops and targets through daily highs and lows over your whole date range, which needs a Finnhub key with paid daily-candle access (Settings). Nothing was simulated.</div>'
+        : '<div class="empty">No signals fired in this range (' + loaded + ' symbols loaded). Lower min-score or widen the date range.</div>';
       ['kSig', 'kR', 'kWR', 'kAvg', 'kPF', 'kDD'].forEach(id => document.getElementById(id).textContent = '—');
       return;
     }

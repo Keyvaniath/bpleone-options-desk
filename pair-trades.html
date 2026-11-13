@@ -37,7 +37,7 @@
   <div class="page-header">
     <div>
       <div class="page-title">Pair Trades <span class="feat-badge feat-pro">PRO</span></div>
-      <div class="page-subtitle">Same-sector long/short pairs ranked by z-score deviation from historical ratio. · <span id="market-clock">--</span></div>
+      <div class="page-subtitle">Related pairs ranked by how far today's price ratio sits from its 60-session average (z-score), from real daily closes. An untested mean-reversion read, not a trade. · <span id="market-clock">--</span></div>
     </div>
     <div class="flex gap-8">
       <a href="pairs.html" class="btn btn-ghost">⚖ Pairs (basic)</a>
@@ -60,7 +60,7 @@
     <div class="tile"><div class="lab">Pairs scanned</div><div class="val mono" id="kN">0</div></div>
     <div class="tile"><div class="lab">Extreme (|z| ≥ 2)</div><div class="val mono r-neg" id="kExtreme">0</div></div>
     <div class="tile"><div class="lab">High (|z| 1.5-2)</div><div class="val mono" id="kHigh" style="color:var(--yellow);">0</div></div>
-    <div class="tile"><div class="lab">Best opportunity</div><div class="val mono" id="kBest" style="font-size:13px;">—</div></div>
+    <div class="tile"><div class="lab">Most stretched ratio (untested)</div><div class="val mono" id="kBest" style="font-size:13px;">—</div></div>
   </div>
 
   <button id="btnRefresh" class="btn btn-primary" style="margin-bottom:16px;">🔄 Recompute pairs</button>
@@ -89,6 +89,7 @@
 <script src="js/live.js?v=v239"></script>
 <script src="js/ta.js?v=v239"></script>
 <script src="js/learn.js?v=v239"></script>
+<script src="js/daily-history.js?v=v239"></script>
 <script>buildNav('pairs');</script>
 
 <script>
@@ -136,15 +137,10 @@
     { a: 'XLY', b: 'XLP', sector: 'Discretionary vs Staples' }
   ];
 
+  // Pass 345: real daily closes from the desk's Worker (js/daily-history.js), aligned BY DATE. This used Finnhub's
+  // paid candle endpoint, so keyless and free-key visitors got "No data", and it paired closes by array position.
   async function fetchDailyCloses(sym) {
-    if (typeof DataProvider === 'undefined' || !DataProvider.getHistorical) return null;
-    try {
-      const to = Date.now();
-      const from = to - 90 * 86400000;
-      const bars = await DataProvider.getHistorical(sym, 'D', from, to);
-      if (!Array.isArray(bars) || bars.length < 30) return null;
-      return bars.map(b => b.c).filter(Boolean).slice(-60);
-    } catch (e) { return null; }
+    return (typeof DailyHistory !== 'undefined') ? DailyHistory.closes(sym) : null;
   }
 
   function pearson(x, y) {
@@ -197,15 +193,15 @@
     await loadCloses(allSyms);
 
     const results = PAIRS.map(p => {
-      const ca = closesCache[p.a], cb = closesCache[p.b];
-      if (!ca || !cb) return null;
-      const n = Math.min(ca.length, cb.length);
-      const a = ca.slice(-n), b = cb.slice(-n);
+      const al = DailyHistory.align(closesCache[p.a], closesCache[p.b]);
+      if (!al || al.dates.length < 30) return null;
+      const a = al.a.slice(-60), b = al.b.slice(-60);
       const ratios = [];
-      for (let i = 0; i < n; i++) ratios.push(a[i] / b[i]);
+      for (let i = 0; i < a.length; i++) ratios.push(a[i] / b[i]);
       const lastRatio = ratios[ratios.length - 1];
       const z = zscore(ratios, lastRatio);
-      const corr = pearson(a, b);
+      // Correlation of daily RETURNS (two trending price series correlate near 1 whatever they are).
+      const corr = DailyHistory.pearson(DailyHistory.returns(a), DailyHistory.returns(b));
       return { ...p, lastRatio, z, corr };
     }).filter(Boolean);
 
@@ -216,7 +212,7 @@
 
   function render(results) {
     if (!results || !results.length) {
-      document.getElementById('pairsList').innerHTML = '<div class="empty">No data. Check DataProvider config.</div>';
+      document.getElementById('pairsList').innerHTML = '<div class="empty">Daily history unavailable right now (the desk\u2019s Worker did not answer). Try Recompute in a minute.</div>';
       return;
     }
     const sorted = results.slice().sort((a, b) => Math.abs(b.z || 0) - Math.abs(a.z || 0));

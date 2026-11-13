@@ -130,11 +130,14 @@
 <script src="js/live.js?v=v239"></script>
 <script src="js/ta.js?v=v239"></script>
 <script src="js/learn.js?v=v239"></script>
+<script src="js/daily-history.js?v=v239"></script>
 <script>buildNav('macro');</script>
 
 <script>
 (function () {
-  const CACHE_KEY = 'bpleone_corr_cache_v1';
+  // v2 (pass 345): v1 matrices came from paid-only candles paired by array position; never re-show them.
+  const CACHE_KEY = 'bpleone_corr_cache_v2';
+  try { localStorage.removeItem('bpleone_corr_cache_v1'); } catch (e) {}
   const CACHE_TTL = 60 * 60 * 1000; // 1 hour
 
   const UNIVERSES = {
@@ -148,18 +151,11 @@
   function loadCache() { try { return JSON.parse(localStorage.getItem(CACHE_KEY) || '{}'); } catch (e) { return {}; } }
   function saveCache(c) { try { localStorage.setItem(CACHE_KEY, JSON.stringify(c)); } catch (e) {} }
 
+  // Pass 345: real daily closes from the desk's Worker (js/daily-history.js). This used Finnhub's paid candle
+  // endpoint, so keyless and free-key visitors got an empty matrix, and returns were paired by array position
+  // (BTC/ETH trade 7 days a week, equities 5). Pairs are now aligned on common dates.
   async function fetchDailyReturns(sym, lookback) {
-    if (typeof DataProvider === 'undefined' || !DataProvider.getHistorical) return null;
-    try {
-      const to = Date.now();
-      const from = to - (lookback + 30) * 86400000;
-      const bars = await DataProvider.getHistorical(sym, 'D', from, to);
-      if (!Array.isArray(bars) || bars.length < 5) return null;
-      const closes = bars.map(b => b.c).filter(Boolean).slice(-lookback - 1);
-      const returns = [];
-      for (let i = 1; i < closes.length; i++) returns.push((closes[i] - closes[i - 1]) / closes[i - 1]);
-      return returns;
-    } catch (e) { return null; }
+    return (typeof DailyHistory !== 'undefined') ? DailyHistory.closes(sym) : null;
   }
 
   function pearson(a, b) {
@@ -191,8 +187,10 @@
     }
   }
 
-  let returnsCache = {};
+  let returnsCache = {};   // sym -> [{ d, c }] daily closes
+  let LOOKBACK = 60;
   async function warmupReturns(symbols, lookback) {
+    LOOKBACK = lookback || 60;
     const status = document.getElementById('status');
     status.textContent = 'Fetching ' + symbols.length + ' symbols…';
     let done = 0;
@@ -212,7 +210,8 @@
       matrix[a] = {};
       symbols.forEach(b => {
         if (a === b) { matrix[a][b] = 1.0; return; }
-        const c = pearson(returnsCache[a], returnsCache[b]);
+        const al = DailyHistory.align(returnsCache[a], returnsCache[b]);
+        const c = al ? DailyHistory.pearson(DailyHistory.returns(al.a.slice(-(LOOKBACK + 1))), DailyHistory.returns(al.b.slice(-(LOOKBACK + 1)))) : null;
         matrix[a][b] = c;
       });
     });
