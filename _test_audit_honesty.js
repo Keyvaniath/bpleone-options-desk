@@ -148,7 +148,7 @@ t('train-now never reports a blanket "completed" for the auto-trainer', !/comple
 //     key gets 403 on /calendar/economic, /stock/social-sentiment and /news-sentiment. Behavior is pinned by
 //     _test_live_sources.js.
 const fs6h = require('fs');
-const allSrc = fs6h.readdirSync(__dirname).filter(f => f.endsWith('.html')).map(f => [f, read(f)])
+const allSrc = fs6h.readdirSync(__dirname).filter(f => f.endsWith('.html') && !f.startsWith('_')).map(f => [f, read(f)])
   .concat(fs6h.readdirSync(__dirname + '/js').filter(f => f.endsWith('.js')).map(f => ['js/' + f, read('js/' + f)]));
 const strip = t => t.replace(/<!--[\s\S]*?-->/g, '').replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
 const hits = re => allSrc.filter(([f, t]) => re.test(strip(t))).map(([f]) => f);
@@ -210,11 +210,22 @@ t('no page names Brandon in visible copy' + (named.length ? ' (' + named.join(',
 t('earnings pages read the Worker calendar, no key needed', /'\/brain\/earnings\?days=5'/.test(read('earnings-tonight.html')) && !/Need Finnhub key in Settings/.test(strip(read('earnings-tonight.html'))) && /'\/brain\/earnings\?days=6'/.test(read('tomorrow-playbook.html')) && /'\/brain\/earnings\?days=2'/.test(read('pre-market.html')));
 t('pre-market headlines and earnings need no key', /PM_W \+ '\/brain\/news'/.test(read('pre-market.html')) && !/Connect Finnhub/.test(strip(read('pre-market.html'))) && /'\/brain\/news\?symbol='/.test(read('pre-market-scanner.html')) && !/need Finnhub key in Settings/.test(strip(read('pre-market-scanner.html'))));
 t('an ATR estimate is never labeled implied or IV', !/high IV — consider IV crush/.test(read('tomorrow-playbook.html')) && !/High implied move — IV crush/.test(read('earnings-tonight.html')) && /Est\. move \(ATR\)/.test(read('earnings-tonight.html')));
-t('earnings-playbook measures reactions at REAL report dates (never the fiscal period)', /'\/brain\/earnings-history\?symbol='/.test(read('earnings-playbook.html')) && !/new Date\(e\.period\)/.test(read('earnings-playbook.html')) && /if \(path === '\/brain\/earnings-history'\)/.test(read('worker/src/index.js')));
+t('earnings-playbook measures reactions at REAL report dates (never the fiscal period)', /'\/brain\/earnings-history\?src=edgar&symbol='/.test(read('earnings-playbook.html')) && !/new Date\(e\.period\)/.test(read('earnings-playbook.html')) && /if \(path === '\/brain\/earnings-history'\)/.test(read('worker/src/index.js')));
 t('insider buy/sell typing is open-market only, and the scanner ignores old caches', /const sideOf = \(code, change\) => \(code === 'P' \|\| code === 'S'\)/.test(read('insider-congress-flow.html')) && /c\.tx\[k\]\.v === 2/.test(read('confluence-scanner.html')));
 t('crypto page lists only crypto-exposed names, with the real source', !/BTC treasury/.test(strip(read('crypto.html'))) && !/BINANCE:BTCUSDT/.test(visibleText('crypto.html')));
 t('replay never promises free intraday bars', !/free tier covers ~1 year intraday/.test(read('replay.html')) && /Needs an intraday data provider/.test(read('replay.html')));
 t('feed headlines are escaped before innerHTML (pre-market-scanner)', /\$\{pmsEsc\(\(n\.headline \|\| ''\)\.slice\(0, 110\)\)\}/.test(read('pre-market-scanner.html')));
+
+// 6k. Pass 344 (11/13): the whole-site content sweep (427 pages, text read after load) - keyless feeds, real
+//     extended-hours trades, real quotes and daily indicators instead of tick buffers, no "undefined"/"NaN" in copy.
+t('after-hours scanner: keyless feeds and REAL extended-hours trades (never the regular-session change)', /AH_W \+ '\/brain\/premarket\?syms='/.test(read('after-hours-scanner.html')) && /AH_W \+ '\/brain\/earnings\?days=1'/.test(read('after-hours-scanner.html')) && !/need Finnhub key/.test(strip(read('after-hours-scanner.html'))) && !/function getFinnhubKey/.test(read('after-hours-scanner.html')) && /x\.session === 'regular'/.test(read('after-hours-scanner.html')));
+t('after-hours headlines are escaped and timed in ET', /\$\{esc\(\(n\.headline \|\| ''\)\.slice\(0, 110\)\)\}/.test(read('after-hours-scanner.html')) && /timeZone: 'America\/New_York', hour: '2-digit'/.test(read('after-hours-scanner.html')));
+t('earnings-preview needs no key (Worker calendar, recs, financials, quote)', /wget\('\/brain\/earnings\?days=60'\)/.test(read('earnings-preview.html')) && !/connect Finnhub/.test(strip(read('earnings-preview.html'))));
+t('brain-evolution uses the model\'s own feature names (FEATURES are strings)', /typeof f === 'string' \? f :/.test(read('brain-evolution.html')) && !/'rsi','macd_hist','vol_z'/.test(read('brain-evolution.html')));
+t('brain-mobile leads with the Worker brain, local coach labeled local', /window\.workerBrainStatus\(\)/.test(read('brain-mobile.html')) && /local diagnostics, not the desk/.test(read('brain-mobile.html')));
+t('global-markets + crypto-commodities: real quotes only, daily indicators from real closes', ['global-markets.html', 'crypto-commodities.html'].every(f => /function realQ\(sym\)/.test(read(f)) && /\/brain\/history\?sym=/.test(read(f)) && !/TA\.snapshot\(asset\.sym\)/.test(read(f)) && !/feat-live">LIVE</.test(read(f))));
+t('global-markets never claims US-listed country ETFs lead the US open', !/overnight sentiment 6-12 hours before US open/.test(read('global-markets.html')));
+t('model-compare: only models that produce a number vote (no NaN, no phantom LOSS)', /\.filter\(v => v != null\)\.map\(v => v >= 0\.5\)/.test(read('model-compare.html')) && !/High confidence buys/.test(read('model-compare.html')));
 
 // 7. Worker sources parse strictly. `node --check` passed an ES-module file with an unescaped quote in a
 //    string (found 2026-11-03), so parse the bodies as scripts with imports/exports stripped.

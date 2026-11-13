@@ -193,7 +193,11 @@
     if (typeof DataProvider === 'undefined') return;
     const s = DataProvider.getStatus();
     if (s.provider !== 'finnhub' || !s.enabled) {
-      status.innerHTML = '⚠ <span style="color:var(--yellow);">Mock data</span> — connect Finnhub in <a href="settings.html" style="color:var(--accent);">Settings</a> for live ticks';
+      // Pass 344: keyless visitors get real prices from the desk's Worker (Yahoo, delayed ~15 min), not mock data.
+      const realN = typeof window.bpleoneLiveShare === 'function' ? window.bpleoneLiveShare().real : 0;
+      status.innerHTML = realN > 0
+        ? '<span style="color:var(--yellow);">DELAYED ~15 min</span> · real prices from the desk\u2019s Worker (Yahoo); a Finnhub key in <a href="settings.html" style="color:var(--accent);">Settings</a> adds real-time ticks'
+        : '<span style="color:var(--text-muted);">Waiting for prices</span> · equities load from the desk\u2019s Worker (delayed ~15 min)';
     } else if (s.status === 'connected') {
       const age = s.lastMessageAt ? Math.floor((Date.now() - s.lastMessageAt) / 1000) : null;
       status.innerHTML = '✓ <span style="color:var(--green);">LIVE Finnhub</span>' + (age != null ? ' · last tick ' + age + 's ago' : '');

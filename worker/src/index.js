@@ -44,7 +44,7 @@ import { earningsFrom8K, tickerMap, cikFor, cikPath } from './earnings.js';
 // Pass 200: version stamp so brain-proof.html + worker-setup.html can detect
 // when the deployed worker is behind the repo source. Bump on every meaningful
 // behavior change. Read via /brain/health → worker_version field.
-const WORKER_VERSION = 'pass-325';
+const WORKER_VERSION = 'pass-326';
 
 const UNIVERSE = [
   'SPY','QQQ','IWM','DIA','AAPL','NVDA','TSLA','MSFT','META','AMZN','GOOGL','AMD',
@@ -2636,8 +2636,11 @@ async function handleRequest(request, env, ctx) {
     const resp = json({ ok: Array.isArray(rows), source, symbol: sym, count: rows ? rows.length : 0, earnings: rows || [],
       note: Array.isArray(rows) ? 'Past report dates (ET) with timing: bmo = before the open, amc = after the close, dmh = during market hours, blank = not stated. From the 8-K Item 2.02 filing time when SEC EDGAR has the issuer.' : 'Neither EDGAR nor Finnhub answered; nothing cached.' });
     // Past report dates change only when a new report lands - cache 12h. Pass 308: failures are not cached.
-    resp.headers.set('Cache-Control', 'public, max-age=' + (Array.isArray(rows) ? 43200 : 60));
-    if (Array.isArray(rows)) ctx.waitUntil(cache.put(cacheKey, resp.clone()));
+    // Pass-326: an EMPTY answer is not cached either (pass-324 pinned Finnhub's empty NVDA answer for 12 h, so the
+    // playbook kept saying "no history" after EDGAR was added).
+    const ehGood = Array.isArray(rows) && rows.length > 0;
+    resp.headers.set('Cache-Control', 'public, max-age=' + (ehGood ? 43200 : 60));
+    if (ehGood) ctx.waitUntil(cache.put(cacheKey, resp.clone()));
     return resp;
   }
 

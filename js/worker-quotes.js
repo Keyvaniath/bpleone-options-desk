@@ -178,6 +178,12 @@
       // No real L1 quote feed - do not synthesize a fake bid/ask spread.
       if (typeof v.volume === 'number') cur.volume = v.volume;
       if (typeof v.rvol === 'number') cur.rvol = v.rvol;
+      // Pass 344: the feed carries the session's real high/low but they were dropped, so every page showing a day
+      // range got nothing (momentum.html invented +/-1% around prevClose). Before the open both last and the range
+      // are the prior session's, so they stay consistent with each other.
+      if (typeof v.dayHigh === 'number' && typeof v.dayLow === 'number' && v.dayLow > 0 && v.dayHigh >= v.dayLow) {
+        cur.dayHigh = v.dayHigh; cur.dayLow = v.dayLow;
+      }
       cur.priceSource = 'worker-yahoo';
       cur.liveAt = v.ts || Date.now();
       cur.ts = Date.now();

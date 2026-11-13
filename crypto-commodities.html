@@ -56,8 +56,8 @@
 <div class="container">
   <div class="page-header">
     <div>
-      <div class="page-title"><span class="pulse-dot"></span> Crypto + Commodities Desk <span class="feat-badge feat-new">NEW</span> <span class="feat-badge feat-live">LIVE</span></div>
-      <div class="page-subtitle">BTC / ETH / Gold / Silver / Oil / Natural Gas / Ag — 24/7 TA + the same self-learning brain. · <span id="market-clock">--</span></div>
+      <div class="page-title"><span class="pulse-dot"></span> Crypto + Commodities Desk <span class="feat-badge feat-new">NEW</span> <span class="feat-badge" style="background:rgba(245,158,11,0.14);color:var(--yellow);">CRYPTO REAL-TIME · ETFs DELAYED</span></div>
+      <div class="page-subtitle">BTC and ETH real-time (Coinbase) · crypto stocks and gold, silver, oil, natural-gas and farm ETFs delayed ~15 min (Yahoo via the desk’s Worker) · indicators daily, from one year of closes. · <span id="market-clock">--</span></div>
     </div>
     <div class="flex gap-8">
       <a href="radar.html" class="btn btn-ghost">📡 Radar</a>
@@ -68,10 +68,10 @@
 
   <!-- Banner -->
   <div class="banner">
-    <strong style="font-size:14px;">🌍 The brain works on everything that ticks.</strong>
+    <strong style="font-size:14px;">🌍 How to read the tiles.</strong>
     <div style="font-size:11px;color:var(--text-muted);margin-top:6px;line-height:1.6;">
-      Same TA engine (RSI/MACD/EMA/VWAP/ADX), same auto-tagger, same Learn weights — applied to crypto and commodity ETFs.
-      BTC and ETH stream 24/7 via the live feed. GLD/SLV/USO/UNG/DBA trade NYSE hours. Click any tile → AI Trainer focused on that asset.
+      RSI(14), the 1-month change (30 days for crypto, 21 sessions for funds), the distance from the 50-day average and the 52-week position come from each asset’s daily closes.
+      BTC and ETH trade 24/7; GLD/SLV/USO/UNG/XLE/DBA trade US hours. Click any tile for the per-asset trainer.
     </div>
   </div>
 
@@ -109,6 +109,7 @@
 <script src="js/learn.js?v=v238"></script>
 <script src="js/discord.js?v=v238"></script>
 <script src="js/alerts-engine.js?v=v238"></script>
+<script src="js/live-hydrate.js?v=v238"></script>
 <script>buildNav('crypto');</script>
 
 <script>
@@ -134,6 +135,46 @@
     ]
   };
 
+  // Audit 2026-11-13 (pass 344): RSI/MACD/ADX/ATR came from this browser's tick buffer (empty on a fresh visit: 40 of
+  // 75 values were dashes), and any QUOTES entry, seeds included, rendered as a price. Now real quotes only and daily
+  // indicators from one year of real closes (/brain/history; crypto via Coinbase/Yahoo daily).
+  const NOT_REAL = ['stale-seed', 'mock', 'demo-sim'];
+  const CRYPTO = ['BTC', 'ETH'];
+  function realQ(sym) { const q = typeof QUOTES !== 'undefined' ? QUOTES[sym] : null; return q && q.last > 0 && NOT_REAL.indexOf(q.priceSource) < 0 ? q : null; }
+  const CC_W = (window.WorkerBridge && WorkerBridge.getUrl && WorkerBridge.getUrl()) || 'https://bpleone-brain-worker.brandonpleone.workers.dev';
+  const DAILY_KEY = 'bpleone_cc_daily_v1';
+  const DAILY = (function () { try { const c = JSON.parse(sessionStorage.getItem(DAILY_KEY) || 'null'); return c && Date.now() - c.at < 6 * 3600e3 ? c.d : {}; } catch (e) { return {}; } })();
+  function wilderRsi(c, n) {
+    if (c.length < n + 1) return null;
+    let g = 0, l = 0;
+    for (let i = 1; i <= n; i++) { const d = c[i] - c[i - 1]; if (d > 0) g += d; else l -= d; }
+    g /= n; l /= n;
+    for (let i = n + 1; i < c.length; i++) { const d = c[i] - c[i - 1]; g = (g * (n - 1) + Math.max(d, 0)) / n; l = (l * (n - 1) + Math.max(-d, 0)) / n; }
+    return l === 0 ? 100 : 100 - 100 / (1 + g / l);
+  }
+  function dailyStats(closes, month) {
+    const c = closes.map(x => x.c).filter(v => v > 0);
+    if (c.length < 60) return null;
+    const last = c[c.length - 1];
+    const ma50 = c.slice(-50).reduce((a, b) => a + b, 0) / 50;
+    const hi = Math.max(...c), lo = Math.min(...c);
+    return { rsi: wilderRsi(c, 14), m1: c.length > month ? (last / c[c.length - 1 - month] - 1) * 100 : null, ma50: (last / ma50 - 1) * 100, pos52: hi > lo ? (last - lo) / (hi - lo) * 100 : null };
+  }
+  async function loadDaily(syms) {
+    const todo = syms.filter(s => !DAILY[s]);
+    await Promise.all(todo.map(async sym => {
+      try {
+        const r = await fetch(CC_W + '/brain/history?sym=' + encodeURIComponent(sym), { cache: 'no-store' });
+        if (!r.ok) return;
+        const j = await r.json();
+        const st = j && Array.isArray(j.closes) ? dailyStats(j.closes, CRYPTO.indexOf(sym) >= 0 ? 30 : 21) : null;
+        if (st) DAILY[sym] = st;
+      } catch (e) {}
+    }));
+    try { sessionStorage.setItem(DAILY_KEY, JSON.stringify({ at: Date.now(), d: DAILY })); } catch (e) {}
+    render();
+  }
+
   function biasFromTag(tag) {
     const bull = ['volume-breakout', '52w-break', '50ma-reclaim', 'macd-cross', 'bull-flag', 'cup-handle', 'vwap-reclaim', 'momentum-extension', 'continuation-bull'];
     const bear = ['flush-on-volume', 'breakdown', 'bear-flag', 'vwap-rejection', 'overbought-fade', 'continuation-bear'];
@@ -144,26 +185,11 @@
   }
 
   function buildTile(asset) {
-    const q = QUOTES[asset.sym];
-    if (!q) return '';
-    const snap = typeof TA !== 'undefined' ? TA.snapshot(asset.sym) : null;
-    const features = {
-      last: q.last, prevClose: q.prevClose, dayHigh: q.dayHigh, dayLow: q.dayLow,
-      volume: q.volume, avgVolume: q.avgVolume,
-      rsi: snap ? snap.rsi : null, macdHist: snap ? snap.hist : null,
-      ma50: snap ? (snap.sma50 || snap.ema50) : null,
-      ma200: snap ? (snap.sma200 || snap.ema200) : null,
-      atr: snap ? snap.atr : null, atrPct: snap ? snap.atrPct : null,
-      adx: snap ? snap.adx : null, bbPct: snap ? snap.bbPct : null,
-      vwapDist: snap ? snap.vwapDist : null,
-      trend: snap ? snap.trend : null, regime: snap ? snap.regime : null,
-      donchUp: snap ? snap.donchUp : null, donchDn: snap ? snap.donchDn : null
-    };
-    const tag = typeof Learn !== 'undefined' ? Learn.autoTagSetup(features, { symbol: asset.sym }) : { tag: '—', score: 0 };
-    const weight = typeof Learn.weightFor === 'function' ? Learn.weightFor(tag.tag, { symbol: asset.sym }) : 1.0;
-    const adj = (tag.score || 0) * weight;
-    const bias = biasFromTag(tag.tag);
-    const chg = q.changePct || 0;
+    const q = realQ(asset.sym);
+    const d = DAILY[asset.sym];
+    const sg = (v, dp) => v == null || !isFinite(v) ? '\u2014' : (v >= 0 ? '+' : '') + v.toFixed(dp) + '%';
+    const chg = q ? (q.changePct || 0) : null;
+    const px = !q ? '\u2014' : q.last < 100 ? '$' + q.last.toFixed(2) : '$' + q.last.toLocaleString(undefined, { maximumFractionDigits: 0 });
     return `<div class="asset-card ${asset.cls}" onclick="if(!event.target.closest('a'))location.href='live-train.html?sym=${asset.sym}';">
       <div class="head">
         <div>
@@ -171,16 +197,15 @@
           <div class="name">${asset.name}</div>
         </div>
         <div style="text-align:right;">
-          <div class="px">${q.last < 100 ? '$' + q.last.toFixed(2) : '$' + q.last.toLocaleString(undefined, { maximumFractionDigits: 0 })}</div>
-          <div class="chg ${chg >= 0 ? 'r-pos' : 'r-neg'}">${chg >= 0 ? '+' : ''}${chg.toFixed(2)}%</div>
+          <div class="px">${px}</div>
+          <div class="chg ${chg == null ? '' : chg >= 0 ? 'r-pos' : 'r-neg'}">${chg == null ? 'no quote yet' : (chg >= 0 ? '+' : '') + chg.toFixed(2) + '%'}</div>
         </div>
       </div>
-      <div class="setup-pill ${bias}">${tag.tag} · ${adj.toFixed(2)}</div>
       <div class="indicators">
-        <div class="indicator"><div class="lab">RSI</div><div class="val" style="color:${snap && snap.rsi > 70 ? 'var(--red)' : snap && snap.rsi < 30 ? 'var(--green)' : 'var(--text-primary)'};">${snap && snap.rsi != null ? snap.rsi.toFixed(0) : '—'}</div></div>
-        <div class="indicator"><div class="lab">MACD</div><div class="val" style="color:${snap && snap.hist > 0 ? 'var(--green)' : snap && snap.hist < 0 ? 'var(--red)' : 'var(--text-muted)'};">${snap && snap.hist != null ? (snap.hist >= 0 ? '+' : '') + snap.hist.toFixed(2) : '—'}</div></div>
-        <div class="indicator"><div class="lab">ADX</div><div class="val" style="color:${snap && snap.adx >= 25 ? 'var(--accent)' : 'var(--text-muted)'};">${snap && snap.adx != null ? snap.adx.toFixed(0) : '—'}</div></div>
-        <div class="indicator"><div class="lab">ATR%</div><div class="val">${snap && snap.atrPct != null ? snap.atrPct.toFixed(1) + '%' : '—'}</div></div>
+        <div class="indicator"><div class="lab">RSI 14d</div><div class="val" style="color:${d && d.rsi > 70 ? 'var(--red)' : d && d.rsi < 30 ? 'var(--green)' : 'var(--text-primary)'};">${d && d.rsi != null ? d.rsi.toFixed(0) : '\u2014'}</div></div>
+        <div class="indicator"><div class="lab">1M</div><div class="val ${d && d.m1 > 0 ? 'r-pos' : d && d.m1 < 0 ? 'r-neg' : ''}">${d ? sg(d.m1, 1) : '\u2014'}</div></div>
+        <div class="indicator"><div class="lab">vs 50d</div><div class="val ${d && d.ma50 > 0 ? 'r-pos' : d && d.ma50 < 0 ? 'r-neg' : ''}">${d ? sg(d.ma50, 1) : '\u2014'}</div></div>
+        <div class="indicator"><div class="lab">52w pos</div><div class="val">${d && d.pos52 != null ? d.pos52.toFixed(0) + '%' : '\u2014'}</div></div>
       </div>
       <div class="actions">
         <a href="live-train.html?sym=${asset.sym}">🎓 Train</a>
@@ -194,7 +219,7 @@
   function categoryBias(assets) {
     let bulls = 0, bears = 0;
     assets.forEach(a => {
-      const q = QUOTES[a.sym];
+      const q = realQ(a.sym);
       if (!q) return;
       if ((q.changePct || 0) > 0) bulls++;
       else if ((q.changePct || 0) < 0) bears++;
@@ -229,10 +254,11 @@
   setTimeout(() => {
     // Warm up TA for all assets
     const allSyms = [].concat(ASSETS.crypto, ASSETS.metals, ASSETS.energy, ASSETS.agri).map(a => a.sym);
-    allSyms.forEach(s => { if (typeof TA !== 'undefined') TA.warmup(s); });
     render();
+    if (typeof hydrateQuotes === 'function') hydrateQuotes(allSyms.filter(x => CRYPTO.indexOf(x) < 0), { onDone: render });
+    loadDaily(allSyms);
   }, 500);
-  setInterval(render, 2000);
+  setInterval(() => { if (!document.hidden) render(); }, 5000);
   if (typeof Feed !== 'undefined') {
     let pending = false;
     Feed.subscribe('*', () => {

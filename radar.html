@@ -59,8 +59,8 @@
 <div class="container">
   <div class="page-header">
     <div>
-      <div class="page-title"><span class="pulse-dot"></span> Multi-Symbol Radar <span class="feat-badge feat-new">NEW</span> <span class="feat-badge feat-live">LIVE</span></div>
-      <div class="page-subtitle">12 symbols, every tick. TA + setup + learned edge in one glance. · <span id="market-clock">--</span></div>
+      <div class="page-title"><span class="pulse-dot"></span> Multi-Symbol Radar <span class="feat-badge feat-new">NEW</span> <span class="feat-badge" style="background:rgba(245,158,11,0.14);color:var(--yellow);">DELAYED ~15 MIN</span></div>
+      <div class="page-subtitle">12 symbols: price, this browser's intraday TA (built from the delayed quotes it has seen) and the auto-tagger's setup label. Tags are untested, not signals. · <span id="market-clock">--</span></div>
     </div>
     <div class="flex gap-8">
       <a href="live-train.html" class="btn btn-primary">🎓 AI Trainer</a>
@@ -74,7 +74,7 @@
     <div class="tile-kpi"><div class="lab">Universe</div><div class="val" id="kSyms">0</div></div>
     <div class="tile-kpi"><div class="lab">Bull setups</div><div class="val r-pos" id="kBull">0</div></div>
     <div class="tile-kpi"><div class="lab">Bear setups</div><div class="val r-neg" id="kBear">0</div></div>
-    <div class="tile-kpi"><div class="lab">High-conviction (≥0.75)</div><div class="val" id="kHC">0</div></div>
+    <div class="tile-kpi"><div class="lab">Tag score ≥ 0.75 (untested)</div><div class="val" id="kHC">0</div></div>
     <div class="tile-kpi"><div class="lab">Avg breadth</div><div class="val" id="kBreadth">—</div></div>
   </div>
 
@@ -195,8 +195,10 @@
     const symbols = getSymbols();
     const weights = loadWeights();
     const list = symbols.map(sym => {
+      // Pass 344: real quotes only. A seed (months-old hardcoded price) used to render here and could reach the
+      // Discord push below.
       const q = QUOTES[sym];
-      if (!q || !q.last) return null;
+      if (!q || !(q.last > 0) || ['stale-seed', 'mock', 'demo-sim'].indexOf(q.priceSource) >= 0) return null;
       const snap = TA.snapshot(sym);
       const features = {
         last: q.last, prevClose: q.prevClose, dayHigh: q.dayHigh, dayLow: q.dayLow,

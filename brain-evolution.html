@@ -107,8 +107,12 @@ function takeSnapshot() {
   if (last !== today) takeSnapshot();
 })();
 
-const FNAMES = (typeof window.FEATURES !== 'undefined' && window.FEATURES.length > 0) ? window.FEATURES.map(f => f.name) :
-  ['rsi','macd_hist','vol_z','atr_pct','price_z','dist_ma20','dist_ma50','trend_score','breadth','vix_level','put_call','setup_strength','sector_rs','beta','liq_score','hour_norm','dow','severity_score','recency','prior_hit','dist_high','momentum'];
+// Audit 2026-11-13 (pass 344): model.js FEATURES is a list of NAMES (strings), so f.name printed "undefined" for
+// every feature ("Biggest gain: undefined (+0.00)"), and the fallback paired 22 invented names with the model's
+// weights by position (the model-what-if bug, pass 341). Use the model's own names; never invent them.
+const FNAMES = (Array.isArray(window.FEATURES) && window.FEATURES.length > 0)
+  ? window.FEATURES.map((f, i) => typeof f === 'string' ? f : (f && f.name) || ('w' + i))
+  : Array.from({ length: 22 }, (_, i) => 'w' + i);
 
 function render() {
   const snaps = loadSnaps();
@@ -134,9 +138,12 @@ function render() {
   }));
 
   // Biggest gain/loss
+  // A gain/loss needs two snapshots that differ; one snapshot compared with itself is all zeros.
   const sortedDelta = [...compared].sort((a, b) => b.delta - a.delta);
-  document.getElementById('kGain').textContent = sortedDelta[0] ? sortedDelta[0].name + ' (+' + sortedDelta[0].delta.toFixed(2) + ')' : '—';
-  document.getElementById('kLoss').textContent = sortedDelta[sortedDelta.length - 1] ? sortedDelta[sortedDelta.length - 1].name + ' (' + sortedDelta[sortedDelta.length - 1].delta.toFixed(2) + ')' : '—';
+  const up = sortedDelta[0], dn = sortedDelta[sortedDelta.length - 1];
+  const noHist = snaps.length < 2 ? '— (needs a 2nd snapshot)' : '— (no change)';
+  document.getElementById('kGain').textContent = up && up.delta > 0.005 ? up.name + ' (+' + up.delta.toFixed(2) + ')' : noHist;
+  document.getElementById('kLoss').textContent = dn && dn.delta < -0.005 ? dn.name + ' (' + dn.delta.toFixed(2) + ')' : noHist;
 
   // Sort
   const sortBy = document.getElementById('metric').value;

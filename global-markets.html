@@ -56,8 +56,8 @@
 <div class="container">
   <div class="page-header">
     <div>
-      <div class="page-title">Global Markets Desk <span class="feat-badge feat-new">NEW</span> <span class="feat-badge feat-live">LIVE</span></div>
-      <div class="page-subtitle">Cross-asset coverage. Asia/Europe indices, forex, treasuries, volatility, real estate. Same brain, every market. · <span id="market-clock">--</span></div>
+      <div class="page-title">Global Markets Desk <span class="feat-badge feat-new">NEW</span> <span class="feat-badge" style="background:rgba(245,158,11,0.14);color:var(--yellow);">DELAYED ~15 MIN</span></div>
+      <div class="page-subtitle">Cross-asset coverage through US-listed ETFs: Asia, Europe, emerging markets, currencies, Treasuries, credit, volatility, real estate. Quotes delayed ~15 min (Yahoo via the desk’s Worker); indicators are daily, from one year of closes. · <span id="market-clock">--</span></div>
     </div>
     <div class="flex gap-8">
       <a href="crypto-commodities.html" class="btn btn-ghost">₿ Crypto + Commodities</a>
@@ -69,9 +69,9 @@
   <div class="banner">
     <strong style="font-size:14px;">🌐 Why track these.</strong>
     <div style="font-size:11px;color:var(--text-muted);margin-top:6px;line-height:1.6;">
-      The brain learns from <strong>every market that ticks</strong>. International indices show overnight sentiment 6-12 hours before US open.
-      Forex (DXY/EUR/JPY) drives commodity + tech rotation. Treasury yields drive growth-vs-value flows. Volatility (VXX) is the fear gauge.
-      Each tile is wired to the same Live AI Trainer + auto-tagger + per-symbol weights.
+      These are US-listed ETFs, so they trade during US hours: a country fund prices its home session after the fact, it does not lead the US open.
+      Currencies (dollar, euro, yen) move commodity and tech rotation, Treasury prices move growth-vs-value, and VXX tracks short-dated VIX futures.
+      RSI, the 1-month change, the distance from the 50-day average and the 52-week position are computed from each fund’s daily closes.
     </div>
   </div>
 
@@ -126,6 +126,7 @@
 <script src="js/learn.js?v=v238"></script>
 <script src="js/discord.js?v=v238"></script>
 <script src="js/alerts-engine.js?v=v238"></script>
+<script src="js/live-hydrate.js?v=v238"></script>
 <script>buildNav('macro');</script>
 
 <script>
@@ -180,6 +181,48 @@
     ]
   };
 
+  // Audit 2026-11-13 (pass 344): most of this page rendered as dashes. Off-universe funds (EWT, INDA, FXC, FXF, TBT,
+  // TIP...) never received a price, a seed (months-old hardcoded number) could render as a quote, and RSI/MACD/ADX/ATR
+  // came from this browser's own tick buffer, empty on a fresh visit. Now: real quotes only (hydrated from
+  // /brain/quotes, any ticker), and daily indicators from one year of real closes (/brain/history).
+  const NOT_REAL = ['stale-seed', 'mock', 'demo-sim'];
+  function realQ(sym) { const q = typeof QUOTES !== 'undefined' ? QUOTES[sym] : null; return q && q.last > 0 && NOT_REAL.indexOf(q.priceSource) < 0 ? q : null; }
+  const GM_W = (window.WorkerBridge && WorkerBridge.getUrl && WorkerBridge.getUrl()) || 'https://bpleone-brain-worker.brandonpleone.workers.dev';
+  const DAILY_KEY = 'bpleone_gm_daily_v1';
+  const DAILY = (function () { try { const c = JSON.parse(sessionStorage.getItem(DAILY_KEY) || 'null'); return c && Date.now() - c.at < 6 * 3600e3 ? c.d : {}; } catch (e) { return {}; } })();
+  function wilderRsi(c, n) {
+    if (c.length < n + 1) return null;
+    let g = 0, l = 0;
+    for (let i = 1; i <= n; i++) { const d = c[i] - c[i - 1]; if (d > 0) g += d; else l -= d; }
+    g /= n; l /= n;
+    for (let i = n + 1; i < c.length; i++) { const d = c[i] - c[i - 1]; g = (g * (n - 1) + Math.max(d, 0)) / n; l = (l * (n - 1) + Math.max(-d, 0)) / n; }
+    return l === 0 ? 100 : 100 - 100 / (1 + g / l);
+  }
+  function dailyStats(closes) {
+    const c = closes.map(x => x.c).filter(v => v > 0);
+    if (c.length < 60) return null;
+    const last = c[c.length - 1];
+    const ma50 = c.slice(-50).reduce((a, b) => a + b, 0) / 50;
+    const hi = Math.max(...c), lo = Math.min(...c);
+    return { rsi: wilderRsi(c, 14), m1: c.length > 21 ? (last / c[c.length - 22] - 1) * 100 : null, ma50: (last / ma50 - 1) * 100, pos52: hi > lo ? (last - lo) / (hi - lo) * 100 : null, n: c.length };
+  }
+  async function loadDaily(syms) {
+    const todo = syms.filter(s => !DAILY[s]);
+    for (let i = 0; i < todo.length; i += 6) {
+      await Promise.all(todo.slice(i, i + 6).map(async sym => {
+        try {
+          const r = await fetch(GM_W + '/brain/history?sym=' + encodeURIComponent(sym), { cache: 'no-store' });
+          if (!r.ok) return;
+          const j = await r.json();
+          const st = j && Array.isArray(j.closes) ? dailyStats(j.closes) : null;
+          if (st) DAILY[sym] = st;
+        } catch (e) {}
+      }));
+      render();
+    }
+    try { sessionStorage.setItem(DAILY_KEY, JSON.stringify({ at: Date.now(), d: DAILY })); } catch (e) {}
+  }
+
   function biasFromTag(tag) {
     const bull = ['volume-breakout','52w-break','50ma-reclaim','macd-cross','bull-flag','cup-handle','vwap-reclaim','momentum-extension','continuation-bull'];
     const bear = ['flush-on-volume','breakdown','bear-flag','vwap-rejection','overbought-fade','continuation-bear'];
@@ -190,23 +233,11 @@
   }
 
   function buildTile(asset) {
-    const q = QUOTES[asset.sym];
-    if (!q) return '';
-    const snap = typeof TA !== 'undefined' ? TA.snapshot(asset.sym) : null;
-    const features = {
-      last: q.last, prevClose: q.prevClose, dayHigh: q.dayHigh, dayLow: q.dayLow,
-      volume: q.volume, avgVolume: q.avgVolume,
-      rsi: snap ? snap.rsi : null, macdHist: snap ? snap.hist : null,
-      atrPct: snap ? snap.atrPct : null, adx: snap ? snap.adx : null,
-      vwapDist: snap ? snap.vwapDist : null,
-      trend: snap ? snap.trend : null, regime: snap ? snap.regime : null,
-      donchUp: snap ? snap.donchUp : null, donchDn: snap ? snap.donchDn : null
-    };
-    const tag = typeof Learn !== 'undefined' ? Learn.autoTagSetup(features, { symbol: asset.sym }) : { tag: '—', score: 0 };
-    const weight = typeof Learn.weightFor === 'function' ? Learn.weightFor(tag.tag, { symbol: asset.sym }) : 1.0;
-    const adj = (tag.score || 0) * weight;
-    const bias = biasFromTag(tag.tag);
-    const chg = q.changePct || 0;
+    const q = realQ(asset.sym);
+    const d = DAILY[asset.sym];
+    const f = (v, dp, suf) => v == null || !isFinite(v) ? '\u2014' : (suf === '%' && v >= 0 ? '+' : '') + v.toFixed(dp) + (suf || '');
+    const chg = q ? (q.changePct || 0) : null;
+    const px = !q ? '\u2014' : q.last < 200 ? '$' + q.last.toFixed(2) : '$' + q.last.toLocaleString(undefined, { maximumFractionDigits: 0 });
     return `<div class="asset-card ${asset.cls}" onclick="if(!event.target.closest('a'))location.href='live-train.html?sym=${asset.sym}';">
       <div class="head">
         <div>
@@ -214,16 +245,15 @@
           <div class="name">${asset.name}</div>
         </div>
         <div style="text-align:right;">
-          <div class="px">${q.last < 200 ? '$' + q.last.toFixed(2) : '$' + q.last.toLocaleString(undefined, { maximumFractionDigits: 0 })}</div>
-          <div class="chg ${chg >= 0 ? 'r-pos' : 'r-neg'}">${chg >= 0 ? '+' : ''}${chg.toFixed(2)}%</div>
+          <div class="px">${px}</div>
+          <div class="chg ${chg == null ? '' : chg >= 0 ? 'r-pos' : 'r-neg'}">${chg == null ? 'no quote yet' : (chg >= 0 ? '+' : '') + chg.toFixed(2) + '%'}</div>
         </div>
       </div>
-      <div class="setup-pill ${bias}">${tag.tag} · ${adj.toFixed(2)}</div>
       <div class="indicators">
-        <div class="indicator"><div class="lab">RSI</div><div class="val" style="color:${snap && snap.rsi > 70 ? 'var(--red)' : snap && snap.rsi < 30 ? 'var(--green)' : 'var(--text-primary)'};">${snap && snap.rsi != null ? snap.rsi.toFixed(0) : '—'}</div></div>
-        <div class="indicator"><div class="lab">MACD</div><div class="val" style="color:${snap && snap.hist > 0 ? 'var(--green)' : snap && snap.hist < 0 ? 'var(--red)' : 'var(--text-muted)'};">${snap && snap.hist != null ? (snap.hist >= 0 ? '+' : '') + snap.hist.toFixed(2) : '—'}</div></div>
-        <div class="indicator"><div class="lab">ADX</div><div class="val">${snap && snap.adx != null ? snap.adx.toFixed(0) : '—'}</div></div>
-        <div class="indicator"><div class="lab">ATR%</div><div class="val">${snap && snap.atrPct != null ? snap.atrPct.toFixed(1) + '%' : '—'}</div></div>
+        <div class="indicator"><div class="lab">RSI 14d</div><div class="val" style="color:${d && d.rsi > 70 ? 'var(--red)' : d && d.rsi < 30 ? 'var(--green)' : 'var(--text-primary)'};">${d ? f(d.rsi, 0) : '\u2014'}</div></div>
+        <div class="indicator"><div class="lab">1M</div><div class="val ${d && d.m1 > 0 ? 'r-pos' : d && d.m1 < 0 ? 'r-neg' : ''}">${d ? f(d.m1, 1, '%') : '\u2014'}</div></div>
+        <div class="indicator"><div class="lab">vs 50d</div><div class="val ${d && d.ma50 > 0 ? 'r-pos' : d && d.ma50 < 0 ? 'r-neg' : ''}">${d ? f(d.ma50, 1, '%') : '\u2014'}</div></div>
+        <div class="indicator"><div class="lab">52w pos</div><div class="val">${d && d.pos52 != null ? d.pos52.toFixed(0) + '%' : '\u2014'}</div></div>
       </div>
       <div class="actions">
         <a href="live-train.html?sym=${asset.sym}">🎓</a>
@@ -237,7 +267,7 @@
   function categoryBias(assets) {
     let bulls = 0, bears = 0;
     assets.forEach(a => {
-      const q = QUOTES[a.sym];
+      const q = realQ(a.sym);
       if (!q) return;
       if ((q.changePct || 0) > 0) bulls++;
       else if ((q.changePct || 0) < 0) bears++;
@@ -269,20 +299,23 @@
     document.getElementById('kAsia').style.color = categoryColor(a);
     document.getElementById('kEurope').textContent = e;
     document.getElementById('kEurope').style.color = categoryColor(e);
-    const uup = QUOTES.UUP;
+    const uup = realQ('UUP');
     document.getElementById('kDxy').textContent = uup ? (uup.changePct >= 0 ? '+' : '') + (uup.changePct || 0).toFixed(2) + '%' : '—';
     document.getElementById('kDxy').style.color = uup && uup.changePct > 0 ? 'var(--green)' : uup && uup.changePct < 0 ? 'var(--red)' : 'var(--text-muted)';
-    const vxx = QUOTES.VXX;
+    const vxx = realQ('VXX');
     document.getElementById('kVix').textContent = vxx ? (vxx.changePct >= 0 ? '+' : '') + (vxx.changePct || 0).toFixed(2) + '%' : '—';
     document.getElementById('kVix').style.color = vxx && vxx.changePct > 0 ? 'var(--red)' : vxx && vxx.changePct < 0 ? 'var(--green)' : 'var(--text-muted)';
   }
 
   setTimeout(() => {
     const allSyms = [].concat(ASSETS.asia, ASSETS.europe, ASSETS.em, ASSETS.forex, ASSETS.treasury, ASSETS.credit, ASSETS.vol, ASSETS.realEstate).map(a => a.sym);
-    allSyms.forEach(s => { if (typeof TA !== 'undefined') TA.warmup(s); });
     render();
+    if (typeof hydrateQuotes === 'function') hydrateQuotes(allSyms, { onDone: render });
+    loadDaily(allSyms);
+    // Off-universe funds are not on the worker feed's poll: refresh them once a minute while the tab is visible.
+    setInterval(() => { if (!document.hidden && typeof hydrateQuotes === 'function') hydrateQuotes(allSyms, { force: true, onDone: render }); }, 60000);
   }, 500);
-  setInterval(render, 2000);
+  setInterval(() => { if (!document.hidden) render(); }, 5000);
   if (typeof Feed !== 'undefined') {
     let pending = false;
     Feed.subscribe('*', () => {

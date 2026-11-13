@@ -37,14 +37,14 @@
 
   <div class="grid grid-4 mb-24">
     <div class="card"><div class="card-header"><div class="card-title">Findings Analyzed</div></div><div class="mono" style="font-size:26px;font-weight:700;" id="kCount">--</div><div class="mono" style="font-size:11px;color:var(--text-muted);">Last 8h</div></div>
-    <div class="card"><div class="card-header"><div class="card-title">All Agree WIN</div></div><div class="mono green-text" style="font-size:26px;font-weight:700;" id="kAW">--</div><div class="mono" style="font-size:11px;color:var(--text-muted);">High confidence buys</div></div>
-    <div class="card"><div class="card-header"><div class="card-title">All Agree LOSS</div></div><div class="mono red-text" style="font-size:26px;font-weight:700;" id="kAL">--</div><div class="mono" style="font-size:11px;color:var(--text-muted);">High confidence fades</div></div>
-    <div class="card"><div class="card-header"><div class="card-title">Disagreements</div></div><div class="mono" style="font-size:26px;font-weight:700;color:var(--yellow);" id="kDis">--</div><div class="mono" style="font-size:11px;color:var(--text-muted);">Skip these</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">All Say Hit</div></div><div class="mono green-text" style="font-size:26px;font-weight:700;" id="kAW">--</div><div class="mono" style="font-size:11px;color:var(--text-muted);">every model that voted</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">All Say Miss</div></div><div class="mono red-text" style="font-size:26px;font-weight:700;" id="kAL">--</div><div class="mono" style="font-size:11px;color:var(--text-muted);">every model that voted</div></div>
+    <div class="card"><div class="card-header"><div class="card-title">Disagreements</div></div><div class="mono" style="font-size:26px;font-weight:700;color:var(--yellow);" id="kDis">--</div><div class="mono" style="font-size:11px;color:var(--text-muted);">models split</div></div>
   </div>
 
   <div class="card mb-24" style="background:linear-gradient(135deg,rgba(0,212,255,0.05),transparent);">
     <div style="font-size:13px;color:var(--text-secondary);line-height:1.7;">
-      Three models predict each finding: <strong style="color:var(--accent);">Logistic</strong> (linear), <strong style="color:#a78bfa;">MLP</strong> (non-linear), <strong style="color:var(--yellow);">Rule-based</strong> (severity × brain weight). When all three agree the signal is strongest. When they disagree, treat it as noise.
+      Three models predict each finding: <strong style="color:var(--accent);">Logistic</strong> (linear), <strong style="color:#a78bfa;">MLP</strong> (non-linear), <strong style="color:var(--yellow);">Rule-based</strong> (severity × brain weight). Each votes whether the finding hits. Whether agreement predicts outcomes has not been tested on this desk, so read the vote as a description of the models, not a signal. These are this browser’s local models; the desk’s graded record is the <a href="edge-scorecard.html" style="color:var(--accent);">Edge Scorecard</a>.
     </div>
   </div>
 
@@ -90,6 +90,13 @@ function mlpPredict(d, x) {
   return 1 / (1 + Math.exp(-z2));
 }
 
+// Audit 2026-11-13 (pass 344): an untrained MLP counted as a "LOSS" vote ("0/3 LOSS - all models agree" with two
+// models voting), text severities ('high'/'med') made the rule score NaN%, and a non-finite logistic output printed
+// "NaN%". Only models that produce a number vote; agreement needs at least two votes.
+const SEV_NUM = { high: 3, critical: 3, med: 2, medium: 2, low: 1 };
+function sevNum(v) { const n = typeof v === 'number' ? v : SEV_NUM[String(v || '').toLowerCase()]; return n > 0 ? Math.min(3, n) : 1; }
+function escH(v) { return String(v == null ? '' : v).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]); }
+
 function paint() {
   const findings = (function () { try { return JSON.parse(localStorage.getItem('bpleone_brain_findings_v1') || '{"items":[]}').items; } catch (e) { return []; } })();
   const recent = findings.filter(f => f.features && (Date.now() - f.ts) < 8 * 3600 * 1000);
@@ -98,39 +105,41 @@ function paint() {
   const learn = (function () { try { return JSON.parse(localStorage.getItem('bpleone_learn_v1') || '{}'); } catch (e) { return {}; } })();
 
   const rows = recent.map(f => {
-    const lp = logistic.predict(f.features).prob;
-    const mp = mlp ? mlpPredict(mlp, f.features) : null;
+    let lp = null; try { lp = logistic.predict(f.features).prob; } catch (e) {}
+    if (!isFinite(lp)) lp = null;
+    let mp = mlp ? mlpPredict(mlp, f.features) : null;
+    if (mp != null && !isFinite(mp)) mp = null;
     const sym = f.meta && f.meta.sym;
     const w = (learn.symbols && learn.symbols[sym] && learn.symbols[sym].w) || 1.0;
     // Rule-based score: severity * weight, normalized to 0-1
-    const ruleScore = Math.min(1, ((f.severity || 1) / 3) * w * 0.7);
-    const votes = [lp >= 0.5, mp != null && mp >= 0.5, ruleScore >= 0.5];
-    const validVotes = votes.filter(v => v !== null);
+    let ruleScore = Math.min(1, (sevNum(f.severity) / 3) * w * 0.7);
+    if (!isFinite(ruleScore)) ruleScore = null;
+    const votes = [lp, mp, ruleScore].filter(v => v != null).map(v => v >= 0.5);
+    const n = votes.length;
     const wins = votes.filter(v => v).length;
-    const losses = votes.length - wins;
-    const verdict = wins >= 2 ? 'WIN' : 'LOSS';
-    const agreement = (wins === votes.length || losses === votes.length);
-    return { f, lp, mp, ruleScore, votes, verdict, agreement, wins };
+    const verdict = n && wins * 2 > n ? 'HIT' : 'MISS';
+    const agreement = n >= 2 && (wins === n || wins === 0);
+    return { f, lp, mp, ruleScore, votes, verdict, agreement, wins, n };
   });
 
   document.getElementById('kCount').textContent = rows.length;
-  document.getElementById('kAW').textContent = rows.filter(r => r.agreement && r.verdict === 'WIN').length;
-  document.getElementById('kAL').textContent = rows.filter(r => r.agreement && r.verdict === 'LOSS').length;
+  document.getElementById('kAW').textContent = rows.filter(r => r.agreement && r.verdict === 'HIT').length;
+  document.getElementById('kAL').textContent = rows.filter(r => r.agreement && r.verdict === 'MISS').length;
   document.getElementById('kDis').textContent = rows.filter(r => !r.agreement).length;
 
   // Sort: agreements first, by mean probability desc
   rows.sort((a, b) => {
     if (a.agreement !== b.agreement) return a.agreement ? -1 : 1;
-    const aMean = (a.lp + (a.mp || a.lp) + a.ruleScore) / 3;
-    const bMean = (b.lp + (b.mp || b.lp) + b.ruleScore) / 3;
-    return bMean - aMean;
+    const mean = r => { const v = [r.lp, r.mp, r.ruleScore].filter(x => x != null); return v.length ? v.reduce((x, y) => x + y, 0) / v.length : 0; };
+    return mean(b) - mean(a);
   });
 
   const body = document.getElementById('cmpBody');
   body.innerHTML = '';
   rows.forEach((r, i) => {
-    const sym = (r.f.meta && r.f.meta.sym) || '—';
-    const setup = (r.f.meta && r.f.meta.setup) || r.f.type;
+    const rawSym = r.f.meta && r.f.meta.sym;
+    const sym = rawSym ? escH(rawSym) : '\u2014';
+    const setup = escH((r.f.meta && r.f.meta.setup) || r.f.type);
     function probPill(p, mlpVal) {
       if (p == null) return '<span style="color:var(--text-muted);">—</span>';
       const v = mlpVal != null ? mlpVal : p;
@@ -138,8 +147,8 @@ function paint() {
       const txt = v >= 0.5 ? 'var(--green)' : 'var(--red)';
       return '<span class="prob-pill" style="background:' + col + ';color:' + txt + ';">' + (v * 100).toFixed(0) + '%</span>';
     }
-    const cls = r.agreement ? (r.verdict === 'WIN' ? 'agree-win' : 'agree-loss') : 'disagree';
-    const verdictCol = r.agreement ? (r.verdict === 'WIN' ? 'var(--green)' : 'var(--red)') : 'var(--yellow)';
+    const cls = r.agreement ? (r.verdict === 'HIT' ? 'agree-win' : 'agree-loss') : 'disagree';
+    const verdictCol = r.agreement ? (r.verdict === 'HIT' ? 'var(--green)' : 'var(--red)') : 'var(--yellow)';
     const row = document.createElement('div');
     row.className = 'cmp-row ' + cls;
     row.innerHTML = '<div>' + (i + 1) + '</div>'
@@ -147,9 +156,9 @@ function paint() {
       + '<div>' + probPill(r.lp) + '</div>'
       + '<div>' + (r.mp != null ? probPill(null, r.mp) : '<span style="color:var(--text-muted);font-size:10px;">— train MLP</span>') + '</div>'
       + '<div>' + probPill(r.ruleScore) + '</div>'
-      + '<div><span style="color:' + verdictCol + ';font-weight:700;">' + r.wins + '/3 ' + r.verdict + '</span></div>'
-      + '<div style="font-family:Inter;font-size:11px;color:var(--text-secondary);">' + (r.agreement ? '✓ all models agree · ' : '⚠ disagreement · ') + setup + '</div>';
-    row.onclick = () => { window.location.href = 'trade-coach.html?sym=' + sym; };
+      + '<div><span style="color:' + verdictCol + ';font-weight:700;">' + r.wins + '/' + r.n + ' say hit</span></div>'
+      + '<div style="font-family:Inter;font-size:11px;color:var(--text-secondary);">' + (r.n < 2 ? 'one model voted · ' : r.agreement ? 'all ' + r.n + ' voting models agree · ' : 'models split · ') + setup + '</div>';
+    if (rawSym) row.onclick = () => { window.location.href = 'trade-coach.html?sym=' + encodeURIComponent(rawSym); };
     body.appendChild(row);
   });
 

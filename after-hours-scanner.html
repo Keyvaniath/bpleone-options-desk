@@ -92,7 +92,7 @@
     <div class="tile"><div class="lab">Top up</div><div class="val mono" id="kUp" style="font-size:13px;">—</div></div>
     <div class="tile"><div class="lab">Top down</div><div class="val mono" id="kDown" style="font-size:13px;">—</div></div>
     <div class="tile"><div class="lab">Crypto bias</div><div class="val mono" id="kCrypto" style="font-size:13px;">—</div></div>
-    <div class="tile"><div class="lab">Earnings AMC today</div><div class="val mono" id="kEarn">—</div></div>
+    <div class="tile"><div class="lab">Tracked names reporting AMC</div><div class="val mono" id="kEarn">—</div></div>
   </div>
 
   <!-- Earnings reactions (after-close today) -->
@@ -103,7 +103,7 @@
       <div>Reported</div>
       <div style="text-align:right;">Last</div>
       <div style="text-align:right;">AH Δ%</div>
-      <div style="text-align:right;">vs IV est.</div>
+      <div style="text-align:right;">EPS act / est</div>
       <div>Headline / Strategy</div>
     </div>
     <div id="earningsList"></div>
@@ -111,11 +111,11 @@
 
   <!-- AH Gappers (any symbol moving > 2% extended hours) -->
   <div class="section">
-    <h3>📈 After-hours gappers (≥ 2% move since close)</h3>
+    <h3>📈 Extended-hours gappers (≥ 2% vs the regular close; real pre/post-market trades, Yahoo)</h3>
     <div class="row" style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;font-weight:600;">
       <div>Sym</div>
-      <div style="text-align:right;">Close</div>
-      <div style="text-align:right;">Last AH</div>
+      <div style="text-align:right;">Ref. close</div>
+      <div style="text-align:right;">Last ext. trade</div>
       <div style="text-align:right;">AH Δ%</div>
       <div>Setup</div>
       <div>Catalyst</div>
@@ -129,7 +129,7 @@
     <div class="row" style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;font-weight:600;grid-template-columns:80px 90px 90px 90px 90px 1fr;">
       <div>Sym</div>
       <div style="text-align:right;">Last</div>
-      <div style="text-align:right;">Δ since close</div>
+      <div style="text-align:right;">Day Δ% (crypto 24h)</div>
       <div style="text-align:right;">RSI</div>
       <div style="text-align:right;">Trend</div>
       <div>Read</div>
@@ -144,14 +144,14 @@
       <div>When</div>
       <div>Sym</div>
       <div>Headline</div>
-      <div>Bias</div>
+      <div>Keyword tag</div>
     </div>
     <div id="newsList"></div>
   </div>
 
   <!-- Pre-open watchlist -->
   <div class="section">
-    <h3>📍 Pre-open watchlist (highest conviction setups carrying overnight)</h3>
+    <h3>📍 Setups carrying overnight (this browser's pattern tags; untested, not a signal)</h3>
     <div id="watchlist"></div>
   </div>
 </div>
@@ -235,54 +235,61 @@
     return 'neutral';
   }
 
-  function getFinnhubKey() {
+  // Audit 2026-11-13 (pass 344): keyless. The Worker serves the earnings calendar (/brain/earnings), Finnhub company
+  // headlines (/brain/news?symbol=) and real extended-hours trades (/brain/premarket, Yahoo includePrePost). Before,
+  // every section stopped at "need Finnhub key" for most visitors, and the "AH" change was the delayed quote's
+  // regular-session change (a stock up 3% at 2 PM was an "after-hours gapper").
+  const AH_W = (window.WorkerBridge && WorkerBridge.getUrl && WorkerBridge.getUrl()) || 'https://bpleone-brain-worker.brandonpleone.workers.dev';
+  const NOT_REAL = ['stale-seed', 'mock', 'demo-sim'];
+  function realQ(sym) { const q = typeof QUOTES !== 'undefined' ? QUOTES[sym] : null; return q && q.last > 0 && NOT_REAL.indexOf(q.priceSource) < 0 ? q : null; }
+  function etYmd(ms) { return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(ms == null ? Date.now() : ms)); }
+  function etTime(ms) { return new Date(ms).toLocaleTimeString('en-US', { timeZone: 'America/New_York', hour: '2-digit', minute: '2-digit' }) + ' ET'; }
+  function esc(v) { return String(v == null ? '' : v).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]); }
+  function safeUrl(u) { return /^https?:\/\//i.test(String(u || '')) ? esc(u) : '#'; }
+
+  // -> { list: tracked after-the-close reporters today, total: every company reporting after today's close } or null
+  async function fetchEarningsToday() {
+    const today = etYmd();
     try {
-      const raw = localStorage.getItem('bpleone_data_v1');
-      if (!raw) return null;
-      const c = JSON.parse(raw);
-      return c.provider === 'finnhub' ? c.apiKey : null;
+      const res = await fetch(AH_W + '/brain/earnings?days=1', { cache: 'no-store' });
+      if (!res.ok) return null;
+      const j = await res.json();
+      if (!j || !Array.isArray(j.earnings)) return null;
+      const amc = j.earnings.filter(e => e.date === today && e.hour === 'amc');
+      return { total: amc.length, list: amc.filter(e => UNIVERSE.indexOf(e.symbol) !== -1).map(e => ({
+        sym: e.symbol, hour: e.hour, epsEst: e.epsEstimate, epsActual: e.epsActual, revActual: e.revenueActual, revEst: e.revenueEstimate
+      })) };
     } catch (e) { return null; }
   }
 
-  async function fetchEarningsToday() {
-    const key = getFinnhubKey();
-    if (!key) return [];
-    const today = nowET().toISOString().slice(0, 10);
+  // Real extended-hours trades: { SYM: { session: 'pre'|'regular'|'post', ext, extTs, reference, gapPct } }, or null.
+  // reference = today's regular close after the close, the prior close before the open.
+  async function fetchExtended(syms) {
     try {
-      const url = `https://finnhub.io/api/v1/calendar/earnings?from=${today}&to=${today}&token=${encodeURIComponent(key)}`;
-      const res = await fetch(url);
-      if (!res.ok) return [];
+      const res = await fetch(AH_W + '/brain/premarket?syms=' + encodeURIComponent(syms.slice(0, 40).join(',')), { cache: 'no-store' });
+      if (!res.ok) return null;
       const j = await res.json();
-      const all = j.earningsCalendar || [];
-      // Only AMC (after market close) reports
-      return all.filter(e => e.hour === 'amc' && UNIVERSE.indexOf(e.symbol) !== -1).map(e => ({
-        sym: e.symbol, hour: e.hour, epsEst: e.epsEstimate, epsActual: e.epsActual, revActual: e.revenueActual, revEst: e.revenueEstimate
-      }));
-    } catch (e) { return []; }
+      return j && j.quotes && Object.keys(j.quotes).length ? j.quotes : null;
+    } catch (e) { return null; }
   }
 
-  async function fetchOvernightNews() {
-    const key = getFinnhubKey();
-    if (!key) return [];
+  async function fetchOvernightNews(syms) {
     const cutoffMs = Date.now() - 6 * 60 * 60 * 1000;
     const all = [];
-    const today = nowET().toISOString().slice(0, 10);
-    const yesterday = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
-    for (const sym of UNIVERSE.slice(0, 15)) {
+    await Promise.all(syms.slice(0, 8).map(async sym => {
       try {
-        const url = `https://finnhub.io/api/v1/company-news?symbol=${sym}&from=${yesterday}&to=${today}&token=${key}`;
-        const res = await fetch(url);
-        if (!res.ok) continue;
-        const list = await res.json();
-        if (Array.isArray(list)) {
-          list.slice(0, 3).forEach(n => {
-            if (n.datetime * 1000 < cutoffMs) return;
-            all.push({ sym, ts: n.datetime * 1000, headline: n.headline, url: n.url, source: n.source });
-          });
-        }
+        const res = await fetch(AH_W + '/brain/news?symbol=' + encodeURIComponent(sym), { cache: 'no-store' });
+        if (!res.ok) return;
+        const j = await res.json();
+        (j.items || []).slice(0, 6).forEach(n => {
+          const ts = n.datetime > 1e12 ? n.datetime : n.datetime * 1000;
+          if (!(ts >= cutoffMs)) return;
+          all.push({ sym, ts, headline: n.headline, url: n.url, source: n.source });
+        });
       } catch (e) {}
-    }
-    return all.sort((a, b) => b.ts - a.ts).slice(0, 25);
+    }));
+    const seen = new Set();   // the same story is often tagged to several names
+    return all.sort((a, b) => b.ts - a.ts).filter(n => { if (seen.has(n.headline)) return false; seen.add(n.headline); return true; }).slice(0, 25);
   }
 
   function classifyNews(headline) {
@@ -293,15 +300,13 @@
     return 'neutral';
   }
 
-  function ahGappers() {
-    if (typeof QUOTES === 'undefined') return [];
+  function ahGappers(ext) {
     const out = [];
     UNIVERSE.forEach(sym => {
-      const q = QUOTES[sym];
-      if (!q || !q.last || !q.prevClose) return;
-      const ahChg = ((q.last - q.prevClose) / q.prevClose) * 100;
-      if (Math.abs(ahChg) < 2) return;
-      out.push({ sym, prevClose: q.prevClose, last: q.last, ahChg });
+      const x = ext && ext[sym];
+      if (!x || x.session === 'regular' || !(x.reference > 0) || !(x.ext > 0) || !isFinite(x.gapPct)) return;
+      if (Math.abs(x.gapPct) < 2) return;
+      out.push({ sym, prevClose: x.reference, last: x.ext, ahChg: x.gapPct, ts: x.extTs, session: x.session });
     });
     return out.sort((a, b) => Math.abs(b.ahChg) - Math.abs(a.ahChg));
   }
@@ -309,7 +314,7 @@
   function cryptoSnapshot() {
     if (typeof QUOTES === 'undefined') return [];
     return CRYPTO_UNIVERSE.map(sym => {
-      const q = QUOTES[sym];
+      const q = realQ(sym);
       if (!q) return null;
       const snap = typeof TA !== 'undefined' ? TA.snapshot(sym) : null;
       return {
@@ -324,8 +329,8 @@
     if (typeof QUOTES === 'undefined' || typeof Learn === 'undefined') return [];
     const out = [];
     UNIVERSE.concat(CRYPTO_UNIVERSE).forEach(sym => {
-      const q = QUOTES[sym];
-      if (!q || !q.last) return;
+      const q = realQ(sym);
+      if (!q) return;
       const snap = typeof TA !== 'undefined' ? TA.snapshot(sym) : null;
       const features = {
         last: q.last, prevClose: q.prevClose, dayHigh: q.dayHigh, dayLow: q.dayLow,
@@ -348,25 +353,35 @@
 
   async function buildReport() {
     const session = detectSession();
-    const earnings = await fetchEarningsToday();
-    const news = await fetchOvernightNews();
-    const gappers = ahGappers();
+    const earn = await fetchEarningsToday();
+    const earnings = earn ? earn.list : [];
+    const ext = await fetchExtended(UNIVERSE.concat(earnings.map(e => e.sym).filter(x => UNIVERSE.indexOf(x) === -1)));
+    const gappers = ahGappers(ext);
+    const newsSyms = [];
+    earnings.map(e => e.sym).concat(gappers.slice(0, 4).map(g => g.sym), ['NVDA', 'AAPL', 'MSFT', 'TSLA', 'AMZN', 'META', 'GOOGL', 'AMD'])
+      .forEach(x => { if (newsSyms.indexOf(x) === -1) newsSyms.push(x); });
+    const news = await fetchOvernightNews(newsSyms);
     const crypto = cryptoSnapshot();
     const watchlist = preOpenWatchlist();
 
-    // Enrich earnings with AH price action
+    // Enrich earnings with the real extended-hours trade (none during the regular session)
     const earningsEnriched = earnings.map(e => {
-      const q = typeof QUOTES !== 'undefined' ? QUOTES[e.sym] : null;
-      const ahChg = q && q.prevClose ? ((q.last - q.prevClose) / q.prevClose) * 100 : null;
+      const x = ext && ext[e.sym];
+      const q = realQ(e.sym);
+      const ahChg = x && x.session !== 'regular' && isFinite(x.gapPct) ? x.gapPct : null;
       const beat = (e.epsActual != null && e.epsEst != null) ? (e.epsActual > e.epsEst ? 'beat' : e.epsActual < e.epsEst ? 'miss' : 'inline') : 'pending';
       const matchedNews = news.find(n => n.sym === e.sym);
-      return Object.assign({}, e, { last: q ? q.last : null, ahChg, beat, headline: matchedNews ? matchedNews.headline : null });
+      return Object.assign({}, e, { last: ahChg != null ? x.ext : q ? q.last : null, ahChg, beat, headline: matchedNews ? matchedNews.headline : null });
     });
 
     const report = {
+      v: 2,
       ts: Date.now(),
       day: dayKey(),
       session,
+      earnOk: !!earn,
+      amcTotal: earn ? earn.total : null,
+      extOk: !!ext,
       earnings: earningsEnriched,
       gappers,
       crypto,
@@ -437,9 +452,10 @@
         <div class="mono" style="text-align:right;">${e.last != null ? '$' + e.last.toFixed(2) : '—'}</div>
         <div class="mono ${cls}" style="text-align:right;font-weight:700;">${e.ahChg != null ? (e.ahChg >= 0 ? '+' : '') + e.ahChg.toFixed(2) + '%' : '—'}</div>
         <div class="mono" style="text-align:right;font-size:11px;color:var(--text-muted);">${e.epsActual != null ? '$' + e.epsActual : '—'} / ${e.epsEst != null ? '$' + e.epsEst : '—'}</div>
-        <div style="font-size:11px;color:var(--text-muted);">${e.headline ? e.headline.slice(0, 70) : strategy}</div>
+        <div style="font-size:11px;color:var(--text-muted);">${e.headline ? esc(e.headline.slice(0, 70)) : strategy}</div>
       </div>`;
-    }).join('') : '<div class="empty">No AMC earnings tonight from your universe (need Finnhub key).</div>';
+    }).join('') : '<div class="empty">' + (!r.earnOk ? 'Earnings calendar unavailable right now (the desk\u2019s Worker did not answer). Try Scan now in a minute.'
+      : 'None of the ' + UNIVERSE.length + ' tracked names reports after today\u2019s close' + (r.amcTotal ? ' (' + r.amcTotal + ' other companies do: <a href="earnings-tonight.html" style="color:var(--accent);">Earnings Tonight</a>)' : '') + '.') + '</div>';
 
     // Gappers
     document.getElementById('gapperList').innerHTML = r.gappers.length ? r.gappers.map(g => {
@@ -456,12 +472,14 @@
       return `<div class="row">
         <div class="mono" style="font-weight:700;">${g.sym}</div>
         <div class="mono" style="text-align:right;color:var(--text-muted);">$${g.prevClose.toFixed(2)}</div>
-        <div class="mono" style="text-align:right;">$${g.last.toFixed(2)}</div>
+        <div class="mono" style="text-align:right;">$${g.last.toFixed(2)}${g.ts ? ' <span style="font-size:10px;color:var(--text-muted);">' + etTime(g.ts) + '</span>' : ''}</div>
         <div class="mono ${cls}" style="text-align:right;font-weight:700;">${g.ahChg >= 0 ? '+' : ''}${g.ahChg.toFixed(2)}%</div>
         <div><span class="tag ${bias}">${setup}</span></div>
         <div><span class="tag ${catalyst === 'earnings' ? 'earnings' : ''}">${catalyst}</span></div>
       </div>`;
-    }).join('') : '<div class="empty">No AH gappers (≥2%) detected.</div>';
+    }).join('') : '<div class="empty">' + (!r.extOk ? 'Extended-hours trades unavailable right now (the desk\u2019s Worker did not answer).'
+      : r.session === 'open' ? 'Regular session: after-hours moves show here after the 4:00 PM ET close.'
+      : 'No tracked name has moved 2% or more in extended hours.') + '</div>';
 
     // Crypto
     document.getElementById('cryptoList').innerHTML = r.crypto.length ? r.crypto.map(c => {
@@ -480,14 +498,13 @@
     // News
     document.getElementById('newsList').innerHTML = r.news.length ? r.news.map(n => {
       const bias = classifyNews(n.headline);
-      const time = new Date(n.ts).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
       return `<div class="news-row">
-        <div class="mono" style="font-size:11px;color:var(--text-muted);">${time} ET</div>
-        <div class="mono" style="font-weight:700;">${n.sym}</div>
-        <div><a href="${n.url || '#'}" target="_blank" rel="noopener" style="color:var(--text-primary);text-decoration:none;">${(n.headline || '').slice(0, 110)}</a></div>
+        <div class="mono" style="font-size:11px;color:var(--text-muted);">${etTime(n.ts)}</div>
+        <div class="mono" style="font-weight:700;">${esc(n.sym)}</div>
+        <div><a href="${safeUrl(n.url)}" target="_blank" rel="noopener" style="color:var(--text-primary);text-decoration:none;">${esc((n.headline || '').slice(0, 110))}</a></div>
         <div><span class="tag ${bias}">${bias}</span></div>
       </div>`;
-    }).join('') : '<div class="empty">No overnight headlines (need Finnhub key).</div>';
+    }).join('') : '<div class="empty">No headlines in the last 6 hours for the names scanned.</div>';
 
     // Pre-open watchlist
     document.getElementById('watchlist').innerHTML = r.watchlist.length ? r.watchlist.map(w => `<div class="row" style="grid-template-columns:80px 90px 80px 80px 1fr 100px;">
@@ -501,13 +518,13 @@
         <a href="ai-cotrader.html?sym=${w.sym}" style="color:var(--accent);">🤖</a>
         <a href="hypothetical.html?sym=${w.sym}&bias=${w.bias === 'bull' ? 'bull' : 'bear'}&source=signals&note=${encodeURIComponent('AH: ' + w.setup)}" style="color:var(--accent);">📝</a>
       </div>
-    </div>`).join('') : '<div class="empty">No high-conviction setups yet. They\'ll populate as TA accumulates ticks overnight.</div>';
+    </div>`).join('') : '<div class="empty">No setup tag scores 0.65 or more yet. Tags fill in as this browser\u2019s TA collects ticks.</div>';
   }
 
   function refreshStatus() {
     const s = loadState();
     document.getElementById('togContinuous').classList.toggle('on', !!s.continuous);
-    document.getElementById('lastScan').textContent = s.lastFireTs ? new Date(s.lastFireTs).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }) + ' ET' : '—';
+    document.getElementById('lastScan').textContent = s.lastFireTs ? etTime(s.lastFireTs) : '—';
     // Next auto-fire: continuous = every 30 min during after-hours, otherwise specific times
     const et = nowET();
     const sess = detectSession();
@@ -557,13 +574,25 @@
   setTimeout(() => {
     refreshStatus();
     const r = loadReport();
-    if (r) render(r);
-    // Run initial scan if no recent
+    const fresh = r && r.v === 2 && r.day === dayKey();
+    if (fresh) render(r);
+    // Run initial scan if no recent (an old-format report from before pass 344 always rescans)
     const s = loadState();
-    if (!s.lastFireTs || Date.now() - s.lastFireTs > 30 * 60 * 1000) {
+    if (!fresh || !s.lastFireTs || Date.now() - s.lastFireTs > 30 * 60 * 1000) {
       runScan();
     }
   }, 500);
+
+  // The first scan can beat the price feed: repaint the quote-driven sections when real prices land (10 s floor).
+  let _ahRepaint = 0;
+  window.addEventListener('bpleone:quotes', () => {
+    if (Date.now() - _ahRepaint < 10000) return;
+    const r = loadReport();
+    if (!r || r.v !== 2) return;
+    _ahRepaint = Date.now();
+    r.crypto = cryptoSnapshot(); r.watchlist = preOpenWatchlist();
+    render(r);
+  });
 
   setInterval(() => { refreshStatus(); tickCheck(); }, 30 * 1000);
 })();

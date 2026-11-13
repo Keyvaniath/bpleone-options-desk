@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Earnings Preview — bpleone / trade</title>
-<meta name="description" content="Real per-symbol earnings preview: live EPS consensus + revenue est + analyst sentiment, all from Finnhub.">
+<meta name="description" content="Per-symbol earnings preview: EPS and revenue estimates and analyst recommendation trends (Finnhub via the desk Worker), plus the CBOE implied move.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" media="print" onload="this.media='all'"><noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap"></noscript>
@@ -128,12 +128,17 @@ function fmtBig(v) {
 function pct(v, dp=2) { return v == null || !isFinite(v) ? '—' : (v >= 0 ? '+' : '') + Number(v).toFixed(dp) + '%'; }
 function escapeHtml(s) { return String(s || '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 
-function noKey() {
-  $('detailBox').innerHTML = '<div class="empty-card"><div class="icon">⚠</div><div>Open <a href="settings.html" style="color:var(--accent);">Settings</a> and connect Finnhub.</div></div>';
+// Audit 2026-11-13 (pass 344): keyless. The desk's Worker serves the same Finnhub earnings calendar (/brain/earnings,
+// up to 60 days ahead), recommendation trends (/brain/recommendations), basic financials (/brain/fundamentals) and a
+// delayed quote (/brain/quotes), so a visitor without a key no longer stops at "connect Finnhub".
+async function wget(path) {
+  const r = await fetch(WORKER + path, { cache: 'no-store' });
+  if (!r.ok) throw new Error('HTTP ' + r.status);
+  return r.json();
 }
 
 async function load() {
-  const sym = ($('symInput').value || '').trim().toUpperCase();
+  const sym = ($('symInput').value || '').trim().toUpperCase().replace(/[^A-Z0-9.\-]/g, '').slice(0, 8);
   if (!sym) return;
   renderQuick(sym);
   $('sym').textContent = sym;
@@ -142,20 +147,22 @@ async function load() {
   $('fundLink').href = 'fundamentals.html?sym=' + sym;
   $('newsLink').href = 'news.html?sym=' + sym;
 
-  if (typeof DataProvider === 'undefined' || DataProvider.getConfig().provider !== 'finnhub' || !DataProvider.getConfig().apiKey) {
-    noKey(); return;
-  }
-
   $('detailBox').innerHTML = '<div class="k" style="grid-column:1/-1;text-align:center;color:var(--text-muted);padding:20px;">Loading…</div>';
 
   try {
-    // Get upcoming earnings (next 120 days) + recs + spot in parallel
-    const [cal, recs, m, q] = await Promise.all([
-      DataProvider.getEarningsCalendar(Date.now(), Date.now() + 120 * 86400000).catch(() => []),
-      DataProvider.getRecommendations(sym).catch(() => []),
-      DataProvider.getBasicFinancials(sym).catch(() => ({})),
-      DataProvider.getQuote(sym).catch(() => ({}))
+    // Upcoming earnings (next 60 days) + recs + financials + spot in parallel, all from the Worker
+    const [calJ, recJ, finJ, qJ] = await Promise.all([
+      wget('/brain/earnings?days=60').catch(() => null),
+      wget('/brain/recommendations?symbol=' + encodeURIComponent(sym)).catch(() => null),
+      wget('/brain/fundamentals?symbol=' + encodeURIComponent(sym)).catch(() => null),
+      wget('/brain/quotes?syms=' + encodeURIComponent(sym)).catch(() => null)
     ]);
+    if (!calJ || !Array.isArray(calJ.earnings)) throw new Error('The earnings calendar did not load (the desk\u2019s Worker did not answer). Try again in a minute.');
+    const cal = calJ.earnings;
+    const recs = (recJ && Array.isArray(recJ.trend)) ? recJ.trend : [];
+    const m = (finJ && finJ.metric) || {};
+    const wq = qJ && qJ.quotes && qJ.quotes[sym];
+    const q = wq && wq.last > 0 ? { c: wq.last } : {};
 
     // Find this symbol's next earnings entry
     const events = (cal || []).filter(e => e.symbol === sym).sort((a, b) => (a.date || '').localeCompare(b.date || ''));
@@ -169,13 +176,13 @@ async function load() {
     renderImplied(imp, spot, next);
     renderStrats(sym, spot, imp, next);
   } catch (e) {
-    $('detailBox').innerHTML = '<div class="empty-card"><div class="icon">⚠</div><div>' + e.message + '</div></div>';
+    $('detailBox').innerHTML = '<div class="empty-card"><div class="icon">⚠</div><div>' + escapeHtml(e.message) + '</div></div>';
   }
 }
 
 function renderDetail(sym, next, m, q) {
   if (!next) {
-    $('detailBox').innerHTML = '<div class="empty-card"><div class="icon">📭</div><div>No upcoming earnings scheduled in the next 120 days for ' + sym + '.</div></div>';
+    $('detailBox').innerHTML = '<div class="empty-card"><div class="icon">📭</div><div>No earnings date on the calendar in the next 60 days for ' + sym + ' (Finnhub calendar via the desk\u2019s Worker).</div></div>';
     $('kDate').textContent = '—'; $('kHour').textContent = '—'; $('kEps').textContent = '—'; $('kRev').textContent = '—'; $('kMove').textContent = '—';
     return;
   }

@@ -33,5 +33,10 @@ const hs = idx.indexOf("if (path === '/brain/earnings-history')"); const h = idx
 ok(/earningsFrom8K\(j && j\.filings && j\.filings\.recent\)/.test(h) && /if \(!rows\) try \{/.test(h), 'endpoint: EDGAR first, Finnhub only as the fallback');
 ok(/'https:\/\/www\.sec\.gov\/files\/company_tickers\.json', SEC_UA/.test(idx) && /now - \(kv\.at \|\| 0\) < WEEK/.test(idx), 'ticker map fetched with the SEC user agent and cached for a week');
 
+ok(/const ehGood = Array\.isArray\(rows\) && rows\.length > 0;/.test(h) && /if \(ehGood\) ctx\.waitUntil\(cache\.put/.test(h),
+  'worker pass-326: an empty answer is never edge-cached (pass-324 pinned an empty Finnhub answer for 12 h)');
+const ep = fs.readFileSync(path.join(__dirname, 'earnings-playbook.html'), 'utf8');
+ok(/\/brain\/earnings-history\?src=edgar&symbol=/.test(ep), 'earnings-playbook asks under the EDGAR cache key, not the URL pass-324 cached empty');
+
 console.log(fails ? fails + ' EDGAR earnings test(s) FAILED' : 'edgar earnings: all tests passed');
 process.exit(fails ? 1 : 0);

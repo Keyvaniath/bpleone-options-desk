@@ -28,7 +28,7 @@
 <div class="container">
   <div class="page-header">
     <div>
-      <div class="page-title">Momentum Scanner <span class="feat-badge feat-live">LIVE</span></div>
+      <div class="page-title">Momentum Scanner <span class="feat-badge" style="background:rgba(245,158,11,0.14);color:var(--yellow);">DELAYED ~15 MIN</span></div>
       <div class="page-subtitle">Real-time momentum ranking across your universe · <span id="market-clock">--</span> · <span id="kAsOf">—</span></div>
     </div>
     <div class="flex gap-8">
@@ -97,12 +97,13 @@ let priceHistory = {}; // sym -> [recent prices]
 
 function build() {
   if (typeof QUOTES === 'undefined') return [];
-  const usingMock = typeof DataProvider !== 'undefined' && DataProvider.getStatus().provider === 'mock';
-  return Object.values(QUOTES).filter(q => usingMock || q.fresh).filter(q => q.symbol !== 'VIX').map(q => {
+  // Pass 344: keyless visitors have provider 'mock', so every QUOTES entry, the months-old seeds included, ranked
+  // here as momentum before the worker feed landed. Real prices only; a missing day range stays missing.
+  const NOT_REAL = ['stale-seed', 'mock', 'demo-sim'];
+  return Object.values(QUOTES).filter(q => q && q.last > 0 && NOT_REAL.indexOf(q.priceSource) < 0).filter(q => q.symbol !== 'VIX').map(q => {
     // Range position: where is current price in day's high-low range?
-    const lo = q.dayLow || q.prevClose * 0.99;
-    const hi = q.dayHigh || q.prevClose * 1.01;
-    const rangePos = hi > lo ? (q.last - lo) / (hi - lo) : 0.5;
+    const lo = q.dayLow, hi = q.dayHigh;
+    const rangePos = lo > 0 && hi > lo ? Math.max(0, Math.min(1, (q.last - lo) / (hi - lo))) : null;
     // RSI proxy from last 10 prices
     const hist = priceHistory[q.symbol] || [];
     let rsi = 50;
@@ -117,7 +118,7 @@ function build() {
     }
     // Velocity: |%chg| relative to typical daily range
     const velocity = Math.abs(q.changePct);
-    const score = Math.min(100, Math.round(velocity * 4 + rangePos * 30 + (rsi > 50 ? rsi - 50 : 50 - rsi) * 0.6));
+    const score = Math.min(100, Math.round(velocity * 4 + (rangePos == null ? 0.5 : rangePos) * 30 + (rsi > 50 ? rsi - 50 : 50 - rsi) * 0.6));
     return { sym: q.symbol, last: q.last, chgPct: q.changePct, rangePos, rsi, score, velocity, hist: hist.slice() };
   });
 }
@@ -139,25 +140,25 @@ function render() {
   const dns = items.filter(i => i.chgPct < 0).sort((a, b) => a.chgPct - b.chgPct);
   if (ups[0]) { $('kUp').textContent = ups[0].sym; $('kUpPct').textContent = '+' + ups[0].chgPct.toFixed(2) + '% · ' + fmt$(ups[0].last); }
   if (dns[0]) { $('kDn').textContent = dns[0].sym; $('kDnPct').textContent = dns[0].chgPct.toFixed(2) + '% · ' + fmt$(dns[0].last); }
-  $('kAsOf').textContent = 'Updated ' + new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
+  $('kAsOf').textContent = 'Updated ' + new Date().toLocaleTimeString('en-US', { timeZone: 'America/New_York', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false }) + ' ET';
 
   // Table
   if (!sorted.length) {
-    $('tbody').innerHTML = '<tr><td colspan="9" style="text-align:center;color:var(--text-muted);padding:30px;">No live data yet. Open <a href="settings.html" style="color:var(--accent);">Settings</a> and connect Finnhub.</td></tr>';
+    $('tbody').innerHTML = '<tr><td colspan="9" style="text-align:center;color:var(--text-muted);padding:30px;">Waiting for prices (equities load from the desk\u2019s Worker, delayed ~15 min; crypto from Coinbase).</td></tr>';
     return;
   }
   $('tbody').innerHTML = sorted.slice(0, 25).map((m, i) => {
     const chgCls = m.chgPct >= 0 ? 'green-text' : 'red-text';
     const scoreCls = m.score >= 75 ? 'green-text' : m.score >= 55 ? 'yellow-text' : '';
-    const rangeFill = Math.round(m.rangePos * 100);
-    const rangeColor = m.rangePos > 0.6 ? 'var(--green)' : m.rangePos < 0.4 ? 'var(--red)' : 'var(--yellow)';
+    const rangeFill = m.rangePos == null ? 0 : Math.round(m.rangePos * 100);
+    const rangeColor = m.rangePos == null ? 'transparent' : m.rangePos > 0.6 ? 'var(--green)' : m.rangePos < 0.4 ? 'var(--red)' : 'var(--yellow)';
     return `<tr class="mom-row" onclick="location.href='ticker.html?sym=${m.sym}'">
       <td style="color:var(--text-muted);">${i+1}</td>
       <td class="mono"><strong>${m.sym}</strong></td>
       <td class="mono">${fmt$(m.last)}</td>
       <td class="mono ${chgCls}" style="font-weight:700;">${m.chgPct >= 0 ? '+' : ''}${m.chgPct.toFixed(2)}%</td>
       <td class="mono ${scoreCls}" style="font-weight:700;">${m.score}</td>
-      <td><div class="bar-mini"><div class="fill" style="width:${rangeFill}%;background:${rangeColor};"></div><div class="mid"></div></div><div style="font-size:10px;color:var(--text-muted);margin-top:2px;">${(rangeFill).toFixed(0)}% of day range</div></td>
+      <td><div class="bar-mini"><div class="fill" style="width:${rangeFill}%;background:${rangeColor};"></div><div class="mid"></div></div><div style="font-size:10px;color:var(--text-muted);margin-top:2px;">${m.rangePos == null ? 'no day range' : rangeFill + '% of day range'}</div></td>
       <td class="mono">${m.velocity.toFixed(2)}%</td>
       <td>${spark(m)}</td>
       <td style="font-size:11px;color:var(--accent);">view →</td>
@@ -169,7 +170,8 @@ function render() {
 }
 
 function spark(m) {
-  const data = m.hist.length >= 2 ? m.hist : [m.last * 0.99, m.last];
+  if (m.hist.length < 2) return '<span style="color:var(--text-muted);font-size:10px;">\u2014</span>';   // no invented line
+  const data = m.hist;
   const min = Math.min(...data), max = Math.max(...data);
   const range = (max - min) || 1;
   const pts = data.map((p, i) => (i / (data.length - 1) * 80).toFixed(1) + ',' + (22 - ((p - min) / range) * 20).toFixed(1));

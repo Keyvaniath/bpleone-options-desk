@@ -48,14 +48,20 @@
 </div>
 
 <div class="hero">
-  <div class="label">Brain Health</div>
-  <div class="score" id="health">—</div>
-  <div class="headline" id="headline">Loading…</div>
+  <div class="label">Desk brain (the Worker, 24/7)</div>
+  <div class="score" id="health" style="font-size:34px;">…</div>
+  <div class="headline" id="headline">Checking the Worker…</div>
   <div class="sub" id="sub"></div>
+  <div class="sub"><a href="edge-scorecard.html" style="color:#00d4ff;">Live record →</a></div>
+</div>
+
+<div class="section-title">This browser's model (local diagnostics, not the desk's record)</div>
+<div class="row" style="grid-template-columns:1fr;">
+  <div class="card"><div class="l">Local checks</div><div class="v" id="local-val">—</div><div class="s" id="local-sub">/100</div></div>
 </div>
 
 <div class="alerts-banner" id="alerts-banner">
-  <div class="t">⚠ Alerts active</div>
+  <div class="t">⚠ Local diagnostics alerts (this browser)</div>
   <div class="m" id="alerts-text"></div>
 </div>
 
@@ -93,15 +99,28 @@ function safe(fn, fb) { try { return fn(); } catch (e) { return fb; } }
 function fmt(n, d) { return n != null ? n.toFixed(d != null ? d : 2) : '—'; }
 function fmtPct(p) { return p != null ? (p * 100).toFixed(0) + '%' : '—'; }
 
+// Audit 2026-11-13 (pass 344): the hero printed the BROWSER-LOCAL coach as "Brain Health" (and sat on "Loading…"
+// until the lazy module arrived), the contradiction pass 342 removed from the status bar. The hero is now the desk's
+// brain via workerBrainStatus() (app.js, shared with the status bar and the home page); the coach's score is a
+// labeled local diagnostic below it.
+async function workerHero() {
+  if (typeof window.workerBrainStatus !== 'function') return;
+  const st = await window.workerBrainStatus();
+  const word = /did not answer/.test(st.headline) ? 'OFFLINE' : /needs attention/.test(st.headline) ? 'CHECK' : /beats market drift/.test(st.headline) ? 'EDGE?' : 'NO EDGE';
+  const hEl = document.getElementById('health');
+  hEl.textContent = word; hEl.style.color = st.color;
+  const hl = document.getElementById('headline');
+  hl.textContent = st.headline; hl.style.color = st.color;
+  document.getElementById('sub').textContent = st.metrics;
+}
+
 function tick() {
-  // Brain Coach
+  // Brain Coach (this browser's model only)
   const bc = safe(() => window.BrainCoach && window.BrainCoach.summary(), null);
   if (bc) {
-    document.getElementById('health').textContent = bc.healthScore;
-    document.getElementById('health').style.color = bc.headlineColor;
-    document.getElementById('headline').textContent = bc.headline;
-    document.getElementById('headline').style.color = bc.headlineColor;
-    document.getElementById('sub').textContent = bc.totalChecks + ' checks · ' + bc.warnCount + ' warn · ' + bc.alertCount + ' alerts';
+    document.getElementById('local-val').textContent = bc.healthScore;
+    document.getElementById('local-val').style.color = bc.headlineColor;
+    document.getElementById('local-sub').textContent = '/100 · ' + bc.totalChecks + ' checks · ' + bc.warnCount + ' warn · ' + bc.alertCount + ' alerts';
     // Alerts banner
     if (bc.alertCount > 0) {
       const banner = document.getElementById('alerts-banner');
@@ -156,6 +175,8 @@ function tick() {
   }
 }
 
+workerHero();
+setInterval(() => { if (!document.hidden) workerHero(); }, 60000);
 // Initial load attempt + retries to catch lazy-loaded modules
 setTimeout(tick, 1500);
 setTimeout(tick, 4000);

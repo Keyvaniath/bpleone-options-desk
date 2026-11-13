@@ -30,8 +30,8 @@
 <div class="container">
   <div class="page-header">
     <div>
-      <div class="page-title">Technical Analysis <span class="feat-badge feat-live">LIVE</span></div>
-      <div class="page-subtitle">Real RSI / MACD / day-range / proximity proxies · <span id="market-clock">--</span></div>
+      <div class="page-title">Technical Analysis <span class="feat-badge" style="background:rgba(245,158,11,0.14);color:var(--yellow);">DELAYED ~15 MIN</span></div>
+      <div class="page-subtitle">Daily RSI(14) and MACD(12/26) from real bars · day-range position from the session's real high/low · <span id="market-clock">--</span></div>
     </div>
     <div class="flex gap-8">
       <select id="filterSel" style="background:var(--bg-elevated);border:1px solid var(--border);border-radius:8px;padding:6px 12px;color:var(--text-primary);font-size:13px;">
@@ -49,7 +49,7 @@
 
   <div class="live-banner">
     <span class="icon">📊</span>
-    <div>RSI is computed from intraday tick history (page session). Day-range position uses Finnhub's high/low/open. MACD uses 12/26 EMA on tick series. <strong>For deeper TA</strong> (daily/weekly RSI, classic patterns) we need historical bars — coming soon via REST.</div>
+    <div>RSI(14, Wilder) and the MACD line (12/26 EMA) are <strong>daily</strong>, from the last 40 sessions of real bars (the desk’s Worker, <code>/brain/bars</code>; today’s bar is the delayed live one). Day-range position uses the session’s real high and low. A name the Worker keeps no bars for shows — and is left out of the RSI counts.</div>
   </div>
 
   <div class="grid grid-4 mb-24">
@@ -93,17 +93,6 @@
 buildNav('ta');
 const $ = id => document.getElementById(id);
 let filter = 'all';
-const history = {}; // sym -> [prices]
-
-function track(q) {
-  if (!q.fresh) return;
-  if (!history[q.symbol]) history[q.symbol] = [];
-  const h = history[q.symbol];
-  if (h.length === 0 || h[h.length-1] !== q.last) {
-    h.push(q.last);
-    if (h.length > 50) h.shift();
-  }
-}
 
 function rsi(prices, period = 14) {
   if (prices.length < period + 1) return null;
@@ -129,23 +118,53 @@ function macd(prices) {
   return fast - slow;
 }
 
+// Audit 2026-11-13 (pass 344): with no tick history (every fresh visit) "RSI" was 50 + 2 x change% and MACD 0, and a
+// missing day range became +/-1% around the prior close, so "oversold" / "strong down" signals came from invented
+// numbers; keyless visitors (provider 'mock') also got the months-old seeds as rows. Now: real quotes only, daily
+// Wilder RSI(14) and MACD(12/26) from /brain/bars, and the session's real high/low.
+const TA_W = (window.WorkerBridge && WorkerBridge.getUrl && WorkerBridge.getUrl()) || 'https://bpleone-brain-worker.brandonpleone.workers.dev';
+const NOT_REAL = ['stale-seed', 'mock', 'demo-sim'];
+const DAILY = {};   // sym -> closes (oldest first)
+function wilder(c, n) {
+  if (c.length < n + 1) return null;
+  let g = 0, l = 0;
+  for (let i = 1; i <= n; i++) { const d = c[i] - c[i - 1]; if (d > 0) g += d; else l -= d; }
+  g /= n; l /= n;
+  for (let i = n + 1; i < c.length; i++) { const d = c[i] - c[i - 1]; g = (g * (n - 1) + Math.max(d, 0)) / n; l = (l * (n - 1) + Math.max(-d, 0)) / n; }
+  return l === 0 ? 100 : 100 - 100 / (1 + g / l);
+}
+let dailyAt = 0;
+async function loadDaily() {
+  if (Date.now() - dailyAt < 10 * 60 * 1000) return;
+  dailyAt = Date.now();
+  const syms = Object.values(QUOTES || {}).filter(q => q && q.symbol && NOT_REAL.indexOf(q.priceSource) < 0 && !/^(BTC|ETH)$/.test(q.symbol)).map(q => q.symbol);
+  for (let i = 0; i < syms.length; i += 40) {
+    try {
+      const r = await fetch(TA_W + '/brain/bars?days=40&syms=' + encodeURIComponent(syms.slice(i, i + 40).join(',')), { cache: 'no-store' });
+      const j = r.ok ? await r.json() : null;
+      const bars = (j && j.bars) || {};
+      for (const k in bars) { const c = (bars[k] || []).map(b => b && b.c).filter(v => v > 0); if (c.length >= 15) DAILY[k] = c; }
+    } catch (e) {}
+  }
+  render();
+}
+
 function build() {
   if (typeof QUOTES === 'undefined') return [];
-  const usingMock = typeof DataProvider !== 'undefined' && DataProvider.getStatus().provider === 'mock';
-  return Object.values(QUOTES).filter(q => (usingMock || q.fresh) && q.symbol !== 'VIX').map(q => {
-    const hist = history[q.symbol] || [];
-    const r = rsi(hist) || (50 + q.changePct * 2);  // fallback: scaled from chg
-    const m = macd(hist) || 0;
-    const lo = q.dayLow || q.prevClose * 0.99;
-    const hi = q.dayHigh || q.prevClose * 1.01;
-    const rangePos = hi > lo ? (q.last - lo) / (hi - lo) : 0.5;
-    let signal = 'mixed', sigCls = 'signal-mid';
-    if (r > 70 && q.changePct > 1) { signal = 'overbought·up'; sigCls = 'signal-up'; }
+  return Object.values(QUOTES).filter(q => q && q.last > 0 && NOT_REAL.indexOf(q.priceSource) < 0 && q.symbol !== 'VIX').map(q => {
+    const c = DAILY[q.symbol] || null;
+    const r = c ? wilder(c, 14) : null;
+    const m = c ? macd(c) : null;
+    const lo = q.dayLow, hi = q.dayHigh;
+    const rangePos = lo > 0 && hi > lo ? Math.max(0, Math.min(1, (q.last - lo) / (hi - lo))) : null;
+    let signal = r == null ? 'no daily bars' : 'mixed', sigCls = 'signal-mid';
+    if (r == null) { /* nothing to read */ }
+    else if (r > 70 && q.changePct > 1) { signal = 'overbought·up'; sigCls = 'signal-up'; }
     else if (r > 70) { signal = 'overbought·watch'; sigCls = 'signal-mid'; }
     else if (r < 30 && q.changePct < -1) { signal = 'oversold·dn'; sigCls = 'signal-dn'; }
     else if (r < 30) { signal = 'oversold·bounce?'; sigCls = 'signal-mid'; }
-    else if (q.changePct > 2 && rangePos > 0.7) { signal = 'strong up'; sigCls = 'signal-up'; }
-    else if (q.changePct < -2 && rangePos < 0.3) { signal = 'strong down'; sigCls = 'signal-dn'; }
+    else if (rangePos != null && q.changePct > 2 && rangePos > 0.7) { signal = 'strong up'; sigCls = 'signal-up'; }
+    else if (rangePos != null && q.changePct < -2 && rangePos < 0.3) { signal = 'strong down'; sigCls = 'signal-dn'; }
     return { sym: q.symbol, last: q.last, chgPct: q.changePct, rsi: r, macd: m, rangePos, signal, sigCls };
   });
 }
@@ -153,18 +172,19 @@ function build() {
 function render() {
   const items = build();
   let filtered = items;
-  if (filter === 'oversold') filtered = items.filter(i => i.rsi < 30);
-  else if (filter === 'overbought') filtered = items.filter(i => i.rsi > 70);
-  else if (filter === 'strong-up') filtered = items.filter(i => i.chgPct > 2 && i.rangePos > 0.7);
-  else if (filter === 'strong-dn') filtered = items.filter(i => i.chgPct < -2 && i.rangePos < 0.3);
-  else if (filter === 'near-high') filtered = items.filter(i => i.rangePos > 0.85);
-  else if (filter === 'near-low') filtered = items.filter(i => i.rangePos < 0.15);
+  if (filter === 'oversold') filtered = items.filter(i => i.rsi != null && i.rsi < 30);
+  else if (filter === 'overbought') filtered = items.filter(i => i.rsi != null && i.rsi > 70);
+  else if (filter === 'strong-up') filtered = items.filter(i => i.rangePos != null && i.chgPct > 2 && i.rangePos > 0.7);
+  else if (filter === 'strong-dn') filtered = items.filter(i => i.rangePos != null && i.chgPct < -2 && i.rangePos < 0.3);
+  else if (filter === 'near-high') filtered = items.filter(i => i.rangePos != null && i.rangePos > 0.85);
+  else if (filter === 'near-low') filtered = items.filter(i => i.rangePos != null && i.rangePos < 0.15);
   filtered.sort((a, b) => Math.abs(b.chgPct) - Math.abs(a.chgPct));
 
   $('kU').textContent = items.length;
-  $('kOS').textContent = items.filter(i => i.rsi < 30).length;
-  $('kOB').textContent = items.filter(i => i.rsi > 70).length;
-  $('kRange').textContent = items.length ? (items.reduce((a, i) => a + i.rangePos, 0) / items.length * 100).toFixed(0) + '%' : '—';
+  $('kOS').textContent = items.filter(i => i.rsi != null && i.rsi < 30).length;
+  $('kOB').textContent = items.filter(i => i.rsi != null && i.rsi > 70).length;
+  const ranged = items.filter(i => i.rangePos != null);
+  $('kRange').textContent = ranged.length ? (ranged.reduce((a, i) => a + i.rangePos, 0) / ranged.length * 100).toFixed(0) + '%' : '\u2014';
 
   if (!filtered.length) {
     $('tbody').innerHTML = '<tr><td colspan="9" style="text-align:center;color:var(--text-muted);padding:30px;">No matches. Try a different filter.</td></tr>';
@@ -173,16 +193,16 @@ function render() {
 
   $('tbody').innerHTML = filtered.slice(0, 30).map(i => {
     const chgCls = i.chgPct >= 0 ? 'green-text' : 'red-text';
-    const rsiCls = i.rsi < 30 ? 'green-text' : i.rsi > 70 ? 'red-text' : '';
-    const rangeFill = Math.round(i.rangePos * 100);
-    const rangeColor = i.rangePos > 0.6 ? 'var(--green)' : i.rangePos < 0.4 ? 'var(--red)' : 'var(--yellow)';
+    const rsiCls = i.rsi == null ? '' : i.rsi < 30 ? 'green-text' : i.rsi > 70 ? 'red-text' : '';
+    const rangeFill = i.rangePos == null ? 0 : Math.round(i.rangePos * 100);
+    const rangeColor = i.rangePos == null ? 'transparent' : i.rangePos > 0.6 ? 'var(--green)' : i.rangePos < 0.4 ? 'var(--red)' : 'var(--yellow)';
     return `<tr class="scan-row" onclick="location.href='ticker.html?sym=${i.sym}'">
       <td class="mono"><strong>${i.sym}</strong></td>
       <td class="mono">$${i.last.toFixed(2)}</td>
       <td class="mono ${chgCls}">${i.chgPct >= 0 ? '+' : ''}${i.chgPct.toFixed(2)}%</td>
-      <td class="mono ${rsiCls}" style="font-weight:600;">${i.rsi.toFixed(1)}</td>
-      <td class="mono">${(i.macd >= 0 ? '+' : '') + i.macd.toFixed(3)}</td>
-      <td><div class="bar-mini"><div class="fill" style="width:${rangeFill}%;background:${rangeColor};"></div><div class="mid"></div></div><div style="font-size:10px;color:var(--text-muted);margin-top:2px;">${rangeFill}% of day range</div></td>
+      <td class="mono ${rsiCls}" style="font-weight:600;">${i.rsi == null ? '\u2014' : i.rsi.toFixed(1)}</td>
+      <td class="mono">${i.macd == null ? '\u2014' : (i.macd >= 0 ? '+' : '') + i.macd.toFixed(3)}</td>
+      <td><div class="bar-mini"><div class="fill" style="width:${rangeFill}%;background:${rangeColor};"></div><div class="mid"></div></div><div style="font-size:10px;color:var(--text-muted);margin-top:2px;">${i.rangePos == null ? 'no day range' : rangeFill + '% of day range'}</div></td>
       <td class="mono ${chgCls}">${i.chgPct >= 0 ? '+' : ''}${i.chgPct.toFixed(2)}%</td>
       <td class="${i.sigCls}" style="font-size:12px;font-weight:600;">${i.signal}</td>
       <td style="font-size:11px;color:var(--accent);">→</td>
@@ -193,11 +213,15 @@ function render() {
 $('filterSel').addEventListener('change', () => { filter = $('filterSel').value; render(); });
 $('reloadBtn').addEventListener('click', render);
 
+let _taPending = false;
 if (typeof Feed !== 'undefined') Feed.subscribe('*', () => {
-  Object.values(QUOTES || {}).forEach(q => track(q));
-  render();
+  if (_taPending) return;
+  _taPending = true;
+  requestAnimationFrame(() => { _taPending = false; render(); });
 });
+window.addEventListener('bpleone:quotes', () => loadDaily());
 render();
+setTimeout(loadDaily, 1500);
 </script>
 </body>
 </html>
