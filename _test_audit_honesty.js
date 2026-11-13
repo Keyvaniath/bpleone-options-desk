@@ -186,7 +186,7 @@ t('potd-backtest logs picks from real prints only and never formats a null level
 t('the retired historical trainer cannot overwrite the model', !/ModelStore\.save\(/.test(read('historical-trainer.html')) && /href="historical-bootstrap\.html"/.test(read('historical-trainer.html')));
 
 // 6i. Pass 342 (Brandon's 11/13 screenshots, "A LOT OF THESE ARE BROKEN"): contradictions between pages.
-t('no page says "trade with conviction"', hits(/trade with conviction/i).length === 0);
+t('no page says "trade with conviction" (the audit log may quote it)', hits(/trade with conviction/i).filter(f => f !== 'audit-log.html').length === 0);
 t('the status bar reports the Worker brain, not the browser-local coach', /async function workerBrainStatus\(\)/.test(appjs) && /const st = await workerBrainStatus\(\);/.test(appjs) && !/BrainCoach\.summary\(\)/.test(appjs.slice(appjs.indexOf('function initBrainStatusBar'), appjs.indexOf('function initLivePulseTicker'))));
 t('the home brain card reads the Worker status', /window\.workerBrainStatus\(\)/.test(read('index.html')) && !/BrainCoach\.summary\(\)/.test(read('index.html')));
 t('the data pill re-renders when prices land (DataProvider path)', /window\.addEventListener\('bpleone:quotes', \(\) => \{ try \{ render\(DataProvider\.getStatus\(\)\)/.test(appjs));
