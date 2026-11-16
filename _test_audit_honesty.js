@@ -274,7 +274,7 @@ t('phone: Feedback button and first-visit card sit above the tab bar and status 
   const files = fs6h.readdirSync(__dirname).filter(f => f.endsWith('.html'));
   let boxes = 0, bad = [];
   files.forEach(f => { const s = read(f); const m = s.match(/<div data-fix="pass349" style="position:relative;height:\d+px;"><canvas\b[^>]*><\/canvas><\/div>/g); boxes += m ? m.length : 0; if (/data-fix="pass349"[^>]*>\s*<canvas\b[^>]*\bheight="/.test(s)) bad.push(f); });
-  t('runaway charts stay in fixed-height boxes (33 canvases, no height attribute inside the box)', boxes >= 33 && !bad.length);
+  t('runaway charts stay in fixed-height boxes (138 canvases, no height attribute inside the box)', boxes >= 138 && !bad.length);
 })();
 t('the TA warm-up batches Worker bars requests (one /brain/bars call, not one per symbol)', /function _flushBarsBatch\(\)/.test(read('js/data-provider.js')) && /setTimeout\(_flushBarsBatch, 50\)/.test(read('js/data-provider.js')));
 t('dark theme muted text meets ~4.5:1 on cards; links without a class are never browser-default blue', /--text-muted: #7b8aa0;/.test(read('css/style.css')) && /a:not\(\[class\]\) \{ color: var\(--accent\); \}/.test(read('css/style.css')));
