@@ -61,5 +61,20 @@ ok(/import \{ weekOf, recordByWeek \} from '\.\/record\.js';/.test(idx), 'index.
 ok(/if \(path === '\/brain\/record'\)/.test(idx) && /recordByWeek\(journal\)/.test(idx), '/brain/record is served from the journal');
 ok(/caches\.default/.test(idx.slice(idx.indexOf("if (path === '/brain/record')"), idx.indexOf("if (path === '/brain/record')") + 1500)), '/brain/record is edge-cached (never recomputed per visitor)');
 
+// journal archive (worker pass-330): the oldest graded calls past the cap are archived by month, never deleted
+const gsrc = fs.readFileSync(path.join(__dirname, 'worker', 'src', 'grading.js'), 'utf8').replace(/^export (const|function|async function)/gm, '$1');
+const G = new Function(gsrc + '\nreturn { splitForCap, archiveBuckets, appendUnique };')();
+const Jn = [];
+for (let i = 0; i < 12; i++) Jn.push({ id: 'w-' + i, ts: 1790000000000 + i * 86400000, sym: 'S' + (i % 3), dayKey: i < 6 ? 20261030 : 20261102, features: [1, 2], resolved: { mid: 'correct' } });
+const sp = G.splitForCap(Jn, 5);
+ok(sp.kept.length === 5 && sp.dropped.length === 7 && sp.kept[0].id === 'w-7', 'the cap keeps the newest calls and hands the oldest to the archive');
+const bk = G.archiveBuckets('journal', sp.dropped);
+ok(Object.keys(bk).sort().join() === 'archive_journal_202610,archive_journal_202611' && bk.archive_journal_202610.length === 6, 'archived by the month of the call (dayKey)');
+const again = G.appendUnique(bk.archive_journal_202610, bk.archive_journal_202610.concat(bk.archive_journal_202611));
+ok(again.length === 7, 'an interrupted archive pass that repeats does not duplicate calls');
+ok(/const JOURNAL_TRIM_BATCH = 1000;/.test(idx) && /if \(journal\.length > MAX_JOURNAL \+ JOURNAL_TRIM_BATCH\) \{\s*const kept = await capAndArchive\(env, 'journal', journal, MAX_JOURNAL\);/.test(idx), 'the tick archives the journal overflow in batches instead of splicing it away');
+ok(!/journal\.splice\(0, journal\.length - MAX_JOURNAL\)/.test(idx), 'no plain delete of the oldest journal calls remains');
+ok(/\['flow', 'confluence', 'radar', 'journal'\]\.indexOf\(name\)/.test(idx), '/brain/archive serves the journal archive');
+
 if (fails) { console.log(fails + ' failure(s)'); process.exit(1); }
 console.log('record: all checks pass');

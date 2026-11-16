@@ -45,7 +45,7 @@ import { weekOf, recordByWeek } from './record.js';
 // Pass 200: version stamp so brain-proof.html + worker-setup.html can detect
 // when the deployed worker is behind the repo source. Bump on every meaningful
 // behavior change. Read via /brain/health → worker_version field.
-const WORKER_VERSION = 'pass-329';
+const WORKER_VERSION = 'pass-330';
 
 const UNIVERSE = [
   'SPY','QQQ','IWM','DIA','AAPL','NVDA','TSLA','MSFT','META','AMZN','GOOGL','AMD',
@@ -100,6 +100,7 @@ const KV_KEYS = {
 // comfortable buffer for high-activity days and accounts for the rotating
 // 12-syms-per-minute capture cadence.
 const MAX_JOURNAL = 35000;
+const JOURNAL_TRIM_BATCH = 1000;   // pass-330: archive the overflow in batches (KV write budget)
 
 // Pass 322: whale funds tracked by /brain/13f + /brain/13f-holdings. sec_name
 // is always taken from EDGAR's own registrant record at fetch time, so a wrong
@@ -1531,9 +1532,13 @@ async function tick(env) {
     });
   }
 
-  // Trim journal
-  if (journal.length > MAX_JOURNAL) {
-    journal.splice(0, journal.length - MAX_JOURNAL);
+  // Trim journal. Pass-330: the oldest calls are ARCHIVED (archive_journal_<YYYYMM>, read /brain/archive?log=journal)
+  // instead of deleted: they are the brain's graded public record. Trimmed in batches (cap + JOURNAL_TRIM_BATCH) so the
+  // archive costs one KV write every couple of weeks, not one a minute; capAndArchive keeps the journal whole (no trim)
+  // if an archive write fails, so a call is never lost. At ~590 bytes a call, cap + batch is ~21 MB (KV limit 25 MiB).
+  if (journal.length > MAX_JOURNAL + JOURNAL_TRIM_BATCH) {
+    const kept = await capAndArchive(env, 'journal', journal, MAX_JOURNAL);
+    if (kept.length < journal.length) journal.splice(0, journal.length - kept.length);
   }
 
   // Pass 190 (CRITICAL race fix): only persist the model if we actually
@@ -3342,7 +3347,7 @@ async function handleRequest(request, env, ctx) {
   // GET /brain/archive?log=flow|confluence|radar&month=YYYYMM -> that month's records
   if (path === '/brain/archive') {
     const name = (url.searchParams.get('log') || '').toLowerCase();
-    if (['flow', 'confluence', 'radar'].indexOf(name) < 0) return json({ ok: false, error: 'log must be flow, confluence or radar' }, 400);
+    if (['flow', 'confluence', 'radar', 'journal'].indexOf(name) < 0) return json({ ok: false, error: 'log must be flow, confluence, radar or journal' }, 400);
     const month = (url.searchParams.get('month') || '').replace(/[^0-9]/g, '').slice(0, 6);
     if (month) {
       const recs = await kvGet(env, 'archive_' + name + '_' + month, [], 300);
@@ -3351,7 +3356,7 @@ async function handleRequest(request, env, ctx) {
     let keys = [];
     try { const l = await env.BRAIN_KV.list({ prefix: 'archive_' + name + '_' }); keys = (l.keys || []).map(k => k.name); } catch (e) {}
     return json({ ok: true, log: name, months: keys.map(k => k.slice(('archive_' + name + '_').length)).sort(),
-      note: 'Records the 4,000 (flow, confluence) / 6,000 (radar) caps rotated out, kept append-only from pass-318 on.' }, 200, 3600);
+      note: 'Records the 4,000 (flow, confluence) / 6,000 (radar) caps rotated out, kept append-only from pass-318 on; journal = the brain’s graded calls past its 35,000 cap, archived in batches from pass-330 on (none yet: the cap is months away).' }, 200, 3600);
   }
 
   // ===== Pass-318: verify the hash chain of sealed capture records (read-only).
