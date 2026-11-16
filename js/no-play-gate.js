@@ -30,9 +30,11 @@
   function bar(kind, html) {
     const el = document.createElement('div');
     el.id = 'bp-no-play-gate';
-    const tone = kind === 'closed' ? 'rgba(220,38,38,0.10);border:2px solid #ef4444;color:#fecaca'
-               : kind === 'unknown' ? 'rgba(245,158,11,0.10);border:2px solid #f59e0b;color:#fde68a'
-               : 'rgba(16,185,129,0.08);border:1px solid rgba(16,185,129,0.5);color:#a7f3d0';
+    // Pass 349: theme colours, not fixed pale tints. In the light theme the white headline and #fecaca text sat on
+    // a light pink box at ~1.2:1 (unreadable) on every pick page during NO PLAY.
+    const tone = kind === 'closed' ? 'rgba(220,38,38,0.10);border:2px solid #ef4444;color:var(--text-secondary)'
+               : kind === 'unknown' ? 'rgba(245,158,11,0.10);border:2px solid #f59e0b;color:var(--text-secondary)'
+               : 'rgba(16,185,129,0.08);border:1px solid rgba(16,185,129,0.5);color:var(--text-secondary)';
     el.style.cssText = 'margin:0 0 18px;padding:14px 18px;border-radius:12px;background:' + tone + ';font-size:13px;line-height:1.6;';
     el.innerHTML = html;
     return el;
@@ -44,12 +46,12 @@
     let el;
     if (state.kind === 'closed') {
       const c = state.cal || {};
-      el = bar('closed', '<div style="font-size:16px;font-weight:800;color:#fff;margin-bottom:4px;">No qualifying setups today.</div>' +
+      el = bar('closed', '<div style="font-size:16px;font-weight:800;color:var(--text-primary);margin-bottom:4px;">No qualifying setups today.</div>' +
         'The desk\'s live calibration, refit ' + esc(c.fitted ? new Date(c.fitted).toLocaleString('en-US', { timeZone: 'America/New_York', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) + ' ET' : 'daily') +
-        ' on ' + esc(c.graded_calls != null ? c.graded_calls : '?') + ' graded 5-day calls, has slope ' + esc(c.slope_a != null ? (+c.slope_a).toFixed(3) : '?') +
+        ' on ' + esc(c.graded_calls != null ? Number(c.graded_calls).toLocaleString('en-US') : '?') + ' graded 5-day calls, has slope ' + esc(c.slope_a != null ? (+c.slope_a).toFixed(3).replace('-', '−') : '?') +
         ' (needs > 0.2): the direction signal is uninformative, so the desk publishes <strong>no pick</strong>. ' +
         'Anything below is ' + what + ', shown for transparency. It is not a pick and not advice. ' +
-        '<a href="edge-scorecard.html" style="color:#fff;text-decoration:underline;">Live record</a> · <a href="system-status.html" style="color:#fff;text-decoration:underline;">System status</a>');
+        '<a href="edge-scorecard.html" style="color:var(--text-primary);text-decoration:underline;">Live record</a> · <a href="system-status.html" style="color:var(--text-primary);text-decoration:underline;">System status</a>');
       const sel = PAGES[page];
       const target = sel && document.querySelector(sel);
       if (target) {
@@ -63,7 +65,7 @@
       }
     } else if (state.kind === 'open') {
       el = bar('open', 'Live calibration is informative today (slope ' + esc((+state.cal.slope_a).toFixed(3)) + '). The desk\'s own graded pick is on ' +
-        '<a href="pick-of-day.html" style="color:#fff;text-decoration:underline;">Pick of the Day</a>; this page ranks with the browser model, which has no proven edge over market drift.');
+        '<a href="pick-of-day.html" style="color:var(--text-primary);text-decoration:underline;">Pick of the Day</a>; this page ranks with the browser model, which has no proven edge over market drift.');
     } else {
       el = bar('unknown', '<strong>Could not confirm today\'s NO PLAY gate</strong> (the desk worker did not answer). Treat anything below as unverified browser-model output, not a pick.');
     }

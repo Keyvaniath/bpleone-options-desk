@@ -279,6 +279,7 @@ t('phone: Feedback button and first-visit card sit above the tab bar and status 
 t('the TA warm-up batches Worker bars requests (one /brain/bars call, not one per symbol)', /function _flushBarsBatch\(\)/.test(read('js/data-provider.js')) && /setTimeout\(_flushBarsBatch, 50\)/.test(read('js/data-provider.js')));
 t('dark theme muted text meets ~4.5:1 on cards; links without a class are never browser-default blue', /--text-muted: #7b8aa0;/.test(read('css/style.css')) && /a:not\(\[class\]\) \{ color: var\(--accent\); \}/.test(read('css/style.css')));
 t('System Status checks that the brain logged a call for every name on the latest day', /add\('Daily captures'/.test(read('system-status.html')));
+t('light theme: the NO PLAY box uses theme text colours (no fixed white on its light pink box)', !/color:#fff;/.test(read('js/no-play-gate.js')) && /color:var\(--text-secondary\)'/.test(read('js/no-play-gate.js')));
 t('swa-tracker never prints 0/undefined (stats always carries minSnapshots)', /ready: false, minSnapshots: MIN_SNAPSHOTS/.test(read('js/swa.js')));
 
 // 7. Worker sources parse strictly. `node --check` passed an ES-module file with an unescaped quote in a
