@@ -458,47 +458,6 @@ const Learn = (function () {
     return out;
   }
 
-  // Seed with realistic prior so a brand-new install has signal
-  function seedIfEmpty() {
-    const state = load();
-    if (state.trades.length) return;
-    const setups = ['50ma-reclaim','bull-flag','cup-handle','macd-cross','unusual-call','unusual-put','52w-break','rsi-divergence','volume-breakout','gamma-squeeze'];
-    const sectors = ['Tech','Comm Svc','Cons Disc','Financials','Healthcare','Industrials','Energy','Materials','Utilities','REITs','Cons Stpl'];
-    const symbols = ['NVDA','AMD','META','AAPL','MSFT','GOOGL','AMZN','TSLA','PLTR','COIN','SMCI','SHOP','SPY','QQQ','AVGO','MU','CRM','UBER','BABA','XLE'];
-    const now = Date.now();
-    for (let i = 0; i < 240; i++) {
-      const setup = setups[Math.floor(Math.random()*setups.length)];
-      const sector = sectors[Math.floor(Math.random()*sectors.length)];
-      const symbol = symbols[Math.floor(Math.random()*symbols.length)];
-      const bias = Math.random() > 0.32 ? 'bull' : 'bear';
-      const entry = +(50 + Math.random()*500).toFixed(2);
-      const stopDist = entry * 0.04 * (0.6 + Math.random()*0.8);
-      const stop = bias === 'bull' ? entry - stopDist : entry + stopDist;
-      // outcome: skewed to wins for known good setups, weighted by setup quality
-      const setupEdge = { '50ma-reclaim': 0.18, 'cup-handle': 0.15, 'bull-flag': 0.14, 'macd-cross': 0.10, 'unusual-call': 0.08, '52w-break': 0.12, 'rsi-divergence': 0.06, 'volume-breakout': 0.16, 'unusual-put': 0.02, 'gamma-squeeze': 0.18 }[setup] || 0.05;
-      const win = Math.random() < (0.50 + setupEdge);
-      const R = win ? (1.0 + Math.random() * 2.5) : -(0.5 + Math.random() * 0.8);
-      const exit = bias === 'bull' ? entry + R * stopDist : entry - R * stopDist;
-      const ts = now - (240 - i) * 86400000 * (0.6 + Math.random()*0.8);
-      state.trades.push({
-        id: 't_seed_' + i,
-        ts, closedTs: ts + (1 + Math.floor(Math.random()*14)) * 86400000,
-        symbol, setup, sector, bias,
-        score: 50 + Math.floor(Math.random()*45),
-        entry: +entry.toFixed(2),
-        stop:  +stop.toFixed(2),
-        exit:  +exit.toFixed(2),
-        pnl: +((bias==='bull'?exit-entry:entry-exit)).toFixed(2),
-        R: +R.toFixed(2),
-        result: win ? 'win' : 'loss',
-        holdDays: 1 + Math.floor(Math.random()*14),
-        closeReason: win ? (Math.random() > 0.4 ? 'target' : 'trail') : 'stop'
-      });
-    }
-    save(state);
-    rebalanceWeights();
-  }
-
   function reset() { save(JSON.parse(JSON.stringify(SCHEMA))); }
 
   function getWeights() { return load().weights; }
@@ -659,12 +618,28 @@ const Learn = (function () {
     return trade;
   }
 
-  // Auto-seed DISABLED — was generating 240 synthetic trades with Math.random()
-  // outcomes on first load. That poisoned every analytics page (Cohort,
-  // Performance Attribution, Best Symbols, etc.) with fake history that
-  // users couldn't distinguish from real data. The honest default is empty —
-  // analytics pages should show 'no data yet' until real trades exist.
-  // To force a synthetic seed for testing, call Learn.seedIfEmpty() from console.
+  // Auto-seed DISABLED: it generated 240 synthetic trades with Math.random() outcomes on first load, rigged so the
+  // "good" setups won more often, which poisoned every analytics page and every setup weight. The honest default is
+  // empty. Pass 347: the seeding function is deleted, and a browser that loaded it before it was disabled still held
+  // the 240 trades ('t_seed_' ids) with every global weight, per-symbol weight and conditional factor fit to them
+  // (found in Brandon's own browser on 11/16: 240 seeded, 0 real). Purge them once and refit from real trades only.
+  // The conditional refit keeps its old factors when fewer than 8 real trades exist, so they are cleared first.
+  (function purgeSyntheticSeed() {
+    try {
+      const raw = localStorage.getItem(KEY);
+      if (!raw || raw.indexOf('t_seed_') < 0) return;
+      const state = load();
+      const before = (state.trades || []).length;
+      state.trades = (state.trades || []).filter(t => !String((t && t.id) || '').startsWith('t_seed_'));
+      if (state.trades.length === before) return;
+      state.weights = JSON.parse(JSON.stringify(SCHEMA.weights));
+      state.symbolWeights = {};
+      state.conditional = {};
+      state.seedPurged = { at: Date.now(), removed: before - state.trades.length };
+      save(state);
+      rebalanceWeights();
+    } catch (e) {}
+  })();
   try { rebalanceConditional(); } catch (e) {}
 
   return {
