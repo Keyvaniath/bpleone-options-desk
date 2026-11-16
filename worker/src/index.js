@@ -44,7 +44,7 @@ import { earningsFrom8K, tickerMap, cikFor, cikPath } from './earnings.js';
 // Pass 200: version stamp so brain-proof.html + worker-setup.html can detect
 // when the deployed worker is behind the repo source. Bump on every meaningful
 // behavior change. Read via /brain/health → worker_version field.
-const WORKER_VERSION = 'pass-327';
+const WORKER_VERSION = 'pass-328';
 
 const UNIVERSE = [
   'SPY','QQQ','IWM','DIA','AAPL','NVDA','TSLA','MSFT','META','AMZN','GOOGL','AMD',
@@ -1510,6 +1510,10 @@ async function tick(env) {
       else if ((predUp && wentUp) || (!predUp && wentDown)) outcome = 'correct';
       else outcome = 'wrong';
       entry.resolved[horizon] = outcome;
+      // Pass-328: keep the price and time each graded 5-day call was settled at, so the published
+      // record can be checked against prices, not just "correct"/"wrong" (~45 bytes; the journal at its
+      // 35,000 cap stays near 22 MB, under KV's 25 MiB value limit).
+      if (horizon === 'mid') { entry.exitPx5 = Math.round(cur.last * 10000) / 10000; entry.exitTs5 = Date.now(); }
       // Pass 218 (CRITICAL): train on MID (5-day) horizon outcomes, not SHORT.
       // The bootstrap labels are 5-day forward direction at ±1pp threshold
       // (pass 206). Training the live loop on 1-day outcomes was producing a
@@ -1986,7 +1990,19 @@ async function handleRequest(request, env, ctx) {
     const nRaw = parseInt(url.searchParams.get('n') || '200', 10);
     const n = Math.min(2000, Math.max(1, Number.isFinite(nRaw) ? nRaw : 200));
     const journal = await kvGet(env, KV_KEYS.JOURNAL, [], 30);   // pass 298 (scale): per-colo cached read
-    return json({ journal: journal.slice(-n), total: journal.length }, 200, 30);
+    // Pass-328: the whole live record is readable in pages (?offset=0&n=2000, oldest first), so the
+    // published hit rate can be checked call by call; before this only the newest 2,000 were public.
+    // ?lite=1 drops the 22-number feature vector (about 80% of each entry). Read-only, cached 5 min.
+    const lite = url.searchParams.get('lite') === '1';
+    const strip = rows => lite ? rows.map(e => { const o = Object.assign({}, e); delete o.features; return o; }) : rows;
+    const offRaw = url.searchParams.get('offset');
+    if (offRaw !== null) {
+      const o = parseInt(offRaw, 10);
+      const offset = Math.min(journal.length, Math.max(0, Number.isFinite(o) ? o : 0));
+      return json({ journal: strip(journal.slice(offset, offset + n)), total: journal.length, offset, n,
+        next: offset + n < journal.length ? offset + n : null, order: 'oldest first' }, 200, 300);
+    }
+    return json({ journal: strip(journal.slice(-n)), total: journal.length }, 200, 30);
   }
 
   if (path === '/brain/model') {

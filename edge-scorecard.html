@@ -15,7 +15,7 @@
 <meta name="twitter:image" content="https://options.bpleone.com/assets/og-card.png">
 <meta name="twitter:title" content="bpleone / trade — Edge Scorecard">
 <meta name="twitter:description" content="Does it beat the market's natural drift (not just a coin flip)? The held-out backtest and the live forward-test, graded honestly - drift vs skill, no cherry-picking.">
-<link rel="stylesheet" href="css/style.css?v=v239">
+<link rel="stylesheet" href="css/style.css?v=v240">
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
 <style>
@@ -115,6 +115,10 @@
       <div class="sc-card"><div class="sc-lbl">Slope by day, against the 0.2 bar</div><div id="cal-chart" style="height:120px;"></div>
         <div id="cal-trend-note" style="font-size:11px;color:var(--text-muted);margin-top:6px;line-height:1.5;">—</div></div>
     </div>
+    <div style="margin-top:14px;font-size:12px;color:var(--text-muted);display:flex;flex-wrap:wrap;gap:10px;align-items:center;line-height:1.5;">
+      <button class="btn btn-ghost" id="dl-record" type="button" style="font-size:12px;">&#11015; Download every graded call (CSV)</button>
+      <span id="dl-record-status" style="flex:1 1 260px;min-width:0;">Every call the brain has logged, oldest first, straight from the Worker, so the live record above can be checked call by call.</span>
+    </div>
   </div>
 
   <div class="card mb-24">
@@ -143,13 +147,13 @@
   </div>
 </div>
 
-<script src="js/data-provider.js?v=v239"></script>
-<script src="js/ai-client.js?v=v239"></script>
-<script src="js/app.js?v=v239"></script>
-<script src="js/notify.js?v=v239"></script>
-<script src="js/live.js?v=v239"></script>
-<script src="js/worker-bridge.js?v=v239"></script>
-<script src="js/glossary.js?v=v239"></script>
+<script src="js/data-provider.js?v=v240"></script>
+<script src="js/ai-client.js?v=v240"></script>
+<script src="js/app.js?v=v240"></script>
+<script src="js/notify.js?v=v240"></script>
+<script src="js/live.js?v=v240"></script>
+<script src="js/worker-bridge.js?v=v240"></script>
+<script src="js/glossary.js?v=v240"></script>
 <script>
 buildNav('edge-scorecard');
 
@@ -372,6 +376,47 @@ async function loadCalibration() {
     $('cal-trend-note').textContent = logJ ? 'The daily history started with worker pass-327; one point is added each morning.' : 'The daily history starts once worker pass-327 is deployed; until then this shows today’s fit only.';
   }
 }
+
+// Pass 348 (worker pass-328): the brain's whole live record as a CSV, paged oldest first from /brain/journal.
+// Result columns are the Worker's own grades; the exit price and time exist only for calls settled after pass-328.
+function recordCsv(rows) {
+  const et = ts => { if (!ts) return ''; const p = {}; new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false }).formatToParts(new Date(ts)).forEach(x => p[x.type] = x.value); return p.year + '-' + p.month + '-' + p.day + ' ' + (p.hour === '24' ? '00' : p.hour) + ':' + p.minute; };
+  const cell = v => { if (v == null || v === false) return ''; const s = String(v); return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
+  const out = ['id,captured_et,symbol,entry_price,prob_up,prob_up_raw,call,regime,result_5d,exit_price_5d,exit_et_5d,result_1d,result_20d'];
+  for (const e of rows) {
+    const r = e.resolved || {}, p = typeof e.predProb === 'number' ? e.predProb : null;
+    out.push([e.id, et(e.ts), e.sym, e.entryPx, p == null ? '' : p.toFixed(4), typeof e.predProbRaw === 'number' ? e.predProbRaw.toFixed(4) : '',
+      p == null ? '' : (p >= 0.5 ? 'up' : 'down'), e.regime, r.mid || 'pending', e.exitPx5, et(e.exitTs5), r.short || 'pending', r.long || 'pending'].map(cell).join(','));
+  }
+  return out.join('\n') + '\n';
+}
+async function downloadRecord() {
+  const st = $('dl-record-status'), btn = $('dl-record');
+  btn.disabled = true; st.textContent = 'Fetching the record…';
+  const rows = []; let off = 0;
+  try {
+    for (let guard = 0; guard < 40; guard++) {
+      const r = await fetch(WORKER + '/brain/journal?offset=' + off + '&n=2000&lite=1', { cache: 'no-store' });
+      const j = r.ok ? await r.json() : null;
+      if (!j || !Array.isArray(j.journal)) throw new Error('no answer');
+      if (j.offset === undefined) { st.textContent = 'The full record needs worker pass-328, which is not deployed yet; until then the Worker serves only the newest 2,000 calls.'; btn.disabled = false; return; }
+      rows.push(...j.journal);
+      st.textContent = 'Fetched ' + rows.length.toLocaleString() + ' of ' + Number(j.total).toLocaleString() + ' calls…';
+      if (j.next == null) break;
+      off = j.next;
+    }
+  } catch (e) { st.textContent = 'The Worker did not answer; try again in a minute.'; btn.disabled = false; return; }
+  const graded = rows.filter(e => e.resolved && (e.resolved.mid === 'correct' || e.resolved.mid === 'wrong'));
+  const hits = graded.filter(e => e.resolved.mid === 'correct').length;
+  const blob = new Blob([recordCsv(rows)], { type: 'text/csv' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob); a.download = 'bpleone-brain-record-' + new Date().toISOString().slice(0, 10) + '.csv';
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+  st.textContent = rows.length.toLocaleString() + ' calls saved; ' + graded.length.toLocaleString() + ' graded at 5 days, ' + (graded.length ? (100 * hits / graded.length).toFixed(1) + '% right' : '—') + ' (the same rule as the live record above: unchanged and still-open calls are left out).';
+  btn.disabled = false;
+}
+document.getElementById('dl-record').addEventListener('click', downloadRecord);
 
 // Pass 347: the out-of-sample short-volume test (data/research/short-volume-oos.json, written weekly by the
 // short-volume-oos workflow). Interim numbers only until 26 weeks.
