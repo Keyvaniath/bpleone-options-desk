@@ -15,7 +15,7 @@
 <meta name="twitter:image" content="https://options.bpleone.com/assets/og-card.png">
 <meta name="twitter:title" content="bpleone / trade — Edge Scorecard">
 <meta name="twitter:description" content="Does it beat the market's natural drift (not just a coin flip)? The held-out backtest and the live forward-test, graded honestly - drift vs skill, no cherry-picking.">
-<link rel="stylesheet" href="css/style.css?v=v240">
+<link rel="stylesheet" href="css/style.css?v=v241">
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
 <style>
@@ -116,7 +116,7 @@
         <div id="cal-trend-note" style="font-size:11px;color:var(--text-muted);margin-top:6px;line-height:1.5;">—</div></div>
     </div>
     <div class="sc-card" style="margin-top:14px;" id="wk-card">
-      <div class="sc-lbl">The live record week by week, against calling &ldquo;up&rdquo; every time</div>
+      <div class="sc-lbl">The live record week by week, against calling &ldquo;up&rdquo; every time and against its own mix at random</div>
       <div id="wk-chart" style="min-height:150px;"></div>
       <div id="wk-note" style="font-size:12px;color:var(--text-muted);margin-top:8px;line-height:1.55;">Loading the record…</div>
     </div>
@@ -152,13 +152,13 @@
   </div>
 </div>
 
-<script src="js/data-provider.js?v=v240"></script>
-<script src="js/ai-client.js?v=v240"></script>
-<script src="js/app.js?v=v240"></script>
-<script src="js/notify.js?v=v240"></script>
-<script src="js/live.js?v=v240"></script>
-<script src="js/worker-bridge.js?v=v240"></script>
-<script src="js/glossary.js?v=v240"></script>
+<script src="js/data-provider.js?v=v241"></script>
+<script src="js/ai-client.js?v=v241"></script>
+<script src="js/app.js?v=v241"></script>
+<script src="js/notify.js?v=v241"></script>
+<script src="js/live.js?v=v241"></script>
+<script src="js/worker-bridge.js?v=v241"></script>
+<script src="js/glossary.js?v=v241"></script>
 <script>
 buildNav('edge-scorecard');
 
@@ -373,7 +373,10 @@ async function loadCalibration() {
   if (rows.length >= 2) {
     $('cal-chart').innerHTML = calSpark(rows);
     const first = rows[0], last = rows[rows.length - 1];
-    $('cal-trend-note').textContent = rows.length + ' daily fits, ' + first.dayKey + ' to ' + last.dayKey + '. Latest hit rate on the fit’s calls ' + pct(last.hit_rate) + ' vs ' + pct(Math.max(last.up_rate, 1 - last.up_rate)) + ' for always calling the majority direction.';
+    // Pass 350: the bar is calling up every time (a rule anyone could follow), never "the majority direction" (that
+    // needs hindsight). With called_up (worker pass-331) it also shows the same up/down mix assigned at random.
+    const chance = typeof last.called_up === 'number' ? last.called_up * last.up_rate + (1 - last.called_up) * (1 - last.up_rate) : null;
+    $('cal-trend-note').textContent = rows.length + ' daily fits, ' + first.dayKey + ' to ' + last.dayKey + '. Latest hit rate on the fit’s calls ' + pct(last.hit_rate) + ' vs ' + pct(last.up_rate) + ' for calling “up” every time' + (chance != null ? ' and ' + pct(chance) + ' for its own up/down mix at random.' : '.');
   } else {
     // Until the log has two days, plot today's fit as a single point against the bar rather than a blank box.
     const one = rows.length === 1 ? rows : (cur && typeof cur.a === 'number' ? [{ a: cur.a, dayKey: 'today' }] : []);
@@ -459,17 +462,48 @@ function weekRowsFromJournal(journal) {
   rows.forEach(r => { r.partial = r.n < 0.5 * med; });   // same rule as worker/src/record.js
   return rows;
 }
+// Pass 350 (worker pass-331): calls in the brain's own up/down mix assigned at random hit
+// called_up * up_rate + (1 - called_up) * (1 - up_rate). Beating THAT is choosing which names; beating "always up"
+// can come from calling DOWN more often in a falling market. Computed here too, so older Workers' rows work.
+const WK_INSET = 10;   // weeks sit 10px inside both charts' plot area, so the first skill bar clears the axis labels
+function withChance(rows) {
+  rows.forEach(r => {
+    if (typeof r.chance_rate !== 'number') r.chance_rate = r.called_up * r.up_rate + (1 - r.called_up) * (1 - r.up_rate);
+    if (typeof r.skill !== 'number') r.skill = r.hit_rate - r.chance_rate;
+  });
+  return rows;
+}
+function skillChart(rows, width) {
+  const Wd = Math.max(260, Math.round(width || 600)), H = 120, pl = 34, pr = 10, pt = 8, pb = 8;
+  // Scale from fully graded weeks (a partial week's few calls swing widely); partial bars are clipped to the scale.
+  // Bars sit on the same x positions as the weeks in the line chart above.
+  const m = Math.max(0.05, ...rows.filter(r => !r.partial).map(r => Math.abs(r.skill))) * 1.1;
+  const y = v => pt + (1 - (Math.max(-m, Math.min(m, v)) + m) / (2 * m)) * (H - pt - pb);
+  const IN = WK_INSET, step = rows.length > 1 ? (Wd - pl - pr - 2 * IN) / (rows.length - 1) : (Wd - pl - pr);
+  const xAt = i => pl + IN + (rows.length === 1 ? (Wd - pl - pr - 2 * IN) / 2 : i * step);
+  const bw = Math.max(3, Math.min(18, step * 0.6));
+  let g = '';
+  [m, 0, -m].forEach(v => { g += '<line x1="' + pl + '" x2="' + (Wd - pr) + '" y1="' + y(v).toFixed(1) + '" y2="' + y(v).toFixed(1) + '" stroke="var(--border)" stroke-width="1"' + (v === 0 ? '' : ' stroke-dasharray="2 3"') + '/><text x="' + (pl - 4) + '" y="' + (y(v) + 3).toFixed(1) + '" text-anchor="end" font-size="9" fill="var(--text-muted)">' + (v > 0 ? '+' : v < 0 ? '−' : '') + Math.abs(v * 100).toFixed(0) + '</text>'; });
+  rows.forEach((r, i) => {
+    const cx = xAt(i), y0 = y(0), y1 = y(r.skill), col = r.skill >= 0 ? 'var(--green)' : 'var(--red)';
+    g += '<rect x="' + (cx - bw / 2).toFixed(1) + '" y="' + Math.min(y0, y1).toFixed(1) + '" width="' + bw.toFixed(1) + '" height="' + Math.max(1, Math.abs(y1 - y0)).toFixed(1) + '" fill="' + (r.partial ? 'none' : col) + '" stroke="' + col + '" stroke-width="1"><title>Week of ' + Number(r.week.slice(4, 6)) + '/' + Number(r.week.slice(6)) + ': ' + (r.skill >= 0 ? '+' : '−') + Math.abs(r.skill * 100).toFixed(1) + ' points vs its own mix at random (hit ' + (r.hit_rate * 100).toFixed(1) + '%, chance ' + (r.chance_rate * 100).toFixed(1) + '%, n ' + r.n + (r.partial ? ', still being graded' : '') + ')</title></rect>';
+  });
+  return '<svg viewBox="0 0 ' + Wd + ' ' + H + '" width="' + Wd + '" height="' + H + '" style="max-width:100%;display:block;margin-top:10px;" role="img" aria-label="Weekly hit rate minus the hit rate of the same up/down mix at random, in percentage points">' + g + '</svg>'
+    + '<div style="font-size:11px;line-height:1.5;color:var(--text-muted);margin-top:2px;">Bars: the brain&rsquo;s weekly hit rate minus what its own up/down mix would hit at random, in points. Above zero, it chose better than chance which names to call up.</div>';
+}
 function weekChart(rows, width) {
   // Drawn at the card's real width so labels stay readable on a phone (a scaled 600px chart shrank them to ~4px).
-  const Wd = Math.max(260, Math.round(width || 600)), H = 160, pl = 34, pr = 10, pt = 8, pb = 22;
-  const x = i => pl + (rows.length === 1 ? (Wd - pl - pr) / 2 : i * (Wd - pl - pr) / (rows.length - 1));
+  const Wd = Math.max(260, Math.round(width || 600)), H = 160, pl = 34, pr = 10, pt = 8, pb = 22, IN = WK_INSET;
+  const x = i => pl + IN + (rows.length === 1 ? (Wd - pl - pr - 2 * IN) / 2 : i * (Wd - pl - pr - 2 * IN) / (rows.length - 1));
   const y = v => pt + (1 - v) * (H - pt - pb);
   const line = (key, color, dash) => '<polyline points="' + rows.map((r, i) => x(i).toFixed(1) + ',' + y(r[key]).toFixed(1)).join(' ') + '" fill="none" stroke="' + color + '" stroke-width="2"' + (dash ? ' stroke-dasharray="5 4"' : '') + '/>'
     + rows.map((r, i) => '<circle cx="' + x(i).toFixed(1) + '" cy="' + y(r[key]).toFixed(1) + '" r="' + (r.partial ? 3.5 : 2.5) + '" fill="' + (r.partial ? 'var(--bg-secondary)' : color) + '" stroke="' + color + '" stroke-width="1.5"><title>Week of ' + Number(r.week.slice(4, 6)) + '/' + Number(r.week.slice(6)) + ': ' + (r[key] * 100).toFixed(1) + '% (n ' + r.n + (r.partial ? ', still being graded' : '') + ')</title></circle>').join('');
   let g = '';
   [0, 0.25, 0.5, 0.75, 1].forEach(v => { g += '<line x1="' + pl + '" x2="' + (Wd - pr) + '" y1="' + y(v).toFixed(1) + '" y2="' + y(v).toFixed(1) + '" stroke="var(--border)" stroke-width="1"' + (v === 0.5 ? '' : ' stroke-dasharray="2 3"') + '/><text x="' + (pl - 4) + '" y="' + (y(v) + 3).toFixed(1) + '" text-anchor="end" font-size="9" fill="var(--text-muted)">' + (v * 100) + '%</text>'; });
-  const step = Math.max(1, Math.ceil(rows.length / 8));
-  rows.forEach((r, i) => { if (i % step === 0 || i === rows.length - 1) g += '<text x="' + x(i).toFixed(1) + '" y="' + (H - 6) + '" text-anchor="' + (i === 0 ? 'start' : i === rows.length - 1 ? 'end' : 'middle') + '" font-size="10" fill="var(--text-muted)">' + Number(r.week.slice(4, 6)) + '/' + Number(r.week.slice(6)) + (r.partial ? '*' : '') + '</text>'; });
+  // About one date label per 56px; a step label too close to the last week's label is skipped (on a phone they
+  // collided as "10/1211/9*").
+  const step = Math.max(1, Math.ceil(rows.length / Math.max(3, Math.floor((Wd - pl - pr) / 56))));
+  rows.forEach((r, i) => { if (i === rows.length - 1 || (i % step === 0 && x(rows.length - 1) - x(i) >= 44)) g +='<text x="' + x(i).toFixed(1) + '" y="' + (H - 6) + '" text-anchor="' + (i === 0 ? 'start' : i === rows.length - 1 ? 'end' : 'middle') + '" font-size="10" fill="var(--text-muted)">' + Number(r.week.slice(4, 6)) + '/' + Number(r.week.slice(6)) + (r.partial ? '*' : '') + '</text>'; });
   return '<svg viewBox="0 0 ' + Wd + ' ' + H + '" width="' + Wd + '" height="' + H + '" style="max-width:100%;display:block;" role="img" aria-label="Weekly hit rate of the brain against the share of names that rose">' + g
     + line('up_rate', 'var(--text-muted)', true) + line('hit_rate', 'var(--accent)', false) + '</svg>'
     + '<div style="display:flex;column-gap:16px;row-gap:2px;flex-wrap:wrap;font-size:11px;line-height:1.5;color:var(--text-muted);margin-top:4px;"><span><span style="display:inline-block;width:14px;height:2px;background:var(--accent);vertical-align:middle;"></span> the brain&rsquo;s hit rate</span><span><span style="display:inline-block;width:14px;border-top:2px dashed var(--text-muted);vertical-align:middle;"></span> calling &ldquo;up&rdquo; every time (share of names that rose)</span></div>';
@@ -477,12 +511,13 @@ function weekChart(rows, width) {
 async function loadWeekly() {
   const note = $('wk-note');
   let rows = null, source = '';
-  try { const r = await fetch(WORKER + '/brain/record'); if (r.ok) { const j = await r.json(); if (j && j.ok && Array.isArray(j.rows)) { rows = j.rows; source = 'every graded call since ' + Number(rows[0].week.slice(4, 6)) + '/' + Number(rows[0].week.slice(6)) + '/' + rows[0].week.slice(0, 4) + ' (refreshed hourly)'; } } } catch (e) {}
+  try { const r = await fetch(WORKER + '/brain/record'); if (r.ok) { const j = await r.json(); if (j && j.ok && Array.isArray(j.rows)) { rows = j.rows; source = 'every graded call since ' + Number(rows[0].week.slice(4, 6)) + '/' + Number(rows[0].week.slice(6)) + '/' + rows[0].week.slice(0, 4) + ', refreshed hourly'; } } } catch (e) {}
   if (!rows) {
     try { const r = await fetch(WORKER + '/brain/journal?n=2000'); const j = r.ok ? await r.json() : null; if (j && Array.isArray(j.journal)) { rows = weekRowsFromJournal(j.journal); source = 'the newest 2,000 calls only, until worker pass-329 serves the full record'; } } catch (e) {}
   }
   if (!rows || !rows.length) { note.textContent = 'The record did not load; the Worker did not answer.'; $('wk-chart').innerHTML = ''; return; }
-  const draw = () => { $('wk-chart').innerHTML = weekChart(rows, $('wk-chart').clientWidth); };
+  withChance(rows);
+  const draw = () => { const w = $('wk-chart').clientWidth; $('wk-chart').innerHTML = weekChart(rows, w) + skillChart(rows, w); };
   draw();
   if (!window.__wkResize) { window.__wkResize = true; let t; window.addEventListener('resize', () => { clearTimeout(t); t = setTimeout(draw, 200); }); }
   const n = rows.reduce((a, r) => a + r.n, 0);
@@ -490,9 +525,19 @@ async function loadWeekly() {
   const full = rows.filter(r => !r.partial);
   const beatUp = full.filter(r => r.hit_rate > r.up_rate).length;
   const part = rows.length - full.length;
+  const beatChance = full.filter(r => r.skill > 0).length;
+  const sk = full.map(r => r.skill), mean = sk.length ? sk.reduce((a, b) => a + b, 0) / sk.length : null;
+  const se = sk.length > 1 ? Math.sqrt(sk.reduce((a, b) => a + (b - mean) ** 2, 0) / (sk.length - 1) / sk.length) : null;
+  const pts = v => (v >= 0 ? '+' : '−') + Math.abs(v * 100).toFixed(1);
+  const hits = rows.reduce((a, r) => a + r.hit_rate * r.n, 0) / n, ups = rows.reduce((a, r) => a + r.up_rate * r.n, 0) / n;
+  const chanceAll = calledUp * ups + (1 - calledUp) * (1 - ups);
   note.innerHTML = rows.length + ' weeks, ' + n.toLocaleString() + ' graded calls (' + source + '). The brain called &ldquo;up&rdquo; on ' + pct(calledUp)
-    + ' of them, so its hit rate mostly follows the market&rsquo;s own direction. It beat calling &ldquo;up&rdquo; every time in ' + beatUp + ' of ' + full.length
-    + ' fully graded weeks' + (part ? ' (* = still being graded, left out)' : '') + '. Every name in a week shares one market, so each week is close to one independent result, not hundreds.';
+    + ' of them and hit ' + pct(hits) + '; ' + pct(ups) + ' of the names rose. It beat calling &ldquo;up&rdquo; every time in ' + beatUp + ' of ' + full.length
+    + ' fully graded weeks' + (part ? ' (* = still being graded, left out)' : '') + ', but part of that is calling &ldquo;down&rdquo; more often while most names fell. '
+    + 'The stricter test is its own up/down mix assigned at random, which would have hit ' + pct(chanceAll) + ': the brain beat that in ' + beatChance + ' of ' + full.length + ' weeks'
+    + (mean != null ? ', and the average week came out ' + pts(mean) + ' points against it' + (se ? ' (&plusmn;' + Math.abs(se * 100).toFixed(1) + ')' : '') : '') + '. '
+    + (mean != null && se && mean > 2 * se ? 'That is more than twice its error: worth watching, not yet proof.' : 'That is inside the noise: no sign it picks the right names.')
+    + ' Every name in a week shares one market, so each week is close to one independent result, not hundreds.';
 }
 
 function loadAll() { loadBacktest(); loadForward(); loadFlowTest(); loadCalibration(); loadShortVolumeOOS(); loadWeekly(); }

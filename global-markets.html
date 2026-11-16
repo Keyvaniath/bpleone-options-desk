@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" media="print" onload="this.media='all'"><noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap"></noscript>
-<link rel="stylesheet" href="css/style.css?v=v240">
+<link rel="stylesheet" href="css/style.css?v=v241">
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
 <style>
@@ -118,16 +118,17 @@
 </div>
 
 <div id="site-footer"></div>
-<script src="js/data-provider.js?v=v240"></script>
-<script src="js/ai-client.js?v=v240"></script>
-<script src="js/app.js?v=v240"></script>
-<script src="js/notify.js?v=v240"></script>
-<script src="js/live.js?v=v240"></script>
-<script src="js/ta.js?v=v240"></script>
-<script src="js/learn.js?v=v240"></script>
-<script src="js/discord.js?v=v240"></script>
-<script src="js/alerts-engine.js?v=v240"></script>
-<script src="js/live-hydrate.js?v=v240"></script>
+<script src="js/data-provider.js?v=v241"></script>
+<script src="js/ai-client.js?v=v241"></script>
+<script src="js/app.js?v=v241"></script>
+<script src="js/notify.js?v=v241"></script>
+<script src="js/live.js?v=v241"></script>
+<script src="js/ta.js?v=v241"></script>
+<script src="js/learn.js?v=v241"></script>
+<script src="js/discord.js?v=v241"></script>
+<script src="js/alerts-engine.js?v=v241"></script>
+<script src="js/live-hydrate.js?v=v241"></script>
+<script src="js/daily-history.js?v=v241"></script>
 <script>buildNav('macro');</script>
 
 <script>
@@ -188,7 +189,6 @@
   // /brain/quotes, any ticker), and daily indicators from one year of real closes (/brain/history).
   const NOT_REAL = ['stale-seed', 'mock', 'demo-sim'];
   function realQ(sym) { const q = typeof QUOTES !== 'undefined' ? QUOTES[sym] : null; return q && q.last > 0 && NOT_REAL.indexOf(q.priceSource) < 0 ? q : null; }
-  const GM_W = (window.WorkerBridge && WorkerBridge.getUrl && WorkerBridge.getUrl()) || 'https://bpleone-brain-worker.brandonpleone.workers.dev';
   const DAILY_KEY = 'bpleone_gm_daily_v1';
   const DAILY = (function () { try { const c = JSON.parse(sessionStorage.getItem(DAILY_KEY) || 'null'); return c && Date.now() - c.at < 6 * 3600e3 ? c.d : {}; } catch (e) { return {}; } })();
   function wilderRsi(c, n) {
@@ -208,20 +208,17 @@
     return { rsi: wilderRsi(c, 14), m1: c.length > 21 ? (last / c[c.length - 22] - 1) * 100 : null, ma50: (last / ma50 - 1) * 100, pos52: hi > lo ? (last - lo) / (hi - lo) * 100 : null, n: c.length };
   }
   async function loadDaily(syms) {
+    // Pass 350: one batched request through js/daily-history.js (worker pass-331 /brain/history?syms=); the page
+    // asked /brain/history once per fund (31 a load). Older Workers fall back to one request per name inside it.
     const todo = syms.filter(s => !DAILY[s]);
-    for (let i = 0; i < todo.length; i += 6) {
-      await Promise.all(todo.slice(i, i + 6).map(async sym => {
-        try {
-          const r = await fetch(GM_W + '/brain/history?sym=' + encodeURIComponent(sym), { cache: 'no-store' });
-          if (!r.ok) return;
-          const j = await r.json();
-          const st = j && Array.isArray(j.closes) ? dailyStats(j.closes) : null;
-          if (st) DAILY[sym] = st;
-        } catch (e) {}
-      }));
-      render();
-    }
+    if (!todo.length) return;
+    await Promise.all(todo.map(async sym => {
+      const c = typeof DailyHistory !== 'undefined' ? await DailyHistory.closes(sym) : null;
+      const st = c ? dailyStats(c) : null;
+      if (st) DAILY[sym] = st;
+    }));
     try { sessionStorage.setItem(DAILY_KEY, JSON.stringify({ at: Date.now(), d: DAILY })); } catch (e) {}
+    render();
   }
 
   function biasFromTag(tag) {

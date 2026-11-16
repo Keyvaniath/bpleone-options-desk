@@ -226,7 +226,7 @@ t('after-hours headlines are escaped and timed in ET', /\$\{esc\(\(n\.headline \
 t('earnings-preview needs no key (Worker calendar, recs, financials, quote)', /wget\('\/brain\/earnings\?days=60'\)/.test(read('earnings-preview.html')) && !/connect Finnhub/.test(strip(read('earnings-preview.html'))));
 t('brain-evolution uses the model\'s own feature names (FEATURES are strings)', /typeof f === 'string' \? f :/.test(read('brain-evolution.html')) && !/'rsi','macd_hist','vol_z'/.test(read('brain-evolution.html')));
 t('brain-mobile leads with the Worker brain, local coach labeled local', /window\.workerBrainStatus\(\)/.test(read('brain-mobile.html')) && /local diagnostics, not the desk/.test(read('brain-mobile.html')));
-t('global-markets + crypto-commodities: real quotes only, daily indicators from real closes', ['global-markets.html', 'crypto-commodities.html'].every(f => /function realQ\(sym\)/.test(read(f)) && /\/brain\/history\?sym=/.test(read(f)) && !/TA\.snapshot\(asset\.sym\)/.test(read(f)) && !/feat-live">LIVE</.test(read(f))));
+t('global-markets + crypto-commodities: real quotes only, daily indicators from real closes', ['global-markets.html', 'crypto-commodities.html'].every(f => /function realQ\(sym\)/.test(read(f)) && (/\/brain\/history\?sym=/.test(read(f)) || (/DailyHistory\.closes\(sym\)/.test(read(f)) && /js\/daily-history\.js/.test(read(f)))) && !/TA\.snapshot\(asset\.sym\)/.test(read(f)) && !/feat-live">LIVE</.test(read(f))));
 t('global-markets never claims US-listed country ETFs lead the US open', !/overnight sentiment 6-12 hours before US open/.test(read('global-markets.html')));
 t('model-compare: only models that produce a number vote (no NaN, no phantom LOSS)', /\.filter\(v => v != null\)\.map\(v => v >= 0\.5\)/.test(read('model-compare.html')) && !/High confidence buys/.test(read('model-compare.html')));
 
@@ -281,6 +281,15 @@ t('dark theme muted text meets ~4.5:1 on cards; links without a class are never 
 t('System Status checks that the brain logged a call for every name on the latest day', /add\('Daily captures'/.test(read('system-status.html')));
 t('light theme: the NO PLAY box uses theme text colours (no fixed white on its light pink box)', !/color:#fff;/.test(read('js/no-play-gate.js')) && /color:var\(--text-secondary\)'/.test(read('js/no-play-gate.js')));
 t('swa-tracker never prints 0/undefined (stats always carries minSnapshots)', /ready: false, minSnapshots: MIN_SNAPSHOTS/.test(read('js/swa.js')));
+
+// 6p. Pass 350 (11/16; worker pass-331): the record is also graded against the brain's OWN up/down mix assigned at
+//     random (chance_rate = c*u + (1-c)*(1-u)); beating "always up" alone can come from calling down more often in a
+//     falling market. No hindsight "majority direction" bar anywhere on the scorecard. History pages batch their
+//     /brain/history requests (one ?syms= call). Tests: node _test_record.js, node _test_history_batch.js.
+t('Edge Scorecard grades the weekly record against its own up/down mix at random (skill bars)', /function withChance\(rows\)/.test(read('edge-scorecard.html')) && /r\.called_up \* r\.up_rate \+ \(1 - r\.called_up\) \* \(1 - r\.up_rate\)/.test(read('edge-scorecard.html')) && /skillChart\(rows, w\)/.test(read('edge-scorecard.html')));
+t('no hindsight "majority direction" bar on the Edge Scorecard', !/majority direction/.test(strip(read('edge-scorecard.html'))) && !/Math\.max\(last\.up_rate, 1 - last\.up_rate\)/.test(read('edge-scorecard.html')));
+t('record.js reports chance_rate and skill; the calibration log keeps called_up', /chance_rate: r4\(ch\)/.test(read('worker/src/record.js')) && /skill: r4\(h - ch\)/.test(read('worker/src/record.js')) && /called_up: \+\(calledUp \/ pairs\.length\)/.test(read('worker/src/index.js')));
+t('DailyHistory batches closes() calls into one /brain/history?syms= request, with a ?sym= fallback', /'\/brain\/history\?syms='/.test(read('js/daily-history.js')) && /setTimeout\(flush, 30\)/.test(read('js/daily-history.js')) && /batchOk = false/.test(read('js/daily-history.js')));
 
 // 7. Worker sources parse strictly. `node --check` passed an ES-module file with an unescaped quote in a
 //    string (found 2026-11-03), so parse the bodies as scripts with imports/exports stripped.

@@ -11,6 +11,10 @@
      DailyHistory.returns(closes)        -> simple daily returns (length - 1)
      DailyHistory.pearson(x, y)          -> correlation of two equal-length arrays, or null (< 10 points)
    Cached per symbol in memory and sessionStorage for 6 hours.
+   Pass 350 (worker pass-331): closes() calls made within 30 ms share ONE request (/brain/history?syms=, up to 40
+   names); names the Worker defers (over its per-request Yahoo budget) are asked for again, at most twice. An older
+   Worker ignores syms (it would answer with SPY), so the batch is used only when the reply carries `histories`;
+   otherwise each name falls back to ?sym=, six at a time.
    =========================================== */
 (function () {
   if (typeof window === 'undefined' || window.DailyHistory) return;
@@ -28,6 +32,74 @@
     return null;
   }
 
+  const BATCH_MAX = 40;
+  const SAFE = /^[A-Z][A-Z0-9.\-]{0,7}$/;   // what the Worker's batch accepts unchanged
+  const queue = new Map();                  // sym -> [resolve]
+  let timer = null;
+  let batchOk = null;                       // null = not tried, true = Worker serves ?syms=, false = older Worker
+
+  function toSeries(points) {
+    const byDay = {};
+    (Array.isArray(points) ? points : []).forEach(p => { if (p && p.c > 0 && p.t) byDay[etDate(p.t)] = p.c; });
+    const s = Object.keys(byDay).sort().map(d => ({ d, c: byDay[d] }));
+    return s.length < 10 ? null : s;
+  }
+  function store(sym, s) {
+    if (!s) return null;
+    mem[sym] = s;
+    try { sessionStorage.setItem('bpleone_dh_' + sym, JSON.stringify({ at: Date.now(), s })); } catch (e) {}
+    return s;
+  }
+  async function fetchOne(sym) {
+    try {
+      const r = await fetch(W + '/brain/history?sym=' + encodeURIComponent(sym), { cache: 'no-store' });
+      if (!r.ok) return null;
+      const j = await r.json();
+      return store(sym, toSeries(j && j.closes));
+    } catch (e) { return null; }
+  }
+  async function fetchEach(syms) {
+    const out = {};
+    for (let i = 0; i < syms.length; i += 6) await Promise.all(syms.slice(i, i + 6).map(async s => { out[s] = await fetchOne(s); }));
+    return out;
+  }
+  // One batch round trip; returns { got: {sym: series|null}, deferred: [syms] } or null when the Worker has no batch route.
+  async function fetchBatch(syms) {
+    let j = null;
+    try { const r = await fetch(W + '/brain/history?syms=' + syms.map(encodeURIComponent).join(','), { cache: 'no-store' }); j = r.ok ? await r.json() : null; } catch (e) { j = null; }
+    if (!j || !j.histories || typeof j.histories !== 'object') return null;
+    const got = {}, deferred = Array.isArray(j.deferred) ? j.deferred.filter(s => syms.indexOf(s) >= 0) : [];
+    syms.forEach(s => { if (deferred.indexOf(s) < 0) got[s] = store(s, toSeries(j.histories[s] && j.histories[s].closes)); });
+    return { got, deferred };
+  }
+  async function flush() {
+    timer = null;
+    const waiters = new Map(queue); queue.clear();
+    const syms = [...waiters.keys()];
+    const results = {};
+    const batchable = syms.filter(s => SAFE.test(s));
+    const singles = syms.filter(s => !SAFE.test(s));
+    if (batchable.length > 1 && batchOk !== false) {
+      for (let i = 0; i < batchable.length; i += BATCH_MAX) {
+        let todo = batchable.slice(i, i + BATCH_MAX);
+        for (let round = 0; round < 3 && todo.length; round++) {
+          if (round) await new Promise(r => setTimeout(r, 1200));
+          const b = await fetchBatch(todo);
+          if (!b) { batchOk = false; break; }
+          batchOk = true;
+          Object.assign(results, b.got);
+          todo = b.deferred;
+        }
+        if (batchOk === false) { Object.assign(results, await fetchEach(batchable.filter(s => !(s in results)))); break; }
+        singles.push(...todo);   // still deferred after three rounds: ask for each on its own
+      }
+    } else {
+      singles.push(...batchable);
+    }
+    Object.assign(results, await fetchEach(singles.filter(s => !(s in results))));
+    waiters.forEach((fns, s) => fns.forEach(fn => fn(results[s] || null)));
+  }
+
   async function closes(sym) {
     sym = String(sym || '').toUpperCase().replace(/[^A-Z0-9.\-^=]/g, '').slice(0, 12);
     if (!sym) return null;
@@ -35,20 +107,11 @@
     const ss = fromSession(sym);
     if (ss) return (mem[sym] = ss);
     if (inflight[sym]) return inflight[sym];
-    inflight[sym] = (async () => {
-      try {
-        const r = await fetch(W + '/brain/history?sym=' + encodeURIComponent(sym), { cache: 'no-store' });
-        if (!r.ok) return null;
-        const j = await r.json();
-        const byDay = {};
-        (j && Array.isArray(j.closes) ? j.closes : []).forEach(p => { if (p && p.c > 0 && p.t) byDay[etDate(p.t)] = p.c; });
-        const s = Object.keys(byDay).sort().map(d => ({ d, c: byDay[d] }));
-        if (s.length < 10) return null;
-        mem[sym] = s;
-        try { sessionStorage.setItem('bpleone_dh_' + sym, JSON.stringify({ at: Date.now(), s })); } catch (e) {}
-        return s;
-      } catch (e) { return null; } finally { delete inflight[sym]; }
-    })();
+    inflight[sym] = new Promise(resolve => {
+      if (!queue.has(sym)) queue.set(sym, []);
+      queue.get(sym).push(resolve);
+      if (!timer) timer = setTimeout(flush, 30);
+    }).finally(() => { delete inflight[sym]; });
     return inflight[sym];
   }
 

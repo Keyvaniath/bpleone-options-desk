@@ -11,7 +11,7 @@ function ok(c, m) { if (!c) { fails++; console.log('FAIL: ' + m); } }
 const day = 864e5, t0 = Date.parse('2026-11-02T21:00:00Z');   // 4 PM ET closes
 const store = {};
 const ctx = {
-  window: {}, console, Intl, Date, Math, JSON, Map, Set, Promise, encodeURIComponent,
+  window: {}, console, Intl, Date, Math, JSON, Map, Set, Promise, encodeURIComponent, setTimeout,
   sessionStorage: { getItem: k => store[k] || null, setItem: (k, v) => { store[k] = v; } },
   fetch: async url => {
     const sym = decodeURIComponent(url.split('sym=')[1]);

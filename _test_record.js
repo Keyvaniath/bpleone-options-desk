@@ -1,4 +1,4 @@
-// _test_record.js — unit tests for worker/src/record.js (worker pass-329: the live record by week).
+// _test_record.js — unit tests for worker/src/record.js (worker pass-329: the live record by week; pass-331: chance rate).
 // Run: node _test_record.js   (exits 1 on any failure)
 const fs = require('fs');
 const path = require('path');
@@ -56,6 +56,25 @@ ok(po.total.full_weeks === 1 && po.total.weeks_beat_always_up === 0, 'the partia
 ok(!('weeks_beat_majority' in out.total), 'no hindsight baseline (each week majority direction) is reported');
 ok(R.recordByWeek([]).rows.length === 0 && R.recordByWeek(null).total.n === 0, 'empty journal gives an empty record');
 
+// chance rate (worker pass-331): the brain's own up/down mix assigned at random
+// week 1: called up 2/3, rose 1/3 -> chance = 2/3*1/3 + 1/3*2/3 = 4/9; hit 2/3 -> skill +2/9
+ok(Math.abs(w1.chance_rate - 4 / 9) < 1e-3 && Math.abs(w1.skill - 2 / 9) < 1e-3, 'week 1: chance 4/9, skill +2/9');
+// week 2: called up 1/2, rose 1/2 -> chance 1/2; hit 0 -> skill -1/2
+ok(Math.abs(w2.chance_rate - 0.5) < 1e-3 && Math.abs(w2.skill + 0.5) < 1e-3, 'week 2: chance 1/2, skill -1/2');
+ok(out.total.weeks_beat_chance === 1, 'one of two full weeks beat chance');
+ok(Math.abs(out.total.mean_weekly_skill - (2 / 9 - 0.5) / 2) < 1e-3, 'mean weekly skill over full weeks');
+// calling up every time has skill 0 by construction, whatever the market did
+const AU = [];
+for (let i = 0; i < 20; i++) AU.push({ dayKey: 20261102, predProb: 0.6, resolved: { mid: i < 7 ? 'correct' : 'wrong' } });
+const au = R.recordByWeek(AU).rows[0];
+ok(au.chance_rate === au.up_rate && au.skill === 0 && au.hit_rate === au.up_rate, 'an always-up caller scores exactly chance (skill 0)');
+// a caller that always gets the direction right in a mixed week has positive skill
+const PF = [];
+for (let i = 0; i < 20; i++) PF.push({ dayKey: 20261102, predProb: i < 12 ? 0.7 : 0.3, resolved: { mid: 'correct' } });
+const pf = R.recordByWeek(PF).rows[0];
+ok(pf.hit_rate === 1 && Math.abs(pf.chance_rate - (0.6 * 0.6 + 0.4 * 0.4)) < 1e-4 && pf.skill > 0.4, 'a perfect caller: hit 100%, chance 52%, skill +48 points');
+ok(R.recordByWeek([]).total.chance_rate === null && R.recordByWeek([]).total.mean_weekly_skill === null, 'empty record: no chance rate, no mean skill');
+
 // route wiring
 ok(/import \{ weekOf, recordByWeek \} from '\.\/record\.js';/.test(idx), 'index.js imports record.js');
 ok(/if \(path === '\/brain\/record'\)/.test(idx) && /recordByWeek\(journal\)/.test(idx), '/brain/record is served from the journal');
@@ -75,6 +94,15 @@ ok(again.length === 7, 'an interrupted archive pass that repeats does not duplic
 ok(/const JOURNAL_TRIM_BATCH = 1000;/.test(idx) && /if \(journal\.length > MAX_JOURNAL \+ JOURNAL_TRIM_BATCH\) \{\s*const kept = await capAndArchive\(env, 'journal', journal, MAX_JOURNAL\);/.test(idx), 'the tick archives the journal overflow in batches instead of splicing it away');
 ok(!/journal\.splice\(0, journal\.length - MAX_JOURNAL\)/.test(idx), 'no plain delete of the oldest journal calls remains');
 ok(/\['flow', 'confluence', 'radar', 'journal'\]\.indexOf\(name\)/.test(idx), '/brain/archive serves the journal archive');
+
+// batched history (worker pass-331)
+const hb = idx.slice(idx.indexOf("if (path === '/brain/history')"), idx.indexOf("if (path === '/brain/history')") + 3200);
+ok(/url\.searchParams\.get\('syms'\)/.test(hb) && /HISTORY_BATCH_MAX/.test(hb), '/brain/history accepts ?syms= (capped batch)');
+ok(/HISTORY_BATCH_FETCHES/.test(hb) && /deferred/.test(hb), 'a batch fetches at most HISTORY_BATCH_FETCHES cold names and defers the rest');
+ok(/if \(complete && Object\.keys\(histories\)\.length\) ctx\.waitUntil\(cache\.put/.test(hb), 'only a complete batch is edge-cached (never a partial or failed one)');
+ok(/if \(UNIVERSE\.includes\(sym\)\)/.test(idx.slice(idx.indexOf('async function historyFor'), idx.indexOf('async function historyFor') + 1500)), 'history KV writes stay limited to UNIVERSE symbols (pass-305 write-budget guard)');
+ok(/return json\(\{ error: 'no history for ' \+ sym, sym \}, 404\)/.test(hb), 'single-symbol miss is still a 404');
+ok(/called_up: \+\(calledUp \/ pairs\.length\)\.toFixed\(4\)/.test(idx), 'the calibration log row records called_up');
 
 if (fails) { console.log(fails + ' failure(s)'); process.exit(1); }
 console.log('record: all checks pass');

@@ -45,7 +45,7 @@ import { weekOf, recordByWeek } from './record.js';
 // Pass 200: version stamp so brain-proof.html + worker-setup.html can detect
 // when the deployed worker is behind the repo source. Bump on every meaningful
 // behavior change. Read via /brain/health → worker_version field.
-const WORKER_VERSION = 'pass-330';
+const WORKER_VERSION = 'pass-331';
 
 const UNIVERSE = [
   'SPY','QQQ','IWM','DIA','AAPL','NVDA','TSLA','MSFT','META','AMZN','GOOGL','AMD',
@@ -1587,7 +1587,10 @@ async function tick(env) {
         const hits = pairs.reduce((s, d) => s + ((d.x >= 0 ? 1 : 0) === d.y ? 1 : 0), 0);
         const prev = await kvGet(env, KV_KEYS.LIVE_CAL_LOG, []);
         const log = (Array.isArray(prev) ? prev : []).filter(r => r && r.dayKey !== dayKey);
-        log.push({ dayKey, a: fit.a, b: fit.b, n: fit.n, up_rate: fit.up_rate, hit_rate: +(hits / pairs.length).toFixed(4), informative: fit.informative });
+        // Pass-331: called_up (share of the fit's calls that said UP) lets the site compare the hit rate with calls made at
+        // random in the same up/down mix: called_up * up_rate + (1 - called_up) * (1 - up_rate).
+        const calledUp = pairs.reduce((s, d) => s + (d.x >= 0 ? 1 : 0), 0);
+        log.push({ dayKey, a: fit.a, b: fit.b, n: fit.n, up_rate: fit.up_rate, hit_rate: +(hits / pairs.length).toFixed(4), called_up: +(calledUp / pairs.length).toFixed(4), informative: fit.informative });
         writes.push(kvPut(env, KV_KEYS.LIVE_CAL_LOG, log.slice(-500)));
       } catch (e) { /* the history is observability only; the fit above is what the desk uses */ }
     }
@@ -1618,6 +1621,37 @@ const CORS_HEADERS = {
   'Access-Control-Allow-Headers': 'Content-Type, Authorization',
   'Access-Control-Max-Age': '86400'
 };
+// Pass 304/305/331: one year of real daily closes for /brain/history (?sym= and the ?syms= batch).
+//   status 'ok' (fresh, < 6 h), 'stale' (an older copy, served when Yahoo fails or a batch is over its fetch budget),
+//   'deferred' (no copy and allowFetch false), 'missing' (Yahoo has nothing and there is no copy).
+// Pass 305 (write-budget guard): KV writes are the scarce resource (~1/sec) and this is a public GET - an attacker
+// cycling regex-valid symbols must NOT be able to mint a KV write each. Only symbols the desk actually serves get
+// persisted; off-list symbols are still served live from Yahoo but cached only via the Cache-Control header + the
+// per-isolate MEM_KV (both free).
+const HISTORY_BATCH_MAX = 40;
+const HISTORY_BATCH_FETCHES = 12;
+async function historyFor(env, sym, allowFetch) {
+  const KEY = 'hist_v1:' + sym;
+  const cached = await kvGet(env, KEY, null, 300);   // per-colo 5-min read cache
+  const has = cached && Array.isArray(cached.closes) && cached.closes.length;
+  if (has && (Date.now() - (cached.at || 0) < 6 * 3600 * 1000)) return { status: 'ok', body: cached, cacheSec: 3600 };
+  if (!allowFetch) return has ? { status: 'stale', body: cached, cacheSec: 600 } : { status: 'deferred' };
+  const bars = await fetchYahooHistorical(sym, 365);
+  if (!bars || !bars.length) return has ? { status: 'stale', body: cached, cacheSec: 600 } : { status: 'missing' };
+  const closes = bars.map(b => ({ t: b.ts, c: b.close })).filter(x => x.c > 0);
+  const out = { ok: true, sym, at: Date.now(), n: closes.length, closes };
+  const rawOut = JSON.stringify(out);
+  if (UNIVERSE.includes(sym)) {
+    // expirationTtl (72h) deliberately outlives the 6h freshness window so the
+    // >6h-old copy genuinely backs the serve-stale branch during Yahoo outages.
+    try { await env.BRAIN_KV.put(KEY, rawOut, { expirationTtl: 72 * 3600 }); } catch (e) {}
+  }
+  // Prime the isolate read-cache either way so repeat requests in the next 5 min
+  // are free (and, for persistable keys, don't re-read the value just written).
+  try { MEM_KV.set(KEY, { raw: rawOut, exp: Date.now() + 300 * 1000 }); } catch (e) {}
+  return { status: 'ok', body: out, cacheSec: 3600 };
+}
+
 function json(body, status, cacheSec) {
   // Pass 296 (scale): optional short public cache on hot read-only responses so
   // browsers / any fronting cache can reuse them across the polling herd.
@@ -2024,7 +2058,7 @@ async function handleRequest(request, env, ctx) {
     const rec = recordByWeek(journal);
     const resp = json(Object.assign({ ok: rec.rows.length > 0, version: WORKER_VERSION, journal_total: journal.length,
       this_week: String(weekOf(etDayKeyNow()) || ''), computed_at: new Date().toISOString(),
-      note: 'Graded 5-day calls (correct or wrong; flat and still-open calls left out), grouped by the ET week they were made. up_rate is the share of those names that rose, which is what calling UP every time would have hit. All names in one week share one market, so each week is close to one independent observation.' }, rec), 200, 3600);
+      note: 'Graded 5-day calls (correct or wrong; flat and still-open calls left out), grouped by the ET week they were made. up_rate is the share of those names that rose, which is what calling UP every time would have hit. chance_rate is what calls in the brain’s own up/down mix would hit if assigned to names at random; skill = hit_rate - chance_rate is the part that comes from choosing which names. All names in one week share one market, so each week is close to one independent observation.' }, rec), 200, 3600);
     if (rec.rows.length) ctx.waitUntil(cache.put(cacheKey, resp.clone()));
     return resp;
   }
@@ -2232,39 +2266,45 @@ async function handleRequest(request, env, ctx) {
   // per-colo read cache + 1h response cache) since long history moves slowly. One
   // Yahoo subrequest only on a cold 6h cache-miss, so it's cheap even at scale.
   if (path === '/brain/history') {
+    // Pass-331: ?syms=A,B,... answers up to HISTORY_BATCH_MAX names in one request (global-markets asked 31 times a
+    // load, crypto-commodities and the correlation pages 20). Same per-symbol cache and write rules as ?sym=.
+    const multi = url.searchParams.get('syms');
+    if (multi !== null) {
+      const list = [...new Set(multi.toUpperCase().split(',').map(x => x.replace(/[^A-Z0-9.\-]/g, '').slice(0, 8))
+        .filter(x => /^[A-Z][A-Z0-9.\-]{0,7}$/.test(x)))].sort().slice(0, HISTORY_BATCH_MAX);
+      if (!list.length) return json({ error: 'no valid symbols' }, 400);
+      const cache = caches.default;
+      const cacheKey = new Request(url.origin + '/brain/history?syms=' + list.join(','), { method: 'GET' });
+      const hit = await cache.match(cacheKey);
+      if (hit) return hit;
+      const first = await Promise.all(list.map(x => historyFor(env, x, false)));
+      // Cold names are fetched from Yahoo, at most HISTORY_BATCH_FETCHES a request (names with no copy at all first);
+      // the rest come back in `deferred` (or as their stale copy) and the client asks for them again.
+      const cold = list.map((x, i) => ({ x, i, r: first[i] })).filter(o => o.r.status !== 'ok')
+        .sort((a, b) => (a.r.status === 'deferred' ? 0 : 1) - (b.r.status === 'deferred' ? 0 : 1)).slice(0, HISTORY_BATCH_FETCHES);
+      await Promise.all(cold.map(async o => { first[o.i] = await historyFor(env, o.x, true); }));
+      const histories = {}, stale = [], deferred = [], missing = [];
+      list.forEach((x, i) => {
+        const r = first[i];
+        if (r.status === 'ok' || r.status === 'stale') { histories[x] = { n: r.body.n, at: r.body.at, closes: r.body.closes }; if (r.status === 'stale') stale.push(x); }
+        else if (r.status === 'deferred') deferred.push(x);
+        else missing.push(x);
+      });
+      const complete = !deferred.length && !stale.length;
+      const resp = json({ ok: Object.keys(histories).length > 0, n: Object.keys(histories).length, histories, stale, deferred, missing,
+        note: 'One year of daily closes per symbol (t = ms, c = close). deferred: not fetched in this request, ask again. missing: no history for that symbol.' },
+        200, complete ? (missing.length ? 600 : 3600) : 60);
+      if (complete && Object.keys(histories).length) ctx.waitUntil(cache.put(cacheKey, resp.clone()));
+      return resp;
+    }
     const raw = (url.searchParams.get('sym') || 'SPY').toUpperCase();
     const sym = raw.replace(/[^A-Z0-9.\-]/g, '').slice(0, 8);
     if (!/^[A-Z][A-Z0-9.\-]{0,7}$/.test(sym)) return json({ error: 'bad symbol' }, 400);
-    const KEY = 'hist_v1:' + sym;
-    // Pass 305 (write-budget guard): KV writes are the scarce resource (~1/sec) and
-    // this is a public GET - an attacker cycling regex-valid symbols must NOT be able
-    // to mint a KV write each. Only symbols the desk actually serves get persisted;
-    // off-list symbols are still served live from Yahoo but cached only via the
-    // Cache-Control header + the per-isolate MEM_KV (both free).
-    const persistable = UNIVERSE.includes(sym);
-    const cached = await kvGet(env, KEY, null, 300);   // per-colo 5-min read cache
-    if (cached && Array.isArray(cached.closes) && cached.closes.length && (Date.now() - (cached.at || 0) < 6 * 3600 * 1000)) {
-      return json(cached, 200, 3600);
-    }
-    const bars = await fetchYahooHistorical(sym, 365);
-    if (!bars || !bars.length) {
-      if (cached && Array.isArray(cached.closes) && cached.closes.length) return json(cached, 200, 600);  // serve stale on fetch fail
-      // 404, not 502: an unknown/uncovered symbol is a client-side miss, not an
-      // upstream failure - a 5xx here would false-alarm uptime monitors.
-      return json({ error: 'no history for ' + sym, sym }, 404);
-    }
-    const closes = bars.map(b => ({ t: b.ts, c: b.close })).filter(x => x.c > 0);
-    const out = { ok: true, sym, at: Date.now(), n: closes.length, closes };
-    const rawOut = JSON.stringify(out);
-    if (persistable) {
-      // expirationTtl (72h) deliberately outlives the 6h freshness window so the
-      // >6h-old copy genuinely backs the serve-stale branch during Yahoo outages.
-      try { await env.BRAIN_KV.put(KEY, rawOut, { expirationTtl: 72 * 3600 }); } catch (e) {}
-    }
-    // Prime the isolate read-cache either way so repeat requests in the next 5 min
-    // are free (and, for persistable keys, don't re-read the value just written).
-    try { MEM_KV.set(KEY, { raw: rawOut, exp: Date.now() + 300 * 1000 }); } catch (e) {}
-    return json(out, 200, 3600);
+    const r = await historyFor(env, sym, true);
+    // 404, not 502: an unknown/uncovered symbol is a client-side miss, not an
+    // upstream failure - a 5xx here would false-alarm uptime monitors.
+    if (r.status !== 'ok' && r.status !== 'stale') return json({ error: 'no history for ' + sym, sym }, 404);
+    return json(r.body, 200, r.cacheSec);
   }
 
   // ===== Pass 284: extended-hours quotes (pre/post-market) =====
