@@ -795,7 +795,7 @@ function initBrainStatusBar() {
 
   const close = document.getElementById('bsb-close');
   if (close) close.onclick = () => {
-    bar.style.display = 'none';
+    bar.style.display = 'none'; document.body.classList.remove('has-bsb');
     try { localStorage.setItem('bpleone_status_bar_dismissed', '1'); } catch (e) {}
   };
 
@@ -803,7 +803,7 @@ function initBrainStatusBar() {
   // said "Brain is HEALTHY — trade with conviction · Health 100/100" on one page and "BRAIN IS DEGRADED · Health
   // 55/100" on the next. It now reports the Worker brain through workerBrainStatus() (shared with the home page).
   function paint(color, headline, metrics) {
-    bar.style.display = 'flex';
+    bar.style.display = 'flex'; document.body.classList.add('has-bsb');
     const dot = document.getElementById('bsb-dot');
     dot.style.background = color; dot.style.boxShadow = '0 0 6px ' + color;
     dot.style.animation = 'bpleonePulse 1.5s ease-in-out infinite';

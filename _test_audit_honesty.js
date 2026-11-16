@@ -32,8 +32,11 @@ t('move notifications rank real-feed quotes only', /REAL\[q\.priceSource\]/.test
 
 // 3. Labels say what the page serves.
 const sdb = read('js/sample-data-banner.js');
-['iv-skew', 'options-flow-live', 'big-bets', 'dark-pool', 'insider-congress-flow'].forEach(p =>
+['iv-skew', 'options-flow-live', 'big-bets', 'dark-pool'].forEach(p =>
   t('sample banner lists ' + p, sdb.indexOf("'" + p + "'") >= 0));
+// Pass 348: the reverse error. Pages on real Worker / SEC data must not carry "simulated for layout".
+['live-watcher', 'algo-signals', 'breadth-pro', 'risk-radar', 'candlestick-scanner', 'insider-congress-flow'].forEach(p =>
+  t('sample banner does NOT list real-data page ' + p, sdb.indexOf("'" + p + "':") < 0));
 const live = read('js/live.js');
 const lazyStart = live.indexOf('Lazy-load the auto-trainer');
 const bannerLoad = live.indexOf("s.src = 'js/sample-data-banner.js?v=' + LV;");
@@ -249,6 +252,15 @@ t('short-volume out-of-sample test counts only weeks from its registration and g
 t('Edge Scorecard lists the failed short-volume test and the running out-of-sample one', /Heavy short selling predicts losers/.test(read('edge-scorecard.html')) && /async function loadShortVolumeOOS\(\)/.test(read('edge-scorecard.html')));
 t('Brain Hub leads with the desk brain (Worker), local panels labeled local', /id="deskBrain"/.test(read('brain-hub.html')) && /async function deskBrain\(\)/.test(read('brain-hub.html')) && /This browser&rsquo;s own model \(local/.test(read('brain-hub.html')));
 t('learn.js has no seeding function and purges t_seed_ trades', !/function seedIfEmpty/.test(read('js/learn.js')) && /function purgeSyntheticSeed\(\)/.test(read('js/learn.js')));
+
+// 6n. Pass 348 (11/16; worker pass-328): the brain's WHOLE live record is public (paged /brain/journal, oldest first;
+//     graded 5-day calls keep their exit price and time) and downloadable from the Edge Scorecard; a 390px phone sweep
+//     of every page found the nav's tools off-screen site-wide and clipped grids (fixed in css/style.css).
+t('worker pages the full journal (offset, lite) and keeps each 5-day exit price', /const offRaw = url\.searchParams\.get\('offset'\);/.test(read('worker/src/index.js')) && /order: 'oldest first'/.test(read('worker/src/index.js')) && /entry\.exitPx5 = Math\.round\(cur\.last \* 10000\) \/ 10000; entry\.exitTs5 = Date\.now\(\);/.test(read('worker/src/index.js')));
+t('Edge Scorecard downloads every graded call by paging the Worker, and says so when the Worker is too old', /async function downloadRecord\(\)/.test(read('edge-scorecard.html')) && /\/brain\/journal\?offset=' \+ off \+ '&n=2000&lite=1'/.test(read('edge-scorecard.html')) && /needs worker pass-328/.test(read('edge-scorecard.html')));
+t('layout: grid children may shrink; the nav tools take their own row at every width and never wrap internally', /\.grid > \*, \.grid-2 > \*, \.grid-3 > \*, \.grid-4 > \*, \.grid-12 > \* \{ min-width: 0; \}/.test(read('css/style.css')) && /\n\.nav-container \{ flex-wrap: wrap; row-gap: 6px; height: auto; min-height: 64px; \}/.test(read('css/style.css')) && /\n\.nav-actions > \* \{ flex-shrink: 0; white-space: nowrap; \}/.test(read('css/style.css')) && /\n\.nav-actions \{ flex: 1 1 100%; justify-content: flex-end; padding-bottom: 8px; \}/.test(read('css/style.css')));
+t('phone: the brain-status bar sits above the tab bar instead of covering it; the account pill lives in the nav, not over the ticker', /#brain-status-bar \{ bottom: 66px !important;/.test(read('css/style.css')) && /body\.has-bsb \{ padding-bottom: 100px; \}/.test(read('css/style.css')) && /document\.body\.classList\.add\('has-bsb'\)/.test(read('js/app.js')) && /na\.insertBefore\(slot, na\.querySelector\('a\.btn-primary'\)\)/.test(read('js/auth.js')));
+t('setup wizard binds its symbol prices to the live feed (no months-old hardcoded quotes)', !/\$138\.27|\$587\.42|\$562\.18/.test(read('setup-wizard.html')) && /data-live="NVDA:last"/.test(read('setup-wizard.html')));
 
 // 7. Worker sources parse strictly. `node --check` passed an ES-module file with an unescaped quote in a
 //    string (found 2026-11-03), so parse the bodies as scripts with imports/exports stripped.

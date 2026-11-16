@@ -22,23 +22,20 @@
   // notices now). Added the remaining genuinely-simulated paid-feed mocks found
   // in the no-fake-numbers audit (tape / trade-tape / strike-chaser / sector-flow
   // / sentiment-heat / daily-stats).
+  // Pass 348: live-watcher, algo-signals, breadth-pro, risk-radar, candlestick-scanner (real Worker bars/quotes since
+  // passes 280-283) and insider-congress-flow (real SEC Form-4 since pass 343) left this map: the banner told visitors
+  // their real numbers were "simulated for layout". A page joins this map only while its numbers ARE simulated.
   const ILLUSTRATIVE = {
     'dark-pool': 'dark-pool prints', 'dark-pool-pro': 'dark-pool prints',
     'options-flow-live': 'options order flow', 'order-flow': 'order flow', 'orderbook': 'level-2 order book',
     'flow-replay': 'options flow', 'big-bets': 'large options trades',
     'gex': 'dealer gamma exposure (GEX)', 'gex-pro': 'dealer gamma exposure (GEX)', 'opex-tracker': 'options-expiry positioning',
-    'insider-congress-flow': 'insider & congress filings',
     'moc-imbalance': 'market-on-close imbalances', 'etf-flows': 'ETF creation/redemption flows',
     'crypto-derivatives': 'crypto funding / open interest', 'halt-tracker': 'trading-halt feed',
     'sweep-counter': 'options sweeps', 'liquidity-health': 'venue liquidity', 'opex': 'options-expiry positioning',
     'tape': 'the time-and-sales tape', 'trade-tape': 'the time-and-sales tape',
     'strike-chaser': 'options volume / unusual activity', 'sector-flow': 'sector fund flows',
     'sentiment-heat': 'social/news sentiment scoring', 'daily-stats': 'market-internals & options stats',
-    'live-watcher': 'the level-1 bid/ask & time-and-sales tape',
-    'algo-signals': 'this algorithmic signal feed (the live version is the Alpha Scanner)',
-    'breadth-pro': 'market breadth (advance/decline, McClellan, new highs/lows)',
-    'risk-radar': 'cross-asset risk gauges (skew, VVIX, credit spread)',
-    'candlestick-scanner': 'candlestick pattern detections',
     'iv-skew': 'the implied-volatility surface (this page always draws a modeled smile, never a real chain)'
   };
 

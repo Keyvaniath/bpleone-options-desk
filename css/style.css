@@ -508,6 +508,10 @@ body {
 .col-8 { grid-column: span 8; }
 .col-9 { grid-column: span 9; }
 .col-12 { grid-column: span 12; }
+/* Pass 348: grid items default to min-width:auto, so one wide child (a fixed-width form row, a long word, a chart)
+   stretched its whole column past a phone screen, and html/body clip horizontal overflow, so the extra width was
+   silently cut off rather than scrollable (api, execution, setup-wizard rendered 519-779px wide at 390px). */
+.grid > *, .grid-2 > *, .grid-3 > *, .grid-4 > *, .grid-12 > * { min-width: 0; }
 
 .card {
   background: var(--bg-secondary);
@@ -1204,11 +1208,13 @@ td .pill.block { background: rgba(0, 212, 255, 0.15); color: var(--accent); }
 
 .subscribe-form {
   display: flex;
+  flex-wrap: wrap;   /* pass 348: on a phone the button wrapped off-screen and was clipped */
   gap: 8px;
   max-width: 480px;
   margin: 0 auto;
   position: relative;
 }
+.subscribe-form > input { flex: 1 1 200px; min-width: 0; }
 
 .subscribe-input {
   flex: 1;
@@ -1690,6 +1696,16 @@ tr.row-focus { background: rgba(0,212,255,0.06) !important; box-shadow: inset 3p
 .latency-chip .lat-dot { width: 5px; height: 5px; border-radius: 50%; background: var(--green); animation: latPulse 1.2s infinite; }
 @keyframes latPulse { 0%,100% { opacity: 0.55; transform: scale(0.9); } 50% { opacity: 1; transform: scale(1.1); } }
 
+/* Pass 348: the nav's tool row never fit beside the menu below ~1,600px. On a 1,280-1,440px laptop it ran past
+   the right edge (Subscribe and the tools clipped off-screen) and its pills wrapped to 129px tall inside a 64px
+   bar; even at 1,920px the menu (~916px) and the tools (~960px) need ~2,160px beside the logo. The tools take
+   their own right-aligned row at every width; nothing in it wraps. */
+.nav-actions > * { flex-shrink: 0; white-space: nowrap; }
+.nav-container { flex-wrap: wrap; row-gap: 6px; height: auto; min-height: 64px; }
+.nav-actions { flex: 1 1 100%; justify-content: flex-end; padding-bottom: 8px; }
+@media (max-width: 1300px) { .nav-links a { padding: 8px 10px; } }
+@media (max-width: 1100px) { .bp-auth-more, #cmdkBtn, .nav-actions .feat-badge { display: none; } .nav-actions { flex-wrap: wrap; row-gap: 6px; } }
+
 /* ===================================================
    MOBILE BOTTOM-TAB NAV
    shown only on mobile (<768px). Floating bar with 5 quick-jump tabs.
@@ -1725,6 +1741,35 @@ tr.row-focus { background: rgba(0,212,255,0.06) !important; box-shadow: inset 3p
   .page-header { flex-direction: column; align-items: flex-start; gap: 10px; }
   .data-pill .data-pill-label { display: none; }
   .nav-actions .btn { padding: 6px 8px; font-size: 11px; }
+  /* Pass 348: on a 390px phone the action row was squeezed into the last 60px of the bar and ran
+     to 514px, so search, theme and alerts sat off-screen (clipped, untappable) on every page.
+     It takes its own row (the 1,600px block above); here search flexes and the shortcut button is hidden. */
+  .nav-container { min-height: 56px; padding: 6px 0; }
+  .nav-actions { min-width: 0; flex-wrap: wrap; }
+  .nav-actions .nav-search { flex: 1 1 160px; min-width: 0; }
+  .nav-actions .nav-search input { width: 100% !important; min-width: 0; }
+  #cmdkBtn { display: none; }
+  .tabs { flex-wrap: wrap; }
+  code { overflow-wrap: anywhere; }
+  /* The brain-status bar (fixed, z 1000) covered the phone tab bar (z 900, 66px) completely and wrapped to 123px:
+     it is now one line sitting on top of the tab bar. body.has-bsb is set while the bar shows. */
+  #brain-status-bar { bottom: 66px !important; padding: 6px 12px !important; gap: 8px !important; font-size: 11px !important; }
+  #brain-status-bar #bsb-metrics, #brain-status-bar a[href="proof.html"], #brain-status-bar > span[style*="flex:1"] { display: none; }
+  #brain-status-bar #bsb-headline { flex: 1 1 auto; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  body.has-bsb { padding-bottom: 100px; }
+  /* The account pill sits in the nav's tool row (js/auth.js); short label on a phone. */
+  #bp-auth-slot a { padding: 5px 9px !important; font-size: 11px !important; max-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: middle; }
+}
+@media (max-width: 600px) {
+  /* Three short rows on a phone: brand + hub + status, then data pill + tools + Subscribe, then search.
+     It scrolls away instead of pinning ~120px over the content; the bottom tab bar stays. */
+  .navbar { position: relative; top: auto; }
+  .nav-actions .nav-search { order: 10; flex-basis: 100%; }
+  .nav-actions .btn-ghost { padding: 6px 7px !important; }
+  .nav-actions .btn-primary { padding: 6px 9px !important; }
+  .bp-auth-more { display: none; }
+  .logo { font-size: 15px; gap: 8px; }
+  .nav-container > a[href="https://bpleone.com"], #nav-live-pulse { margin-left: 4px !important; }
 }
 
 /* ==========================================================================

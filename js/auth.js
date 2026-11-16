@@ -104,17 +104,24 @@
   function renderPill() {
     let slot = document.getElementById('bp-auth-slot');
     if (!slot) {
-      // create a fixed top-right pill if the nav didn't provide a slot
       slot = document.createElement('div');
       slot.id = 'bp-auth-slot';
-      slot.style.cssText = 'position:fixed;top:10px;right:14px;z-index:9997;font-family:Inter,sans-serif;';
-      document.body.appendChild(slot);
+      // Pass 348: sit in the nav's tool row, before Subscribe. It used to float fixed at the top right, over the
+      // ticker tape's last quotes (on a phone it covered a third of the tape). Fixed only on a page with no nav.
+      const na = document.querySelector('.nav-actions');
+      if (na) {
+        slot.style.cssText = 'display:inline-flex;align-items:center;font-family:Inter,sans-serif;';
+        na.insertBefore(slot, na.querySelector('a.btn-primary'));
+      } else {
+        slot.style.cssText = 'position:fixed;top:10px;right:14px;z-index:9997;font-family:Inter,sans-serif;';
+        document.body.appendChild(slot);
+      }
     }
     if (state.email) {
       const name = state.email.length > 22 ? state.email.slice(0, 20) + '…' : state.email;
       slot.innerHTML = '<a href="my-account.html" style="display:inline-block;padding:6px 12px;border-radius:20px;background:rgba(16,185,129,0.14);color:var(--green,#10b981);font-size:12px;font-weight:700;text-decoration:none;border:1px solid rgba(16,185,129,0.35);">● ' + name + '</a>';
     } else {
-      slot.innerHTML = '<a href="login.html" style="display:inline-block;padding:6px 14px;border-radius:20px;background:rgba(0,212,255,0.12);color:var(--accent,#00d4ff);font-size:12px;font-weight:800;text-decoration:none;border:1px solid rgba(0,212,255,0.4);">Log in / Sign up — free</a>';
+      slot.innerHTML = '<a href="login.html" style="display:inline-block;padding:6px 14px;border-radius:20px;background:rgba(0,212,255,0.12);color:var(--accent,#00d4ff);font-size:12px;font-weight:800;text-decoration:none;border:1px solid rgba(0,212,255,0.4);">Log in<span class="bp-auth-more"> / Sign up — free</span></a>';
     }
   }
 
