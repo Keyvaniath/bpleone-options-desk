@@ -46,6 +46,19 @@
     </div>
   </div>
 
+  <!-- Pass 347: the hub leads with the desk's brain (the 24/7 Worker); everything below it is this browser's own model,
+       which starts empty for every visitor, so the page used to open on a wall of dashes. -->
+  <div class="hub-card" id="deskBrain" style="margin-bottom:12px;border-left:3px solid var(--accent);">
+    <h4>The desk&rsquo;s brain, running 24/7 on the Worker <a href="edge-scorecard.html">Edge Scorecard &rarr;</a></h4>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:14px;margin-top:8px;">
+      <div><div class="tile-sub">State</div><div class="tile-stat" id="dbState" style="font-size:20px;">&hellip;</div><div class="tile-sub" id="dbHeadline">checking the Worker&hellip;</div></div>
+      <div><div class="tile-sub">Live record, every graded 5-day call</div><div class="tile-stat" id="dbLive" style="font-size:20px;">&mdash;</div><div class="tile-sub" id="dbLiveSub">&mdash;</div></div>
+      <div><div class="tile-sub">Today&rsquo;s self-check slope (a pick needs more than 0.2)</div><div class="tile-stat" id="dbSlope" style="font-size:20px;">&mdash;</div><div class="tile-sub" id="dbSlopeSub">&mdash;</div></div>
+      <div><div class="tile-sub">Last weekly retrain</div><div class="tile-stat" id="dbRetrain" style="font-size:20px;">&mdash;</div><div class="tile-sub" id="dbTick">&mdash;</div></div>
+    </div>
+  </div>
+  <div style="font-size:11px;font-weight:800;letter-spacing:1px;text-transform:uppercase;color:var(--text-muted);margin:14px 0 8px;">This browser&rsquo;s own model (local; it starts empty and is not the desk&rsquo;s record)</div>
+
   <!-- Training-tools strip — wires the new ops/training pages into the hub -->
   <div style="display:flex;flex-wrap:wrap;gap:10px;padding:10px 14px;margin-bottom:18px;background:linear-gradient(90deg,rgba(0,212,255,0.06),rgba(167,139,250,0.05));border-radius:12px;border:1px solid rgba(0,212,255,0.15);font-size:12px;">
     <span style="font-weight:800;color:var(--text-muted);text-transform:uppercase;letter-spacing:1px;align-self:center;">Training tools:</span>
@@ -288,6 +301,40 @@ function render() {
 
 render();
 setInterval(render, 6000);
+
+// Pass 347: the desk-brain panel (Worker). Refreshed every 60 s; the local panels above refresh every 6 s.
+async function deskBrain() {
+  if (document.hidden) return;
+  const W = (window.WorkerBridge && WorkerBridge.getUrl && WorkerBridge.getUrl()) || 'https://bpleone-brain-worker.brandonpleone.workers.dev';
+  const get = u => fetch(W + u, { cache: 'no-store' }).then(r => r.ok ? r.json() : null).catch(() => null);
+  const set = (id, t, color) => { const el = document.getElementById(id); if (!el) return; el.textContent = t; if (color) el.style.color = color; };
+  const [health, metrics, picks] = await Promise.all([get('/brain/health'), get('/brain/metrics'), get('/brain/picks')]);
+  if (typeof window.workerBrainStatus === 'function') {
+    try { const st = await window.workerBrainStatus(); set('dbHeadline', st.headline, st.color); } catch (e) {}
+  }
+  if (!health) { set('dbState', 'NO ANSWER', 'var(--text-muted)'); return; }
+  const noPlay = !!(picks && (picks.no_play || !picks.pick_of_day));
+  set('dbState', !health.self_sustaining ? 'CHECK' : noPlay ? 'NO PLAY' : 'PICK OUT', !health.self_sustaining ? 'var(--red)' : noPlay ? 'var(--yellow)' : 'var(--green)');
+  const lr = metrics && metrics.live_resolved;
+  if (lr && lr.accuracy != null) {
+    set('dbLive', (lr.accuracy * 100).toFixed(1) + '%');
+    set('dbLiveSub', Number(lr.n).toLocaleString() + ' calls; Brier skill ' + (lr.bss < 0 ? '\u2212' : '+') + Math.abs(lr.bss).toFixed(2) + ' vs a constant guess');
+  }
+  const cal = picks && picks.no_play && picks.no_play.calibration;
+  if (cal && typeof cal.slope_a === 'number') {
+    set('dbSlope', (cal.slope_a < 0 ? '\u2212' : '+') + Math.abs(cal.slope_a).toFixed(3), cal.slope_a > 0.2 ? 'var(--green)' : 'var(--red)');
+    set('dbSlopeSub', 'on its last ' + Number(cal.graded_calls).toLocaleString() + ' graded calls; refit ' + new Date(Date.parse(cal.fitted)).toLocaleString('en-US', { timeZone: 'America/New_York', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) + ' ET');
+  } else if (picks && !picks.no_play) {
+    set('dbSlope', 'above 0.2', 'var(--green)'); set('dbSlopeSub', 'the signal is informative today');
+  }
+  if (health.auto_bootstrap_ts) {
+    const days = (Date.now() - health.auto_bootstrap_ts) / 864e5;
+    set('dbRetrain', days < 1 ? 'today' : days.toFixed(1) + ' days ago', days <= 8 ? '' : 'var(--yellow)');
+  }
+  set('dbTick', 'trained on ' + Number(health.model_trained || 0).toLocaleString() + ' examples; last tick ' + (health.lastTickAgo != null ? (health.lastTickAgo < 120 ? health.lastTickAgo + 's' : Math.round(health.lastTickAgo / 60) + 'm') + ' ago' : 'unknown'));
+}
+deskBrain();
+setInterval(deskBrain, 60000);
 </script>
 </body>
 </html>
