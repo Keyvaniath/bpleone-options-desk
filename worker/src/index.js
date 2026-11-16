@@ -4,6 +4,7 @@ import { etDayKey, reconcileBars, overlayToday } from './bars.js';
 import { SNAPSHOT_SCHEDULE, snapshotDispatchDue, buildDispatchRequest, cleanToken, tokenShape } from './snapshots.js';
 import { ECON_DESK_FILE, normalizeEconEvents, econCoverage, econCovers } from './econ.js';
 import { earningsFrom8K, tickerMap, cikFor, cikPath } from './earnings.js';
+import { weekOf, recordByWeek } from './record.js';
 /* ===========================================
    BPLEONE Brain Worker — 24/7 server-side brain
    ---
@@ -44,7 +45,7 @@ import { earningsFrom8K, tickerMap, cikFor, cikPath } from './earnings.js';
 // Pass 200: version stamp so brain-proof.html + worker-setup.html can detect
 // when the deployed worker is behind the repo source. Bump on every meaningful
 // behavior change. Read via /brain/health → worker_version field.
-const WORKER_VERSION = 'pass-328';
+const WORKER_VERSION = 'pass-329';
 
 const UNIVERSE = [
   'SPY','QQQ','IWM','DIA','AAPL','NVDA','TSLA','MSFT','META','AMZN','GOOGL','AMD',
@@ -2003,6 +2004,24 @@ async function handleRequest(request, env, ctx) {
         next: offset + n < journal.length ? offset + n : null, order: 'oldest first' }, 200, 300);
     }
     return json({ journal: strip(journal.slice(-n)), total: journal.length }, 200, 30);
+  }
+
+  // ===== Pass-329: the live record by week (worker/src/record.js). Every graded 5-day call, grouped by the
+  // ET week it was captured, beside the share of those names that rose (what "always call up" hit). Same
+  // counting rule as /brain/metrics live_resolved. Edge-cached 1 h: the journal is ~6 MB, so the summary is
+  // computed at most once an hour per colo, never per visitor. Read-only.
+  if (path === '/brain/record') {
+    const cache = caches.default;
+    const cacheKey = new Request(url.origin + '/brain/record', { method: 'GET' });
+    const hit = await cache.match(cacheKey);
+    if (hit) return hit;
+    const journal = await kvGet(env, KV_KEYS.JOURNAL, [], 60);
+    const rec = recordByWeek(journal);
+    const resp = json(Object.assign({ ok: rec.rows.length > 0, version: WORKER_VERSION, journal_total: journal.length,
+      this_week: String(weekOf(etDayKeyNow()) || ''), computed_at: new Date().toISOString(),
+      note: 'Graded 5-day calls (correct or wrong; flat and still-open calls left out), grouped by the ET week they were made. up_rate is the share of those names that rose, which is what calling UP every time would have hit. All names in one week share one market, so each week is close to one independent observation.' }, rec), 200, 3600);
+    if (rec.rows.length) ctx.waitUntil(cache.put(cacheKey, resp.clone()));
+    return resp;
   }
 
   if (path === '/brain/model') {

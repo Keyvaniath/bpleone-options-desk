@@ -262,6 +262,12 @@ t('layout: grid children may shrink; the nav tools take their own row at every w
 t('phone: the brain-status bar sits above the tab bar instead of covering it; the account pill lives in the nav, not over the ticker', /#brain-status-bar \{ bottom: 66px !important;/.test(read('css/style.css')) && /body\.has-bsb \{ padding-bottom: 100px; \}/.test(read('css/style.css')) && /document\.body\.classList\.add\('has-bsb'\)/.test(read('js/app.js')) && /na\.insertBefore\(slot, na\.querySelector\('a\.btn-primary'\)\)/.test(read('js/auth.js')));
 t('setup wizard binds its symbol prices to the live feed (no months-old hardcoded quotes)', !/\$138\.27|\$587\.42|\$562\.18/.test(read('setup-wizard.html')) && /data-live="NVDA:last"/.test(read('setup-wizard.html')));
 
+// 6o. Pass 349 (11/16; worker pass-329): the live record week by week, against calling UP every time (the fair,
+//     ex-ante bar; a week's majority direction needs hindsight and is not shown). Partly graded weeks are marked and
+//     left out of the tally. Unit tests: node _test_record.js.
+t('Edge Scorecard charts the weekly record from /brain/record (journal fallback), fair bar only, partial weeks left out', /async function loadWeekly\(\)/.test(read('edge-scorecard.html')) && /WORKER \+ '\/brain\/record'/.test(read('edge-scorecard.html')) && /const full = rows\.filter\(r => !r\.partial\);/.test(read('edge-scorecard.html')) && !/beatMaj|majority direction in/.test(read('edge-scorecard.html')));
+t('swa-tracker never prints 0/undefined (stats always carries minSnapshots)', /ready: false, minSnapshots: MIN_SNAPSHOTS/.test(read('js/swa.js')));
+
 // 7. Worker sources parse strictly. `node --check` passed an ES-module file with an unescaped quote in a
 //    string (found 2026-11-03), so parse the bodies as scripts with imports/exports stripped.
 ['worker/src/index.js', 'worker/src/grading.js', 'worker/src/radar.js', 'worker/src/bars.js', 'worker/src/snapshots.js', 'worker/src/econ.js', 'worker/src/earnings.js'].forEach(f => {

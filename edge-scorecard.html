@@ -115,6 +115,11 @@
       <div class="sc-card"><div class="sc-lbl">Slope by day, against the 0.2 bar</div><div id="cal-chart" style="height:120px;"></div>
         <div id="cal-trend-note" style="font-size:11px;color:var(--text-muted);margin-top:6px;line-height:1.5;">—</div></div>
     </div>
+    <div class="sc-card" style="margin-top:14px;" id="wk-card">
+      <div class="sc-lbl">The live record week by week, against calling &ldquo;up&rdquo; every time</div>
+      <div id="wk-chart" style="min-height:150px;"></div>
+      <div id="wk-note" style="font-size:12px;color:var(--text-muted);margin-top:8px;line-height:1.55;">Loading the record…</div>
+    </div>
     <div style="margin-top:14px;font-size:12px;color:var(--text-muted);display:flex;flex-wrap:wrap;gap:10px;align-items:center;line-height:1.5;">
       <button class="btn btn-ghost" id="dl-record" type="button" style="font-size:12px;">&#11015; Download every graded call (CSV)</button>
       <span id="dl-record-status" style="flex:1 1 260px;min-width:0;">Every call the brain has logged, oldest first, straight from the Worker, so the live record above can be checked call by call.</span>
@@ -434,7 +439,63 @@ async function loadShortVolumeOOS() {
   else { pill.textContent = 'running, no verdict'; }
 }
 
-function loadAll() { loadBacktest(); loadForward(); loadFlowTest(); loadCalibration(); loadShortVolumeOOS(); }
+// Pass 349 (worker pass-329): the live record week by week from /brain/record (edge-cached hourly). Before that
+// deploy the same rule runs here on the newest 2,000 calls (/brain/journal), and the note says so. The rule matches
+// worker/src/record.js and /brain/metrics live_resolved: only correct/wrong count; UP when predProb >= 0.5.
+function weekRowsFromJournal(journal) {
+  const weekOf = k => { k = Number(k); if (!(k > 19000101)) return null; const t = Date.UTC(Math.floor(k / 10000), Math.floor(k / 100) % 100 - 1, k % 100); const dow = new Date(t).getUTCDay(); const m = new Date(t - ((dow + 6) % 7) * 86400000); return m.getUTCFullYear() * 10000 + (m.getUTCMonth() + 1) * 100 + m.getUTCDate(); };
+  const W = new Map();
+  for (const e of journal || []) {
+    const o = e && e.resolved && e.resolved.mid;
+    if ((o !== 'correct' && o !== 'wrong') || typeof e.predProb !== 'number' || !isFinite(e.predProb)) continue;
+    const wk = weekOf(e.dayKey); if (!wk) continue;
+    const up = e.predProb >= 0.5, rose = (up && o === 'correct') || (!up && o === 'wrong');
+    const w = W.get(wk) || { week: String(wk), n: 0, hits: 0, rose: 0, calledUp: 0 };
+    w.n++; if (o === 'correct') w.hits++; if (rose) w.rose++; if (up) w.calledUp++;
+    W.set(wk, w);
+  }
+  const rows = [...W.values()].sort((a, b) => a.week.localeCompare(b.week)).map(w => ({ week: w.week, n: w.n, hit_rate: w.hits / w.n, up_rate: w.rose / w.n, called_up: w.calledUp / w.n }));
+  const ns = rows.map(r => r.n).sort((a, b) => a - b), med = ns.length ? ns[Math.floor(ns.length / 2)] : 0;
+  rows.forEach(r => { r.partial = r.n < 0.5 * med; });   // same rule as worker/src/record.js
+  return rows;
+}
+function weekChart(rows, width) {
+  // Drawn at the card's real width so labels stay readable on a phone (a scaled 600px chart shrank them to ~4px).
+  const Wd = Math.max(260, Math.round(width || 600)), H = 160, pl = 34, pr = 10, pt = 8, pb = 22;
+  const x = i => pl + (rows.length === 1 ? (Wd - pl - pr) / 2 : i * (Wd - pl - pr) / (rows.length - 1));
+  const y = v => pt + (1 - v) * (H - pt - pb);
+  const line = (key, color, dash) => '<polyline points="' + rows.map((r, i) => x(i).toFixed(1) + ',' + y(r[key]).toFixed(1)).join(' ') + '" fill="none" stroke="' + color + '" stroke-width="2"' + (dash ? ' stroke-dasharray="5 4"' : '') + '/>'
+    + rows.map((r, i) => '<circle cx="' + x(i).toFixed(1) + '" cy="' + y(r[key]).toFixed(1) + '" r="' + (r.partial ? 3.5 : 2.5) + '" fill="' + (r.partial ? 'var(--bg-secondary)' : color) + '" stroke="' + color + '" stroke-width="1.5"><title>Week of ' + Number(r.week.slice(4, 6)) + '/' + Number(r.week.slice(6)) + ': ' + (r[key] * 100).toFixed(1) + '% (n ' + r.n + (r.partial ? ', still being graded' : '') + ')</title></circle>').join('');
+  let g = '';
+  [0, 0.25, 0.5, 0.75, 1].forEach(v => { g += '<line x1="' + pl + '" x2="' + (Wd - pr) + '" y1="' + y(v).toFixed(1) + '" y2="' + y(v).toFixed(1) + '" stroke="var(--border)" stroke-width="1"' + (v === 0.5 ? '' : ' stroke-dasharray="2 3"') + '/><text x="' + (pl - 4) + '" y="' + (y(v) + 3).toFixed(1) + '" text-anchor="end" font-size="9" fill="var(--text-muted)">' + (v * 100) + '%</text>'; });
+  const step = Math.max(1, Math.ceil(rows.length / 8));
+  rows.forEach((r, i) => { if (i % step === 0 || i === rows.length - 1) g += '<text x="' + x(i).toFixed(1) + '" y="' + (H - 6) + '" text-anchor="' + (i === 0 ? 'start' : i === rows.length - 1 ? 'end' : 'middle') + '" font-size="10" fill="var(--text-muted)">' + Number(r.week.slice(4, 6)) + '/' + Number(r.week.slice(6)) + (r.partial ? '*' : '') + '</text>'; });
+  return '<svg viewBox="0 0 ' + Wd + ' ' + H + '" width="' + Wd + '" height="' + H + '" style="max-width:100%;display:block;" role="img" aria-label="Weekly hit rate of the brain against the share of names that rose">' + g
+    + line('up_rate', 'var(--text-muted)', true) + line('hit_rate', 'var(--accent)', false) + '</svg>'
+    + '<div style="display:flex;column-gap:16px;row-gap:2px;flex-wrap:wrap;font-size:11px;line-height:1.5;color:var(--text-muted);margin-top:4px;"><span><span style="display:inline-block;width:14px;height:2px;background:var(--accent);vertical-align:middle;"></span> the brain&rsquo;s hit rate</span><span><span style="display:inline-block;width:14px;border-top:2px dashed var(--text-muted);vertical-align:middle;"></span> calling &ldquo;up&rdquo; every time (share of names that rose)</span></div>';
+}
+async function loadWeekly() {
+  const note = $('wk-note');
+  let rows = null, source = '';
+  try { const r = await fetch(WORKER + '/brain/record'); if (r.ok) { const j = await r.json(); if (j && j.ok && Array.isArray(j.rows)) { rows = j.rows; source = 'every graded call since ' + Number(rows[0].week.slice(4, 6)) + '/' + Number(rows[0].week.slice(6)) + '/' + rows[0].week.slice(0, 4) + ' (refreshed hourly)'; } } } catch (e) {}
+  if (!rows) {
+    try { const r = await fetch(WORKER + '/brain/journal?n=2000'); const j = r.ok ? await r.json() : null; if (j && Array.isArray(j.journal)) { rows = weekRowsFromJournal(j.journal); source = 'the newest 2,000 calls only, until worker pass-329 serves the full record'; } } catch (e) {}
+  }
+  if (!rows || !rows.length) { note.textContent = 'The record did not load; the Worker did not answer.'; $('wk-chart').innerHTML = ''; return; }
+  const draw = () => { $('wk-chart').innerHTML = weekChart(rows, $('wk-chart').clientWidth); };
+  draw();
+  if (!window.__wkResize) { window.__wkResize = true; let t; window.addEventListener('resize', () => { clearTimeout(t); t = setTimeout(draw, 200); }); }
+  const n = rows.reduce((a, r) => a + r.n, 0);
+  const calledUp = rows.reduce((a, r) => a + r.called_up * r.n, 0) / n;
+  const full = rows.filter(r => !r.partial);
+  const beatUp = full.filter(r => r.hit_rate > r.up_rate).length;
+  const part = rows.length - full.length;
+  note.innerHTML = rows.length + ' weeks, ' + n.toLocaleString() + ' graded calls (' + source + '). The brain called &ldquo;up&rdquo; on ' + pct(calledUp)
+    + ' of them, so its hit rate mostly follows the market&rsquo;s own direction. It beat calling &ldquo;up&rdquo; every time in ' + beatUp + ' of ' + full.length
+    + ' fully graded weeks' + (part ? ' (* = still being graded, left out)' : '') + '. Every name in a week shares one market, so each week is close to one independent result, not hundreds.';
+}
+
+function loadAll() { loadBacktest(); loadForward(); loadFlowTest(); loadCalibration(); loadShortVolumeOOS(); loadWeekly(); }
 loadAll();
 setInterval(loadAll, 120000);
 </script>

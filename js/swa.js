@@ -114,7 +114,7 @@
 
   function stats() {
     const state = load();
-    if (!state) return { nSnapshots: 0, ready: false };
+    if (!state) return { nSnapshots: 0, ready: false, minSnapshots: MIN_SNAPSHOTS };  // pass 349: the page printed 0/undefined, "Need NaN more"
     return {
       nSnapshots: state.n,
       ready: state.n >= MIN_SNAPSHOTS,
