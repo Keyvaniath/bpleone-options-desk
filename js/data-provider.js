@@ -539,18 +539,35 @@ const DataProvider = (function() {
   }
   function _dpDemoMode() { try { return localStorage.getItem('bpleone_demo_mode') === '1'; } catch (e) { return false; } }
   // Pass 284: REAL daily OHLC from the 24/7 worker (free, no API key).
+  // Pass 349: requests made within 50 ms are batched into ONE /brain/bars call (40 symbols a request). The TA
+  // module warms each symbol separately, so pages fanned out ~20 single-symbol calls per load (measured on
+  // conviction-board and confluence-scanner) against the Worker's per-visitor rate limit.
+  let _barsBatch = null;
+  function _fetchBarsChunk(syms) {
+    const ctrl = new AbortController();
+    const to = setTimeout(() => ctrl.abort(), 9000);
+    return fetch(_dpWorkerUrl() + '/brain/bars?syms=' + syms.map(encodeURIComponent).join(',') + '&days=40', { cache: 'no-store', signal: ctrl.signal })
+      .then(r => r.ok ? r.json() : null).then(j => (j && j.bars) || {}).catch(() => ({})).finally(() => clearTimeout(to));
+  }
+  function _flushBarsBatch() {
+    const b = _barsBatch; _barsBatch = null;
+    const syms = Array.from(b.syms), chunks = [];
+    for (let i = 0; i < syms.length; i += 40) chunks.push(_fetchBarsChunk(syms.slice(i, i + 40)));
+    Promise.all(chunks).then(parts => {
+      const all = Object.assign({}, ...parts);
+      b.waiters.forEach(w => w.resolve(all[w.symbol] || []));
+    });
+  }
+  function _workerBarsRaw(symbol) {
+    return new Promise(resolve => {
+      if (!_barsBatch) { _barsBatch = { syms: new Set(), waiters: [] }; setTimeout(_flushBarsBatch, 50); }
+      _barsBatch.syms.add(symbol);
+      _barsBatch.waiters.push({ symbol, resolve });
+    });
+  }
   async function workerDailyBars(symbol, fromMs, toMs) {
-    let r;
-    try {
-      const ctrl = new AbortController();
-      const to = setTimeout(() => ctrl.abort(), 9000);
-      r = await fetch(_dpWorkerUrl() + '/brain/bars?syms=' + encodeURIComponent(symbol) + '&days=40', { cache: 'no-store', signal: ctrl.signal });
-      clearTimeout(to);
-    } catch (e) { return []; }
-    if (!r.ok) return [];
-    let j; try { j = await r.json(); } catch (e) { return []; }
-    const arr = (j && j.bars && j.bars[symbol]) ? j.bars[symbol] : [];
-    return arr.map(b => ({ t: b.ts, o: b.o, h: b.h, l: b.l, c: b.c, v: b.v }))
+    const arr = await _workerBarsRaw(String(symbol || '').toUpperCase());
+    return (Array.isArray(arr) ? arr : []).map(b => ({ t: b.ts, o: b.o, h: b.h, l: b.l, c: b.c, v: b.v }))
       .filter(b => typeof b.t === 'number' && b.c > 0 && (!fromMs || b.t >= fromMs) && (!toMs || b.t <= toMs));
   }
 

@@ -165,7 +165,7 @@ table.ss td.note { color:var(--text-muted);font-size:11.5px;line-height:1.5;min-
 
   async function services() {
     const now = Date.now();
-    const [health, wq, sq, ss, picks, radar, conf, flow, econ, edge, congress, econMeta, edgeMeta, calLog, spyBars] = await Promise.all([
+    const [health, wq, sq, ss, picks, radar, conf, flow, econ, edge, congress, econMeta, edgeMeta, calLog, spyBars, jr] = await Promise.all([
       getJson(WORKER + '/brain/health'),
       getJson(WORKER + '/brain/quotes?syms=SPY'),
       getJson('data/snap/quotes.json?cb=' + now),
@@ -180,7 +180,8 @@ table.ss td.note { color:var(--text-muted);font-size:11.5px;line-height:1.5;min-
       getJson('data/meta/econ-calendar.json?cb=' + now),
       getJson('data/meta/edge-lab.json?cb=' + now),
       getJson(WORKER + '/brain/calibration-log'),
-      getJson(WORKER + '/brain/bars?syms=SPY&days=5')
+      getJson(WORKER + '/brain/bars?syms=SPY&days=5'),
+      getJson(WORKER + '/brain/journal?n=400&lite=1')
     ]);
     // Sidecars (data/meta/*.json, written by each daily job from 2026-11-03): checkedAt = last successful fetch.
     const meta = m => (m && !m._err && m.checkedAt) ? m : null;
@@ -253,6 +254,24 @@ table.ss td.note { color:var(--text-muted);font-size:11.5px;line-height:1.5;min-
       if (!rows.length) add('Calibration history', KIND.batch, null, null, 'one row per weekday', 'idle', 'Starts with the first refit after worker pass-327 (weekday mornings at the first tick).');
       else add('Calibration history', KIND.batch, Date.parse(lastDay + 'T08:00:00-05:00'), null, 'holds ' + want, lastDay >= want ? 'ok' : 'warn',
         rows.length + ' daily fits; latest ' + lastDay + ', slope ' + (+last.a).toFixed(3) + ' (NO PLAY while 0.2 or below). Shown on the Edge Scorecard, section 3.');
+    }
+    // Pass 349: did the brain log a call for every name on the latest day? (~82 a day; a partial day means the
+    // minute tick stalled or a price feed failed for some names.) Graded later, so a missing capture is a missing record.
+    if (jr._err || !Array.isArray(jr.journal)) add('Daily captures', KIND.batch, null, null, 'every name, every session', 'warn', 'The journal did not answer' + (jr._err ? ' (' + jr._err + ')' : '') + '.');
+    else {
+      const byDay = {};
+      jr.journal.forEach(e => { if (e && e.dayKey) byDay[e.dayKey] = (byDay[e.dayKey] || 0) + 1; });
+      const days = Object.keys(byDay).sort();
+      const lastK = days[days.length - 1];
+      const expect = Math.max(0, ...days.slice(0, -1).map(d => byDay[d]));
+      const lastDay = lastK ? String(lastK).replace(/^(\d{4})(\d{2})(\d{2})$/, '$1-$2-$3') : null;
+      const p = etParts(new Date());
+      const weekday = p.wd !== 'Sat' && p.wd !== 'Sun';
+      const want = weekday && p.h >= 10 ? etDay(new Date()) : lastSessionDay();
+      const have = lastK ? byDay[lastK] : 0;
+      const st = !lastDay ? 'bad' : lastDay < want ? 'warn' : (expect && have < expect ? 'warn' : 'ok');
+      add('Daily captures', KIND.batch, lastDay ? Date.parse(lastDay + 'T09:45:00-05:00') : null, null, 'holds ' + want, st,
+        (lastDay ? have + ' calls logged on ' + lastDay + (expect ? ' (' + expect + ' on a full day)' : '') : 'no captures') + '. The brain logs one 5-day call per name each session and grades it five sessions later; a short day is a gap in the public record.');
     }
 
     // 4. Forward-test ledgers

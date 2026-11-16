@@ -267,6 +267,18 @@ t('setup wizard binds its symbol prices to the live feed (no months-old hardcode
 //     left out of the tally. Unit tests: node _test_record.js.
 t('Edge Scorecard charts the weekly record from /brain/record (journal fallback), fair bar only, partial weeks left out', /async function loadWeekly\(\)/.test(read('edge-scorecard.html')) && /WORKER \+ '\/brain\/record'/.test(read('edge-scorecard.html')) && /const full = rows\.filter\(r => !r\.partial\);/.test(read('edge-scorecard.html')) && !/beatMaj|majority direction in/.test(read('edge-scorecard.html')));
 t('phone: Feedback button and first-visit card sit above the tab bar and status line', /body\.has-bsb #fb-btn, body\.has-bsb #sh-nudge \{ bottom: 124px; \}/.test(read('css/style.css')) && /body #fb-btn, body #sh-nudge \{ bottom: 76px; \}/.test(read('css/style.css')));
+// Pass 349: 33 Chart.js canvases on 26 pages (Brain Hub, Ticker, auto-paper...) were fill-parent charts
+// (responsive, maintainAspectRatio:false) in auto-height cards, so they grew without limit (9,000-13,000px after
+// 6 s, seconds of CPU). Each now sits in a fixed-height position:relative box. Sweep: PROBE=_sweep/probes/runaway-canvas.js.
+(function () {
+  const files = fs6h.readdirSync(__dirname).filter(f => f.endsWith('.html'));
+  let boxes = 0, bad = [];
+  files.forEach(f => { const s = read(f); const m = s.match(/<div data-fix="pass349" style="position:relative;height:\d+px;"><canvas\b[^>]*><\/canvas><\/div>/g); boxes += m ? m.length : 0; if (/data-fix="pass349"[^>]*>\s*<canvas\b[^>]*\bheight="/.test(s)) bad.push(f); });
+  t('runaway charts stay in fixed-height boxes (33 canvases, no height attribute inside the box)', boxes >= 33 && !bad.length);
+})();
+t('the TA warm-up batches Worker bars requests (one /brain/bars call, not one per symbol)', /function _flushBarsBatch\(\)/.test(read('js/data-provider.js')) && /setTimeout\(_flushBarsBatch, 50\)/.test(read('js/data-provider.js')));
+t('dark theme muted text meets ~4.5:1 on cards; links without a class are never browser-default blue', /--text-muted: #7b8aa0;/.test(read('css/style.css')) && /a:not\(\[class\]\) \{ color: var\(--accent\); \}/.test(read('css/style.css')));
+t('System Status checks that the brain logged a call for every name on the latest day', /add\('Daily captures'/.test(read('system-status.html')));
 t('swa-tracker never prints 0/undefined (stats always carries minSnapshots)', /ready: false, minSnapshots: MIN_SNAPSHOTS/.test(read('js/swa.js')));
 
 // 7. Worker sources parse strictly. `node --check` passed an ES-module file with an unescaped quote in a
