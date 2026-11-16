@@ -44,7 +44,7 @@ import { earningsFrom8K, tickerMap, cikFor, cikPath } from './earnings.js';
 // Pass 200: version stamp so brain-proof.html + worker-setup.html can detect
 // when the deployed worker is behind the repo source. Bump on every meaningful
 // behavior change. Read via /brain/health → worker_version field.
-const WORKER_VERSION = 'pass-326';
+const WORKER_VERSION = 'pass-327';
 
 const UNIVERSE = [
   'SPY','QQQ','IWM','DIA','AAPL','NVDA','TSLA','MSFT','META','AMZN','GOOGL','AMD',
@@ -88,6 +88,7 @@ const KV_KEYS = {
   ANALYTICS: 'analytics_v1',        // pass 268: first-party usage analytics (anon page views + events)
   ECON_CACHE: 'econ_cache_v1',
   LIVE_CAL: 'live_calibration_v1',  // pass 333: calibration refit daily on the brain's own graded record      // pass 319: last-good ForexFactory calendar (upstream rejects CF egress IPs ~2/3 of the time)
+  LIVE_CAL_LOG: 'live_calibration_log_v1', // pass-327: one row per ET day of that refit (slope, hit rate, up rate)
 };
 
 // Pass 218: bumped from 12,000 → 35,000. Live training triggers on the
@@ -116,7 +117,14 @@ const WHALES_13F = [
   { cik: 1167483, label: 'Tiger Global' },
   { cik: 1656456, label: 'Appaloosa' }   // Tepper re-registered in 2016; the old CIK 1006438 stopped filing
 ];
-const SEC_UA = { headers: { 'User-Agent': 'bpleone-research options.bpleone.com brandonpleone@gmail.com' } };
+// Pass-327: SEC fair access wants a name and a contact in the User-Agent. The contact used to sit in this file, and
+// the repository is public; it now comes from the Worker secret SEC_UA (set by the owner with `wrangler secret put
+// SEC_UA`). Without the secret the Worker sends a generic agent, which SEC may refuse (403); every EDGAR caller
+// already falls back (earnings history to Finnhub, insider and 13F reads to an honest empty state).
+function secUA(env) {
+  const ua = env && typeof env.SEC_UA === 'string' && env.SEC_UA.trim() ? env.SEC_UA.trim() : 'bpleone-research options.bpleone.com';
+  return { headers: { 'User-Agent': ua } };
+}
 // Pass 226: horizons in CALENDAR hours, sized so the effective TRADING-day
 // window matches the bootstrap labels (daily bars = trading days, FWD_DAYS=5).
 // mid was 120h (5 calendar days) — but weekends plus the market-hours resolve
@@ -1560,7 +1568,19 @@ async function tick(env) {
       pairs.push({ x: plattLogit(adj), y: wentUp });
     }
     const fit = fitLiveCalibration(pairs);
-    if (fit) writes.push(kvPut(env, KV_KEYS.LIVE_CAL, Object.assign(fit, { dayKey, fittedAt: Date.now() })));
+    if (fit) {
+      writes.push(kvPut(env, KV_KEYS.LIVE_CAL, Object.assign(fit, { dayKey, fittedAt: Date.now() })));
+      // Pass-327: keep each day's fit, so the site can show whether the brain is moving toward an informative slope
+      // (> 0.2, when NO PLAY lifts) or away from it, and how its directional hit rate on the same calls compares with
+      // the share that went up. One KV read and one write per ET day; capped at 500 days.
+      try {
+        const hits = pairs.reduce((s, d) => s + ((d.x >= 0 ? 1 : 0) === d.y ? 1 : 0), 0);
+        const prev = await kvGet(env, KV_KEYS.LIVE_CAL_LOG, []);
+        const log = (Array.isArray(prev) ? prev : []).filter(r => r && r.dayKey !== dayKey);
+        log.push({ dayKey, a: fit.a, b: fit.b, n: fit.n, up_rate: fit.up_rate, hit_rate: +(hits / pairs.length).toFixed(4), informative: fit.informative });
+        writes.push(kvPut(env, KV_KEYS.LIVE_CAL_LOG, log.slice(-500)));
+      } catch (e) { /* the history is observability only; the fit above is what the desk uses */ }
+    }
   }
   if (changed) writes.push(kvPut(env, KV_KEYS.JOURNAL, journal));
   if (changed || minNow % 2 === 0) {
@@ -1716,7 +1736,7 @@ async function secCik(env, sym) {
     if (kv && kv.map && now - (kv.at || 0) < WEEK) SEC_TICKER_MEM = kv;
     else {
       try {
-        const r = await fetch('https://www.sec.gov/files/company_tickers.json', SEC_UA);
+        const r = await fetch('https://www.sec.gov/files/company_tickers.json', secUA(env));
         if (r.ok) {
           const map = tickerMap(await r.json());
           if (Object.keys(map).length > 1000) {
@@ -2611,7 +2631,7 @@ async function handleRequest(request, env, ctx) {
     try {
       const cik = await secCik(env, sym);
       if (cik) {
-        const r = await fetch('https://data.sec.gov/submissions/' + cikPath(cik), SEC_UA);
+        const r = await fetch('https://data.sec.gov/submissions/' + cikPath(cik), secUA(env));
         if (r.ok) {
           const j = await r.json();
           const got = earningsFrom8K(j && j.filings && j.filings.recent).filter(e => e.date <= new Date().toISOString().slice(0, 10)).slice(0, 12);
@@ -2798,6 +2818,16 @@ async function handleRequest(request, env, ctx) {
   // resolved by maybeFlowScorecard) with the same honest machinery as the
   // confluence scorer: hit-rate vs the per-direction drift null, profitability,
   // 95% bound. ready=false until >= 20 graded calls (accrues over weeks). =====
+  // ===== Pass-327: the daily live-calibration history. Read-only (KV read cached 300s, response 600s).
+  // One row per ET day from the deploy on: slope a (NO PLAY while a <= 0.2), intercept b, the 3,000 calls it was fit
+  // on, the share that went up, and the pre-calibration score's directional hit rate on those calls.
+  if (path === '/brain/calibration-log') {
+    const log = await kvGet(env, KV_KEYS.LIVE_CAL_LOG, [], 300);
+    const cur = await kvGet(env, KV_KEYS.LIVE_CAL, null, 300);
+    const rows = Array.isArray(log) ? log : [];
+    return json({ ok: true, version: WORKER_VERSION, bar: 0.2, count: rows.length, current: cur, log: rows,
+      note: 'One fit per ET day on the brain\'s last 3,000 graded 5-day calls. The desk publishes no pick while the slope is 0.2 or below. History starts on the day worker pass-327 was deployed.' }, 200, 600);
+  }
   // ===== Pass 317: the radar call ledger, graded. Read-only (KV read cached 60s, response 300s).
   // ?sym= picks the name for the recent-calls list (default SPY); ?n= its length (max 60).
   if (path === '/brain/radar-log') {
@@ -2934,7 +2964,7 @@ async function handleRequest(request, env, ctx) {
       try {
         const cik10 = String(w.cik).padStart(10, '0');
         const r = await fetch('https://data.sec.gov/submissions/CIK' + cik10 + '.json',
-          { headers: { 'User-Agent': 'bpleone-research options.bpleone.com brandonpleone@gmail.com' } });
+          secUA(env));
         if (!r.ok) return null;
         const j = await r.json();
         const rec = j.filings && j.filings.recent;
@@ -3000,7 +3030,7 @@ async function handleRequest(request, env, ctx) {
     if (hit) return hit;
     const cik10 = String(whale.cik).padStart(10, '0');
     let sub = null;
-    try { const r = await fetch('https://data.sec.gov/submissions/CIK' + cik10 + '.json', SEC_UA); if (r.ok) sub = await r.json(); } catch (e) {}
+    try { const r = await fetch('https://data.sec.gov/submissions/CIK' + cik10 + '.json', secUA(env)); if (r.ok) sub = await r.json(); } catch (e) {}
     if (!sub || !sub.filings || !sub.filings.recent) return json({ ok: false, error: 'EDGAR submissions unreachable' }, 502);
     const rec = sub.filings.recent;
     const accs = [];
@@ -3012,14 +3042,14 @@ async function handleRequest(request, env, ctx) {
     async function loadTable(acc) {
       try {
         const folder = 'https://www.sec.gov/Archives/edgar/data/' + whale.cik + '/' + acc.replace(/-/g, '') + '/';
-        const ir = await fetch(folder + 'index.json', SEC_UA);
+        const ir = await fetch(folder + 'index.json', secUA(env));
         if (!ir.ok) return { err: 'filing index unreachable' };
         const idx = await ir.json();
         const files = ((idx.directory && idx.directory.item) || []).map(x => x.name);
         const xmlName = files.find(f => /infotable/i.test(f) && /\.xml$/i.test(f))
           || files.find(f => /\.xml$/i.test(f) && !/primary_doc/i.test(f));
         if (!xmlName) return { err: 'no info-table XML in the filing' };
-        const rx = await fetch(folder + xmlName, SEC_UA);
+        const rx = await fetch(folder + xmlName, secUA(env));
         if (!rx.ok) return { err: 'info table unreachable' };
         const clen = +(rx.headers.get('content-length') || 0);
         if (clen > 4000000) return { err: 'info table too large to parse in-worker (' + Math.round(clen / 1e6) + 'MB — mega-fund)' };

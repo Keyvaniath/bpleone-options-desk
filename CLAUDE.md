@@ -235,6 +235,12 @@ The whole site was swept so nothing fabricated reads as live. Three moves:
 
 **Honesty rule going forward:** never show a fabricated number as live. If a feed is free-derivable (Yahoo/Stooq/Binance) wire it real; if it needs a paid feed, show '—' or the SAMPLE banner.
 
+**Pass 346 invariants (2026-11-16, worker pass-327; guarded by honesty section 6l + `node _test_earnings_edgar.js`):**
+- **Two more free ideas were pre-registered and FAILED** (`_research/PREREG-2026-11-16-relative-brain.md`, committed before the data; results in `_research/RESULT-2026-11-16-relative-brain.md`): one-week reversal on a market-relative target (99 large caps, 49 weeks: +0.35%/wk, t 0.52, negative after costs) and drift after the earnings-day move (393 reports, 38 weeks: -0.57%, t -0.52). Nine ideas tested, none beats drift. Do not re-test them; the next honest step is different data.
+- **The Edge Scorecard explains NO PLAY** (section 3: today's calibration slope vs the 0.2 bar, the live record, the slope by day) and **lists every tested idea with its result** (section 4). A failed idea stays on the list.
+- **Worker pass-327 logs the daily live-calibration fit** (`live_calibration_log_v1`, one row per ET day, capped 500: a, b, n, up_rate, hit_rate, informative) and serves it read-only at `/brain/calibration-log`. History starts at the deploy.
+- **No personal contact in the Worker source** (the repo is public): the SEC User-Agent comes from the Worker secret `SEC_UA` via `secUA(env)`. Brandon sets it with `wrangler secret put SEC_UA` BEFORE deploying pass-327; without it SEC may answer 403 and EDGAR callers fall back. A privacy guard plugin now refuses Bash commands that read files holding his address: use Grep/Read/Edit.
+
 **Pass 345 invariants (2026-11-13; guarded by `node _test_dead_keys.js` + `node _test_daily_history.js`):**
 - **Daily history for analysis comes from `js/daily-history.js`** (`DailyHistory.closes(sym)`: a year of real closes from the Worker's /brain/history, keyed by ET date; `align(a, b)` on common dates; `returns`; `pearson` (null under 10 points)). `DataProvider.getHistorical` is Finnhub's PAID candle endpoint: never the only source for a page. cross-asset-correlations, pair-trades and news-reactions moved; multi-backtest (needs highs/lows over a custom range) says so when no bars load instead of "lower min-score".
 - **Correlate RETURNS aligned by DATE**, never price levels (pair-trades did) and never by array position (crypto trades 7 days, equities 5).

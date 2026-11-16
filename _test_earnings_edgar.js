@@ -31,7 +31,10 @@ ok(E.cikPath(320193) === 'CIK0000320193.json', 'CIK is zero-padded to 10 digits'
 const idx = fs.readFileSync(path.join(__dirname, 'worker', 'src', 'index.js'), 'utf8');
 const hs = idx.indexOf("if (path === '/brain/earnings-history')"); const h = idx.slice(hs, idx.indexOf("if (path === '/brain/profile')", hs));
 ok(/earningsFrom8K\(j && j\.filings && j\.filings\.recent\)/.test(h) && /if \(!rows\) try \{/.test(h), 'endpoint: EDGAR first, Finnhub only as the fallback');
-ok(/'https:\/\/www\.sec\.gov\/files\/company_tickers\.json', SEC_UA/.test(idx) && /now - \(kv\.at \|\| 0\) < WEEK/.test(idx), 'ticker map fetched with the SEC user agent and cached for a week');
+ok(/'https:\/\/www\.sec\.gov\/files\/company_tickers\.json', secUA\(env\)/.test(idx) && /now - \(kv\.at \|\| 0\) < WEEK/.test(idx), 'ticker map fetched with the SEC user agent and cached for a week');
+// Pass-327: the SEC contact comes from the Worker secret SEC_UA, never from this public source.
+ok(/function secUA\(env\)/.test(idx) && /env\.SEC_UA/.test(idx) && !/'User-Agent': '[^']*@/.test(idx), 'the SEC contact is a Worker secret, not a literal in the public source');
+ok(/if \(path === '\/brain\/calibration-log'\)/.test(idx) && /LIVE_CAL_LOG: 'live_calibration_log_v1'/.test(idx) && /log\.slice\(-500\)/.test(idx), 'worker pass-327 keeps a daily calibration history (capped) and serves it read-only');
 
 ok(/const ehGood = Array\.isArray\(rows\) && rows\.length > 0;/.test(h) && /if \(ehGood\) ctx\.waitUntil\(cache\.put/.test(h),
   'worker pass-326: an empty answer is never edge-cached (pass-324 pinned an empty Finnhub answer for 12 h)');

@@ -238,6 +238,11 @@ t('backtest skill is labeled backtest next to live accuracy', /stat\('Skill over
 
 t('earnings-playbook never re-shows a pre-EDGAR cached analysis, and analyzes on load', /const KEY = 'bpleone_earnings_playbook_v3';/.test(read('earnings-playbook.html')) && /localStorage\.removeItem\('bpleone_earnings_playbook_v2'\)/.test(read('earnings-playbook.html')) && /\} else \{\s*runAnalysis\(\);\s*\}/.test(read('earnings-playbook.html')));
 
+// 6l. Pass 346 (11/16): the Edge Scorecard explains NO PLAY from the brain's own daily fit and lists every tested idea,
+//     failures included; worker pass-327 keeps the daily fit as history and no longer carries a contact in its source.
+t('edge-scorecard shows the daily self-check and every tested idea (failures stay listed)', /async function loadCalibration\(\)/.test(read('edge-scorecard.html')) && (read('edge-scorecard.html').match(/<tr><td>/g) || []).length >= 9 && /One-week reversal, measured against SPY/.test(read('edge-scorecard.html')) && /Drift after the earnings-day move/.test(read('edge-scorecard.html')));
+t('worker source carries no personal contact (SEC agent comes from the SEC_UA secret)', !/@gmail\.com/.test(read('worker/src/index.js')) && /function secUA\(env\)/.test(read('worker/src/index.js')));
+
 // 7. Worker sources parse strictly. `node --check` passed an ES-module file with an unescaped quote in a
 //    string (found 2026-11-03), so parse the bodies as scripts with imports/exports stripped.
 ['worker/src/index.js', 'worker/src/grading.js', 'worker/src/radar.js', 'worker/src/bars.js', 'worker/src/snapshots.js', 'worker/src/econ.js', 'worker/src/earnings.js'].forEach(f => {
