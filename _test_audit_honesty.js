@@ -266,6 +266,7 @@ t('setup wizard binds its symbol prices to the live feed (no months-old hardcode
 //     ex-ante bar; a week's majority direction needs hindsight and is not shown). Partly graded weeks are marked and
 //     left out of the tally. Unit tests: node _test_record.js.
 t('Edge Scorecard charts the weekly record from /brain/record (journal fallback), fair bar only, partial weeks left out', /async function loadWeekly\(\)/.test(read('edge-scorecard.html')) && /WORKER \+ '\/brain\/record'/.test(read('edge-scorecard.html')) && /const full = rows\.filter\(r => !r\.partial\);/.test(read('edge-scorecard.html')) && !/beatMaj|majority direction in/.test(read('edge-scorecard.html')));
+t('phone: Feedback button and first-visit card sit above the tab bar and status line', /body\.has-bsb #fb-btn, body\.has-bsb #sh-nudge \{ bottom: 124px; \}/.test(read('css/style.css')) && /body #fb-btn, body #sh-nudge \{ bottom: 76px; \}/.test(read('css/style.css')));
 t('swa-tracker never prints 0/undefined (stats always carries minSnapshots)', /ready: false, minSnapshots: MIN_SNAPSHOTS/.test(read('js/swa.js')));
 
 // 7. Worker sources parse strictly. `node --check` passed an ES-module file with an unescaped quote in a
