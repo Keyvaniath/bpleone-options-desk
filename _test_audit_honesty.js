@@ -243,6 +243,13 @@ t('earnings-playbook never re-shows a pre-EDGAR cached analysis, and analyzes on
 t('edge-scorecard shows the daily self-check and every tested idea (failures stay listed)', /async function loadCalibration\(\)/.test(read('edge-scorecard.html')) && (read('edge-scorecard.html').match(/<tr><td>/g) || []).length >= 9 && /One-week reversal, measured against SPY/.test(read('edge-scorecard.html')) && /Drift after the earnings-day move/.test(read('edge-scorecard.html')));
 t('worker source carries no personal contact (SEC agent comes from the SEC_UA secret)', !/@gmail\.com/.test(read('worker/src/index.js')) && /function secUA\(env\)/.test(read('worker/src/index.js')));
 
+// 6m. Pass 347 (11/16): the reversed short-volume hypothesis is graded ONLY on weeks after its registration, from public
+//     data, with no verdict before 26 weeks; Learn purges the synthetic seed; Brain Hub leads with the Worker brain.
+t('short-volume out-of-sample test counts only weeks from its registration and gives no early verdict', /const FIRST_WEEK = '2026-11-20', NEED_WEEKS = 26/.test(read('_short_volume_oos.js')) && /if \(d0 < FIRST_WEEK\) continue;/.test(read('_short_volume_oos.js')) && /rows\.length < NEED_WEEKS \? 'NO VERDICT YET'/.test(read('_short_volume_oos.js')) && fs6h.existsSync(__dirname + '/.github/workflows/short-volume-oos.yml'));
+t('Edge Scorecard lists the failed short-volume test and the running out-of-sample one', /Heavy short selling predicts losers/.test(read('edge-scorecard.html')) && /async function loadShortVolumeOOS\(\)/.test(read('edge-scorecard.html')));
+t('Brain Hub leads with the desk brain (Worker), local panels labeled local', /id="deskBrain"/.test(read('brain-hub.html')) && /async function deskBrain\(\)/.test(read('brain-hub.html')) && /This browser&rsquo;s own model \(local/.test(read('brain-hub.html')));
+t('learn.js has no seeding function and purges t_seed_ trades', !/function seedIfEmpty/.test(read('js/learn.js')) && /function purgeSyntheticSeed\(\)/.test(read('js/learn.js')));
+
 // 7. Worker sources parse strictly. `node --check` passed an ES-module file with an unescaped quote in a
 //    string (found 2026-11-03), so parse the bodies as scripts with imports/exports stripped.
 ['worker/src/index.js', 'worker/src/grading.js', 'worker/src/radar.js', 'worker/src/bars.js', 'worker/src/snapshots.js', 'worker/src/econ.js', 'worker/src/earnings.js'].forEach(f => {

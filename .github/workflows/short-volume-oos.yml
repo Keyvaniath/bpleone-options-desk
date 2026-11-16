@@ -1,0 +1,47 @@
+name: Short-volume out-of-sample test (H3b)
+
+# Pass 347: the out-of-sample record of the reversed short-volume hypothesis registered 2026-11-16
+# (_research/PREREG-2026-11-16-short-volume-reversed-OOS.md). Recomputed from public data on every run (FINRA Reg SHO
+# daily short volume + Yahoo daily closes via the desk Worker), so a skipped run loses nothing. Weekend runs: Friday's
+# FINRA file and close are final by then. Several crons because GitHub skips many scheduled runs; extra runs are
+# harmless (the result only changes when a new week completes). Off-:00/:30 minutes on purpose.
+on:
+  schedule:
+    - cron: "17 14 * * 6"   # Saturday
+    - cron: "47 16 * * 0"   # Sunday
+    - cron: "23 13 * * 1"   # Monday morning backup
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+concurrency:
+  group: short-volume-oos
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Recompute the out-of-sample weeks
+        run: |
+          node _short_volume_oos.js data/research/short-volume-oos.json || { echo "short-volume script failed"; exit 0; }
+          node -e "const j=require('./data/research/short-volume-oos.json'); if(!j||!j.ok||!(j.universe>=60)){console.error('thin/invalid run - keeping last-good'); process.exit(3);} console.log('weeks',j.weeks,'verdict',j.verdict);"
+      - name: Commit if changed
+        if: success()
+        run: |
+          git config user.name "research-bot"
+          git config user.email "actions@github.com"
+          node _write_meta.js short-volume-oos data/research/short-volume-oos.json "_short_volume_oos.js on FINRA Reg SHO daily short volume + Yahoo daily closes"
+          git add data/research/short-volume-oos.json data/research/finra-short-ratios.json data/meta/short-volume-oos.json
+          if git diff --cached --quiet; then
+            echo "No change."
+          else
+            git commit -m "data: short-volume out-of-sample record [skip ci]"
+            for i in 1 2 3; do git push && break; git pull --rebase origin main; done
+          fi

@@ -118,7 +118,7 @@
   </div>
 
   <div class="card mb-24">
-    <div class="card-header"><div class="card-title">4 · Every idea we have tested, and how each came out</div><div class="mono" style="font-size:11px;color:var(--text-muted);">9 tested · 0 beat drift</div></div>
+    <div class="card-header"><div class="card-title">4 · Every idea we have tested, and how each came out</div><div class="mono" style="font-size:11px;color:var(--text-muted);">10 tested · 0 beat drift · 1 running out of sample</div></div>
     <div style="font-size:12.5px;color:var(--text-muted);line-height:1.6;margin-bottom:12px;">The bar for every row is the same: beat the market&rsquo;s own drift (or, for market-relative tests, zero after costs) on <em>independent</em> observations, then do it again live. A failed idea stays on this list.</div>
     <div class="table-wrap"><table style="width:100%;font-size:12px;border-collapse:collapse;" id="ideas-table">
       <thead><tr style="text-align:left;color:var(--text-muted);font-size:10.5px;text-transform:uppercase;letter-spacing:.4px;"><th style="padding:6px 8px;">Idea</th><th style="padding:6px 8px;">Target</th><th style="padding:6px 8px;">How it was tested</th><th style="padding:6px 8px;">Result</th><th style="padding:6px 8px;">Verdict</th></tr></thead>
@@ -132,6 +132,8 @@
         <tr><td>Radar leans on 26 names</td><td>5-session direction</td><td>Live ledger since October 2026, graded at 5 sessions</td><td>61.3% vs a 61.3% drift null on 238 calls (34 independent), 11/13</td><td><span class="verdict-pill vp-lose" style="margin:0;">no edge</span></td></tr>
         <tr><td>One-week reversal, measured against SPY</td><td>next week, stock minus SPY</td><td>Pre-registered 11/16/2026: 99 large caps, 49 non-overlapping weeks</td><td>+0.35% a week, t 0.52; negative after 40 bps of trading cost</td><td><span class="verdict-pill vp-lose" style="margin:0;">failed</span></td></tr>
         <tr><td>Drift after the earnings-day move</td><td>next 10 sessions, stock minus SPY</td><td>Pre-registered 11/16/2026: 393 reports (SEC filing dates), 38 independent weeks</td><td>&minus;0.57%, t &minus;0.52: big winners slightly lagged afterward</td><td><span class="verdict-pill vp-lose" style="margin:0;">failed</span></td></tr>
+        <tr><td>Heavy short selling predicts losers (FINRA daily short volume vs each stock&rsquo;s own 60-day baseline)</td><td>next week, stock minus SPY</td><td>Pre-registered 11/16/2026: 99 large caps, 49 weeks, FINRA Reg SHO files</td><td>the registered direction lost: &minus;0.46% a week, t &minus;2.02 (heavily shorted names beat lightly shorted ones)</td><td><span class="verdict-pill vp-lose" style="margin:0;">failed</span></td></tr>
+        <tr><td>The reverse: heavily shorted names beat (registered only for weeks that had not happened yet)</td><td>next week, stock minus SPY</td><td>Registered 11/16/2026; only weeks from Friday 11/20 count; verdict at 26 weeks, recomputed weekly from public FINRA and price data</td><td id="idea-sv-oos">loading&hellip;</td><td><span class="verdict-pill vp-wait" style="margin:0;" id="idea-sv-verdict">running</span></td></tr>
       </tbody></table></div>
     <div style="margin-top:12px;font-size:12px;color:var(--text-secondary);line-height:1.6;"><strong>What would change this.</strong> A pre-registered test that clears t &ge; 2 on independent observations after costs, and then the same result in a live forward test. Until then the desk publishes its record, not picks; the honest next step is different data, not more tuning of the same prices.</div>
   </div>
@@ -371,7 +373,23 @@ async function loadCalibration() {
   }
 }
 
-function loadAll() { loadBacktest(); loadForward(); loadFlowTest(); loadCalibration(); }
+// Pass 347: the out-of-sample short-volume test (data/research/short-volume-oos.json, written weekly by the
+// short-volume-oos workflow). Interim numbers only until 26 weeks.
+async function loadShortVolumeOOS() {
+  const cell = $('idea-sv-oos'), pill = $('idea-sv-verdict');
+  let j = null;
+  try { const r = await fetch('data/research/short-volume-oos.json', { cache: 'no-store' }); if (r.ok) j = await r.json(); } catch (e) {}
+  if (!j || !j.ok) { cell.textContent = 'record unavailable right now'; return; }
+  if (!j.weeks) { cell.textContent = 'no weeks graded yet: the first counts after the 11/27 close (0 of ' + j.needed + ')'; return; }
+  const sgn = v => (v < 0 ? '−' : '+') + Math.abs(v);
+  cell.textContent = j.weeks + ' of ' + j.needed + ' weeks: ' + sgn(j.mean_spread_pct.toFixed(2)) + '% a week'
+    + (j.t_spread != null ? ', t ' + sgn(j.t_spread.toFixed(2)) : '') + (j.mean_net_pct != null ? '; after costs ' + sgn(j.mean_net_pct.toFixed(2)) + '%' : '');
+  if (j.verdict === 'PASS') { pill.textContent = 'passed'; pill.className = 'verdict-pill vp-win'; }
+  else if (j.verdict === 'FAIL') { pill.textContent = 'failed'; pill.className = 'verdict-pill vp-lose'; }
+  else { pill.textContent = 'running, no verdict'; }
+}
+
+function loadAll() { loadBacktest(); loadForward(); loadFlowTest(); loadCalibration(); loadShortVolumeOOS(); }
 loadAll();
 setInterval(loadAll, 120000);
 </script>
