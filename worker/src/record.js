@@ -81,3 +81,71 @@ export function recordByWeek(journal) {
   return { rows, total: Object.assign(shape(tot), { weeks: rows.length, full_weeks: full.length, weeks_beat_always_up: beatUp,
     weeks_beat_chance: beatChance, mean_weekly_skill: mean == null ? null : r4(mean), mean_weekly_skill_se: se == null ? null : r4(se) }) };
 }
+
+// Pass-332: the record by ET day, split into the two things a direction call can get right.
+//   timing     - on days it calls more names UP, do more names rise? (correlation across days of the share it
+//                called UP with the share that rose)
+//   selection  - within one day, are the names it rates higher the ones that rose? (per day: the correlation of
+//                predProb with "rose", and hit - chance for the day's own up/down mix; averaged over days)
+//   one_sided  - days on which >= 90% (or <= 10%) of its calls point the same way: it is calling the market that
+//                day, not choosing names.
+// Days overlap (each call covers the next 5 sessions), so errors are taken across WEEK averages of the daily
+// values, never across days. Calls logged before the journal carried a dayKey (May 2026) are counted as `undated`
+// and left out, here and in recordByWeek.
+export const DAY_MIN_CALLS = 20;
+export function corr(x, y) {
+  const n = Math.min(x.length, y.length);
+  if (n < 3) return null;
+  let mx = 0, my = 0;
+  for (let i = 0; i < n; i++) { mx += x[i]; my += y[i]; }
+  mx /= n; my /= n;
+  let sxy = 0, sxx = 0, syy = 0;
+  for (let i = 0; i < n; i++) { const a = x[i] - mx, b = y[i] - my; sxy += a * b; sxx += a * a; syy += b * b; }
+  return sxx > 0 && syy > 0 ? sxy / Math.sqrt(sxx * syy) : null;
+}
+function meanSe(vals) {
+  if (!vals.length) return { mean: null, se: null, n: 0 };
+  const m = vals.reduce((a, b) => a + b, 0) / vals.length;
+  const se = vals.length > 1 ? Math.sqrt(vals.reduce((a, b) => a + (b - m) ** 2, 0) / (vals.length - 1) / vals.length) : null;
+  return { mean: m, se, n: vals.length };
+}
+export function recordByDay(journal) {
+  const days = new Map();
+  let undated = 0;
+  for (const e of journal || []) {
+    const o = gradedOutcome(e);
+    if (!o || typeof e.predProb !== 'number' || !isFinite(e.predProb)) continue;
+    const k = Number(e.dayKey);
+    if (!(k > 19000101)) { undated++; continue; }
+    const up = e.predProb >= 0.5, rose = (up && o === 'correct') || (!up && o === 'wrong');
+    let d = days.get(k);
+    if (!d) { d = { p: [], r: [], up: 0, hits: 0 }; days.set(k, d); }
+    d.p.push(e.predProb); d.r.push(rose ? 1 : 0); if (up) d.up++; if (o === 'correct') d.hits++;
+  }
+  const r4 = v => (v == null ? null : Math.round(v * 10000) / 10000);
+  const rows = [...days.entries()].sort((a, b) => a[0] - b[0]).map(([k, d]) => {
+    const n = d.p.length, c = d.up / n, u = d.r.reduce((a, b) => a + b, 0) / n, h = d.hits / n, ch = c * u + (1 - c) * (1 - u);
+    return { day: String(k), n, called_up: r4(c), up_rate: r4(u), hit_rate: r4(h), chance_rate: r4(ch), skill: r4(h - ch),
+      rank_corr: r4(corr(d.p, d.r)), partial: n < DAY_MIN_CALLS };
+  });
+  const full = rows.filter(r => !r.partial);
+  // Week averages of the daily values: adjacent days share most of their 5-day windows, weeks far less.
+  const byWeek = key => {
+    const w = new Map();
+    full.forEach(r => { if (r[key] == null) return; const wk = weekOf(r.day); const a = w.get(wk) || []; a.push(r[key]); w.set(wk, a); });
+    return [...w.values()].map(a => a.reduce((s, v) => s + v, 0) / a.length);
+  };
+  const sel = meanSe(byWeek('skill')), rc = meanSe(byWeek('rank_corr'));
+  const wkUp = byWeek('called_up'), wkRose = byWeek('up_rate');
+  return {
+    rows,
+    summary: {
+      days: full.length, calls: full.reduce((a, r) => a + r.n, 0), undated, min_calls_per_day: DAY_MIN_CALLS,
+      one_sided_days: full.filter(r => r.called_up >= 0.9 || r.called_up <= 0.1).length,
+      timing_corr: r4(corr(full.map(r => r.called_up), full.map(r => r.up_rate))),
+      timing_corr_weekly: r4(corr(wkUp, wkRose)), weeks: wkUp.length,
+      selection_skill: r4(sel.mean), selection_skill_se: r4(sel.se), days_beat_chance: full.filter(r => r.skill > 0).length,
+      rank_corr: r4(rc.mean), rank_corr_se: r4(rc.se)
+    }
+  };
+}

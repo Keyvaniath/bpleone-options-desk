@@ -27,6 +27,12 @@
 .sc-card.lose { border-color:rgba(220,38,38,0.4); }
 .sc-big { font-family:var(--font-mono); font-size:34px; font-weight:800; line-height:1; }
 .sc-lbl { font-size:11px; text-transform:uppercase; letter-spacing:0.5px; color:var(--text-muted); margin-bottom:8px; }
+/* Pass 351: timing-or-picking card */
+.td-grid { display:grid; grid-template-columns:repeat(3, minmax(0, 1fr)); gap:12px; margin-bottom:12px; }
+.td-k { font-size:11px; color:var(--text-muted); line-height:1.4; }
+.td-v { font-family:var(--font-mono); font-size:22px; font-weight:800; line-height:1.2; margin:2px 0; }
+.td-s { font-size:11px; color:var(--text-muted); line-height:1.45; }
+@media (max-width: 600px) { .td-grid { grid-template-columns:minmax(0, 1fr); } }
 .sc-row { display:flex; justify-content:space-between; font-size:12px; padding:4px 0; border-top:1px solid rgba(255,255,255,0.05); font-family:var(--font-mono); }
 .verdict-pill { display:inline-block; padding:3px 10px; border-radius:7px; font-weight:800; font-size:11px; margin-top:10px; }
 .vp-win { background:rgba(16,185,129,0.18); color:var(--green); }
@@ -119,6 +125,16 @@
       <div class="sc-lbl">The live record week by week, against calling &ldquo;up&rdquo; every time and against its own mix at random</div>
       <div id="wk-chart" style="min-height:150px;"></div>
       <div id="wk-note" style="font-size:12px;color:var(--text-muted);margin-top:8px;line-height:1.55;">Loading the record…</div>
+    </div>
+    <div class="sc-card" style="margin-top:14px;" id="td-card">
+      <div class="sc-lbl">Timing or picking? The same calls, day by day</div>
+      <div class="td-grid">
+        <div><div class="td-k">Days it called (nearly) every name the same way</div><div class="td-v" id="td-one">—</div><div class="td-s" id="td-one-s">90% or more of its calls up, or 90% or more down</div></div>
+        <div><div class="td-k">Timing: does its daily lean track the market?</div><div class="td-v" id="td-time">—</div><div class="td-s" id="td-time-s">correlation of the share it called up with the share that rose</div></div>
+        <div><div class="td-k">Picking: within a day, did its higher-rated names rise more?</div><div class="td-v" id="td-pick">—</div><div class="td-s" id="td-pick-s">average within-day correlation of its score with rising</div></div>
+      </div>
+      <div id="td-chart" style="min-height:120px;"></div>
+      <div id="td-note" style="font-size:12px;color:var(--text-muted);margin-top:8px;line-height:1.55;">Loading…</div>
     </div>
     <div style="margin-top:14px;font-size:12px;color:var(--text-muted);display:flex;flex-wrap:wrap;gap:10px;align-items:center;line-height:1.5;">
       <button class="btn btn-ghost" id="dl-record" type="button" style="font-size:12px;">&#11015; Download every graded call (CSV)</button>
@@ -510,8 +526,8 @@ function weekChart(rows, width) {
 }
 async function loadWeekly() {
   const note = $('wk-note');
-  let rows = null, source = '';
-  try { const r = await fetch(WORKER + '/brain/record'); if (r.ok) { const j = await r.json(); if (j && j.ok && Array.isArray(j.rows)) { rows = j.rows; source = 'every graded call since ' + Number(rows[0].week.slice(4, 6)) + '/' + Number(rows[0].week.slice(6)) + '/' + rows[0].week.slice(0, 4) + ', refreshed hourly'; } } } catch (e) {}
+  let rows = null, source = '', rec = null;
+  try { const r = await fetch(WORKER + '/brain/record'); if (r.ok) { const j = await r.json(); if (j && j.ok && Array.isArray(j.rows)) { rec = j; rows = j.rows; source = 'every graded call since ' + Number(rows[0].week.slice(4, 6)) + '/' + Number(rows[0].week.slice(6)) + '/' + rows[0].week.slice(0, 4) + ', refreshed hourly'; } } } catch (e) {}
   if (!rows) {
     try { const r = await fetch(WORKER + '/brain/journal?n=2000'); const j = r.ok ? await r.json() : null; if (j && Array.isArray(j.journal)) { rows = weekRowsFromJournal(j.journal); source = 'the newest 2,000 calls only, until worker pass-329 serves the full record'; } } catch (e) {}
   }
@@ -538,6 +554,57 @@ async function loadWeekly() {
     + (mean != null ? ', and the average week came out ' + pts(mean) + ' points against it' + (se ? ' (&plusmn;' + Math.abs(se * 100).toFixed(1) + ')' : '') : '') + '. '
     + (mean != null && se && mean > 2 * se ? 'That is more than twice its error: worth watching, not yet proof.' : 'That is inside the noise: no sign it picks the right names.')
     + ' Every name in a week shares one market, so each week is close to one independent result, not hundreds.';
+  renderByDay(rec && rec.by_day);
+}
+
+// Pass 351 (worker pass-332): the same calls by ET day, split into timing (does the share it calls UP on a day track
+// the share of names that rose?) and picking (within a day, do its higher-rated names rise more often?). Errors are
+// the Worker's, taken across week averages because adjacent days share most of their 5-day windows.
+function byDayChart(rows, width) {
+  const Wd = Math.max(260, Math.round(width || 600)), H = Math.round(Math.min(230, Math.max(170, Wd * 0.38))), pl = 40, pr = 12, pt = 10, pb = 34;
+  const x = v => pl + v * (Wd - pl - pr), y = v => pt + (1 - v) * (H - pt - pb);
+  let g = '';
+  [0, 0.25, 0.5, 0.75, 1].forEach(v => {
+    g += '<line x1="' + pl + '" x2="' + (Wd - pr) + '" y1="' + y(v).toFixed(1) + '" y2="' + y(v).toFixed(1) + '" stroke="var(--border)" stroke-width="1" stroke-dasharray="2 3"/>'
+      + '<text x="' + (pl - 4) + '" y="' + (y(v) + 3).toFixed(1) + '" text-anchor="end" font-size="9" fill="var(--text-muted)">' + (v * 100) + '%</text>'
+      + '<text x="' + x(v).toFixed(1) + '" y="' + (H - pb + 13) + '" text-anchor="' + (v === 0 ? 'start' : v === 1 ? 'end' : 'middle') + '" font-size="9" fill="var(--text-muted)">' + (v * 100) + '%</text>';
+  });
+  g += '<text x="' + ((pl + Wd - pr) / 2).toFixed(1) + '" y="' + (H - 4) + '" text-anchor="middle" font-size="10" fill="var(--text-muted)">share of its calls that said up, each dot one day</text>';
+  g += '<text transform="translate(10,' + ((pt + H - pb) / 2).toFixed(1) + ') rotate(-90)" text-anchor="middle" font-size="10" fill="var(--text-muted)">share that rose</text>';
+  rows.forEach(r => {
+    g += '<circle cx="' + x(r.called_up).toFixed(1) + '" cy="' + y(r.up_rate).toFixed(1) + '" r="3.2" fill="var(--accent)" fill-opacity="0.55" stroke="var(--accent)" stroke-width="0.8"><title>'
+      + Number(r.day.slice(4, 6)) + '/' + Number(r.day.slice(6)) + '/' + r.day.slice(0, 4) + ': called up ' + (r.called_up * 100).toFixed(0) + '%, rose ' + (r.up_rate * 100).toFixed(0) + '%, hit ' + (r.hit_rate * 100).toFixed(0) + '% (n ' + r.n + ')</title></circle>';
+  });
+  return '<svg viewBox="0 0 ' + Wd + ' ' + H + '" width="' + Wd + '" height="' + H + '" style="max-width:100%;display:block;" role="img" aria-label="Each day: the share of calls the brain made up against the share of names that rose">' + g + '</svg>';
+}
+function renderByDay(bd) {
+  const note = $('td-note');
+  if (!bd || !bd.summary || !Array.isArray(bd.rows)) {
+    note.textContent = 'This split comes from the Worker’s day-by-day record (worker pass-332); it appears here once that is deployed.';
+    $('td-chart').innerHTML = '';
+    return;
+  }
+  const S = bd.summary, rows = bd.rows.filter(r => !r.partial && typeof r.called_up === 'number' && typeof r.up_rate === 'number');
+  // A value that rounds to zero prints without a sign (it printed "−0.0 points").
+  const sgn = (v, dp) => v == null ? '—' : (Number(Math.abs(v).toFixed(dp)) === 0 ? '' : v > 0 ? '+' : '−') + Math.abs(v).toFixed(dp);
+  const noise = S.weeks > 1 ? 2 / Math.sqrt(S.weeks) : null;
+  $('td-one').textContent = S.one_sided_days + ' of ' + S.days;
+  $('td-one-s').textContent = Math.round(100 * S.one_sided_days / Math.max(1, S.days)) + '% of graded days had 90% or more of its calls pointing one way';
+  $('td-time').textContent = sgn(S.timing_corr, 2);
+  $('td-time-s').textContent = 'across ' + S.days + ' days; ' + sgn(S.timing_corr_weekly, 2) + ' on ' + S.weeks + ' weekly averages, where chance alone reaches about ±' + (noise ? noise.toFixed(2) : '—');
+  $('td-pick').textContent = sgn(S.rank_corr, 3);
+  $('td-pick-s').textContent = '±' + (S.rank_corr_se != null ? S.rank_corr_se.toFixed(3) : '—') + '; against its own up/down mix at random the average day came out ' + sgn(S.selection_skill != null ? S.selection_skill * 100 : null, 1) + ' points (±' + (S.selection_skill_se != null ? (S.selection_skill_se * 100).toFixed(1) : '—') + ')';
+  const draw = () => { $('td-chart').innerHTML = byDayChart(rows, $('td-chart').clientWidth); };
+  draw();
+  if (!window.__tdResize) { window.__tdResize = true; let t; window.addEventListener('resize', () => { clearTimeout(t); t = setTimeout(draw, 200); }); }
+  const timingReal = noise != null && S.timing_corr_weekly != null && Math.abs(S.timing_corr_weekly) > noise;
+  const pickReal = S.rank_corr != null && S.rank_corr_se && Math.abs(S.rank_corr) > 2 * S.rank_corr_se;
+  note.innerHTML = 'A direction call can be right in two ways: by reading where the whole market goes (timing) or by choosing which names beat the rest (picking). '
+    + 'The dots would climb from left to right if its daily lean tracked the market' + (timingReal ? ', and they do more than chance would explain' : '; they do not') + '. '
+    + 'Within a day its higher-rated names ' + (pickReal ? (S.rank_corr > 0 ? 'did rise more often, by more than twice the error: worth watching, not yet proof' : 'rose LESS often, by more than twice the error') : 'rose about as often as its lower-rated ones') + '. '
+    + (!timingReal && !pickReal ? 'Neither shows skill, which is why the daily self-check above publishes NO PLAY. ' : '')
+    + 'Each day covers the next five sessions, so neighbouring days overlap; the errors are taken across weeks.'
+    + (S.undated ? ' ' + S.undated.toLocaleString() + ' graded calls from May 2026, logged before calls carried a date, are left out.' : '');
 }
 
 function loadAll() { loadBacktest(); loadForward(); loadFlowTest(); loadCalibration(); loadShortVolumeOOS(); loadWeekly(); }

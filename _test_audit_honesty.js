@@ -291,6 +291,15 @@ t('no hindsight "majority direction" bar on the Edge Scorecard', !/majority dire
 t('record.js reports chance_rate and skill; the calibration log keeps called_up', /chance_rate: r4\(ch\)/.test(read('worker/src/record.js')) && /skill: r4\(h - ch\)/.test(read('worker/src/record.js')) && /called_up: \+\(calledUp \/ pairs\.length\)/.test(read('worker/src/index.js')));
 t('DailyHistory batches closes() calls into one /brain/history?syms= request, with a ?sym= fallback', /'\/brain\/history\?syms='/.test(read('js/daily-history.js')) && /setTimeout\(flush, 30\)/.test(read('js/daily-history.js')) && /batchOk = false/.test(read('js/daily-history.js')));
 
+// 6q. Pass 351 (11/16; worker pass-332): the record split by day into TIMING (does its daily up-share track the share
+//     that rose?) and PICKING (within a day, do its higher-rated names rise more?), with errors across weeks because
+//     neighbouring days overlap; one-sided days counted. Live inputs match the bootstrap's (VIX and time of day stay
+//     neutral, as in training). Tests: node _test_record.js, node _test_feature_parity.js.
+t('Edge Scorecard shows timing vs picking from /brain/record by_day, with a note until the Worker serves it', /function renderByDay\(bd\)/.test(read('edge-scorecard.html')) && /renderByDay\(rec && rec\.by_day\)/.test(read('edge-scorecard.html')) && /worker pass-332\); it appears here once that is deployed/.test(read('edge-scorecard.html')));
+t('the by-day split takes its errors across WEEK averages (days overlap), never across days', /const byWeek = key =>/.test(read('worker/src/record.js')) && /const sel = meanSe\(byWeek\('skill'\)\), rc = meanSe\(byWeek\('rank_corr'\)\);/.test(read('worker/src/record.js')));
+t('the live tick no longer feeds VIX or time of day into inputs the bootstrap holds at 0.5', !/f\[18\] = clamp\(\(marketSnap\.vix/.test(read('worker/src/index.js')) && !/f\[20\] = clamp\(\(etHour\(\)/.test(read('worker/src/index.js')));
+t('/brain/record edge-cache key carries the Worker version (a deploy serves new fields at once)', /new Request\(url\.origin \+ '\/brain\/record\?v=' \+ WORKER_VERSION/.test(read('worker/src/index.js')));
+
 // 7. Worker sources parse strictly. `node --check` passed an ES-module file with an unescaped quote in a
 //    string (found 2026-11-03), so parse the bodies as scripts with imports/exports stripped.
 ['worker/src/index.js', 'worker/src/grading.js', 'worker/src/radar.js', 'worker/src/bars.js', 'worker/src/snapshots.js', 'worker/src/econ.js', 'worker/src/earnings.js'].forEach(f => {

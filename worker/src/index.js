@@ -4,7 +4,7 @@ import { etDayKey, reconcileBars, overlayToday } from './bars.js';
 import { SNAPSHOT_SCHEDULE, snapshotDispatchDue, buildDispatchRequest, cleanToken, tokenShape } from './snapshots.js';
 import { ECON_DESK_FILE, normalizeEconEvents, econCoverage, econCovers } from './econ.js';
 import { earningsFrom8K, tickerMap, cikFor, cikPath } from './earnings.js';
-import { weekOf, recordByWeek } from './record.js';
+import { weekOf, recordByWeek, recordByDay } from './record.js';
 /* ===========================================
    BPLEONE Brain Worker — 24/7 server-side brain
    ---
@@ -45,7 +45,7 @@ import { weekOf, recordByWeek } from './record.js';
 // Pass 200: version stamp so brain-proof.html + worker-setup.html can detect
 // when the deployed worker is behind the repo source. Bump on every meaningful
 // behavior change. Read via /brain/health → worker_version field.
-const WORKER_VERSION = 'pass-331';
+const WORKER_VERSION = 'pass-332';
 
 const UNIVERSE = [
   'SPY','QQQ','IWM','DIA','AAPL','NVDA','TSLA','MSFT','META','AMZN','GOOGL','AMD',
@@ -202,10 +202,9 @@ function extractFeatures(quote, marketSnap) {
   const changePct = quote.changePct || 0;
   const range = (quote.dayHigh && quote.dayLow) ? (quote.dayHigh - quote.dayLow) / quote.last : 0;
   f[0] = clamp(50 / 100, 0, 1);
-  f[1] = clamp(range * 100, 0, 1);
+  f[1] = clamp(range * 50, 0, 1);   // pass-332: the same scale as the rich/bootstrap f[1] (was range * 100)
   f[5] = clamp((changePct + 5) / 10, 0, 1);
-  f[18] = clamp((marketSnap.vix - 10) / 40, 0, 1);
-  f[20] = clamp((etHour() - 9.5) / (16 - 9.5), 0, 1);
+  // Pass-332: f[18] (VIX) and f[20] (time of day) stay at the neutral 0.5 the bootstrap trains on (see below).
   f[21] = 1;
   return f;
 }
@@ -215,7 +214,7 @@ function extractFeatures(quote, marketSnap) {
 // match the model's training distribution. If history is too short, falls
 // back to extractFeatures and produces neutral 0.5s.
 function extractRichFeatures(quote, history, marketSnap) {
-  if (!history || history.length < 14) return extractFeatures(quote, marketSnap);
+  if (!history || history.length < 15) return extractFeatures(quote, marketSnap);   // pass-332: i >= 14, as richFeatures
   const f = new Array(22).fill(0.5);
   const bars = history;  // array of {ts, close, open, high, low, volume}
   const i = bars.length - 1;
@@ -268,11 +267,12 @@ function extractRichFeatures(quote, history, marketSnap) {
   for (let k = i - 13; k <= i; k++) sma14 += bars[k].close;
   sma14 /= 14;
   f[8] = clamp(((today.close - sma14) / sma14 + 0.10) / 0.20, 0, 1);
-  // VIX
-  f[18] = clamp((marketSnap.vix - 10) / 40, 0, 1);
-  // Day-of-week + ET hour
+  // Pass-332 (train/serve skew): f[18] (VIX) and f[20] (ET time of day) stay at the neutral 0.5. The bootstrap
+  // never sets them (daily bars have no time of day, and it has no VIX per bar), so the model learned both as
+  // constants; the live tick filled them (VIX ~0.2, a 3-4 PM capture ~0.85-1.0), shifting every live call by its
+  // weights on inputs the training never varied (about 0.03-0.05 logit on 11/16). Same inputs in both paths now.
+  // Day-of-week
   f[19] = (new Date(today.ts).getUTCDay() % 5) / 5;
-  f[20] = clamp((etHour() - 9.5) / (16 - 9.5), 0, 1);
   addStabilityFeatures(f, bars, i);  // pass 261: f[9]-f[14] (shared with bootstrap — no skew)
   f[21] = 1;
   return f;
@@ -2051,14 +2051,18 @@ async function handleRequest(request, env, ctx) {
   // computed at most once an hour per colo, never per visitor. Read-only.
   if (path === '/brain/record') {
     const cache = caches.default;
-    const cacheKey = new Request(url.origin + '/brain/record', { method: 'GET' });
+    // Pass-332: the version is in the key, so a deploy serves its new fields at once (not after the 1 h cache).
+    const cacheKey = new Request(url.origin + '/brain/record?v=' + WORKER_VERSION, { method: 'GET' });
     const hit = await cache.match(cacheKey);
     if (hit) return hit;
     const journal = await kvGet(env, KV_KEYS.JOURNAL, [], 60);
     const rec = recordByWeek(journal);
+    // Pass-332: by_day splits the same calls into timing (does its daily UP share track the share that rose?) and
+    // selection (within a day, are its higher-rated names the ones that rose?), and counts one-sided days.
+    rec.by_day = recordByDay(journal);
     const resp = json(Object.assign({ ok: rec.rows.length > 0, version: WORKER_VERSION, journal_total: journal.length,
       this_week: String(weekOf(etDayKeyNow()) || ''), computed_at: new Date().toISOString(),
-      note: 'Graded 5-day calls (correct or wrong; flat and still-open calls left out), grouped by the ET week they were made. up_rate is the share of those names that rose, which is what calling UP every time would have hit. chance_rate is what calls in the brain’s own up/down mix would hit if assigned to names at random; skill = hit_rate - chance_rate is the part that comes from choosing which names. All names in one week share one market, so each week is close to one independent observation.' }, rec), 200, 3600);
+      note: 'Graded 5-day calls (correct or wrong; flat and still-open calls left out), grouped by the ET week they were made. up_rate is the share of those names that rose, which is what calling UP every time would have hit. chance_rate is what calls in the brain’s own up/down mix would hit if assigned to names at random; skill = hit_rate - chance_rate is the part that comes from choosing which names. All names in one week share one market, so each week is close to one independent observation. by_day: the same calls by ET day; timing_corr relates the share it called UP to the share that rose across days, rank_corr is the within-day correlation of predProb with rising, errors are taken across week averages (days overlap). Calls logged before the journal carried a dayKey (May 2026) are left out (undated).' }, rec), 200, 3600);
     if (rec.rows.length) ctx.waitUntil(cache.put(cacheKey, resp.clone()));
     return resp;
   }

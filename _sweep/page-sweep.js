@@ -10,7 +10,7 @@
 //          runaway-canvas.js  Chart.js canvases taller than 1,200px (fill-parent chart in an auto-height box)
 //          overflow-cause.js  the parent grid/flex behind each clipped element
 //        PERF=1     Worker calls per path, 429s, long tasks, heap      PROFILE=1  top functions by CPU self time
-//        SHOT=<dir> screenshot (SHOT_SEL=<css> captures just that element)
+//        SHOT=<dir> screenshot (SHOT_SEL=<css> captures just that element)   PRE=<file> script run before both
 // Default check: elements whose right edge passes the viewport and that no scroll/clip ancestor contains
 // (body overflow-x:hidden hides this bug class: nothing scrolls, the content is just cut off).
 // Baseline 11/16/26: 0 clipped at 390px and 1,280px, 0 uncaught errors, on all 427 pages.
@@ -95,6 +95,9 @@ async function main() {
         await send('Page.navigate', { url: ORIGIN + '/' + pg + '.html' });
         const t0 = Date.now(); while (!loaded && Date.now() - t0 < LOAD_TIMEOUT) await sleep(150);
         await sleep(SETTLE_MS);
+        // PRE=<file>: run this script after the settle and before the screenshot and probe (e.g. render a card with a
+        // field the deployed Worker does not serve yet, to preview it). Never use it to make a check pass.
+        if (process.env.PRE) { await send('Runtime.evaluate', { expression: fs.readFileSync(process.env.PRE, 'utf8'), awaitPromise: true }); await sleep(500); }
         if (process.env.SHOT && process.env.SHOT_SEL) {
           const rr = await send('Runtime.evaluate', { expression: 'JSON.stringify((function(){var e=document.querySelector(' + JSON.stringify(process.env.SHOT_SEL) + '); if(!e) return null; var b=e.getBoundingClientRect(); return {x:b.left+scrollX, y:b.top+scrollY, w:b.width, h:b.height};})())', returnByValue: true });
           const b = JSON.parse(rr.result.value || 'null');

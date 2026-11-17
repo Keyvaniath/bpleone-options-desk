@@ -3,7 +3,7 @@
 const fs = require('fs');
 const path = require('path');
 const src = fs.readFileSync(path.join(__dirname, 'worker', 'src', 'record.js'), 'utf8').replace(/^export (const|function)/gm, '$1');
-const R = new Function(src + '\nreturn { weekOf, gradedOutcome, recordByWeek };')();
+const R = new Function(src + '\nreturn { weekOf, gradedOutcome, recordByWeek, recordByDay, corr, DAY_MIN_CALLS };')();
 const idx = fs.readFileSync(path.join(__dirname, 'worker', 'src', 'index.js'), 'utf8');
 
 let fails = 0;
@@ -75,8 +75,33 @@ const pf = R.recordByWeek(PF).rows[0];
 ok(pf.hit_rate === 1 && Math.abs(pf.chance_rate - (0.6 * 0.6 + 0.4 * 0.4)) < 1e-4 && pf.skill > 0.4, 'a perfect caller: hit 100%, chance 52%, skill +48 points');
 ok(R.recordByWeek([]).total.chance_rate === null && R.recordByWeek([]).total.mean_weekly_skill === null, 'empty record: no chance rate, no mean skill');
 
+// by day (worker pass-332): timing vs selection, one-sided days, undated calls left out
+{
+  const J2 = [];
+  // day A (Mon 11/2): 20 calls, all UP; 15 rose -> one-sided; perfect within-day ranking (higher p = rose)
+  for (let i = 0; i < 20; i++) J2.push({ dayKey: 20261102, predProb: 0.55 + i * 0.01, resolved: { mid: i >= 5 ? 'correct' : 'wrong' } });
+  // day B (Tue 11/3): 20 calls, 10 UP / 10 DOWN, every call right
+  for (let i = 0; i < 20; i++) J2.push({ dayKey: 20261103, predProb: i < 10 ? 0.7 : 0.3, resolved: { mid: 'correct' } });
+  // day C (Wed 11/4): only 5 graded calls -> partial, left out of the summary
+  for (let i = 0; i < 5; i++) J2.push({ dayKey: 20261104, predProb: 0.6, resolved: { mid: 'correct' } });
+  J2.push({ predProb: 0.6, resolved: { mid: 'correct' } });              // undated (pre-dayKey era)
+  J2.push({ dayKey: 20261102, predProb: 0.6, resolved: { mid: 'flat' } }); // flat: not graded
+  const d = R.recordByDay(J2);
+  ok(d.rows.length === 3 && d.rows[2].partial === true && d.rows[0].partial === false, 'three days; the 5-call day is partial');
+  ok(d.summary.days === 2 && d.summary.calls === 40 && d.summary.undated === 1, 'summary counts full days and the undated call');
+  ok(d.summary.one_sided_days === 1, 'an all-UP day is one-sided; a 50/50 day is not');
+  ok(d.rows[0].called_up === 1 && d.rows[0].up_rate === 0.75 && d.rows[0].hit_rate === 0.75 && d.rows[0].chance_rate === 0.75 && d.rows[0].skill === 0, 'day A: calling everything UP scores exactly chance');
+  ok(d.rows[0].rank_corr > 0.5, 'day A: higher-rated names rose, so the within-day rank correlation is positive');
+  ok(d.rows[1].skill === 0.5 && d.rows[1].rank_corr === 1, 'day B: all right with a 50/50 mix = +50 points over chance, rank corr 1');
+  ok(Math.abs(d.summary.selection_skill - 0.25) < 1e-9 && d.summary.selection_skill_se === null, 'selection skill averages the WEEK (one week here, so no error yet)');
+  ok(d.summary.weeks === 1, 'errors are taken across weeks, not days');
+  ok(R.corr([1, 2, 3], [2, 4, 6]) === 1 && R.corr([1, 2, 3], [3, 2, 1]) === -1 && R.corr([1, 1, 1], [1, 2, 3]) === null && R.corr([1, 2], [1, 2]) === null, 'corr: +1, -1, null on zero variance or n < 3');
+  ok(R.recordByDay([]).summary.days === 0 && R.recordByDay(null).summary.timing_corr === null, 'empty journal: empty summary');
+}
+
 // route wiring
-ok(/import \{ weekOf, recordByWeek \} from '\.\/record\.js';/.test(idx), 'index.js imports record.js');
+ok(/import \{ weekOf, recordByWeek, recordByDay \} from '\.\/record\.js';/.test(idx), 'index.js imports record.js');
+ok(/rec\.by_day = recordByDay\(journal\);/.test(idx), '/brain/record carries the by-day split (worker pass-332)');
 ok(/if \(path === '\/brain\/record'\)/.test(idx) && /recordByWeek\(journal\)/.test(idx), '/brain/record is served from the journal');
 ok(/caches\.default/.test(idx.slice(idx.indexOf("if (path === '/brain/record')"), idx.indexOf("if (path === '/brain/record')") + 1500)), '/brain/record is edge-cached (never recomputed per visitor)');
 
