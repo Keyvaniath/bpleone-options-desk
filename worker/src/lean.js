@@ -39,7 +39,9 @@ export const LEAN_MIN_CALLS = 20;
 // just before the day's calls are made. On 11/16 it was +0.66 at lag 6 (118 days): the brain's market-wide lean was
 // mostly an echo of the last graded week's market direction, pushed in by the live update step. Pass-333 measures
 // errors against the batch mean, which removes that channel; this number is how the change is checked.
-export function echoByLag(journal, lags, minCalls) {
+// since (YYYYMMDD number, optional): only days on or after it count as "today" (the lagged batch may be older). Used
+// to score the pre-registered pass-333 test on post-change days alone.
+export function echoByLag(journal, lags, minCalls, since) {
   const min = minCalls || LEAN_MIN_CALLS;
   const D = new Map();
   for (const e of journal || []) {
@@ -55,6 +57,7 @@ export function echoByLag(journal, lags, minCalls) {
   for (const lag of lags || [4, 5, 6, 7, 8]) {
     const x = [], y = [];
     for (let i = lag; i < days.length; i++) {
+      if (since && days[i] < since) continue;
       const prev = D.get(days[i - lag]);
       if (prev.g < min) continue;
       x.push(D.get(days[i]).up / D.get(days[i]).n); y.push(prev.rose / prev.g);
@@ -70,6 +73,32 @@ export function echoByLag(journal, lags, minCalls) {
     out[lag] = { r, days: n };
   }
   return out;
+}
+
+// The pre-registered pass-333 test (_research/PREREG-2026-11-16-live-update-echo.md): calls made from CHANGE_DAY on.
+// Pass when, over the first 40 such days, the lag-6 echo is below +0.25 (primary) and the s.d. of the daily share
+// called UP is below 0.338 (the last 60 pre-change days).
+export const CHANGE_DAY = 20261117;
+export const ECHO_TARGET = 0.25, SD_TARGET = 0.338, TEST_DAYS = 40;
+export function echoTest(journal, minCalls) {
+  const min = minCalls || LEAN_MIN_CALLS;
+  const D = new Map();
+  for (const e of journal || []) {
+    const k = Number(e && e.dayKey);
+    if (!(k >= CHANGE_DAY) || typeof e.predProb !== 'number') continue;
+    let d = D.get(k); if (!d) { d = { n: 0, up: 0 }; D.set(k, d); }
+    d.n++; if (e.predProb >= 0.5) d.up++;
+  }
+  const days = [...D.keys()].filter(k => D.get(k).n >= min).sort((a, b) => a - b).slice(0, TEST_DAYS);
+  const shares = days.map(k => D.get(k).up / D.get(k).n);
+  const mean = shares.length ? shares.reduce((a, b) => a + b, 0) / shares.length : null;
+  const sd = shares.length > 1 ? Math.sqrt(shares.reduce((a, b) => a + (b - mean) ** 2, 0) / shares.length) : null;
+  const e6 = echoByLag(journal, [6], min, CHANGE_DAY)[6];
+  const ready = days.length >= TEST_DAYS;
+  return { change_day: String(CHANGE_DAY), days: days.length, needed: TEST_DAYS, ready,
+    echo_lag6: e6.r, echo_days: e6.days, up_share_sd: sd == null ? null : Math.round(sd * 1000) / 1000,
+    targets: { echo_lag6_below: ECHO_TARGET, up_share_sd_below: SD_TARGET },
+    verdict: !ready ? 'running' : (e6.r != null && e6.r < ECHO_TARGET ? 'pass' : 'fail') };
 }
 export const LEAN_BASELINE_DAYS = 60;
 

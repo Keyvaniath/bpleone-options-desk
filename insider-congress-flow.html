@@ -219,15 +219,25 @@
     const cache = loadCache();
     // drop any entry not marked real (older versions of this page cached generated data here)
     Object.keys(cache.tx || {}).forEach(k => { if (!cache.tx[k] || cache.tx[k].real !== true || cache.tx[k].v !== 2) delete cache.tx[k]; });
-    for (let i = 0; i < universe.length; i++) {
-      const sym = universe[i];
-      document.getElementById('status').textContent = `${i + 1}/${universe.length}: ${sym}`;
-      if (cache.tx[sym] && cache.tx[sym].real === true && Date.now() - cache.tx[sym].ts < TTL) continue;
-      const tx = await fetchInsiderTx(sym);
-      // v2: only open-market P/S rows are typed buy/sell (older cached rows counted grants as buys).
-      cache.tx[sym] = { ts: Date.now(), data: tx, real: true, v: 2, source: key ? 'finnhub' : 'worker-sec-form4' };
-      const sent = key ? await fetchSentiment(sym) : null;
-      if (sent) cache.sent[sym] = { ts: Date.now(), data: sent };
+    // Pass 356: through the desk's Worker (no key) five names go at once and the table fills in as they land; the 25
+    // names took ~11 s one by one with nothing shown until the end. A personal Finnhub key stays one at a time
+    // (its free tier allows 60 calls a minute).
+    const todo = universe.filter(sym => !(cache.tx[sym] && cache.tx[sym].real === true && Date.now() - cache.tx[sym].ts < TTL));
+    const step = key ? 1 : 5;
+    let done = universe.length - todo.length;
+    for (let i = 0; i < todo.length; i += step) {
+      await Promise.all(todo.slice(i, i + step).map(async sym => {
+        const tx = await fetchInsiderTx(sym);
+        // v2: only open-market P/S rows are typed buy/sell (older cached rows counted grants as buys).
+        cache.tx[sym] = { ts: Date.now(), data: tx, real: true, v: 2, source: key ? 'finnhub' : 'worker-sec-form4' };
+        const sent = key ? await fetchSentiment(sym) : null;
+        if (sent) cache.sent[sym] = { ts: Date.now(), data: sent };
+        done++;
+      }));
+      document.getElementById('status').textContent = done + '/' + universe.length + ' names';
+      document.getElementById('btnPull').textContent = 'Pulling… ' + done + '/' + universe.length;
+      saveCache(cache);
+      render();
     }
     saveCache(cache);
     document.getElementById('btnPull').disabled = false;

@@ -143,7 +143,7 @@
   </div>
 
   <div class="card mb-24">
-    <div class="card-header"><div class="card-title">4 · Every idea we have tested, and how each came out</div><div class="mono" style="font-size:11px;color:var(--text-muted);">10 tested · 0 beat drift · 1 running out of sample</div></div>
+    <div class="card-header"><div class="card-title">4 · Every idea we have tested, and how each came out</div><div class="mono" style="font-size:11px;color:var(--text-muted);">10 tested · 0 beat drift · 2 running</div></div>
     <div style="font-size:12.5px;color:var(--text-muted);line-height:1.6;margin-bottom:12px;">The bar for every row is the same: beat the market&rsquo;s own drift (or, for market-relative tests, zero after costs) on <em>independent</em> observations, then do it again live. A failed idea stays on this list.</div>
     <div class="table-wrap"><table style="width:100%;font-size:12px;border-collapse:collapse;" id="ideas-table">
       <thead><tr style="text-align:left;color:var(--text-muted);font-size:10.5px;text-transform:uppercase;letter-spacing:.4px;"><th style="padding:6px 8px;">Idea</th><th style="padding:6px 8px;">Target</th><th style="padding:6px 8px;">How it was tested</th><th style="padding:6px 8px;">Result</th><th style="padding:6px 8px;">Verdict</th></tr></thead>
@@ -159,6 +159,7 @@
         <tr><td>Drift after the earnings-day move</td><td>next 10 sessions, stock minus SPY</td><td>Pre-registered 11/16/2026: 393 reports (SEC filing dates), 38 independent weeks</td><td>&minus;0.57%, t &minus;0.52: big winners slightly lagged afterward</td><td><span class="verdict-pill vp-lose" style="margin:0;">failed</span></td></tr>
         <tr><td>Heavy short selling predicts losers (FINRA daily short volume vs each stock&rsquo;s own 60-day baseline)</td><td>next week, stock minus SPY</td><td>Pre-registered 11/16/2026: 99 large caps, 49 weeks, FINRA Reg SHO files</td><td>the registered direction lost: &minus;0.46% a week, t &minus;2.02 (heavily shorted names beat lightly shorted ones)</td><td><span class="verdict-pill vp-lose" style="margin:0;">failed</span></td></tr>
         <tr><td>The reverse: heavily shorted names beat (registered only for weeks that had not happened yet)</td><td>next week, stock minus SPY</td><td>Registered 11/16/2026; only weeks from Friday 11/20 count; verdict at 26 weeks, recomputed weekly from public FINRA and price data</td><td id="idea-sv-oos">loading&hellip;</td><td><span class="verdict-pill vp-wait" style="margin:0;" id="idea-sv-verdict">running</span></td></tr>
+        <tr><td>Remove the brain&rsquo;s market echo: it learns only what separated names within each graded week (a fix, not a new signal)</td><td>its daily lean stops repeating last week</td><td>Pre-registered 11/16/2026 before the change (worker pass-333): over the first 40 trading days from 11/17, the correlation of its daily share of UP calls with the share that rose in the batch graded just before falls below +0.25 (it was +0.66), and the day-to-day swing shrinks. Skill is not predicted.</td><td id="idea-echo">running: scored from 11/17, verdict when 40 post-change days are graded (about mid-January 2027). The echo is on <a href="brain-hub.html">Brain Hub</a>.</td><td><span class="verdict-pill vp-wait" style="margin:0;" id="idea-echo-verdict">running</span></td></tr>
       </tbody></table></div>
     <div style="margin-top:12px;font-size:12px;color:var(--text-secondary);line-height:1.6;"><strong>What would change this.</strong> A pre-registered test that clears t &ge; 2 on independent observations after costs, and then the same result in a live forward test. Until then the desk publishes its record, not picks; the honest next step is different data, not more tuning of the same prices.</div>
   </div>
@@ -610,7 +611,24 @@ function renderByDay(bd) {
     + (S.undated ? ' ' + S.undated.toLocaleString() + ' graded calls from May 2026, logged before calls carried a date, are left out.' : '');
 }
 
-function loadAll() { loadBacktest(); loadForward(); loadFlowTest(); loadCalibration(); loadShortVolumeOOS(); loadWeekly(); }
+// Pass 356: the pre-registered pass-333 test (removing the brain's market echo). /brain/lean serves echo_test once
+// the Worker carries it (pass-334); until then the row states the plan and the date.
+async function loadEchoTest() {
+  try {
+    const r = await fetch(WORKER + '/brain/lean');
+    const j = r.ok ? await r.json() : null;
+    const t = j && j.echo_test;
+    if (!t) return;
+    const cell = $('idea-echo'), pill = $('idea-echo-verdict');
+    const sgn = v => v == null ? '—' : (v >= 0 ? '+' : '−') + Math.abs(v).toFixed(2);
+    cell.innerHTML = (t.ready ? '' : 'running: ') + t.days + ' of ' + t.needed + ' post-change days graded; echo at lag 6 ' + sgn(t.echo_lag6) + ' (target below +0.25, was +0.66)'
+      + (t.up_share_sd != null ? '; daily swing (s.d.) ' + t.up_share_sd.toFixed(3) + ' (target below 0.338)' : '') + '. The echo is on <a href="brain-hub.html">Brain Hub</a>.';
+    pill.textContent = t.verdict;
+    pill.className = 'verdict-pill ' + (t.verdict === 'pass' ? 'vp-win' : t.verdict === 'fail' ? 'vp-lose' : 'vp-wait');
+  } catch (e) { /* the static row stays */ }
+}
+
+function loadAll() { loadEchoTest(); loadBacktest(); loadForward(); loadFlowTest(); loadCalibration(); loadShortVolumeOOS(); loadWeekly(); }
 loadAll();
 setInterval(loadAll, 120000);
 </script>
