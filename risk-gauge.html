@@ -8,18 +8,18 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600;700;800&display=swap" media="print" onload="this.media='all'"><noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600;700;800&display=swap"></noscript>
-<link rel="stylesheet" href="css/style.css?v=v241">
+<link rel="stylesheet" href="css/style.css?v=v242">
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
 <style>
 .gauge-wrap { padding:32px;border-radius:18px;background:var(--bg-elevated);text-align:center; }
-.gauge-bar { height:32px;background:rgba(255,255,255,0.06);border-radius:16px;overflow:hidden;position:relative;margin:18px 0; }
+.gauge-bar { height:32px;background:rgba(255,255,255,0.06);border-radius:16px;position:relative;margin:18px 0 34px; }   /* pass 352: overflow:hidden clipped the 5% / 10% / 25% labels under the bar */
 .gauge-bar > span { display:block;height:100%;transition:width 0.4s ease;border-radius:16px; }
 .gauge-bar > span.green { background:linear-gradient(90deg,#10b981,#059669); }
 .gauge-bar > span.yellow { background:linear-gradient(90deg,#f59e0b,#d97706); }
 .gauge-bar > span.red { background:linear-gradient(90deg,#dc2626,#991b1b); }
 .gauge-marker { position:absolute;top:-2px;bottom:-2px;width:2px;background:rgba(255,255,255,0.5); }
-.gauge-marker .lbl { position:absolute;bottom:-22px;left:50%;transform:translateX(-50%);font-size:10px;color:var(--text-muted);font-family:var(--font-mono);white-space:nowrap; }
+.gauge-marker .lbl { position:absolute;bottom:-22px;left:50%;transform:translateX(-50%);font-size:10px;color:var(--text-muted);font-family:var(--font-mono);white-space:nowrap;background:var(--bg-elevated);padding:0 3px; }
 .tile { padding:18px;background:var(--bg-elevated);border-radius:10px; }
 .tile .lbl { font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;font-weight:700; }
 .tile .val { font-family:var(--font-mono);font-size:22px;font-weight:800;margin-top:6px;color:var(--accent); }
@@ -42,14 +42,15 @@ table.t td { padding:8px 10px;border-bottom:1px solid rgba(255,255,255,0.04); }
 
   <div class="gauge-wrap mb-24">
     <div style="display:flex;justify-content:space-between;font-size:14px;color:var(--text-secondary);">
-      <span>$0</span>
-      <span>Bankroll: <strong id="bank-label">—</strong></span>
+      <span>0% at risk</span>
+      <span>35% of bankroll <span style="color:var(--text-muted);">(bankroll <strong id="bank-label">—</strong>)</span></span>
     </div>
     <div class="gauge-bar">
       <span id="bar-fill" class="green" style="width:0%;"></span>
-      <div class="gauge-marker" style="left:5%;"><div class="lbl">5%</div></div>
-      <div class="gauge-marker" style="left:10%;"><div class="lbl">10% (default cap)</div></div>
-      <div class="gauge-marker" style="left:25%;"><div class="lbl">25%</div></div>
+      <!-- Pass 352: the bar spans 0-35% of bankroll, so a marker for X% sits at X/35 of its width (they sat at X% of the width). -->
+      <div class="gauge-marker" style="left:14.29%;"><div class="lbl">5%</div></div>
+      <div class="gauge-marker" style="left:28.57%;"><div class="lbl">10% (default cap)</div></div>
+      <div class="gauge-marker" style="left:71.43%;"><div class="lbl">25%</div></div>
     </div>
     <div style="font-family:var(--font-mono);font-size:36px;font-weight:900;color:var(--accent);" id="gauge-pct">0%</div>
     <div style="color:var(--text-muted);font-size:13px;margin-top:4px;" id="gauge-meta">Loading…</div>
@@ -77,13 +78,13 @@ table.t td { padding:8px 10px;border-bottom:1px solid rgba(255,255,255,0.04); }
 
 <div id="site-footer"></div>
 
-<script src="js/data-provider.js?v=v241"></script>
-<script src="js/ai-client.js?v=v241"></script>
-<script src="js/app.js?v=v241"></script>
-<script src="js/notify.js?v=v241"></script>
-<script src="js/live.js?v=v241"></script>
+<script src="js/data-provider.js?v=v242"></script>
+<script src="js/ai-client.js?v=v242"></script>
+<script src="js/app.js?v=v242"></script>
+<script src="js/notify.js?v=v242"></script>
+<script src="js/live.js?v=v242"></script>
 <!-- Auto-added direct loads (audit pass 2) -->
-<script src="js/auto-trade.js?v=v241"></script>
+<script src="js/auto-trade.js?v=v242"></script>
 <script>buildNav('risk-gauge');</script>
 <script>
 function fmt$(v) { if (!isFinite(v)) return '$0'; const s = v < 0 ? '-' : ''; return s + '$' + Math.abs(v).toLocaleString(undefined, { maximumFractionDigits: 2 }); }
@@ -97,8 +98,9 @@ function render() {
   document.getElementById('bank-label').textContent = fmt$(bankroll);
   // Bar
   const bar = document.getElementById('bar-fill');
-  // Scale: max display = 35% (so 25% marker is visible)
-  const displayPct = Math.min(100, (pct * 100) / 0.35 * 100);
+  // Scale: the full bar = 35% of bankroll at risk (so the 25% marker is visible). Pass 352: this multiplied by 100
+  // twice ((pct * 100) / 0.35 * 100), so any open risk above 0.35% of bankroll drew a full bar.
+  const displayPct = Math.min(100, pct / 0.35 * 100);
   bar.style.width = displayPct + '%';
   let cls = 'green';
   if (pct >= cfg.maxTotalRiskPct) cls = 'red';

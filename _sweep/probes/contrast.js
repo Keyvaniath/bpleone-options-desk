@@ -26,7 +26,7 @@
   let n;
   while ((n = walker.nextNode())) {
     const t = (n.nodeValue || '').trim();
-    if (t.length < 2) continue;
+    if (t.length < 2 || !/[\p{L}\p{N}]/u.test(t)) continue;   // emoji and symbols draw in their own colours
     const el = n.parentElement;
     if (!el || /^(SCRIPT|STYLE|NOSCRIPT|OPTION)$/.test(el.tagName)) continue;
     const cs = getComputedStyle(el);

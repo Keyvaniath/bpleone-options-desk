@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" media="print" onload="this.media='all'"><noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap"></noscript>
-<link rel="stylesheet" href="css/style.css?v=v241">
+<link rel="stylesheet" href="css/style.css?v=v242">
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
 <style>
@@ -53,11 +53,11 @@
 
 <div id="site-footer"></div>
 
-<script src="js/data-provider.js?v=v241"></script>
-<script src="js/ai-client.js?v=v241"></script>
-<script src="js/app.js?v=v241"></script>
-<script src="js/notify.js?v=v241"></script>
-<script src="js/live.js?v=v241"></script>
+<script src="js/data-provider.js?v=v242"></script>
+<script src="js/ai-client.js?v=v242"></script>
+<script src="js/app.js?v=v242"></script>
+<script src="js/notify.js?v=v242"></script>
+<script src="js/live.js?v=v242"></script>
 <script>
 buildNav('correlations-live');
 
@@ -68,6 +68,16 @@ const SYMS = ['SPY','QQQ','IWM','NVDA','TSLA','AAPL','TLT','GLD','BTC','VXX','UU
 // undefined seed changePct (which silently read as 0 across the whole matrix).
 function getQ(s) { const q = (typeof QUOTES !== 'undefined') ? QUOTES[s] : null; return (q && q.last > 0) ? q : null; }
 function pctOf(s) { const q = getQ(s); return (q && typeof q.changePct === 'number') ? q.changePct : null; }
+// Pass 352: cell text is whichever of dark or light ink reads better on the cell as drawn (its colour composited
+// over the card behind it, in either theme).
+function inkFor(r, g, b, a) {
+  let base = [17, 24, 39];
+  try { const m = /rgba?\(([^)]+)\)/.exec(getComputedStyle(document.querySelector('.card') || document.body).backgroundColor); if (m) { const p = m[1].split(/[\s,\/]+/).filter(Boolean).map(Number); if (p.length >= 3 && (p.length < 4 || p[3] > 0)) base = p; } } catch (e) {}
+  const lin = v => { v /= 255; return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); };
+  const L = 0.2126 * lin(r * a + base[0] * (1 - a)) + 0.7152 * lin(g * a + base[1] * (1 - a)) + 0.0722 * lin(b * a + base[2] * (1 - a));
+  const dark = (L + 0.05) / (0.0093 + 0.05), light = (0.9 + 0.05) / (L + 0.05);   // #0b1220 vs #f3f4f6
+  return dark > light ? '#0b1220' : '#f3f4f6';
+}
 function corrSign(a, b) {
   // Compute pseudo-correlation from co-direction
   const ax = pctOf(a), bx = pctOf(b);
@@ -93,8 +103,9 @@ function paint() {
       const r = c > 0 ? Math.round(16 + (255 - 16) * intensity) : 239;
       const g = c > 0 ? Math.round(185 + 0 * intensity) : Math.round(68 + (255 - 68) * (1 - intensity));
       const bl = c > 0 ? Math.round(129 + (255 - 129) * (1 - intensity)) : 68;
-      const bg = `rgba(${r},${g},${bl},${0.15 + intensity * 0.55})`;
-      const col = intensity > 0.6 ? '#fff' : '#9ca3af';
+      const alpha = 0.15 + intensity * 0.55;
+      const bg = `rgba(${r},${g},${bl},${alpha})`;
+      const col = inkFor(r, g, bl, alpha);   // pass 352: grey #9ca3af read ~2:1 on the mid-strength cells
       html += '<div class="corr-cell" style="background:' + bg + ';color:' + col + ';">' + c.toFixed(2) + '</div>';
     });
   });

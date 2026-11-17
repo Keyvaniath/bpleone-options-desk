@@ -34,11 +34,12 @@ export function gradedOutcome(e) {
 export function recordByWeek(journal) {
   const weeks = new Map();
   const tot = { n: 0, hits: 0, up: 0, calledUp: 0, brier: 0 };
+  let undated = 0;
   for (const e of journal || []) {
     const o = gradedOutcome(e);
     if (!o || typeof e.predProb !== 'number' || !isFinite(e.predProb)) continue;
     const wk = weekOf(e.dayKey);
-    if (!wk) continue;
+    if (!wk) { undated++; continue; }   // pass-332: counted, so the page can say why /brain/metrics shows more calls
     const predUp = e.predProb >= 0.5;
     const rose = (predUp && o === 'correct') || (!predUp && o === 'wrong');
     const b = (e.predProb - (rose ? 1 : 0)) ** 2;
@@ -79,7 +80,7 @@ export function recordByWeek(journal) {
   const mean = sk.length ? sk.reduce((x, y) => x + y, 0) / sk.length : null;
   const se = sk.length > 1 ? Math.sqrt(sk.reduce((x, y) => x + (y - mean) ** 2, 0) / (sk.length - 1) / sk.length) : null;
   return { rows, total: Object.assign(shape(tot), { weeks: rows.length, full_weeks: full.length, weeks_beat_always_up: beatUp,
-    weeks_beat_chance: beatChance, mean_weekly_skill: mean == null ? null : r4(mean), mean_weekly_skill_se: se == null ? null : r4(se) }) };
+    weeks_beat_chance: beatChance, mean_weekly_skill: mean == null ? null : r4(mean), mean_weekly_skill_se: se == null ? null : r4(se), undated }) };
 }
 
 // Pass-332: the record by ET day, split into the two things a direction call can get right.

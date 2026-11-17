@@ -300,6 +300,23 @@ t('the by-day split takes its errors across WEEK averages (days overlap), never 
 t('the live tick no longer feeds VIX or time of day into inputs the bootstrap holds at 0.5', !/f\[18\] = clamp\(\(marketSnap\.vix/.test(read('worker/src/index.js')) && !/f\[20\] = clamp\(\(etHour\(\)/.test(read('worker/src/index.js')));
 t('/brain/record edge-cache key carries the Worker version (a deploy serves new fields at once)', /new Request\(url\.origin \+ '\/brain\/record\?v=' \+ WORKER_VERSION/.test(read('worker/src/index.js')));
 
+// 6r. Pass 352 (11/16): whole-site contrast sweep (427 pages x dark + light at 1,280px, _sweep/probes/contrast.js).
+//     Real defects it surfaced: Risk Gauge multiplied its 0-35% scale by 100 twice (any risk over 0.35% of bankroll
+//     drew a full bar) and its 5/10/25% markers sat at 5/10/25% of the WIDTH; overflow:hidden clipped their labels.
+t('risk gauge: the bar is pct / 35%, markers at X/35 of the width, labels not clipped', /const displayPct = Math\.min\(100, pct \/ 0\.35 \* 100\);/.test(read('risk-gauge.html')) && !/const displayPct = Math\.min\(100, \(pct \* 100\)/.test(read('risk-gauge.html')) && /left:14\.29%;"><div class="lbl">5%/.test(read('risk-gauge.html')) && /left:71\.43%;"><div class="lbl">25%/.test(read('risk-gauge.html')) && !/\.gauge-bar \{[^}]*overflow:hidden/.test(read('risk-gauge.html')));
+t('correlation heatmap picks dark or light cell text by contrast (no fixed grey on coloured cells)', /function inkFor\(r, g, b, a\)/.test(read('correlations-live.html')) && !/intensity > 0\.6 \? '#fff' : '#9ca3af'/.test(read('correlations-live.html')));
+t('dark-theme purple reads as text (#a78bfa)', /--purple: #a78bfa;/.test(read('css/style.css')));
+t('the weekly record counts undated calls, so the page can reconcile it with /brain/metrics', /if \(!wk\) \{ undated\+\+; continue; \}/.test(read('worker/src/record.js')) && /logged before calls carried a date, so they cannot be placed in a week/.test(read('edge-scorecard.html')));
+t('the SAMPLE banner uses theme colours (it was pale yellow text and white links on light yellow in the light theme)', /color:var\(--yellow\);/.test(read('js/sample-data-banner.js')) && !/color:#fbbf24/.test(read('js/sample-data-banner.js')) && !/style="color:#fff;text-decoration:underline;"/.test(read('js/sample-data-banner.js')));
+(function () {
+  const pages = fs6h.readdirSync(__dirname).filter(f => f.endsWith('.html'));
+  const purple = pages.filter(f => /color:\s*#a78bfa/.test(read(f)));
+  const inset = pages.filter(f => /background:\s*rgba\(0,\s*0,\s*0,\s*0\.2\)/.test(read(f)));
+  t('no page hard-codes the dark-theme purple as text or a black-tint box (theme tokens --purple / --inset-bg)', !purple.length && !inset.length && /--inset-bg: rgba\(15, 23, 42, 0\.05\);/.test(read('css/style.css')));
+  const heat = ['cross-asset-correlations', 'seasonality', 'heatmap', 'correlation', 'day-pnl-calendar', 'iv-skew', 'economic-events', 'insider-clusters', 'order-flow'];
+  t('heatmap pages pick cell ink by contrast (CellInk, never window.Ink: Chromium already defines Ink)', heat.every(f => /js\/ink\.js/.test(read(f + '.html')) && /CellInk\.watch\(/.test(read(f + '.html'))) && /window\.CellInk = \{ fix, watch, inkFor, bgOf \};/.test(read('js/ink.js')) && !/window\.Ink\s*=|\|\|\s*window\.Ink\)/.test(read('js/ink.js')));
+})();
+
 // 7. Worker sources parse strictly. `node --check` passed an ES-module file with an unescaped quote in a
 //    string (found 2026-11-03), so parse the bodies as scripts with imports/exports stripped.
 ['worker/src/index.js', 'worker/src/grading.js', 'worker/src/radar.js', 'worker/src/bars.js', 'worker/src/snapshots.js', 'worker/src/econ.js', 'worker/src/earnings.js'].forEach(f => {

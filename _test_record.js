@@ -89,6 +89,7 @@ ok(R.recordByWeek([]).total.chance_rate === null && R.recordByWeek([]).total.mea
   const d = R.recordByDay(J2);
   ok(d.rows.length === 3 && d.rows[2].partial === true && d.rows[0].partial === false, 'three days; the 5-call day is partial');
   ok(d.summary.days === 2 && d.summary.calls === 40 && d.summary.undated === 1, 'summary counts full days and the undated call');
+  ok(R.recordByWeek(J2).total.undated === 1 && R.recordByWeek(J2).total.n === 45, 'the weekly record counts the undated call too (n + undated = /brain/metrics live n)');
   ok(d.summary.one_sided_days === 1, 'an all-UP day is one-sided; a 50/50 day is not');
   ok(d.rows[0].called_up === 1 && d.rows[0].up_rate === 0.75 && d.rows[0].hit_rate === 0.75 && d.rows[0].chance_rate === 0.75 && d.rows[0].skill === 0, 'day A: calling everything UP scores exactly chance');
   ok(d.rows[0].rank_corr > 0.5, 'day A: higher-rated names rose, so the within-day rank correlation is positive');

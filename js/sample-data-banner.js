@@ -53,11 +53,11 @@
     if (document.getElementById('bp-sample-banner')) return;
     const bar = document.createElement('div');
     bar.id = 'bp-sample-banner';
-    bar.style.cssText = 'position:relative;z-index:50;margin:0;padding:11px 16px;background:rgba(245,158,11,0.14);border-bottom:2px solid #f59e0b;color:#fbbf24;font-family:Inter,sans-serif;font-size:12.5px;line-height:1.5;text-align:center;';
+    bar.style.cssText = 'position:relative;z-index:50;margin:0;padding:11px 16px;background:rgba(245,158,11,0.14);border-bottom:2px solid #f59e0b;color:var(--yellow);font-family:Inter,sans-serif;font-size:12.5px;line-height:1.5;text-align:center;';
     bar.innerHTML = '⚠️ <strong>Illustrative sample — not live.</strong> ' + feature.charAt(0).toUpperCase() + feature.slice(1) +
       ' needs a paid data feed we don\'t run on the free tier, so the figures here are simulated for layout. ' +
-      'For <strong>live, audited</strong> signals use the <a href="alpha-scanner.html" style="color:#fff;text-decoration:underline;">Alpha Scanner</a> ' +
-      'or <a href="smart-money-confluence.html" style="color:#fff;text-decoration:underline;">Smart-Money Confluence</a> (real insider data).';
+      'For <strong>live, audited</strong> signals use the <a href="alpha-scanner.html" style="color:var(--text-primary);text-decoration:underline;">Alpha Scanner</a> ' +
+      'or <a href="smart-money-confluence.html" style="color:var(--text-primary);text-decoration:underline;">Smart-Money Confluence</a> (real insider data).';
     // Insert at very top of body so it's the first thing seen.
     if (document.body.firstChild) document.body.insertBefore(bar, document.body.firstChild);
     else document.body.appendChild(bar);
