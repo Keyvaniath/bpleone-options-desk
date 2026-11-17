@@ -6,6 +6,7 @@ import { ECON_DESK_FILE, normalizeEconEvents, econCoverage, econCovers } from '.
 import { earningsFrom8K, tickerMap, cikFor, cikPath } from './earnings.js';
 import { weekOf, recordByWeek, recordByDay } from './record.js';
 import { dailyQuoteFromChart } from './quote.js';
+import { leanToday, echoByLag } from './lean.js';
 /* ===========================================
    BPLEONE Brain Worker — 24/7 server-side brain
    ---
@@ -46,7 +47,7 @@ import { dailyQuoteFromChart } from './quote.js';
 // Pass 200: version stamp so brain-proof.html + worker-setup.html can detect
 // when the deployed worker is behind the repo source. Bump on every meaningful
 // behavior change. Read via /brain/health → worker_version field.
-const WORKER_VERSION = 'pass-332';
+const WORKER_VERSION = 'pass-333';
 
 const UNIVERSE = [
   'SPY','QQQ','IWM','DIA','AAPL','NVDA','TSLA','MSFT','META','AMZN','GOOGL','AMD',
@@ -161,6 +162,24 @@ function predict(model, features) {
   for (let i = 0; i < 22; i++) z += (model.weights[i] || 0) * (features[i] || 0);
   return sigmoid(z);
 }
+// Pass-333: one SGD step from a given error (used by the live update, which measures each call's error against its
+// batch's mean error). Same L2 rule as trainStep: index 21 (the constant-1 column) is exempt from decay.
+function trainStepErr(model, features, err) {
+  const L2 = (typeof model.l2 === 'number' && model.l2 >= 0) ? model.l2 : 0.025;
+  for (let i = 0; i < 22; i++) {
+    const decay = (i === 21) ? 0 : L2 * model.weights[i];
+    model.weights[i] -= model.lr * (err * (features[i] || 0) + decay);
+  }
+  model.bias -= model.lr * err;
+  model.n_trained = (model.n_trained || 0) + 1;
+}
+// Pass-333: daily bars kept per symbol for live features. f9/f10 (50-day distance and range position) need 51 bars;
+// with 40 they were exactly 0.5 on 100% of live calls while the bootstrap (250 bars) trains on their real values.
+const LIVE_BARS = 60;
+// Pass-333: a tick's graded calls are learned from only when there are at least this many (their errors are measured
+// against the batch mean, so one or two calls carry no cross-sectional information).
+const LIVE_BATCH_MIN = 3;
+
 function trainStep(model, features, label) {
   const p = predict(model, features);
   const err = p - label;
@@ -1378,7 +1397,7 @@ async function tick(env) {
       const hist = await fetchYahooHistorical(sym, 60);
       seeded++;
       if (!Array.isArray(hist) || hist.length < 14) continue;
-      barsHistory[sym] = hist.slice(-40).map(b => ({ ts: b.ts, dayKey: etKey(b.ts), open: b.open, high: b.high, low: b.low, close: b.close, volume: b.volume }));
+      barsHistory[sym] = hist.slice(-LIVE_BARS).map(b => ({ ts: b.ts, dayKey: etKey(b.ts), open: b.open, high: b.high, low: b.low, close: b.close, volume: b.volume }));
       barsHistoryDirty = true;
     }
   }
@@ -1429,7 +1448,7 @@ async function tick(env) {
         volume: q.volume || 0
       });
       // Cap history at 40 bars per symbol (enough for 20-day momentum)
-      if (history.length > 40) history.splice(0, history.length - 40);
+      if (history.length > LIVE_BARS) history.splice(0, history.length - LIVE_BARS);
       barsHistoryDirty = true;
     }
 
@@ -1479,6 +1498,7 @@ async function tick(env) {
 
   // Resolve: any entry where (now - ts) >= horizon, and we have current price
   let resolved = 0, trained = 0;
+  const liveBatch = [];   // pass-333: this tick's graded 5-day calls, learned from together below
   const HORIZON_MIN_MOVE = { short: 0.003, mid: 0, long: 0.03 };  // pass 264: mid (5d) -> DENSE label (every move trains on its real direction). Backtest showed dense direction (52.4%) beats the +-1% threshold (45.5%). Must match the bootstrap LABEL_THRESHOLD below.
   for (const entry of journal) {
     if (!entry.resolved) entry.resolved = { short: false, mid: false, long: false };
@@ -1510,11 +1530,24 @@ async function tick(env) {
       // language: 5-day direction at ±1pp (HORIZON_MIN_MOVE.mid = 0.01).
       if (outcome !== 'flat' && horizon === 'mid') {
         const label = outcome === 'correct' ? (predUp ? 1 : 0) : (predUp ? 0 : 1);
-        trainStep(model, entry.features, label);
-        trained++;
+        if (Array.isArray(entry.features)) liveBatch.push({ f: entry.features, y: label });
       }
       resolved++;
     });
+  }
+
+  // Pass-333 (CRITICAL, the brain's market echo): a tick's graded calls were all made on the same day a week earlier, so
+  // they share one market week; learning from each call's own error pushed every weight (the bias, the constant
+  // inputs and the market-wide features) toward that week's direction. On 11/16 the share of names the brain called UP
+  // each day correlated +0.66 with the share that rose among the calls graded just before (118 days), and it had no
+  // timing skill: its one-sided days were an echo of last week. Errors are now measured against the batch's mean
+  // error, so a step learns only what separated the names that rose from those that fell in the same week; the base
+  // rate stays where the weekly 120-day retrain puts it (the demeaned errors sum to zero, so the bias is not moved).
+  // Pre-registered: _research/PREREG-2026-11-16-live-update-echo.md (the echo is published at /brain/lean).
+  if (liveBatch.length >= LIVE_BATCH_MIN) {
+    const errs = liveBatch.map(it => predict(model, it.f) - it.y);
+    const meanErr = errs.reduce((a, c) => a + c, 0) / errs.length;
+    liveBatch.forEach((it, i) => { trainStepErr(model, it.f, errs[i] - meanErr); trained++; });
   }
 
   // Trim journal. Pass-330: the oldest calls are ARCHIVED (archive_journal_<YYYYMM>, read /brain/archive?log=journal)
@@ -2034,6 +2067,25 @@ async function handleRequest(request, env, ctx) {
   // ET week it was captured, beside the share of those names that rose (what "always call up" hit). Same
   // counting rule as /brain/metrics live_resolved. Edge-cached 1 h: the journal is ~6 MB, so the summary is
   // computed at most once an hour per colo, never per visitor. Read-only.
+  // ===== Pass-333: why the brain leans the way it does today (worker/src/lean.js). Today's calls against the previous
+  // 60 days: the raw-score shift split exactly into one term per input (the model is linear), the spread of today's
+  // published probabilities, and the echo (how closely the daily lean follows the calls graded just before). Reads
+  // the journal (~6 MB) and the model; edge-cached 1 h under the Worker version.
+  if (path === '/brain/lean') {
+    const cache = caches.default;
+    const cacheKey = new Request(url.origin + '/brain/lean?v=' + WORKER_VERSION, { method: 'GET' });
+    const hit = await cache.match(cacheKey);
+    if (hit) return hit;
+    const [journal, model] = await Promise.all([kvGet(env, KV_KEYS.JOURNAL, [], 60), kvGet(env, KV_KEYS.MODEL, null, 60)]);
+    const lean = leanToday(journal, model);
+    const echo = echoByLag(journal, [4, 5, 6, 7, 8]);
+    const body = Object.assign({ version: WORKER_VERSION, computed_at: new Date().toISOString(), echo,
+      note: 'drivers: each input\u2019s share of the gap between today\u2019s average raw model score (log-odds, current weights) and the previous 60 days\u2019 average; they sum to logit_shift. echo[lag].r: correlation across days of the share called UP with the share that rose among calls made lag sessions earlier (lag ~6 = the calls graded just before). A description of the call, not evidence it is right.' }, lean);
+    const resp = json(body, 200, 3600);
+    if (lean && lean.ok) ctx.waitUntil(cache.put(cacheKey, resp.clone()));
+    return resp;
+  }
+
   if (path === '/brain/record') {
     const cache = caches.default;
     // Pass-332: the version is in the key, so a deploy serves its new fields at once (not after the 1 h cache).
@@ -3988,7 +4040,7 @@ async function runBootstrap(env) {
     }
     symbolsFetched++;
     // Pass 193: seed bar history for this symbol with the last 40 bars
-    barsHistory[sym] = bars.slice(-40).map(b => ({
+    barsHistory[sym] = bars.slice(-LIVE_BARS).map(b => ({
       ts: b.ts,
       dayKey: new Date(b.ts).getUTCFullYear() * 10000 + (new Date(b.ts).getUTCMonth() + 1) * 100 + new Date(b.ts).getUTCDate(),
       open: b.open, high: b.high, low: b.low, close: b.close, volume: b.volume

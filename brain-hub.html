@@ -57,6 +57,16 @@
       <div><div class="tile-sub">Last weekly retrain</div><div class="tile-stat" id="dbRetrain" style="font-size:20px;">&mdash;</div><div class="tile-sub" id="dbTick">&mdash;</div></div>
     </div>
   </div>
+  <!-- Pass 355 (worker pass-333): why the brain leans the way it does today -->
+  <div class="hub-card" id="leanCard" style="margin-bottom:12px;border-left:3px solid var(--purple);">
+    <h4>Why it leans the way it does today <a href="edge-scorecard.html#cal-card">the record &rarr;</a></h4>
+    <div id="leanHead" style="font-size:13px;color:var(--text-secondary);line-height:1.55;margin-top:6px;">Loading&hellip;</div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:16px;margin-top:10px;">
+      <div><div class="tile-sub">The echo: does its lean follow the week it was just graded on?</div><div class="tile-stat" id="leanEcho" style="font-size:20px;">&mdash;</div><div class="tile-sub" id="leanEchoSub">&mdash;</div></div>
+      <div><div class="tile-sub">What moved today&rsquo;s raw score, against the last 60 days</div><div id="leanDrivers" style="margin-top:6px;"></div></div>
+    </div>
+    <div id="leanFoot" style="font-size:11px;color:var(--text-muted);line-height:1.5;margin-top:10px;"></div>
+  </div>
   <div style="font-size:11px;font-weight:800;letter-spacing:1px;text-transform:uppercase;color:var(--text-muted);margin:14px 0 8px;">This browser&rsquo;s own model (local; it starts empty and is not the desk&rsquo;s record)</div>
 
   <!-- Training-tools strip — wires the new ops/training pages into the hub -->
@@ -337,6 +347,40 @@ async function deskBrain(first) {
 }
 deskBrain(true);
 setInterval(() => deskBrain(false), 60000);
+
+// Pass 355 (worker pass-333): /brain/lean. The brain's daily lean was mostly an echo of the market direction in the
+// calls it had just been graded on (+0.66 on 11/16); pass-333 changed the live update, and this card tracks the echo.
+function leanEsc(s) { return String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
+async function loadLean() {
+  const W = (window.WorkerBridge && WorkerBridge.getUrl && WorkerBridge.getUrl()) || 'https://bpleone-brain-worker.brandonpleone.workers.dev';
+  const head = document.getElementById('leanHead');
+  let j = null;
+  try { const r = await fetch(W + '/brain/lean'); j = r.ok ? await r.json() : null; } catch (e) {}
+  if (!j || !j.ok) { head.textContent = j && j.reason ? 'Not enough calls yet: ' + j.reason + '.' : 'This read comes from the Worker\u2019s /brain/lean (worker pass-333); it appears once that is deployed.'; return; }
+  const pct = v => Math.round(v * 100) + '%';
+  const day = j.day.slice(4, 6).replace(/^0/, '') + '/' + j.day.slice(6).replace(/^0/, '');
+  head.innerHTML = 'On ' + day + ' it called <strong>UP on ' + pct(j.called_up) + '</strong> of its ' + j.calls + ' names, against ' + pct(j.baseline.called_up) + ' on an average day over the previous ' + j.baseline.days + '. '
+    + 'Its published probabilities ran from ' + pct(j.published.p10) + ' to ' + pct(j.published.p90) + ' (middle 80%), centred on ' + pct(j.published.median) + '; on an average recent day the centre was ' + pct(j.published.baseline_median) + '.';
+  const e6 = j.echo && j.echo['6'];
+  if (e6 && e6.r != null) {
+    const el = document.getElementById('leanEcho');
+    el.textContent = (e6.r >= 0 ? '+' : '\u2212') + Math.abs(e6.r).toFixed(2);
+    el.style.color = e6.r > 0.25 ? 'var(--red)' : 'var(--green)';
+    document.getElementById('leanEchoSub').innerHTML = 'Correlation, across ' + e6.days + ' days, of the share it called UP with the share that rose among the calls it made 6 sessions earlier (the batch graded just before). '
+      + (e6.r > 0.25 ? 'High: its market-wide lean mostly repeats last week. ' : 'Low: its lean no longer repeats last week. ')
+      + 'Pass-333 (11/16) changed the live update to stop this; pre-registered to fall below +0.25 once 40 post-change days are graded (it counts every day until then, so it moves slowly).';
+  }
+  const top = (j.drivers || []).slice(0, 4);
+  const max = Math.max(0.01, ...top.map(d => Math.abs(d.contribution)));
+  document.getElementById('leanDrivers').innerHTML = top.map(d => {
+    const w = Math.round(Math.abs(d.contribution) / max * 100), up = d.contribution >= 0;
+    return '<div style="display:flex;align-items:center;gap:8px;font-size:12px;margin:4px 0;"><span style="flex:1 1 0;min-width:0;color:var(--text-secondary);">' + leanEsc(d.name) + '</span>'
+      + '<span style="flex:0 0 90px;height:8px;background:var(--bg-tertiary);border-radius:4px;overflow:hidden;"><span style="display:block;height:100%;width:' + w + '%;background:' + (up ? 'var(--green)' : 'var(--red)') + ';"></span></span>'
+      + '<span class="mono" style="flex:0 0 58px;text-align:right;color:' + (up ? 'var(--green)' : 'var(--red)') + ';">' + (up ? '+' : '\u2212') + Math.abs(d.contribution).toFixed(3) + '</span></div>';
+  }).join('') + '<div class="tile-sub" style="margin-top:4px;">Log-odds; green pushes toward UP. Total shift ' + (j.logit_shift >= 0 ? '+' : '\u2212') + Math.abs(j.logit_shift).toFixed(3) + ' (the model is linear, so the inputs add up to it).' + (Math.abs(j.logit_shift) < 0.3 ? ' That is small: the inputs barely explain today’s lean. Most of it came from the weights themselves changing after the last graded batch (the echo).' : '') + '</div>';
+  document.getElementById('leanFoot').textContent = 'The drivers explain the raw model score with today\u2019s weights; the per-symbol and calibration layers sit on top. This describes the call; the live record says the call carries no timing or picking skill.';
+}
+loadLean();
 document.addEventListener('visibilitychange', () => { if (!document.hidden) deskBrain(false); });
 </script>
 </body>

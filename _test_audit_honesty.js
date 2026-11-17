@@ -324,6 +324,13 @@ t('no page claims "your live Finnhub feed" for data that comes from the Worker',
 t('Ticker shows REAL-TIME / DELAYED ~15 MIN / LAST CLOSE, never a static LIVE chip', /function paintLatency\(\)/.test(read('ticker.html')) && !/<span class="lat-dot"><\/span> LIVE<\/span>/.test(read('ticker.html')));
 t('System Status: weekly jobs judged by their last success; House PTR freshness read from checkedAt', /weekly: true, firstDue: '2026-11-21'/.test(read('system-status.html')) && /congress\.checkedAt \|\| congress\.fetchedAt/.test(read('system-status.html')));
 
+// 6t. Pass 355 (11/16; worker pass-333): the brain's market echo. Its daily up-share correlated +0.66 with the share
+//     that rose in the batch graded just before (lag 6); the live update now uses errors against the batch mean, and
+//     the echo is published (/brain/lean) and pre-registered to fall below +0.25. Tests: _test_live_update.js.
+t('the live update is cross-sectional (batch-demeaned) and pre-registered', /trainStepErr\(model, it\.f, errs\[i\] - meanErr\)/.test(read('worker/src/index.js')) && fs6h.existsSync(__dirname + '/_research/PREREG-2026-11-16-live-update-echo.md') && /below \*\*\+0\.25\*\*/.test(read('_research/PREREG-2026-11-16-live-update-echo.md')));
+t('live bar history is long enough for the 50-day inputs (60 bars, not 40)', /const LIVE_BARS = 60;/.test(read('worker/src/index.js')) && !/history\.length > 40\) history\.splice/.test(read('worker/src/index.js')));
+t('Brain Hub explains the lean, shows the echo, and says when the inputs do not explain it', /function loadLean\(\)/.test(read('brain-hub.html')) && /the inputs barely explain today/.test(read('brain-hub.html')) && /'\/brain\/lean'/.test(read('brain-hub.html')) && /if \(path === '\/brain\/lean'\)/.test(read('worker/src/index.js')));
+
 // 7. Worker sources parse strictly. `node --check` passed an ES-module file with an unescaped quote in a
 //    string (found 2026-11-03), so parse the bodies as scripts with imports/exports stripped.
 ['worker/src/index.js', 'worker/src/grading.js', 'worker/src/radar.js', 'worker/src/bars.js', 'worker/src/snapshots.js', 'worker/src/econ.js', 'worker/src/earnings.js'].forEach(f => {
