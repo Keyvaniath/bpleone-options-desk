@@ -10,7 +10,9 @@
 //          runaway-canvas.js  Chart.js canvases taller than 1,200px (fill-parent chart in an auto-height box)
 //          overflow-cause.js  the parent grid/flex behind each clipped element
 //        PERF=1     Worker calls per path, 429s, long tasks, heap      PROFILE=1  top functions by CPU self time
-//        SHOT=<dir> screenshot (SHOT_SEL=<css> captures just that element)   PRE=<file> script run before both
+//        SHOT=<dir> screenshot (SHOT_SEL=<css> captures just that element; SHOT_FULL=1 the whole page, up to 6,000px)
+//        PRE=<file> script run before both   LIVE=1 load the PRODUCTION site (no local files; /track still blocked)
+//        DESKTOP=1 a desktop browser (no mobile emulation, scale 1, desktop user agent) instead of a phone
 // Default check: elements whose right edge passes the viewport and that no scroll/clip ancestor contains
 // (body overflow-x:hidden hides this bug class: nothing scrolls, the content is just cut off).
 // Baseline 11/16/26: 0 clipped at 390px and 1,280px, 0 uncaught errors, on all 427 pages.
@@ -65,7 +67,7 @@ async function main() {
         const u = new URL(m.params.request.url);
         try {
           if (/\/track$/.test(u.pathname)) return await send('Fetch.failRequest', { requestId: m.params.requestId, errorReason: 'BlockedByClient' });
-          if (u.origin === ORIGIN) {
+          if (u.origin === ORIGIN && !process.env.LIVE) {
             let p = decodeURIComponent(u.pathname); if (p === '/' ) p = '/index.html';
             const ext = path.extname(p); const f = path.join(REPO, p);
             if (CT[ext] && fs.existsSync(f)) return await send('Fetch.fulfillRequest', { requestId: m.params.requestId, responseCode: 200, responseHeaders: [{ name: 'Content-Type', value: CT[ext] }, { name: 'Cache-Control', value: 'no-store' }], body: fs.readFileSync(f).toString('base64') });
@@ -86,8 +88,9 @@ async function main() {
     if (process.env.THEME) await send('Page.addScriptToEvaluateOnNewDocument', { source: "try{localStorage.setItem('bpleone_theme_v1','" + process.env.THEME + "')}catch(e){}" });
     if (process.env.PERF) await send('Page.addScriptToEvaluateOnNewDocument', { source: "window.__lt=[];try{new PerformanceObserver(function(l){l.getEntries().forEach(function(e){window.__lt.push(Math.round(e.duration))})}).observe({type:'longtask',buffered:true})}catch(e){}" });
     await send('Fetch.enable', { patterns: [{ urlPattern: ORIGIN + '/*', requestStage: 'Request' }, { urlPattern: '*/track', requestStage: 'Request' }] });
-    await send('Emulation.setDeviceMetricsOverride', { width: +(process.env.VW || 390), height: 844, deviceScaleFactor: 2, mobile: true });
-    await send('Emulation.setUserAgentOverride', { userAgent: 'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Mobile Safari/537.36' });
+    const DESK = !!process.env.DESKTOP;
+    await send('Emulation.setDeviceMetricsOverride', { width: +(process.env.VW || 390), height: DESK ? 900 : 844, deviceScaleFactor: DESK ? 1 : 2, mobile: !DESK });
+    await send('Emulation.setUserAgentOverride', { userAgent: DESK ? 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36' : 'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Mobile Safari/537.36' });
     while (next < pages.length) {
       const pg = pages[next++]; errs = []; loaded = false; reqs = {}; s429 = 0;
       try {
@@ -103,7 +106,12 @@ async function main() {
           const b = JSON.parse(rr.result.value || 'null');
           if (b) { const sh = await send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: true, clip: { x: b.x, y: b.y, width: b.w, height: b.h, scale: 1 } }); fs.writeFileSync(path.join(process.env.SHOT, pg + '-' + (process.env.VW || 390) + '-el.png'), Buffer.from(sh.data, 'base64')); }
         }
-        if (process.env.SHOT) { const sh = await send('Page.captureScreenshot', { format: 'png' }); fs.writeFileSync(path.join(process.env.SHOT, pg + '-' + (process.env.VW || 390) + '.png'), Buffer.from(sh.data, 'base64')); }
+        if (process.env.SHOT && process.env.SHOT_FULL) {
+          const lm = await send('Page.getLayoutMetrics');
+          const cs = lm.cssContentSize || lm.contentSize;
+          const sh = await send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: true, clip: { x: 0, y: 0, width: cs.width, height: Math.min(cs.height, 6000), scale: 1 } });
+          fs.writeFileSync(path.join(process.env.SHOT, pg + '-' + (process.env.VW || 390) + '-full.png'), Buffer.from(sh.data, 'base64'));
+        } else if (process.env.SHOT) { const sh = await send('Page.captureScreenshot', { format: 'png' }); fs.writeFileSync(path.join(process.env.SHOT, pg + '-' + (process.env.VW || 390) + '.png'), Buffer.from(sh.data, 'base64')); }
         const r = await Promise.race([send('Runtime.evaluate', { expression: CHECK, returnByValue: true, awaitPromise: true }), sleep(10000).then(() => ({ timeout: true }))]);
         const v = r.result ? r.result.value : null;
         if (process.env.PROFILE) {

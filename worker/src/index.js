@@ -5,6 +5,7 @@ import { SNAPSHOT_SCHEDULE, snapshotDispatchDue, buildDispatchRequest, cleanToke
 import { ECON_DESK_FILE, normalizeEconEvents, econCoverage, econCovers } from './econ.js';
 import { earningsFrom8K, tickerMap, cikFor, cikPath } from './earnings.js';
 import { weekOf, recordByWeek, recordByDay } from './record.js';
+import { dailyQuoteFromChart } from './quote.js';
 /* ===========================================
    BPLEONE Brain Worker — 24/7 server-side brain
    ---
@@ -1009,36 +1010,20 @@ async function fetchYahooQuote(sym) {
     if (!r.ok) return null;
     const j = await r.json();
     const result = j && j.chart && j.chart.result && j.chart.result[0];
-    if (!result || !result.timestamp) return null;
-    const meta = result.meta || {};
-    const q = result.indicators && result.indicators.quote && result.indicators.quote[0];
-    if (!q || !Array.isArray(q.close)) return null;
-    // Last non-null bar = today's in-progress session during market hours.
-    let i = q.close.length - 1;
-    while (i >= 0 && (q.close[i] == null || !isFinite(q.close[i]))) i--;
-    if (i < 0) return null;
-    const last = (typeof meta.regularMarketPrice === 'number' && meta.regularMarketPrice > 0)
-      ? meta.regularMarketPrice : q.close[i];
-    if (typeof last !== 'number' || last <= 0) return null;
-    // prevClose must be YESTERDAY's close (the prior daily bar) for a true DAILY
-    // change%. meta.chartPreviousClose is the close BEFORE the whole 5-day window
-    // (~6 trading days stale), which was inflating change into a multi-day move —
-    // SMCI showed -20.8% and NVDA -8.9% when the real daily moves were ~-11% / -2.4%.
-    // Prefer the prior daily bar; fall back to chartPreviousClose only if it's absent.
-    const prevClose = (i > 0 && typeof q.close[i - 1] === 'number' && q.close[i - 1] > 0)
-      ? q.close[i - 1]
-      : ((typeof meta.chartPreviousClose === 'number' && meta.chartPreviousClose > 0) ? meta.chartPreviousClose : last);
-    const volume = (typeof meta.regularMarketVolume === 'number' && meta.regularMarketVolume > 0)
-      ? meta.regularMarketVolume : (q.volume[i] || 0);
+    // Pass-332: worker/src/quote.js. After the close Yahoo's daily bar for today has close = null; the old inline code
+    // then measured the move from two sessions back and showed the prior day's range (SPY -2.27% vs -1.91% on 11/16).
+    const d = dailyQuoteFromChart(result, { crypto: /-USD$/.test(yhSym) });
+    if (!d) return null;
     return {
       symbol: sym,
-      last,
-      prevClose,
-      dayHigh: q.high[i] || last,
-      dayLow: q.low[i] || last,
-      dayOpen: q.open[i] || last,
-      volume,                          // ← the whole point: real live volume
-      changePct: prevClose ? ((last - prevClose) / prevClose) * 100 : 0,
+      last: d.last,
+      prevClose: d.prevClose,
+      dayHigh: d.dayHigh,
+      dayLow: d.dayLow,
+      dayOpen: d.dayOpen,
+      volume: d.volume,                // real live volume
+      changePct: d.changePct,
+      session: d.session,              // ET date of the quote's session (null for crypto)
       ts: Date.now(),
       priceSource: 'yahoo',
       liveAt: Date.now()
