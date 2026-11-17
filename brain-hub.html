@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" media="print" onload="this.media='all'"><noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap"></noscript>
-<link rel="stylesheet" href="css/style.css?v=v242">
+<link rel="stylesheet" href="css/style.css?v=v243">
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
@@ -144,14 +144,14 @@
 
 <div id="site-footer"></div>
 
-<script src="js/data-provider.js?v=v242"></script>
-<script src="js/ai-client.js?v=v242"></script>
-<script src="js/app.js?v=v242"></script>
-<script src="js/notify.js?v=v242"></script>
-<script src="js/live.js?v=v242"></script>
-<script src="js/train-rows.js?v=v242"></script>
-<script src="js/no-play-gate.js?v=v242" defer></script>
-<script src="js/model.js?v=v242"></script>
+<script src="js/data-provider.js?v=v243"></script>
+<script src="js/ai-client.js?v=v243"></script>
+<script src="js/app.js?v=v243"></script>
+<script src="js/notify.js?v=v243"></script>
+<script src="js/live.js?v=v243"></script>
+<script src="js/train-rows.js?v=v243"></script>
+<script src="js/no-play-gate.js?v=v243" defer></script>
+<script src="js/model.js?v=v243"></script>
 <script>
 buildNav('brain-hub');
 
@@ -303,8 +303,10 @@ render();
 setInterval(render, 6000);
 
 // Pass 347: the desk-brain panel (Worker). Refreshed every 60 s; the local panels above refresh every 6 s.
-async function deskBrain() {
-  if (document.hidden) return;
+async function deskBrain(first) {
+  // Pass 354: the FIRST load is never visibility-gated (the pass-305 rule): a Brain Hub opened in a background tab
+  // showed "checking the Worker..." until the 60 s timer found it visible. Only the timer skips hidden tabs.
+  if (document.hidden && !first) return;
   const W = (window.WorkerBridge && WorkerBridge.getUrl && WorkerBridge.getUrl()) || 'https://bpleone-brain-worker.brandonpleone.workers.dev';
   const get = u => fetch(W + u, { cache: 'no-store' }).then(r => r.ok ? r.json() : null).catch(() => null);
   const set = (id, t, color) => { const el = document.getElementById(id); if (!el) return; el.textContent = t; if (color) el.style.color = color; };
@@ -333,8 +335,9 @@ async function deskBrain() {
   }
   set('dbTick', 'trained on ' + Number(health.model_trained || 0).toLocaleString() + ' examples; last tick ' + (health.lastTickAgo != null ? (health.lastTickAgo < 120 ? health.lastTickAgo + 's' : Math.round(health.lastTickAgo / 60) + 'm') + ' ago' : 'unknown'));
 }
-deskBrain();
-setInterval(deskBrain, 60000);
+deskBrain(true);
+setInterval(() => deskBrain(false), 60000);
+document.addEventListener('visibilitychange', () => { if (!document.hidden) deskBrain(false); });
 </script>
 </body>
 </html>

@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" media="print" onload="this.media='all'"><noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap"></noscript>
-<link rel="stylesheet" href="css/style.css?v=v242">
+<link rel="stylesheet" href="css/style.css?v=v243">
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
@@ -46,10 +46,10 @@
     <div>
       <div class="page-title" style="display:flex;align-items:center;gap:12px;">
         <span id="symBig" class="mono">—</span>
-        <span class="latency-chip"><span class="lat-dot"></span> LIVE</span>
+        <span class="latency-chip" id="latChip"><span class="lat-dot"></span> <span id="latTxt">DELAYED</span></span>
         <span class="feat-badge feat-live">REAL</span>
       </div>
-      <div class="page-subtitle" id="symName">Single-symbol deep dive · all live · <span id="market-clock">--</span></div>
+      <div class="page-subtitle" id="symName">Single-symbol deep dive · real data, equities delayed ~15 min · <span id="market-clock">--</span></div>
     </div>
     <div class="flex gap-8" style="align-items:center;">
       <input id="symInput" placeholder="Type symbol…" style="background:var(--bg-elevated);border:1px solid var(--border);border-radius:8px;padding:8px 12px;color:var(--text-primary);font-size:13px;font-family:var(--font-mono);width:140px;text-transform:uppercase;">
@@ -128,11 +128,11 @@
 
 <div id="site-footer"></div>
 
-<script src="js/data-provider.js?v=v242"></script>
-<script src="js/ai-client.js?v=v242"></script>
-<script src="js/app.js?v=v242"></script>
-<script src="js/notify.js?v=v242"></script>
-<script src="js/live.js?v=v242"></script>
+<script src="js/data-provider.js?v=v243"></script>
+<script src="js/ai-client.js?v=v243"></script>
+<script src="js/app.js?v=v243"></script>
+<script src="js/notify.js?v=v243"></script>
+<script src="js/live.js?v=v243"></script>
 <script>
 buildNav('ticker');
 
@@ -451,8 +451,21 @@ document.querySelectorAll('[data-tf]').forEach(b => b.addEventListener('click', 
   if (el) el.href = base + '?sym=' + sym;
 });
 
+// Pass 354: the chip said LIVE with a pulsing dot on every symbol at every hour. Equities are ~15 min delayed
+// (Yahoo via the desk's Worker) and show the last close outside the session; only BTC/ETH (Coinbase) are real time.
+function paintLatency() {
+  const t = $('latTxt'), dot = document.querySelector('#latChip .lat-dot');
+  if (!t) return;
+  const crypto = sym === 'BTC' || sym === 'ETH';
+  const sess = typeof window.detectSession === 'function' ? window.detectSession() : 'open';
+  t.textContent = crypto ? 'REAL-TIME' : sess === 'open' ? 'DELAYED ~15 MIN' : 'LAST CLOSE';
+  if (dot) { dot.style.animation = crypto || sess === 'open' ? '' : 'none'; dot.style.background = crypto ? 'var(--green)' : sess === 'open' ? 'var(--yellow)' : 'var(--text-muted)'; }
+}
+
 // Init
 $('symBig').textContent = sym;
+paintLatency();
+setInterval(paintLatency, 60000);
 document.title = sym + ' · Ticker Focus — bpleone';
 renderSymBar();
 loadQuote();

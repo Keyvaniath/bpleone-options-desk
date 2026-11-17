@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600;700;800&display=swap" media="print" onload="this.media='all'"><noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600;700;800&display=swap"></noscript>
-<link rel="stylesheet" href="css/style.css?v=v242">
+<link rel="stylesheet" href="css/style.css?v=v243">
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
 <link rel="canonical" href="https://options.bpleone.com/system-status.html">
@@ -80,11 +80,11 @@ table.ss td.note { color:var(--text-muted);font-size:11.5px;line-height:1.5;min-
 </div>
 <div id="site-footer"></div>
 
-<script src="js/data-provider.js?v=v242"></script>
-<script src="js/ai-client.js?v=v242"></script>
-<script src="js/app.js?v=v242"></script>
-<script src="js/notify.js?v=v242"></script>
-<script src="js/live.js?v=v242"></script>
+<script src="js/data-provider.js?v=v243"></script>
+<script src="js/ai-client.js?v=v243"></script>
+<script src="js/app.js?v=v243"></script>
+<script src="js/notify.js?v=v243"></script>
+<script src="js/live.js?v=v243"></script>
 <script>buildNav('system-status');</script>
 <script>
 (function () {
@@ -313,8 +313,10 @@ table.ss td.note { color:var(--text-muted);font-size:11.5px;line-height:1.5;min-
       const t = Date.parse(edge.generated + 'T12:40:00Z');
       add('Edge lab', KIND.batch, t, now - t, fmtTarget(TARGETS.edgeLab.min), ageStatus(now - t, TARGETS.edgeLab), 'Weekly (Mondays). ' + (edge.signals || []).length + ' signals on ' + edge.universe_size + ' names.' + checked(edgeMeta));
     }
-    if (congress && !congress._err && congress.fetchedAt) {
-      const t = Date.parse(congress.fetchedAt);
+    // Pass 354: the sidecar writes checkedAt (when the job last looked) and changedAt (when the filings last changed);
+    // this read a fetchedAt that does not exist, so the row always said "late" even right after a successful run.
+    if (congress && !congress._err && (congress.checkedAt || congress.fetchedAt)) {
+      const t = Date.parse(congress.checkedAt || congress.fetchedAt);
       add('House PTR filings', KIND.batch, t, now - t, fmtTarget(TARGETS.congress.min), ageStatus(now - t, TARGETS.congress),
         (congress.rows != null ? congress.rows + ' filings' + (congress.coverage ? ' filed ' + congress.coverage.first + ' to ' + congress.coverage.last : '') + '. ' : '') + 'House Clerk index; Senate not covered here. Disclosure lags the trade by up to 45 days by law.' + checked(congress));
     } else {
@@ -333,8 +335,11 @@ table.ss td.note { color:var(--text-muted);font-size:11.5px;line-height:1.5;min-
     { file: 'brain-health.yml', name: 'Brain health check', crons: ['13,43 * * * *'] },
     { file: 'econ-calendar.yml', name: 'Economic calendar', crons: ['20 10 * * *'] },
     { file: 'congress-ptr.yml', name: 'House PTR filings', crons: ['30 11 * * *'] },
-    { file: 'edge-lab.yml', name: 'Edge lab (weekly)', crons: ['40 12 * * 1'] },
-    { file: 'short-volume-oos.yml', name: 'Short-volume out-of-sample (weekly)', crons: ['17 14 * * 6', '47 16 * * 0', '23 13 * * 1'] }
+    // Pass 354: weekly jobs are judged by their last successful run (8 days = on time), not by runs in the last 24 h:
+    // short-volume-oos has three backup crons and needs ONE run a week, and it was flagged red for a skipped Monday
+    // backup before its first run was even due. firstDue = no run is expected before that date.
+    { file: 'edge-lab.yml', name: 'Edge lab (weekly)', crons: ['40 12 * * 1'], weekly: true },
+    { file: 'short-volume-oos.yml', name: 'Short-volume out-of-sample (weekly)', crons: ['17 14 * * 6', '47 16 * * 0', '23 13 * * 1'], weekly: true, firstDue: '2026-11-21' }
   ];
   function cronField(f, v, lo) {
     return f.split(',').some(part => {
@@ -394,6 +399,11 @@ table.ss td.note { color:var(--text-muted);font-size:11.5px;line-height:1.5;min-
   function jobStatus(r) {
     if (r.err) return 'bad';
     if (r.last && r.last.conclusion === 'failure') return 'bad';
+    if (r.j.weekly) {
+      if (!r.lastOk) return (r.j.firstDue && Date.now() < Date.parse(r.j.firstDue + 'T23:59:00Z')) ? 'ok' : 'warn';
+      const d = (Date.now() - r.lastOk) / 864e5;
+      return d <= 8 ? 'ok' : d <= 15 ? 'warn' : 'bad';
+    }
     if (!r.expected) return 'ok';
     if (r.ran24 === 0) return 'bad';
     return r.ran24 >= r.expected * 0.8 ? 'ok' : 'warn';
@@ -406,7 +416,7 @@ table.ss td.note { color:var(--text-muted);font-size:11.5px;line-height:1.5;min-
     const limited = jb.some(r => r.err && /403|429/.test(r.err));
     document.getElementById('ss-jobs').innerHTML = jb.map(r => r.err
       ? '<tr><td><strong>' + esc(r.j.name) + '</strong></td><td class="m">' + esc(r.j.crons.join(' + ')) + '</td><td colspan="4" class="note">GitHub API: ' + esc(r.err) + '</td><td>' + ST.bad + '</td></tr>'
-      : '<tr><td><strong>' + esc(r.j.name) + '</strong></td><td class="m">' + esc(r.j.crons.join(' + ') + (r.j.dispatch ? ' + ' + r.j.dispatch : '')) + '</td><td class="m">' + r.expected + '</td><td class="m">' + r.ran24 +
+      : '<tr><td><strong>' + esc(r.j.name) + '</strong></td><td class="m">' + esc(r.j.crons.join(' + ') + (r.j.dispatch ? ' + ' + r.j.dispatch : '')) + '</td><td class="m">' + (r.j.weekly ? (r.j.firstDue && !r.lastOk ? 'first ' + r.j.firstDue.slice(5) : '1 a week') : r.expected) + '</td><td class="m">' + r.ran24 +
         '</td><td class="m">' + (r.last ? fmtET(r.last.t) : '—') + '</td><td class="m">' + esc(r.last ? (r.last.conclusion || r.last.status) : '—') + '</td><td>' + ST[jobStatus(r)] + '</td></tr>').join('');
     if (limited) document.getElementById('ss-jobs-note').textContent = 'GitHub limits anonymous API reads to 60 per hour per network. The job table will fill in on a later Re-check.';
 
@@ -417,7 +427,9 @@ table.ss td.note { color:var(--text-muted);font-size:11.5px;line-height:1.5;min-
     v.className = 'ss-verdict ' + lvl;
     const parts = [];
     svcBad.concat(svcWarn).forEach(r => parts.push(r.name + ' (' + (r.status === 'bad' ? 'down' : 'late') + ')'));
-    jobBad.concat(jobWarn).forEach(r => parts.push(r.j.name + ' job: ran ' + r.ran24 + ' of ' + r.expected + ' expected in 24h'));
+    jobBad.concat(jobWarn).forEach(r => parts.push(r.j.weekly
+      ? r.j.name + ' job: ' + (r.lastOk ? 'last success ' + Math.round((Date.now() - r.lastOk) / 864e5) + ' days ago' : 'no successful run yet')
+      : r.j.name + ' job: ran ' + r.ran24 + ' of ' + r.expected + ' expected in 24h' + (r.j.file === 'brain-health.yml' || r.j.file === 'snapshots.yml' ? ' (GitHub skips scheduled runs)' : '')));
     v.innerHTML = '<div class="big">' + (lvl === 'ok' ? 'All systems within target' : lvl === 'warn' ? 'Degraded: some data is late' : 'Problem: something is down') + '</div>' +
       '<div class="sub">' + (parts.length ? esc(parts.join(' · ')) : 'Every component is inside its freshness target.') + '<br>Checked ' + esc(fmtET(Date.now())) + ' ET.</div>';
   }

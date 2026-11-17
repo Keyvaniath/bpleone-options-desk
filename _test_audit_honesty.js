@@ -250,7 +250,7 @@ t('worker source carries no personal contact (SEC agent comes from the SEC_UA se
 //     data, with no verdict before 26 weeks; Learn purges the synthetic seed; Brain Hub leads with the Worker brain.
 t('short-volume out-of-sample test counts only weeks from its registration and gives no early verdict', /const FIRST_WEEK = '2026-11-20', NEED_WEEKS = 26/.test(read('_short_volume_oos.js')) && /if \(d0 < FIRST_WEEK\) continue;/.test(read('_short_volume_oos.js')) && /rows\.length < NEED_WEEKS \? 'NO VERDICT YET'/.test(read('_short_volume_oos.js')) && fs6h.existsSync(__dirname + '/.github/workflows/short-volume-oos.yml'));
 t('Edge Scorecard lists the failed short-volume test and the running out-of-sample one', /Heavy short selling predicts losers/.test(read('edge-scorecard.html')) && /async function loadShortVolumeOOS\(\)/.test(read('edge-scorecard.html')));
-t('Brain Hub leads with the desk brain (Worker), local panels labeled local', /id="deskBrain"/.test(read('brain-hub.html')) && /async function deskBrain\(\)/.test(read('brain-hub.html')) && /This browser&rsquo;s own model \(local/.test(read('brain-hub.html')));
+t('Brain Hub leads with the desk brain (Worker), local panels labeled local', /id="deskBrain"/.test(read('brain-hub.html')) && /async function deskBrain\(first\)/.test(read('brain-hub.html')) && /deskBrain\(true\);/.test(read('brain-hub.html')) && /This browser&rsquo;s own model \(local/.test(read('brain-hub.html')));
 t('learn.js has no seeding function and purges t_seed_ trades', !/function seedIfEmpty/.test(read('js/learn.js')) && /function purgeSyntheticSeed\(\)/.test(read('js/learn.js')));
 
 // 6n. Pass 348 (11/16; worker pass-328): the brain's WHOLE live record is public (paged /brain/journal, oldest first;
@@ -316,6 +316,13 @@ t('the SAMPLE banner uses theme colours (it was pale yellow text and white links
   const heat = ['cross-asset-correlations', 'seasonality', 'heatmap', 'correlation', 'day-pnl-calendar', 'iv-skew', 'economic-events', 'insider-clusters', 'order-flow'];
   t('heatmap pages pick cell ink by contrast (CellInk, never window.Ink: Chromium already defines Ink)', heat.every(f => /js\/ink\.js/.test(read(f + '.html')) && /CellInk\.watch\(/.test(read(f + '.html'))) && /window\.CellInk = \{ fix, watch, inkFor, bgOf \};/.test(read('js/ink.js')) && !/window\.Ink\s*=|\|\|\s*window\.Ink\)/.test(read('js/ink.js')));
 })();
+
+// 6s. Pass 354 (11/16 evening): defects found by screenshotting the LIVE site (LIVE=1 sweep), not by local sweeps.
+t('Live Correlations is a real correlation of daily returns (60 sessions, batched history), laid out as a grid', /class="corr-grid"/.test(read('correlations-live.html')) && /DailyHistory\.pearson\(ra, rb\)/.test(read('correlations-live.html')) && !/pseudo-correlation from co-direction/.test(read('correlations-live.html')) && /js\/daily-history\.js/.test(read('correlations-live.html')));
+t('Worker-fed earnings / insider pages never say SYNTHETIC (body data-feed="worker")', ['earnings-calendar', 'earnings-playbook', 'earnings-tonight', 'insider-congress-flow'].every(f => /data-feed="worker"/.test(read(f + '.html'))) && /needs === 'earnings' && viaWorker/.test(read('js/data-mode-banner.js')));
+t('no page claims "your live Finnhub feed" for data that comes from the Worker', !['heatmap.html', 'plays.html', 'dashboard.html'].some(f => /your live Finnhub feed|from your Finnhub feed/.test(read(f))));
+t('Ticker shows REAL-TIME / DELAYED ~15 MIN / LAST CLOSE, never a static LIVE chip', /function paintLatency\(\)/.test(read('ticker.html')) && !/<span class="lat-dot"><\/span> LIVE<\/span>/.test(read('ticker.html')));
+t('System Status: weekly jobs judged by their last success; House PTR freshness read from checkedAt', /weekly: true, firstDue: '2026-11-21'/.test(read('system-status.html')) && /congress\.checkedAt \|\| congress\.fetchedAt/.test(read('system-status.html')));
 
 // 7. Worker sources parse strictly. `node --check` passed an ES-module file with an unescaped quote in a
 //    string (found 2026-11-03), so parse the bodies as scripts with imports/exports stripped.

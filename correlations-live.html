@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" media="print" onload="this.media='all'"><noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap"></noscript>
-<link rel="stylesheet" href="css/style.css?v=v242">
+<link rel="stylesheet" href="css/style.css?v=v243">
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <link rel="manifest" href="manifest.json"><meta name="theme-color" content="#00d4ff">
 <style>
@@ -27,15 +27,16 @@
   <div class="page-header">
     <div>
       <div class="page-title">🔗 Live Correlations</div>
-      <div class="page-subtitle">What's moving together right now · auto-clustered · <span id="market-clock">--</span></div>
+      <div class="page-subtitle">How these markets move together: correlation of daily returns over the last 60 sessions (real closes), plus today's clusters from delayed quotes · <span id="market-clock">--</span></div>
     </div>
     <div class="flex gap-8"><button class="btn btn-secondary" id="refreshBtn">🔄</button></div>
   </div>
 
   <!-- HEATMAP -->
   <div class="card mb-24" style="overflow-x:auto;">
-    <div class="card-header"><div class="card-title">🌡 Correlation Heatmap (today's % change relationships)</div></div>
-    <div id="heatmap" style="--cols: 12;"></div>
+    <div class="card-header"><div class="card-title">🌡 Correlation of daily returns, last 60 sessions</div><div class="mono" id="corrNote" style="font-size:11px;color:var(--text-muted);">loading closes…</div></div>
+    <div id="heatmap" class="corr-grid" style="--cols: 12;"></div>
+    <div style="font-size:11.5px;color:var(--text-muted);line-height:1.55;margin-top:10px;">Each cell is the Pearson correlation of the two names&rsquo; daily returns on the sessions both traded (crypto trades every day, so its returns are matched to equity trading days). +1 = they move together, &minus;1 = opposite, 0 = unrelated. It describes the last three months, not tomorrow.</div>
   </div>
 
   <!-- CLUSTERS + RISK-ON/OFF -->
@@ -53,11 +54,12 @@
 
 <div id="site-footer"></div>
 
-<script src="js/data-provider.js?v=v242"></script>
-<script src="js/ai-client.js?v=v242"></script>
-<script src="js/app.js?v=v242"></script>
-<script src="js/notify.js?v=v242"></script>
-<script src="js/live.js?v=v242"></script>
+<script src="js/data-provider.js?v=v243"></script>
+<script src="js/ai-client.js?v=v243"></script>
+<script src="js/app.js?v=v243"></script>
+<script src="js/notify.js?v=v243"></script>
+<script src="js/live.js?v=v243"></script>
+<script src="js/daily-history.js?v=v243"></script>
 <script>
 buildNav('correlations-live');
 
@@ -78,13 +80,33 @@ function inkFor(r, g, b, a) {
   const dark = (L + 0.05) / (0.0093 + 0.05), light = (0.9 + 0.05) / (L + 0.05);   // #0b1220 vs #f3f4f6
   return dark > light ? '#0b1220' : '#f3f4f6';
 }
-function corrSign(a, b) {
-  // Compute pseudo-correlation from co-direction
-  const ax = pctOf(a), bx = pctOf(b);
-  if (ax == null || bx == null) return null;
-  if (Math.abs(ax) < 0.05 && Math.abs(bx) < 0.05) return 0;
-  return Math.max(-1, Math.min(1, (ax * bx) / Math.max(0.5, Math.abs(ax) + Math.abs(bx)) * 2));
+// Pass 354: the heatmap was a made-up "pseudo-correlation" of ONE day's % changes ((a*b)/(|a|+|b|)*2), shown as
+// a correlation, and its grid class was missing, so the cells stacked in one column. It is now the real Pearson
+// correlation of daily returns over the last 60 common sessions, from one batched /brain/history request.
+const WINDOW = 60;
+let CORR = null, CORR_N = 0, CORR_STATE = 'loading';
+async function loadCorr() {
+  if (typeof DailyHistory === 'undefined') { CORR_STATE = 'unavailable'; paint(); return; }
+  const series = {};
+  await Promise.all(SYMS.map(async s => { series[s] = await DailyHistory.closes(s); }));
+  const M = {};
+  let nMin = Infinity;
+  SYMS.forEach(a => {
+    M[a] = {};
+    SYMS.forEach(b => {
+      if (!series[a] || !series[b]) { M[a][b] = null; return; }
+      if (a === b) { M[a][b] = 1; return; }
+      const al = DailyHistory.align(series[a], series[b]);
+      const ra = DailyHistory.returns(al.a).slice(-WINDOW), rb = DailyHistory.returns(al.b).slice(-WINDOW);
+      M[a][b] = DailyHistory.pearson(ra, rb);
+      if (M[a][b] != null) nMin = Math.min(nMin, ra.length);
+    });
+  });
+  CORR = M; CORR_N = isFinite(nMin) ? nMin : 0;
+  CORR_STATE = SYMS.some(s => series[s]) ? 'ready' : 'unavailable';
+  paint();
 }
+function corrSign(a, b) { return CORR && CORR[a] ? CORR[a][b] : null; }
 
 function paint() {
   const grid = document.getElementById('heatmap');
@@ -94,24 +116,26 @@ function paint() {
   SYMS.forEach((a, i) => {
     html += '<div class="corr-cell label"><strong>' + a + '</strong></div>';
     SYMS.forEach((b, j) => {
-      const c = i === j ? 1 : corrSign(a, b);
-      if (c == null) {   // pass 305: no real print on one leg -> honest gray dash
-        html += '<div class="corr-cell" style="background:rgba(100,116,139,0.08);color:var(--text-muted);">—</div>';
+      const c = corrSign(a, b);
+      if (c == null) {   // no history for one leg (or still loading) -> honest gray dash
+        html += '<div class="corr-cell" style="background:rgba(100,116,139,0.08);color:var(--text-muted);">' + (CORR_STATE === 'loading' ? '…' : '—') + '</div>';
         return;
       }
+      // Pass 354: green for positive, red for negative, stronger = more opaque (the old mix turned a strong positive
+      // correlation peach and a weak negative one near-white).
       const intensity = Math.abs(c);
-      const r = c > 0 ? Math.round(16 + (255 - 16) * intensity) : 239;
-      const g = c > 0 ? Math.round(185 + 0 * intensity) : Math.round(68 + (255 - 68) * (1 - intensity));
-      const bl = c > 0 ? Math.round(129 + (255 - 129) * (1 - intensity)) : 68;
-      const alpha = 0.15 + intensity * 0.55;
+      const r = c >= 0 ? 16 : 239, g = c >= 0 ? 185 : 68, bl = c >= 0 ? 129 : 68;
+      const alpha = 0.08 + intensity * 0.62;
       const bg = `rgba(${r},${g},${bl},${alpha})`;
       const col = inkFor(r, g, bl, alpha);   // pass 352: grey #9ca3af read ~2:1 on the mid-strength cells
-      html += '<div class="corr-cell" style="background:' + bg + ';color:' + col + ';">' + c.toFixed(2) + '</div>';
+      html += '<div class="corr-cell" style="background:' + bg + ';color:' + col + ';">' + (Math.abs(c) < 0.005 ? 0 : c).toFixed(2) + '</div>';
     });
   });
   grid.innerHTML = html;
+  const note = document.getElementById('corrNote');
+  if (note) note.textContent = CORR_STATE === 'loading' ? 'loading closes…' : CORR_STATE === 'ready' ? 'last ' + CORR_N + ' common sessions · real daily closes' : 'price history unavailable';
 
-  // Clusters by sign
+  // Clusters by sign (today's moves)
   const riskOn = ['SPY','QQQ','IWM','NVDA','TSLA','AAPL','BTC','HYG'];
   const riskOff = ['TLT','GLD','VXX','UUP'];
   const upRiskOn = riskOn.filter(s => (pctOf(s) || 0) > 0.1);
@@ -152,6 +176,7 @@ function paint() {
   document.getElementById('riskOnRead').innerHTML = read;
 }
 paint();
+loadCorr();
 document.getElementById('refreshBtn').addEventListener('click', paint);
 setInterval(paint, 30000);
 // Pass 305: repaint the moment REAL prices land (first paint runs before the feed).

@@ -86,6 +86,15 @@ const DataModeBanner = (function () {
       }
       return { mode: 'mock', color: 'var(--yellow)', bg: 'rgba(245,158,11,0.10)', border: 'rgba(245,158,11,0.35)', icon: '⚠', text: 'SYNTHETIC data — no provider key. Configure Finnhub for live quotes; Polygon/Tradier for live chains. <a href="settings.html" style="color:var(--accent);text-decoration:underline;">Settings →</a>' };
     }
+    // Pass 354: a page that reads the desk's Worker (body data-feed="worker") gets real filings / calendars with no
+    // key. These pages said "SYNTHETIC ... no Finnhub key" over real data (Earnings Calendar on 11/16).
+    const viaWorker = !!(document.body && document.body.getAttribute('data-feed') === 'worker');
+    if (needs === 'insider' && viaWorker) {
+      return { mode: 'real', color: 'var(--green)', bg: 'rgba(16,185,129,0.08)', border: 'rgba(16,185,129,0.3)', icon: '✓', text: 'REAL · SEC Form 4 filings through the desk\u2019s Worker (open-market buys and sells), no key needed.' };
+    }
+    if (needs === 'earnings' && viaWorker) {
+      return { mode: 'real', color: 'var(--green)', bg: 'rgba(16,185,129,0.08)', border: 'rgba(16,185,129,0.3)', icon: '✓', text: 'REAL · Earnings dates and estimates (Finnhub) through the desk\u2019s Worker, no key needed; report times are as companies announced them.' };
+    }
     if (needs === 'insider') {
       if (s.hasKey) {
         return { mode: 'live', color: 'var(--green)', bg: 'rgba(16,185,129,0.08)', border: 'rgba(16,185,129,0.3)', icon: '✓', text: 'LIVE · Pulling Form 4 + sentiment from Finnhub /stock/insider-transactions and /stock/insider-sentiment.' };
